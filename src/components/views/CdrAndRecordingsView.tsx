@@ -27,7 +27,10 @@ import {
   TrendingUp,
   Tag,
   Share2,
+  PieChart as PieChartIcon,
+  BarChart3
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { CdrRecord } from '../../types/pbx';
 
 interface CdrAndRecordingsProps {
@@ -199,89 +202,132 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
     document.body.removeChild(link);
   };
 
+  // Sentiment data for chart
+  const sentimentData = useMemo(() => {
+    const pos = cdrs.filter(c => c.sentiment === 'positive').length;
+    const neu = cdrs.filter(c => c.sentiment === 'neutral').length;
+    const neg = cdrs.filter(c => c.sentiment === 'negative').length;
+    return [
+      { name: 'Positivo', value: pos, color: '#10b981' },
+      { name: 'Neutro', value: neu, color: '#3b82f6' },
+      { name: 'Negativo', value: neg, color: '#f43f5e' }
+    ].filter(d => d.value > 0);
+  }, [cdrs]);
+
   return (
     <div className="space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Histórico de Chamadas (CDR) & Gravações
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <Bot className="w-8 h-8 text-blue-600" />
+              Gravador com IA (RAG)
             </h1>
-            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-mono font-bold">
-              PostgreSQL • Transcrição Gemini 3.8
-            </span>
           </div>
-          <p className="text-xs text-slate-500">
-            Registro detalhado com rastreamento de transferências ARI, retenção de atendentes de IA e bilhetagem brasileira.
+          <p className="text-sm font-medium text-slate-500">
+            Transcrição semântica, extração de sentimentos e sumarização via Google Gemini.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={handleExportCsv}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition border border-slate-200"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-lg flex items-center gap-2 transition shadow-sm"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-4 h-4" />
             Exportar CSV
           </button>
           <button
             onClick={onRefresh}
-            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200"
+            className="p-2 bg-white hover:bg-slate-50 text-slate-500 rounded-lg transition border border-slate-200 shadow-sm"
             title="Atualizar registros"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-500 font-mono uppercase font-semibold">Total de Chamadas</span>
-            <FileText className="w-4 h-4 text-blue-600" />
+      {/* AI Insights Dashboard */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        
+        {/* KPI: Resolution Rate */}
+        <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 relative overflow-hidden flex flex-col justify-between">
+          <div className="absolute right-0 top-0 w-32 h-32 bg-blue-50 rounded-bl-full -mr-4 -mt-4 z-0" />
+          <div className="relative z-10 flex flex-col h-full justify-between">
+            <div>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+                <Sparkles className="w-4 h-4 text-blue-500" /> Containment (IA)
+              </span>
+              <p className="text-[10px] text-slate-400 font-medium">Resoluções sem transbordo humano</p>
+            </div>
+            <div className="mt-4 flex items-baseline gap-2">
+              <span className="text-5xl font-black text-slate-800 tracking-tighter">{stats.aiContainmentRate}%</span>
+            </div>
           </div>
-          <div className="text-2xl font-black text-slate-900 font-mono mt-1">{stats.total}</div>
-          <p className="text-[10px] text-emerald-600 font-medium mt-0.5">
-            {stats.answerRate}% atendidas com sucesso
-          </p>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-500 font-mono uppercase font-semibold">Atendidas por IA</span>
-            <Bot className="w-4 h-4 text-cyan-600" />
+        {/* KPI: Call Volume */}
+        <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
+          <div>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+              <FileText className="w-4 h-4 text-emerald-500" /> Volume CDR
+            </span>
+            <p className="text-[10px] text-slate-400 font-medium">Bilhetes e logs na base de dados</p>
           </div>
-          <div className="text-2xl font-black text-cyan-700 font-mono mt-1">{stats.aiHandled}</div>
-          <p className="text-[10px] text-slate-500 mt-0.5">
-            {stats.aiContainmentRate}% resolvidas sem transbordo
-          </p>
+          <div className="mt-4 flex flex-col">
+            <span className="text-4xl font-black text-slate-800">{stats.total}</span>
+            <span className="text-xs text-emerald-600 font-bold mt-1 bg-emerald-50 self-start px-2 py-0.5 rounded">
+              {stats.answerRate}% taxa de atendimento
+            </span>
+          </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-500 font-mono uppercase font-semibold">Transferências ARI</span>
-            <PhoneForwarded className="w-4 h-4 text-amber-600" />
+        {/* Chart: Sentiment */}
+        <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-6">
+          <div className="flex-1">
+            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <PieChartIcon className="w-4 h-4 text-purple-500" /> Análise Semântica
+            </div>
+            <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-xs mb-4">
+              Mapeamento de humor e tom de voz gerado pelo LLM ao analisar a transcrição das chamadas (Voz e WABA).
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+               {sentimentData.map((s, i) => (
+                 <div key={i} className="text-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                   <div className="text-lg font-black" style={{ color: s.color }}>{s.value}</div>
+                   <div className="text-[9px] uppercase tracking-wider font-bold text-slate-500">{s.name}</div>
+                 </div>
+               ))}
+            </div>
           </div>
-          <div className="text-2xl font-black text-amber-700 font-mono mt-1">{stats.transferred}</div>
-          <p className="text-[10px] text-slate-500 mt-0.5">
-            Encaminhadas entre ramais/filas
-          </p>
+          <div className="w-36 h-36 relative">
+            {sentimentData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={sentimentData}
+                    cx="50%" cy="50%" innerRadius={40} outerRadius={65}
+                    paddingAngle={3} dataKey="value" stroke="none"
+                  >
+                    {sentimentData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip 
+                    contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', padding: '8px 12px' }}
+                    itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center w-full h-full bg-slate-50 rounded-full border border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">Sem Dados</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-500 font-mono uppercase font-semibold">Custo Bilhetado</span>
-            <TrendingUp className="w-4 h-4 text-purple-600" />
-          </div>
-          <div className="text-2xl font-black text-slate-900 font-mono mt-1">
-            R$ {stats.totalCost.toFixed(2)}
-          </div>
-          <p className="text-[10px] text-slate-500 mt-0.5">
-            Tarifação pública e tokens IA
-          </p>
-        </div>
       </div>
 
       {/* Enhanced Filters Bar */}
