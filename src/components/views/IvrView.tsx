@@ -22,14 +22,14 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone }) => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-800 tracking-tight">
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">
               URAs de Atendimento (IVR)
             </h1>
-            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-mono">
+            <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-mono">
               Asterisk Menus • DTMF Interativo
             </span>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Menus audíveis automáticos com captura DTMF, transbordo inteligente e roteamento para Agentes de IA.
           </p>
         </div>
@@ -48,7 +48,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone }) => {
         {ivrs.map((ivr) => (
           <div
             key={ivr.id}
-            className="bg-white rounded-2xl border border-slate-100 p-5 space-y-5"
+            className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-5"
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
               <div className="flex items-center gap-3">
@@ -56,11 +56,11 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone }) => {
                   {ivr.number}
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-base">{ivr.name}</h3>
-                  <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+                  <h3 className="font-bold text-slate-900 text-base">{ivr.name}</h3>
+                  <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
                     <span className="flex items-center gap-1">
-                      <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                      Áudio: <code className="text-slate-600 font-mono">{ivr.audioPrompt}</code>
+                      <Volume2 className="w-3.5 h-3.5 text-slate-500" />
+                      Áudio: <code className="text-slate-700 font-mono">{ivr.audioPrompt}</code>
                     </span>
                     <span>•</span>
                     <span>Timeout: {ivr.timeoutSeconds}s</span>
@@ -70,14 +70,14 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone }) => {
                 </div>
               </div>
 
-              <span className="text-[11px] font-mono bg-slate-100 text-slate-600 px-3 py-1 rounded-xl self-start">
+              <span className="text-[11px] font-mono bg-slate-100 text-slate-700 px-3 py-1 rounded-xl self-start">
                 Contexto: ivr-{ivr.number}
               </span>
             </div>
 
             {/* Menu Options Flow */}
             <div>
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
                 Mapeamento das Teclas Numéricas (DTMF):
               </div>
 
@@ -87,17 +87,17 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone }) => {
                     key={opt.digit}
                     className={`p-3 rounded-xl border flex items-center justify-between transition ${
                       opt.destinationType === 'ai_agent'
-                        ? 'bg-cyan-950/30 border-cyan-800/60'
-                        : 'bg-slate-50/60 border-slate-100'
+                        ? 'bg-cyan-50 border-cyan-200 shadow-sm'
+                        : 'bg-slate-50/60 border-slate-200 shadow-sm'
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center font-mono font-black text-slate-800 text-sm border border-slate-300">
+                      <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center font-mono font-black text-slate-900 text-sm border border-slate-200">
                         {opt.digit}
                       </div>
                       <div>
                         <div className="font-semibold text-slate-700 text-xs">{opt.label}</div>
-                        <div className="text-[10px] text-slate-400 capitalize">
+                        <div className="text-[10px] text-slate-500 capitalize">
                           Tipo: {opt.destinationType.replace('_', ' ')}
                         </div>
                       </div>
@@ -105,11 +105,11 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone }) => {
 
                     <div>
                       {opt.destinationType === 'ai_agent' ? (
-                        <span className="text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
-                          <Bot className="w-3 h-3 text-teal-600" /> Gemini
+                        <span className="text-[10px] bg-cyan-100 text-cyan-700 border border-cyan-300 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
+                          <Bot className="w-3 h-3 text-cyan-600" /> Gemini
                         </span>
                       ) : (
-                        <span className="text-[11px] font-mono text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                        <span className="text-[11px] font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
                           {opt.destinationTarget}
                         </span>
                       )}

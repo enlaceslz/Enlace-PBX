@@ -373,7 +373,7 @@ export default function App() {
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-slate-50 relative">
           {loading ? (
-            <div className="h-full flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
+            <div className="h-full flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
               <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
               <p className="text-xs font-mono">Conectando ao núcleo Asterisk 20 e PostgreSQL...</p>
             </div>

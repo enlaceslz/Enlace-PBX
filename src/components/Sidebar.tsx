@@ -119,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
           <div key={idx} className="relative">
             <div className="px-1 mb-2.5 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />
-              <span className="text-[10px] font-bold tracking-[0.15em] text-slate-400 uppercase">
+              <span className="text-[10px] font-bold tracking-[0.15em] text-slate-500 uppercase">
                 {section.title}
               </span>
             </div>
@@ -139,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
                   >
                     <Icon
                       className={`w-4 h-4 transition-colors ${
-                        isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-500'
+                        isActive ? 'text-blue-600' : 'text-slate-500 group-hover:text-slate-500'
                       }`}
                     />
                     <span className="truncate">{item.label}</span>

@@ -79,7 +79,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'agents'
                 ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-700'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <Bot className="w-3.5 h-3.5" />
@@ -90,7 +90,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'providers'
                 ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-700'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -101,7 +101,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'tools'
                 ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-700'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <Wrench className="w-3.5 h-3.5" />
@@ -112,7 +112,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'knowledge'
                 ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-700'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
@@ -123,7 +123,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'sessions'
                 ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-700'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
@@ -137,32 +137,37 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Agents List */}
           <div className="space-y-3">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-              Agentes Cadastrados
-            </span>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                Agentes Cadastrados
+              </span>
+              <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Novo Agente">
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
             {agents.map((agent) => (
               <div
                 key={agent.id}
                 onClick={() => setSelectedAgent(agent)}
                 className={`p-4 rounded-2xl border cursor-pointer transition ${
                   selectedAgent?.id === agent.id
-                    ? 'bg-white border-sky-500/80 shadow-lg'
-                    : 'bg-white/60 border-slate-100 hover:bg-slate-50'
+                    ? 'bg-white border-blue-500 shadow-md ring-1 ring-blue-500/20'
+                    : 'bg-white border-slate-200 hover:bg-slate-50 shadow-sm'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950/80 text-blue-700 border border-sky-800/60 font-bold">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold">
                     Ramal / DID: 9001
                   </span>
-                  <span className="text-[11px] text-blue-600 font-semibold flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" /> Ativo
+                  <span className="text-[11px] text-green-600 font-semibold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Ativo
                   </span>
                 </div>
 
-                <h3 className="font-bold text-slate-800 text-base">{agent.name}</h3>
-                <p className="text-xs text-slate-400 mt-1 line-clamp-2">{agent.description}</p>
+                <h3 className="font-bold text-slate-900 text-base">{agent.name}</h3>
+                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{agent.description}</p>
 
-                <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs font-mono text-slate-400">
+                <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs font-mono text-slate-500">
                   <span>Modelo: {agent.model}</span>
                   <button
                     onClick={(e) => {
@@ -180,11 +185,11 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
 
           {/* Agent Configuration Details Panel */}
           {selectedAgent && (
-            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
               <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-800">{selectedAgent.name}</h2>
-                  <p className="text-xs text-slate-400">
+                  <h2 className="text-lg font-bold text-slate-900">{selectedAgent.name}</h2>
+                  <p className="text-xs text-slate-500">
                     Configuração detalhada do fluxo de voz com Asterisk Stasis
                   </p>
                 </div>
@@ -200,19 +205,19 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
               {/* Engine Parameters */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 font-mono text-[10px] block">MODELO GEMINI</span>
+                  <span className="text-slate-500 font-mono text-[10px] block">MODELO GEMINI</span>
                   <span className="text-slate-700 font-mono font-bold">{selectedAgent.model}</span>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 font-mono text-[10px] block">VOZ SINTETIZADA</span>
+                  <span className="text-slate-500 font-mono text-[10px] block">VOZ SINTETIZADA</span>
                   <span className="text-slate-700 font-bold">{selectedAgent.voice} (pt-BR)</span>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 font-mono text-[10px] block">BARGE-IN</span>
+                  <span className="text-slate-500 font-mono text-[10px] block">BARGE-IN</span>
                   <span className="text-blue-600 font-bold">Habilitado</span>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 font-mono text-[10px] block">TRANSBORDO RAMAL</span>
+                  <span className="text-slate-500 font-mono text-[10px] block">TRANSBORDO RAMAL</span>
                   <span className="text-teal-600 font-mono font-bold">
                     Ramal {selectedAgent.transferExtension}
                   </span>
@@ -221,17 +226,17 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
 
               {/* System Instruction */}
               <div>
-                <label className="text-slate-400 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
+                <label className="text-slate-500 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
                   System Instruction / Prompt do Sistema (pt-BR):
                 </label>
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs text-slate-600 font-mono leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs text-slate-700 font-mono leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">
                   {selectedAgent.systemInstruction}
                 </div>
               </div>
 
               {/* Initial Greeting */}
               <div>
-                <label className="text-slate-400 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
+                <label className="text-slate-500 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
                   Mensagem de Saudação Inicial:
                 </label>
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700">
@@ -241,16 +246,16 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
 
               {/* Tools Active */}
               <div>
-                <label className="text-slate-400 text-[11px] font-bold uppercase tracking-wider block mb-2">
+                <label className="text-slate-500 text-[11px] font-bold uppercase tracking-wider block mb-2">
                   Ferramentas Vinculadas (Function Calling):
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {selectedAgent.tools.map((tName) => (
                     <span
                       key={tName}
-                      className="px-3 py-1 bg-cyan-950/60 border border-cyan-800/80 text-cyan-300 rounded-lg text-xs font-mono flex items-center gap-1.5"
+                      className="px-3 py-1 bg-cyan-50 border border-cyan-200 text-cyan-700 rounded-lg text-xs font-mono flex items-center gap-1.5"
                     >
-                      <Wrench className="w-3 h-3 text-teal-600" />
+                      <Wrench className="w-3 h-3 text-cyan-600" />
                       {tName}
                     </span>
                   ))}
@@ -267,10 +272,10 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
           {providers.map((prov) => (
             <div
               key={prov.id}
-              className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4"
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4"
             >
               <div className="flex items-center justify-between">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-cyan-950 text-cyan-300 border border-cyan-800">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-cyan-50 text-cyan-700 border border-cyan-200">
                   {prov.providerType}
                 </span>
                 <span className="text-xs text-blue-600 font-semibold flex items-center gap-1">
@@ -279,30 +284,30 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
               </div>
 
               <div>
-                <h3 className="font-bold text-slate-800 text-base">{prov.name}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <h3 className="font-bold text-slate-900 text-base">{prov.name}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
                   Região Cloud: <strong className="text-slate-700 font-mono">{prov.googleLocation || 'southamerica-east1 (São Paulo)'}</strong>
                 </p>
               </div>
 
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs font-mono">
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500">
                   <span className="flex items-center gap-1">
                     <Lock className="w-3 h-3 text-blue-600" /> API Key Protegida:
                   </span>
                   <span className="text-slate-700">{prov.apiKeyMasked}</span>
                 </div>
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500">
                   <span>Modelo Padrão:</span>
                   <span className="text-teal-600">{prov.defaultModel}</span>
                 </div>
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500">
                   <span>Temperatura Padrão:</span>
                   <span className="text-slate-700">{prov.defaultTemperature}</span>
                 </div>
               </div>
 
-              <div className="pt-2 text-[11px] text-slate-400">
+              <div className="pt-2 text-[11px] text-slate-500">
                 Segurança: Chaves executadas estritamente em ambiente de servidor (Server-Side). Nunca expostas ao browser.
               </div>
             </div>
@@ -314,7 +319,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
       {currentTab === 'tools' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-3">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
               Ferramentas de Integração (ERP/CRM)
             </span>
             {tools.map((tool) => (
@@ -324,20 +329,20 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
                 className={`p-4 rounded-2xl border cursor-pointer transition ${
                   selectedTool?.id === tool.id
                     ? 'bg-white border-cyan-500/80'
-                    : 'bg-white/60 border-slate-100 hover:bg-slate-50'
+                    : 'bg-white/60 border-slate-200 shadow-sm hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-bold font-mono text-cyan-300 flex items-center gap-1.5">
-                    <Wrench className="w-3.5 h-3.5 text-teal-600" />
+                  <span className="text-xs font-bold font-mono text-cyan-700 flex items-center gap-1.5">
+                    <Wrench className="w-3.5 h-3.5 text-cyan-600" />
                     {tool.name}
                   </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-700">
                     {tool.method}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">{tool.description}</p>
-                <div className="text-[10px] text-slate-400 font-mono mt-2">
+                <p className="text-xs text-slate-500">{tool.description}</p>
+                <div className="text-[10px] text-slate-500 font-mono mt-2">
                   Endpoint: {tool.endpoint}
                 </div>
               </div>
@@ -345,13 +350,13 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
           </div>
 
           {/* Schema & Simulator View */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Code className="w-4 h-4 text-teal-600" />
                 Schema OpenAPI & Simulador de Resposta
               </h3>
-              <span className="text-xs font-mono text-slate-400">
+              <span className="text-xs font-mono text-slate-500">
                 {selectedTool ? selectedTool.name : 'Selecione uma ferramenta'}
               </span>
             </div>
@@ -359,16 +364,16 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
             {selectedTool ? (
               <div className="space-y-4 text-xs">
                 <div>
-                  <label className="text-slate-400 font-semibold block mb-1">
+                  <label className="text-slate-500 font-semibold block mb-1">
                     JSON Schema (Enviado para o Gemini):
                   </label>
-                  <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-600 max-h-48 overflow-y-auto">
+                  <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-700 max-h-48 overflow-y-auto">
                     {JSON.stringify(selectedTool.schemaJson, null, 2)}
                   </pre>
                 </div>
 
                 <div>
-                  <label className="text-slate-400 font-semibold block mb-1">
+                  <label className="text-slate-500 font-semibold block mb-1">
                     Simulação de Resposta Retornada pela API:
                   </label>
                   <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-blue-700 max-h-48 overflow-y-auto">
@@ -377,7 +382,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="py-12 text-center text-slate-400 text-xs">
+              <div className="py-12 text-center text-slate-500 text-xs">
                 Clique em uma ferramenta ao lado para visualizar os parâmetros de chamada e resposta.
               </div>
             )}
@@ -391,17 +396,17 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
           {knowledge.map((k) => (
             <div
               key={k.id}
-              className="bg-white rounded-2xl border border-slate-100 p-5 space-y-3 flex flex-col justify-between"
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3 flex flex-col justify-between"
             >
               <div>
-                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
                   <span className="px-2 py-0.5 rounded bg-slate-100 text-[10px] font-mono">
                     {k.category}
                   </span>
                   <span>{new Date(k.updatedAt).toLocaleDateString('pt-BR')}</span>
                 </div>
-                <h3 className="font-bold text-slate-800 text-sm">{k.title}</h3>
-                <p className="text-xs text-slate-400 mt-2 font-mono line-clamp-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <h3 className="font-bold text-slate-900 text-sm">{k.title}</h3>
+                <p className="text-xs text-slate-500 mt-2 font-mono line-clamp-4 bg-slate-50 p-3 rounded-xl border border-slate-200 shadow-sm">
                   {k.content}
                 </p>
               </div>
@@ -421,27 +426,27 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
           {sessions.map((sess) => (
             <div
               key={sess.id}
-              className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4"
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse" />
                   <div>
-                    <h3 className="font-bold text-slate-800 text-sm">
+                    <h3 className="font-bold text-slate-900 text-sm">
                       Sessão {sess.id} • {sess.agentName}
                     </h3>
-                    <div className="text-xs text-slate-400">
+                    <div className="text-xs text-slate-500">
                       Chamador: <strong className="text-slate-700 font-mono">{sess.caller}</strong> • Canal:{' '}
-                      <span className="font-mono text-slate-600">{sess.channel}</span>
+                      <span className="font-mono text-slate-700">{sess.channel}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 text-xs font-mono">
-                  <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-600">
+                  <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-700">
                     Latência: {sess.latencyAverageMs}ms
                   </span>
-                  <span className="px-2.5 py-1 rounded bg-sky-950 text-blue-700 border border-sky-800">
+                  <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200">
                     {sess.durationSeconds}s
                   </span>
                 </div>
@@ -449,7 +454,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
 
               {/* Transcript Preview */}
               <div>
-                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-2">
+                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-2">
                   Histórico da Interação em Tempo Real:
                 </label>
                 <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200 max-h-48 overflow-y-auto">
@@ -462,7 +467,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
                           : 'bg-white/40 text-slate-700'
                       }`}
                     >
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-0.5 font-mono">
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 mb-0.5 font-mono">
                         <span className="capitalize font-bold">{t.role}</span>
                         <span>{t.timestamp}</span>
                       </div>

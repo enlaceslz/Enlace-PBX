@@ -29,14 +29,14 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-800 tracking-tight">
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">
               Filas e Grupos de Chamada
             </h1>
-            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-mono">
+            <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-mono">
               app_queue • Asterisk 20
             </span>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Distribuição automática de chamadas (ACD) com estratégias roundrobin, ringall, SLAs e música em espera.
           </p>
         </div>
@@ -47,7 +47,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
               activeTab === 'queues'
                 ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-700'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             Filas de Atendimento (ACD)
@@ -57,7 +57,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
               activeTab === 'ring_groups'
                 ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-700'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             Grupos de Toque (Ring Groups)
@@ -71,7 +71,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
           {queues.map((q) => (
             <div
               key={q.id}
-              className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4"
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
@@ -79,9 +79,9 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
                     {q.number}
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-800 text-base">{q.name}</h3>
-                    <p className="text-xs text-slate-400">
-                      Estratégia: <span className="font-mono text-slate-600">{q.strategy}</span> • Música em Espera: {q.mohSound}
+                    <h3 className="font-bold text-slate-900 text-base">{q.name}</h3>
+                    <p className="text-xs text-slate-500">
+                      Estratégia: <span className="font-mono text-slate-700">{q.strategy}</span> • Música em Espera: {q.mohSound}
                     </p>
                   </div>
                 </div>
@@ -98,28 +98,28 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
               {/* Realtime Queue Stats */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-[10px] text-slate-400 uppercase font-mono">Em Espera Agora</span>
+                  <span className="text-[10px] text-slate-500 uppercase font-mono">Em Espera Agora</span>
                   <div className="text-xl font-bold font-mono text-blue-600 mt-0.5">
                     {q.callsWaiting}
                   </div>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-[10px] text-slate-400 uppercase font-mono">Espera Média</span>
+                  <span className="text-[10px] text-slate-500 uppercase font-mono">Espera Média</span>
                   <div className="text-xl font-bold font-mono text-slate-700 mt-0.5">
                     {q.avgWaitTimeSeconds}s
                   </div>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-[10px] text-slate-400 uppercase font-mono">Atendidas Hoje</span>
+                  <span className="text-[10px] text-slate-500 uppercase font-mono">Atendidas Hoje</span>
                   <div className="text-xl font-bold font-mono text-slate-700 mt-0.5">
                     {q.answeredToday}
                   </div>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-[10px] text-slate-400 uppercase font-mono">Meta de SLA</span>
+                  <span className="text-[10px] text-slate-500 uppercase font-mono">Meta de SLA</span>
                   <div className="text-xl font-bold font-mono text-teal-600 mt-0.5">
                     {q.slaTargetSeconds}s
                   </div>
@@ -128,14 +128,14 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
 
               {/* Members */}
               <div className="pt-2">
-                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-2">
                   Agentes / Ramais Vinculados ({q.members.length}):
                 </span>
                 <div className="flex flex-wrap gap-2">
                   {q.members.map((mem) => (
                     <span
                       key={mem}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-xs font-mono text-slate-600"
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-mono text-slate-700"
                     >
                       Ramal {mem}
                     </span>
@@ -153,22 +153,22 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
           {ringGroups.map((rg) => (
             <div
               key={rg.id}
-              className="bg-white rounded-2xl border border-slate-100 p-5 space-y-3"
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3"
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-blue-600 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800">
+                <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
                   Grupo {rg.number}
                 </span>
-                <span className="text-xs text-slate-400 font-mono">Timeout: {rg.timeoutSeconds}s</span>
+                <span className="text-xs text-slate-500 font-mono">Timeout: {rg.timeoutSeconds}s</span>
               </div>
 
-              <h3 className="font-bold text-slate-800 text-base">{rg.name}</h3>
-              <p className="text-xs text-slate-400">
-                Estratégia: <strong className="text-slate-600">{rg.strategy}</strong>
+              <h3 className="font-bold text-slate-900 text-base">{rg.name}</h3>
+              <p className="text-xs text-slate-500">
+                Estratégia: <strong className="text-slate-700">{rg.strategy}</strong>
               </p>
 
               <div className="pt-2">
-                <span className="text-[10px] uppercase font-semibold text-slate-400 block mb-1.5">
+                <span className="text-[10px] uppercase font-semibold text-slate-500 block mb-1.5">
                   Ramais do Grupo:
                 </span>
                 <div className="flex flex-wrap gap-1.5">
@@ -183,7 +183,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-200 text-xs text-slate-400">
+              <div className="pt-3 border-t border-slate-200 text-xs text-slate-500">
                 Destino se ninguém atender:{' '}
                 <strong className="text-slate-700 uppercase">{rg.failoverDestination}</strong>
               </div>

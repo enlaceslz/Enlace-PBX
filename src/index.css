@@ -8,10 +8,10 @@
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: theme('colors.slate.800');
+    background-color: theme('colors.slate.200');
     border-radius: 20px;
   }
   .custom-scrollbar:hover::-webkit-scrollbar-thumb {
-    background-color: theme('colors.slate.700');
+    background-color: theme('colors.slate.300');
   }
 }

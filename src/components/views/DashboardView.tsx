@@ -119,7 +119,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="text-2xl font-black text-slate-900 font-mono">
             {metrics?.extensionsOnline ?? 4}
-            <span className="text-xs text-slate-400 font-normal ml-1">/ {metrics?.extensionsTotal ?? 5}</span>
+            <span className="text-xs text-slate-500 font-normal ml-1">/ {metrics?.extensionsTotal ?? 5}</span>
           </div>
           <div className="text-[11px] text-blue-600 mt-2 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -135,7 +135,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="text-2xl font-black text-slate-900 font-mono">
             {metrics?.trunksOnline ?? 3}
-            <span className="text-xs text-slate-400 font-normal ml-1">/ {metrics?.trunksTotal ?? 3}</span>
+            <span className="text-xs text-slate-500 font-normal ml-1">/ {metrics?.trunksTotal ?? 3}</span>
           </div>
           <div className="text-[11px] text-slate-500 mt-2 font-mono">
             Vivo Fibra • Claro 0800 • Algar
@@ -156,7 +156,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
               {metrics?.aiLatencyAvgMs ?? 355} ms
             </div>
-            <p className="text-[10px] text-slate-400">Gemini Live API em tempo real</p>
+            <p className="text-[10px] text-slate-500">Gemini Live API em tempo real</p>
           </div>
         </div>
 
@@ -171,7 +171,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
               {metrics?.humanTransferRatePercent ?? 28}%
             </div>
-            <p className="text-[10px] text-slate-400">72% resolvidas integralmente pela IA</p>
+            <p className="text-[10px] text-slate-500">72% resolvidas integralmente pela IA</p>
           </div>
         </div>
 
@@ -186,7 +186,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
               {metrics?.avgCallDurationSeconds ? `${Math.floor(metrics.avgCallDurationSeconds / 60)}m ${metrics.avgCallDurationSeconds % 60}s` : '2m 45s'}
             </div>
-            <p className="text-[10px] text-slate-400">Custo médio estimado: R$ 0,18/chamada</p>
+            <p className="text-[10px] text-slate-500">Custo médio estimado: R$ 0,18/chamada</p>
           </div>
         </div>
       </div>
@@ -200,13 +200,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Activity className="w-4 h-4 text-blue-600" />
               <h3 className="font-bold text-sm text-slate-900">Canais Ativos no Asterisk 20</h3>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-700">
               ARI Port: 8088
             </span>
           </div>
 
           {channels.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-8 text-center text-slate-400">
+            <div className="flex-1 flex flex-col items-center justify-center py-8 text-center text-slate-500">
               <Phone className="w-8 h-8 text-slate-300 mb-3" />
               <p className="text-xs">Nenhum canal ativo no momento.</p>
               <button
@@ -231,13 +231,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <div className="text-[11px] text-slate-500 mt-1">
                       {chan.callerNumber} → <span className="text-blue-600 font-semibold">{chan.connectedLine}</span>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                    <div className="text-[10px] text-slate-500 font-mono mt-0.5">
                       App: {chan.application} • Context: {chan.context}
                     </div>
                   </div>
 
                   <div className="text-right">
-                    <span className="text-xs font-mono font-bold text-slate-600">
+                    <span className="text-xs font-mono font-bold text-slate-700">
                       {chan.durationSeconds}s
                     </span>
                     {chan.aiBridgeActive && (
@@ -281,7 +281,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between text-xs text-slate-400">
+          <div className="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-500">
             <span>Fuso horário: America/Sao_Paulo (Horário de Brasília)</span>
             <span className="text-blue-600 font-semibold">SLA de Atendimento: 94.2%</span>
           </div>
@@ -320,8 +320,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <tbody className="divide-y divide-slate-100 font-sans">
               {recentCdrs.slice(0, 5).map((cdr) => (
                 <tr key={cdr.id} className="hover:bg-slate-50 transition">
-                  <td className="py-3 px-3 font-mono font-semibold text-slate-800">{cdr.caller}</td>
-                  <td className="py-3 px-3 font-mono text-slate-600">{cdr.callee}</td>
+                  <td className="py-3 px-3 font-mono font-semibold text-slate-900">{cdr.caller}</td>
+                  <td className="py-3 px-3 font-mono text-slate-700">{cdr.callee}</td>
                   <td className="py-3 px-3 capitalize">
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-semibold font-mono ${
@@ -329,7 +329,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           ? 'bg-blue-50 text-blue-600 border border-blue-200'
                           : cdr.direction === 'outbound'
                           ? 'bg-purple-50 text-purple-600 border border-purple-200'
-                          : 'bg-slate-100 text-slate-600 border border-slate-200'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
                       }`}
                     >
                       {cdr.direction}
@@ -338,7 +338,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">
                     {new Date(cdr.startTime).toLocaleTimeString('pt-BR')}
                   </td>
-                  <td className="py-3 px-3 font-mono text-slate-600">
+                  <td className="py-3 px-3 font-mono text-slate-700">
                     {Math.floor(cdr.duration / 60)}m {cdr.duration % 60}s
                   </td>
                   <td className="py-3 px-3">
@@ -358,13 +358,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <Bot className="w-3 h-3 text-cyan-600" /> MaIA (Gemini)
                       </span>
                     ) : (
-                      <span className="text-slate-400 text-[11px]">Humano</span>
+                      <span className="text-slate-500 text-[11px]">Humano</span>
                     )}
                   </td>
                   <td className="py-3 px-3 text-right">
                     <button
                       onClick={() => onOpenWebphone(cdr.caller)}
-                      className="text-slate-400 hover:text-blue-600 p-1 transition"
+                      className="text-slate-500 hover:text-blue-600 p-1 transition"
                       title="Retornar ligação via Webphone"
                     >
                       <Phone className="w-3.5 h-3.5" />
