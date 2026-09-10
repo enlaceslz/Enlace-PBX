@@ -117,7 +117,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-950/40 transition active:scale-95"
+          className="px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-sky-950/40 transition active:scale-95"
         >
           <Plus className="w-4 h-4" />
           Novo Ramal PJSIP
@@ -170,7 +170,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                   </td>
                   <td className="py-3.5 px-4">
                     {ext.webrtc ? (
-                      <span className="text-emerald-400 text-[10px] font-semibold bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded">
+                      <span className="text-sky-400 text-[10px] font-semibold bg-sky-950/60 border border-sky-800/60 px-2 py-0.5 rounded">
                         Sim (WSS)
                       </span>
                     ) : (
@@ -191,7 +191,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                       <span
                         className={`w-2 h-2 rounded-full ${
                           ext.status === 'online'
-                            ? 'bg-emerald-400'
+                            ? 'bg-sky-400'
                             : ext.status === 'busy'
                             ? 'bg-amber-400'
                             : 'bg-slate-600'
@@ -219,7 +219,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => onOpenWebphone(ext.number)}
-                        className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition"
+                        className="p-1.5 text-slate-400 hover:text-sky-400 hover:bg-slate-800 rounded-lg transition"
                         title="Discar para este ramal"
                       >
                         <Phone className="w-3.5 h-3.5" />
@@ -269,7 +269,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     placeholder="Ex: 4104"
                     value={formData.number}
                     onChange={(e) => setFormData({ ...formData, number: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -282,7 +282,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     placeholder="Ex: Amanda Lima (Vendas)"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -297,7 +297,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     placeholder="Gerada automaticamente se vazia"
                     value={formData.sipSecret}
                     onChange={(e) => setFormData({ ...formData, sipSecret: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -308,7 +308,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     type="text"
                     value={formData.context}
                     onChange={(e) => setFormData({ ...formData, context: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -321,7 +321,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                   type="text"
                   value={formData.codecs}
                   onChange={(e) => setFormData({ ...formData, codecs: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                 />
                 <span className="text-[10px] text-slate-500">Opções: opus, pcma, pcmu, g722</span>
               </div>
@@ -332,7 +332,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     type="checkbox"
                     checked={formData.webrtc}
                     onChange={(e) => setFormData({ ...formData, webrtc: e.target.checked })}
-                    className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                    className="rounded bg-slate-950 border-slate-700 text-sky-500 focus:ring-sky-500"
                   />
                   <span>Habilitar WebRTC (Navegador)</span>
                 </label>
@@ -342,7 +342,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     type="checkbox"
                     checked={formData.allowAiTransfer}
                     onChange={(e) => setFormData({ ...formData, allowAiTransfer: e.target.checked })}
-                    className="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                    className="rounded bg-slate-950 border-slate-700 text-sky-500 focus:ring-sky-500"
                   />
                   <span>Permitir Transbordo do Agente IA</span>
                 </label>
@@ -359,7 +359,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition disabled:opacity-50"
+                  className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl transition disabled:opacity-50"
                 >
                   {isSubmitting ? 'Salvando...' : 'Cadastrar Ramal PJSIP'}
                 </button>

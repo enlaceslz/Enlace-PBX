@@ -214,7 +214,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         cdr.disposition === 'ANSWERED'
-                          ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60'
+                          ? 'bg-sky-950/80 text-sky-300 border border-sky-800/60'
                           : 'bg-rose-950/80 text-rose-300 border border-rose-800/60'
                       }`}
                     >
@@ -226,7 +226,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setPlayingId(playingId === cdr.id ? null : cdr.id)}
-                          className="w-7 h-7 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 flex items-center justify-center transition"
+                          className="w-7 h-7 rounded-full bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 flex items-center justify-center transition"
                           title="Tocar gravação"
                         >
                           {playingId === cdr.id ? (

@@ -88,7 +88,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-950/40 transition active:scale-95"
+          className="px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-sky-950/40 transition active:scale-95"
         >
           <Plus className="w-4 h-4" />
           Conectar Novo Tronco SIP
@@ -110,12 +110,12 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                 <div className="flex items-center gap-1.5 text-xs">
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      trunk.status === 'registered' ? 'bg-emerald-400' : 'bg-rose-500'
+                      trunk.status === 'registered' ? 'bg-sky-400' : 'bg-rose-500'
                     }`}
                   />
                   <span
                     className={`font-semibold ${
-                      trunk.status === 'registered' ? 'text-emerald-400' : 'text-rose-400'
+                      trunk.status === 'registered' ? 'text-sky-400' : 'text-rose-400'
                     }`}
                   >
                     {trunk.status === 'registered' ? 'Registrado' : 'Desconectado'}
@@ -137,7 +137,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                 </div>
                 <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
                   <span>Canais Simultâneos:</span>
-                  <span className="text-emerald-400 font-bold">
+                  <span className="text-sky-400 font-bold">
                     {trunk.channelsInUse} / {trunk.channelsMax} em uso
                   </span>
                 </div>
@@ -198,7 +198,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="Ex: Vivo Fibra SIP Principal"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-emerald-500 focus:outline-none"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-sky-500 focus:outline-none"
                 />
               </div>
 
@@ -210,7 +210,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                     required
                     value={formData.host}
                     onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -219,7 +219,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                     type="number"
                     value={formData.port}
                     onChange={(e) => setFormData({ ...formData, port: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -232,7 +232,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                     value={formData.username}
                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                     placeholder="Ex: 1130900100"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -242,7 +242,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                     value={formData.callerId}
                     onChange={(e) => setFormData({ ...formData, callerId: e.target.value })}
                     placeholder="Ex: 1130900100"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -253,7 +253,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                   <select
                     value={formData.transport}
                     onChange={(e) => setFormData({ ...formData, transport: e.target.value as any })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-sky-500 focus:outline-none"
                   >
                     <option value="UDP">UDP (Padrão)</option>
                     <option value="TCP">TCP</option>
@@ -266,7 +266,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                     type="number"
                     value={formData.channelsMax}
                     onChange={(e) => setFormData({ ...formData, channelsMax: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -281,7 +281,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition"
+                  className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl transition"
                 >
                   Salvar Tronco
                 </button>

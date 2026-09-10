@@ -46,7 +46,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
             onClick={() => setActiveTab('queues')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
               activeTab === 'queues'
-                ? 'bg-emerald-500 text-slate-950 shadow'
+                ? 'bg-sky-500 text-slate-950 shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -56,7 +56,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
             onClick={() => setActiveTab('ring_groups')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
               activeTab === 'ring_groups'
-                ? 'bg-emerald-500 text-slate-950 shadow'
+                ? 'bg-sky-500 text-slate-950 shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -75,7 +75,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-mono font-bold">
+                  <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 font-mono font-bold">
                     {q.number}
                   </div>
                   <div>
@@ -90,7 +90,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
                   onClick={() => onOpenWebphone(q.number)}
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 self-start"
                 >
-                  <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                  <Phone className="w-3.5 h-3.5 text-sky-400" />
                   Testar Fila ({q.number})
                 </button>
               </div>
@@ -99,7 +99,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
                   <span className="text-[10px] text-slate-400 uppercase font-mono">Em Espera Agora</span>
-                  <div className="text-xl font-bold font-mono text-emerald-400 mt-0.5">
+                  <div className="text-xl font-bold font-mono text-sky-400 mt-0.5">
                     {q.callsWaiting}
                   </div>
                 </div>
@@ -156,7 +156,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
               className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 space-y-3"
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800">
+                <span className="text-xs font-mono font-bold text-sky-400 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800">
                   Grupo {rg.number}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">Timeout: {rg.timeoutSeconds}s</span>

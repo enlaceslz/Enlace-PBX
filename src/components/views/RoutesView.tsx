@@ -55,7 +55,7 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
             onClick={() => setActiveTab('outbound')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
               activeTab === 'outbound'
-                ? 'bg-emerald-500 text-slate-950 shadow'
+                ? 'bg-sky-500 text-slate-950 shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -65,7 +65,7 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
             onClick={() => setActiveTab('inbound')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
               activeTab === 'inbound'
-                ? 'bg-emerald-500 text-slate-950 shadow'
+                ? 'bg-sky-500 text-slate-950 shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -78,13 +78,13 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
       {activeTab === 'outbound' && (
         <div className="bg-slate-900/60 rounded-2xl border border-slate-800/80 p-4">
           <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2 font-mono flex items-center gap-2">
-            <GitFork className="w-3.5 h-3.5 text-emerald-400" />
+            <GitFork className="w-3.5 h-3.5 text-sky-400" />
             Expressões Regulares do Dialplan Brasileiro:
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
             {brazilianRulesHelper.map((rule, idx) => (
               <div key={idx} className="bg-slate-950 p-2 rounded-xl border border-slate-800/70 font-mono">
-                <span className="text-emerald-400 font-bold block">{rule.pattern}</span>
+                <span className="text-sky-400 font-bold block">{rule.pattern}</span>
                 <span className="text-[10px] text-slate-400 font-sans">{rule.desc}</span>
               </div>
             ))}
@@ -100,14 +100,14 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
             className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
           >
             <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center font-bold text-emerald-400 font-mono text-xs">
+              <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center font-bold text-sky-400 font-mono text-xs">
                 P{route.priority}
               </div>
 
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-slate-100">{route.name}</h3>
-                  <span className="font-mono text-[11px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
+                  <span className="font-mono text-[11px] text-sky-400 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800/60">
                     {route.pattern}
                   </span>
                 </div>

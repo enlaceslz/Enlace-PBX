@@ -36,7 +36,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone }) => {
 
         <button
           onClick={() => onOpenWebphone('6001')}
-          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg transition"
+          className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg transition"
         >
           <Phone className="w-3.5 h-3.5" />
           Ouvir e Testar URA (6001)
@@ -52,7 +52,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone }) => {
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold font-mono">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 font-bold font-mono">
                   {ivr.number}
                 </div>
                 <div>

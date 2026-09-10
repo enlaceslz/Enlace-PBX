@@ -85,8 +85,8 @@ export default function App() {
         healthRes,
       ] = await Promise.all([
         fetch('/api/v1/dashboard/metrics').then((r) => r.json()),
-        fetch('/api/v1/admin/tenants').then((r) => r.json()),
-        fetch('/api/v1/admin/users').then((r) => r.json()),
+        fetch('/api/v1/tenants').then((r) => r.json()),
+        fetch('/api/v1/users').then((r) => r.json()),
         fetch('/api/v1/asterisk/channels').then((r) => r.json()),
         fetch('/api/v1/extensions').then((r) => r.json()),
         fetch('/api/v1/trunks').then((r) => r.json()),
@@ -100,7 +100,7 @@ export default function App() {
         fetch('/api/v1/ai/tools').then((r) => r.json()),
         fetch('/api/v1/ai/knowledge').then((r) => r.json()),
         fetch('/api/v1/ai/sessions').then((r) => r.json()),
-        fetch('/api/v1/admin/audit-logs').then((r) => r.json()),
+        fetch('/api/v1/audit-logs').then((r) => r.json()),
         fetch('/api/v1/health').then((r) => r.json()),
       ]);
 
@@ -349,7 +349,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-sky-500 selection:text-slate-950">
       {/* Top Navigation */}
       <Navbar
         tenants={tenants}
@@ -373,7 +373,7 @@ export default function App() {
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-slate-950/95">
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-              <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+              <div className="w-8 h-8 rounded-full border-2 border-sky-500 border-t-transparent animate-spin" />
               <p className="text-xs font-mono">Conectando ao núcleo Asterisk 20 e PostgreSQL...</p>
             </div>
           ) : (

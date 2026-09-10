@@ -37,10 +37,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Banner / Hero Context */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950/40 p-6 rounded-2xl border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950/40 p-6 rounded-2xl border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30">
               Operação Nacional Brasil
             </span>
             <span className="text-xs text-slate-400 font-mono">Asterisk 20.17 LTS Puro • Google Gemini</span>
@@ -56,7 +56,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => onOpenWebphone('9001')}
-            className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-950/50 transition active:scale-95"
+            className="px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-sky-950/50 transition active:scale-95"
           >
             <Bot className="w-4 h-4 fill-slate-950" />
             Ligar para MaIA (IA)
@@ -76,12 +76,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
           <div className="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
             <span>Chamadas Hoje</span>
-            <PhoneCall className="w-4 h-4 text-emerald-400" />
+            <PhoneCall className="w-4 h-4 text-sky-400" />
           </div>
           <div className="text-2xl font-black text-slate-100 font-mono">
             {metrics?.callsToday ?? 35}
           </div>
-          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-emerald-400 font-medium">
+          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-400 font-medium">
             <span className="flex items-center">
               <ArrowUpRight className="w-3.5 h-3.5" />
               {metrics?.callsAnswered ?? 30} atendidas
@@ -99,7 +99,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="text-2xl font-black text-slate-100 font-mono flex items-center gap-2">
             <span>{channels.length}</span>
-            {channels.length > 0 && <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />}
+            {channels.length > 0 && <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />}
           </div>
           <div className="text-[11px] text-slate-400 mt-2 flex items-center gap-1 font-mono">
             <span>{channels.filter((c) => c.aiBridgeActive).length} canal em Stasis com Gemini</span>
@@ -110,13 +110,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
           <div className="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
             <span>Ramais PJSIP Online</span>
-            <Users className="w-4 h-4 text-emerald-400" />
+            <Users className="w-4 h-4 text-sky-400" />
           </div>
           <div className="text-2xl font-black text-slate-100 font-mono">
             {metrics?.extensionsOnline ?? 4}
             <span className="text-xs text-slate-400 font-normal ml-1">/ {metrics?.extensionsTotal ?? 5}</span>
           </div>
-          <div className="text-[11px] text-emerald-400 mt-2 flex items-center gap-1">
+          <div className="text-[11px] text-sky-400 mt-2 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>WebRTC e SIP Realtime ativos</span>
           </div>
@@ -126,7 +126,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
           <div className="flex items-center justify-between text-slate-400 text-xs font-medium mb-2">
             <span>Troncos SIP Operadoras</span>
-            <Radio className="w-4 h-4 text-emerald-400" />
+            <Radio className="w-4 h-4 text-sky-400" />
           </div>
           <div className="text-2xl font-black text-slate-100 font-mono">
             {metrics?.trunksOnline ?? 3}
@@ -156,7 +156,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="bg-slate-900/70 p-4 rounded-2xl border border-slate-800/80 flex items-center gap-4">
-          <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+          <div className="w-11 h-11 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
             <TrendingUp className="w-5 h-5" />
           </div>
           <div>
@@ -192,7 +192,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-emerald-400" />
+              <Activity className="w-4 h-4 text-sky-400" />
               <h3 className="font-bold text-sm text-slate-100">Canais Ativos no Asterisk 20</h3>
             </div>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
@@ -206,7 +206,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <p className="text-xs">Nenhum canal ativo no momento.</p>
               <button
                 onClick={() => onOpenWebphone()}
-                className="mt-3 text-xs text-emerald-400 hover:underline font-semibold"
+                className="mt-3 text-xs text-sky-400 hover:underline font-semibold"
               >
                 Discar pelo Webphone
               </button>
@@ -220,11 +220,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 >
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
                       <span className="text-xs font-bold font-mono text-slate-200">{chan.name}</span>
                     </div>
                     <div className="text-[11px] text-slate-400 mt-1">
-                      {chan.callerNumber} → <span className="text-emerald-400 font-semibold">{chan.connectedLine}</span>
+                      {chan.callerNumber} → <span className="text-sky-400 font-semibold">{chan.connectedLine}</span>
                     </div>
                     <div className="text-[10px] text-slate-500 font-mono mt-0.5">
                       App: {chan.application} • Context: {chan.context}
@@ -257,7 +257,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <div className="flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1 text-slate-300">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" /> Total
+                  <span className="w-2.5 h-2.5 rounded-sm bg-sky-500 inline-block" /> Total
                 </span>
                 <span className="flex items-center gap-1 text-cyan-300">
                   <span className="w-2.5 h-2.5 rounded-sm bg-cyan-400 inline-block" /> Agente IA
@@ -274,7 +274,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                   <div className="w-full max-w-[36px] flex items-end gap-1 h-32 bg-slate-950 rounded-lg p-1 border border-slate-800">
                     <div
-                      className="flex-1 bg-emerald-500 rounded-sm transition-all duration-300"
+                      className="flex-1 bg-sky-500 rounded-sm transition-all duration-300"
                       style={{ height: `${(item.total / 35) * 100}%` }}
                     />
                     <div
@@ -290,7 +290,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-xs text-slate-400">
             <span>Fuso horário: America/Sao_Paulo (Horário de Brasília)</span>
-            <span className="text-emerald-400 font-semibold">SLA de Atendimento: 94.2%</span>
+            <span className="text-sky-400 font-semibold">SLA de Atendimento: 94.2%</span>
           </div>
         </div>
       </div>
@@ -304,7 +304,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <button
             onClick={() => onNavigate('cdr')}
-            className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold"
+            className="text-xs text-sky-400 hover:text-sky-300 font-semibold"
           >
             Ver todos os registros →
           </button>
@@ -352,7 +352,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         cdr.disposition === 'ANSWERED'
-                          ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60'
+                          ? 'bg-sky-950/80 text-sky-300 border border-sky-800/60'
                           : 'bg-rose-950/80 text-rose-300 border border-rose-800/60'
                       }`}
                     >
@@ -371,7 +371,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <td className="py-3 px-3 text-right">
                     <button
                       onClick={() => onOpenWebphone(cdr.caller)}
-                      className="text-slate-400 hover:text-emerald-400 p-1 transition"
+                      className="text-slate-400 hover:text-sky-400 p-1 transition"
                       title="Retornar ligação via Webphone"
                     >
                       <Phone className="w-3.5 h-3.5" />

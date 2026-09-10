@@ -55,7 +55,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
             onClick={() => setCurrentTab('users')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'users'
-                ? 'bg-emerald-500 text-slate-950 shadow'
+                ? 'bg-sky-500 text-slate-950 shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -66,7 +66,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
             onClick={() => setCurrentTab('tenants')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'tenants'
-                ? 'bg-emerald-500 text-slate-950 shadow'
+                ? 'bg-sky-500 text-slate-950 shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -77,7 +77,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
             onClick={() => setCurrentTab('audit_logs')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'audit_logs'
-                ? 'bg-emerald-500 text-slate-950 shadow'
+                ? 'bg-sky-500 text-slate-950 shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -88,7 +88,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
             onClick={() => setCurrentTab('health_check')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'health_check'
-                ? 'bg-emerald-500 text-slate-950 shadow'
+                ? 'bg-sky-500 text-slate-950 shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -128,7 +128,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                           u.role === 'super_admin'
                             ? 'bg-purple-950 text-purple-300 border border-purple-800'
                             : u.role === 'admin'
-                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                            ? 'bg-sky-950 text-sky-300 border border-sky-800'
                             : 'bg-slate-800 text-slate-300'
                         }`}
                       >
@@ -142,7 +142,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                       {new Date(u.lastLogin).toLocaleString('pt-BR')}
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className="text-emerald-400 text-[11px] font-semibold flex items-center gap-1">
+                      <span className="text-sky-400 text-[11px] font-semibold flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Ativo
                       </span>
                     </td>
@@ -163,7 +163,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
               className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 space-y-4"
             >
               <div className="flex items-center justify-between">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-950 text-emerald-300 border border-emerald-800">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-950 text-sky-300 border border-sky-800">
                   {t.plan}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">ID: {t.id}</span>
@@ -185,7 +185,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 block uppercase">Créditos IA</span>
-                  <span className="text-emerald-400 font-bold text-sm">${t.aiCreditsUsd}</span>
+                  <span className="text-sky-400 font-bold text-sm">${t.aiCreditsUsd}</span>
                 </div>
               </div>
             </div>
@@ -236,7 +236,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                       <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px]">
                         {log.resource}
                       </td>
-                      <td className="py-3.5 px-4 font-mono text-emerald-400 text-[11px]">
+                      <td className="py-3.5 px-4 font-mono text-sky-400 text-[11px]">
                         {log.ip}
                       </td>
                       <td className="py-3.5 px-4 text-slate-400 text-xs">
@@ -265,7 +265,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                     <span className="text-[10px] font-mono text-slate-500 uppercase font-bold">
                       {key}
                     </span>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
                   </div>
 
                   <div className="text-base font-bold text-slate-100 capitalize">
@@ -273,7 +273,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                   </div>
 
                   <div className="pt-2 border-t border-slate-800 text-xs font-mono text-slate-400 space-y-1">
-                    <div>Status: <span className="text-emerald-400 font-bold">{val.status}</span></div>
+                    <div>Status: <span className="text-sky-400 font-bold">{val.status}</span></div>
                     {val.version && <div>Versão: <span className="text-slate-200">{val.version}</span></div>}
                     {val.model && <div>Modelo: <span className="text-cyan-400">{val.model}</span></div>}
                     {val.latencyMs && <div>Latência: <span className="text-slate-200">{val.latencyMs}ms</span></div>}
