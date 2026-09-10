@@ -1,4 +1,5 @@
 import React from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts';
 import {
   Phone,
   PhoneCall,
@@ -255,36 +256,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <h3 className="font-bold text-sm text-slate-100">Distribuição de Tráfego por Hora</h3>
                 <p className="text-xs text-slate-400">Total de chamadas vs. Atendidas por IA Gemini</p>
               </div>
-              <div className="flex items-center gap-3 text-xs">
-                <span className="flex items-center gap-1 text-slate-300">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-sky-500 inline-block" /> Total
-                </span>
-                <span className="flex items-center gap-1 text-cyan-300">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-cyan-400 inline-block" /> Agente IA
-                </span>
-              </div>
             </div>
 
-            {/* Simple Clean Bar Chart */}
-            <div className="grid grid-cols-7 gap-3 pt-6 pb-2 items-end h-44">
-              {metrics?.hourlyCallDistribution?.map((item, idx) => (
-                <div key={idx} className="flex flex-col items-center gap-2 h-full justify-end group">
-                  <div className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition font-mono">
-                    {item.total}
-                  </div>
-                  <div className="w-full max-w-[36px] flex items-end gap-1 h-32 bg-slate-950 rounded-lg p-1 border border-slate-800">
-                    <div
-                      className="flex-1 bg-sky-500 rounded-sm transition-all duration-300"
-                      style={{ height: `${(item.total / 35) * 100}%` }}
-                    />
-                    <div
-                      className="flex-1 bg-cyan-400 rounded-sm transition-all duration-300"
-                      style={{ height: `${(item.ai / 35) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-400">{item.hour}</span>
-                </div>
-              ))}
+            <div className="w-full h-52 mt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={metrics?.hourlyCallDistribution || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
+                  <Tooltip
+                    cursor={{ fill: '#0f172a' }}
+                    contentStyle={{ backgroundColor: '#020617', borderColor: '#1e293b', borderRadius: '12px', fontSize: '12px' }}
+                    itemStyle={{ color: '#f1f5f9' }}
+                  />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                  <Bar dataKey="total" name="Total (PJSIP)" fill="#0ea5e9" radius={[4, 4, 0, 0]} barSize={24} />
+                  <Bar dataKey="ai" name="Agente IA (Gemini)" fill="#22d3ee" radius={[4, 4, 0, 0]} barSize={24} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
 

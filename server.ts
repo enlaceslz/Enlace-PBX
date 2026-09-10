@@ -159,6 +159,11 @@ async function startServer() {
     res.status(201).json(trunk);
   });
 
+  app.delete('/api/v1/trunks/:id', (req, res) => {
+    db.trunks = db.trunks.filter((t) => t.id !== req.params.id);
+    res.json({ success: true });
+  });
+
   // -------------------------------------------------------------------------
   // Routes (Rotas de Entrada e Saída)
   // -------------------------------------------------------------------------
@@ -176,6 +181,11 @@ async function startServer() {
     res.status(201).json(route);
   });
 
+  app.delete('/api/v1/routes/:id', (req, res) => {
+    db.routes = db.routes.filter((r) => r.id !== req.params.id);
+    res.json({ success: true });
+  });
+
   // -------------------------------------------------------------------------
   // Ring Groups & Queues & IVR
   // -------------------------------------------------------------------------
@@ -184,6 +194,10 @@ async function startServer() {
     const group = { id: `group-${Date.now()}`, tenantId: 'tenant-enlace-matriz', ...req.body };
     db.ringGroups.push(group);
     res.status(201).json(group);
+  });
+  app.delete('/api/v1/ring-groups/:id', (req, res) => {
+    db.ringGroups = db.ringGroups.filter((g) => g.id !== req.params.id);
+    res.json({ success: true });
   });
 
   app.get('/api/v1/queues', (req, res) => res.json(db.queues));
@@ -200,12 +214,20 @@ async function startServer() {
     db.queues.push(queue);
     res.status(201).json(queue);
   });
+  app.delete('/api/v1/queues/:id', (req, res) => {
+    db.queues = db.queues.filter((q) => q.id !== req.params.id);
+    res.json({ success: true });
+  });
 
   app.get('/api/v1/ivr', (req, res) => res.json(db.ivrs));
   app.post('/api/v1/ivr', (req, res) => {
     const ivr = { id: `ivr-${Date.now()}`, tenantId: 'tenant-enlace-matriz', ...req.body };
     db.ivrs.push(ivr);
     res.status(201).json(ivr);
+  });
+  app.delete('/api/v1/ivr/:id', (req, res) => {
+    db.ivrs = db.ivrs.filter((i) => i.id !== req.params.id);
+    res.json({ success: true });
   });
 
   // -------------------------------------------------------------------------

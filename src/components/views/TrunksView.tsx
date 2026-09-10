@@ -69,6 +69,16 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
     }
   };
 
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Deseja realmente remover o tronco ${name}?`)) return;
+    try {
+      await fetch(`/api/v1/trunks/${id}`, { method: 'DELETE' });
+      onRefresh();
+    } catch (err) {
+      console.error('Delete error:', err);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -100,26 +110,35 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
         {trunks.map((trunk) => (
           <div
             key={trunk.id}
-            className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 flex flex-col justify-between"
+            className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 flex flex-col justify-between group"
           >
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-slate-800 text-slate-300">
                   {trunk.transport}
                 </span>
-                <div className="flex items-center gap-1.5 text-xs">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      trunk.status === 'registered' ? 'bg-sky-400' : 'bg-rose-500'
-                    }`}
-                  />
-                  <span
-                    className={`font-semibold ${
-                      trunk.status === 'registered' ? 'text-sky-400' : 'text-rose-400'
-                    }`}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        trunk.status === 'registered' ? 'bg-sky-400' : 'bg-rose-500'
+                      }`}
+                    />
+                    <span
+                      className={`font-semibold ${
+                        trunk.status === 'registered' ? 'text-sky-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {trunk.status === 'registered' ? 'Registrado' : 'Desconectado'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(trunk.id, trunk.name)}
+                    className="text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition p-1 rounded-lg hover:bg-slate-800"
+                    title="Remover Tronco"
                   >
-                    {trunk.status === 'registered' ? 'Registrado' : 'Desconectado'}
-                  </span>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
 
