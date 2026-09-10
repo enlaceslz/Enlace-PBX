@@ -18,7 +18,7 @@ export class AsteriskService {
     {
       id: 'chan-1725969600.104',
       name: 'PJSIP/trunk-claro-0800-0000021c',
-      state: 'Up',
+      state: 'Up' as 'Up',
       callerNumber: '08007702020',
       connectedLine: 'Stasis/enlace-gemini',
       context: 'from-gemini',
@@ -30,7 +30,7 @@ export class AsteriskService {
     {
       id: 'chan-1725969601.105',
       name: 'PJSIP/4101-0000021d',
-      state: 'Up',
+      state: 'Up' as 'Up',
       callerNumber: '4101',
       connectedLine: '4102',
       context: 'from-internal',
@@ -61,11 +61,11 @@ export class AsteriskService {
       const chan = {
         id,
         name: `PJSIP/${caller}-${Math.floor(Math.random() * 90000 + 10000).toString(16)}`,
-        state: 'Up',
+        state: 'Up' as 'Up',
         callerNumber: caller,
         connectedLine: callee,
         durationSeconds: 0,
-        creationTime: new Date().toISOString(),
+        exten: callee,
         aiBridgeActive: isAi,
         application: isAi ? 'Stasis' : 'Dial',
         context: 'enlace-inbound',
@@ -76,7 +76,7 @@ export class AsteriskService {
 
     // Update durations
     return this.activeChannels.map(c => {
-       const created = new Date(c.creationTime).getTime();
+       const created = parseInt(c.id.split('-')[1].split('.')[0]) || now;
        return {
          ...c,
          durationSeconds: Math.floor((now - created) / 1000)
@@ -89,7 +89,7 @@ export class AsteriskService {
     const chan: AsteriskChannel = {
       id,
       name: `PJSIP/${caller.replace(/\D/g, '') || '4101'}-${Math.floor(Math.random() * 90000 + 10000).toString(16)}`,
-      state: 'Up',
+      state: 'Up' as 'Up',
       callerNumber: caller,
       connectedLine: isAi ? 'MaIA (Gemini Live)' : callee,
       context: isAi ? 'from-gemini' : 'from-internal',
@@ -129,7 +129,7 @@ export class AsteriskService {
     const spyChan: AsteriskChannel = {
       id: spyId,
       name: `PJSIP/${supervisorExt}-spy`,
-      state: 'Up',
+      state: 'Up' as 'Up',
       callerNumber: supervisorExt,
       connectedLine: `ChanSpy(${targetName})`,
       context: 'from-internal',

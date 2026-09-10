@@ -568,7 +568,7 @@ async function startServer() {
         });
     }
     
-    const combinedCdrs = [...dynamicCdrs, ...db.cdr];
+    const combinedCdrs = [...dynamicCdrs, ...db.cdrs];
     res.json(combinedCdrs);
     return;
     res.json(db.cdrs);

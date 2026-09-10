@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Settings, Clock, Music, Route, Shield, HardDrive, Bell, CheckCircle2, Search, ArrowUpRight, Save, Play, Upload, Plus
+  Settings, Clock, Music, Route, Shield, HardDrive, Bell, CheckCircle2, Search, ArrowUpRight, Save, Play, Upload, Plus, Bot
 } from 'lucide-react';
 
 interface SettingsViewProps {

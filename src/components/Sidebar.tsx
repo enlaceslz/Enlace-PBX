@@ -22,6 +22,7 @@ import {
   Server,
   Building,
   HeartPulse,
+  HelpCircle,
   MonitorPlay,
   Plug,
   MessageSquare,
@@ -58,7 +59,8 @@ export type ActiveView =
   | 'audit_logs'
   | 'billing'
   | 'health_check'
-  | 'settings';
+  | 'settings'
+  | 'help_manual';
 
 interface SidebarProps {
   activeView: ActiveView;
@@ -130,6 +132,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
         { id: 'audit_logs' as ActiveView, label: 'Auditoria LGPD', icon: ShieldAlert },
         { id: 'health_check' as ActiveView, label: 'Health Check do PBX', icon: HeartPulse },
         { id: 'settings' as ActiveView, label: 'Configurações Globais', icon: Settings },
+      ],
+    },
+    {
+      title: 'AJUDA & SUPORTE',
+      items: [
+        { id: 'help_manual' as ActiveView, label: 'Manual & Glossário', icon: HelpCircle },
       ],
     },
   ];

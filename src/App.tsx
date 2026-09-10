@@ -21,6 +21,7 @@ import { AsteriskCoreView } from './components/views/AsteriskCoreView';
 import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
 import { HealthCheckView } from './components/views/HealthCheckView';
 import { SettingsView } from './components/views/SettingsView';
+import { HelpManualView } from './components/views/HelpManualView';
 import {
   Tenant,
   User,
@@ -371,6 +372,8 @@ export default function App() {
         return <HealthCheckView />;
       case 'settings':
         return <SettingsView onNavigate={setActiveView} />;
+      case 'help_manual':
+        return <HelpManualView />;
       default:
         return (
           <DashboardView
