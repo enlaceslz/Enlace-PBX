@@ -50,8 +50,66 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const [isProcessingTurn, setIsProcessingTurn] = useState(false);
   const [lastExecutedTool, setLastExecutedTool] = useState<string | null>(null);
 
+  // Speech Recognition state
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const recognitionRef = useRef<any>(null);
+
   const stopRingbackRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRec) {
+      const recog = new SpeechRec();
+      recog.lang = 'pt-BR';
+      recog.continuous = false;
+      recog.interimResults = false;
+      recog.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          handleSendVoiceTurn(transcript);
+        }
+        setIsListening(false);
+      };
+      recog.onerror = (e: any) => {
+        console.warn('Speech recognition error:', e);
+        setIsListening(false);
+      };
+      recog.onend = () => {
+        setIsListening(false);
+      };
+      recognitionRef.current = recog;
+    } else {
+      setSpeechSupported(false);
+    }
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {
+          // Ignored
+        }
+      }
+    };
+  }, []);
+
+  const toggleSpeechRecognition = () => {
+    if (!recognitionRef.current) return;
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      window.speechSynthesis?.cancel();
+      setIsAiSpeaking(false);
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (e) {
+        console.warn('Could not start recognition:', e);
+      }
+    }
+  };
 
   useEffect(() => {
     if (defaultNumber) {
@@ -512,24 +570,46 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     </button>
                   </div>
 
+                  {isListening && (
+                    <div className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl flex items-center gap-2 mb-2 animate-pulse font-medium">
+                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                      <span>Ouvindo sua voz... Fale agora em português (pt-BR).</span>
+                    </div>
+                  )}
+
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
                       handleSendVoiceTurn(userInputText);
                     }}
-                    className="flex gap-2"
+                    className="flex gap-2 items-center"
                   >
+                    {speechSupported && (
+                      <button
+                        type="button"
+                        onClick={toggleSpeechRecognition}
+                        className={`px-3 py-2 rounded-xl border text-xs flex items-center gap-1.5 transition font-semibold ${
+                          isListening
+                            ? 'bg-rose-600 text-white border-rose-700 shadow-sm'
+                            : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'
+                        }`}
+                        title={isListening ? 'Parar captura de voz' : 'Falar pelo microfone'}
+                      >
+                        <Mic className={`w-3.5 h-3.5 ${isListening ? 'animate-bounce' : ''}`} />
+                        <span className="hidden sm:inline">{isListening ? 'Ouvindo...' : 'Falar'}</span>
+                      </button>
+                    )}
                     <input
                       type="text"
                       value={userInputText}
                       onChange={(e) => setUserInputText(e.target.value)}
-                      placeholder="Diga ou digite algo para a MaIA..."
-                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                      placeholder={isListening ? 'Ouvindo sua voz...' : 'Diga ou digite algo para a MaIA...'}
+                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500"
                     />
                     <button
                       type="submit"
                       disabled={isProcessingTurn || !userInputText.trim()}
-                      className="px-3 py-1.5 bg-sky-600 hover:bg-blue-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center gap-1 transition"
+                      className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs flex items-center gap-1 transition shadow-sm"
                     >
                       <Send className="w-3.5 h-3.5" />
                     </button>
@@ -580,7 +660,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                 disabled={!dialNumber}
                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition active:scale-98"
               >
-                <Phone className="w-4 h-4 fill-slate-950" />
+                <Phone className="w-4 h-4 fill-white" />
                 Ligar para {dialNumber || '...'}
               </button>
             ) : (

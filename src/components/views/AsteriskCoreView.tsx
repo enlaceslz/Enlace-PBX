@@ -18,7 +18,7 @@ import { AsteriskChannel } from '../../types/pbx';
 interface AsteriskCoreViewProps {
   channels: AsteriskChannel[];
   onRefreshChannels: () => void;
-  initialTab?: 'monitor' | 'configs' | 'installer';
+  initialTab?: 'monitor' | 'cli' | 'configs' | 'installer';
 }
 
 export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
@@ -26,12 +26,46 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   onRefreshChannels,
   initialTab = 'monitor',
 }) => {
-  const [activeTab, setActiveTab] = useState<'monitor' | 'configs' | 'installer'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'monitor' | 'cli' | 'configs' | 'installer'>(initialTab);
   const [activeConfigFile, setActiveConfigFile] = useState<'pjsip' | 'extensions' | 'ari'>('pjsip');
   const [configContent, setConfigContent] = useState<string>('');
   const [installerScript, setInstallerScript] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
+
+  // Asterisk CLI Terminal state
+  const [cliHistory, setCliHistory] = useState<Array<{ cmd: string; output: string }>>([
+    {
+      cmd: 'core show version',
+      output: 'Asterisk 20.17.0 LTS built by root @ enlace-core-node-01 on a x86_64 running Linux',
+    },
+    {
+      cmd: 'core show uptime',
+      output: 'System uptime: 4 days, 18 hours, 32 minutes, 14 seconds\nLast reload: 1 day, 6 hours, 10 minutes, 2 segundos',
+    },
+  ]);
+  const [cliInput, setCliInput] = useState('');
+  const [cliLoading, setCliLoading] = useState(false);
+
+  const handleExecuteCli = async (commandToRun?: string) => {
+    const cmd = (commandToRun !== undefined ? commandToRun : cliInput).trim();
+    if (!cmd || cliLoading) return;
+    setCliLoading(true);
+    try {
+      const res = await fetch('/api/v1/asterisk/cli', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd }),
+      });
+      const data = await res.json();
+      setCliHistory((prev) => [...prev, { cmd, output: data.output }]);
+      if (commandToRun === undefined) setCliInput('');
+    } catch (e) {
+      setCliHistory((prev) => [...prev, { cmd, output: 'Erro de conexão com o socket CLI do Asterisk.' }]);
+    } finally {
+      setCliLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchConfig(activeConfigFile);
@@ -107,6 +141,17 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
           >
             <Activity className="w-3.5 h-3.5" />
             Monitor ARI & Canais
+          </button>
+          <button
+            onClick={() => setActiveTab('cli')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+              activeTab === 'cli'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            Console Asterisk CLI
           </button>
           <button
             onClick={() => setActiveTab('configs')}
@@ -232,7 +277,114 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
         </div>
       )}
 
-      {/* 2. CONFIGS TAB */}
+      {/* 2. CLI TAB (Interactive Asterisk -rvvv Console) */}
+      {activeTab === 'cli' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-blue-600" />
+                Console de Comandos Asterisk CLI (asterisk -rvvv)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Execute comandos do núcleo do Asterisk 20 em tempo real (inspeção de canais, endpoints PJSIP, filas e reload).
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCliHistory([])}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl transition font-medium"
+              >
+                Limpar Terminal
+              </button>
+            </div>
+          </div>
+
+          {/* Quick command shortcut chips */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-500 mr-1">Comandos rápidos:</span>
+            {[
+              'core show channels',
+              'pjsip show endpoints',
+              'pjsip show registrations',
+              'queue show',
+              'dialplan show',
+              'stasis show app',
+              'audiosocket show',
+              'core show uptime',
+              'core reload',
+              'help',
+            ].map((cmd) => (
+              <button
+                key={cmd}
+                onClick={() => handleExecuteCli(cmd)}
+                disabled={cliLoading}
+                className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 border border-slate-200 text-slate-700 font-mono text-[11px] rounded-lg transition disabled:opacity-50"
+              >
+                {cmd}
+              </button>
+            ))}
+          </div>
+
+          {/* Terminal output window */}
+          <div className="bg-slate-900 text-slate-100 rounded-xl p-4 font-mono text-xs overflow-x-auto max-h-[460px] min-h-[300px] flex flex-col justify-between border border-slate-800 shadow-inner">
+            <div className="space-y-4 overflow-y-auto pr-1">
+              <div className="text-slate-400 text-[11px] border-b border-slate-800 pb-2">
+                Asterisk 20.17.0 LTS, Copyright (C) 1999 - 2026, Digium, Inc. and others.<br />
+                Enlace-PBX Connected to Asterisk 20.17.0 currently running on enlace-core-node-01 (pid = 412)
+              </div>
+
+              {cliHistory.map((item, idx) => (
+                <div key={idx} className="space-y-1">
+                  <div className="flex items-center gap-2 text-cyan-400 font-bold text-[11px]">
+                    <span className="text-slate-500 select-none">enlace-pbx*CLI&gt;</span>
+                    <span>{item.cmd}</span>
+                  </div>
+                  <pre className="text-slate-300 text-[11px] whitespace-pre-wrap pl-4 border-l-2 border-slate-800 leading-relaxed font-mono">
+                    {item.output}
+                  </pre>
+                </div>
+              ))}
+
+              {cliLoading && (
+                <div className="text-amber-400 text-xs flex items-center gap-2 animate-pulse">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Executando comando no núcleo Asterisk...</span>
+                </div>
+              )}
+            </div>
+
+            {/* CLI Input Form */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleExecuteCli();
+              }}
+              className="mt-4 pt-3 border-t border-slate-800 flex items-center gap-2"
+            >
+              <span className="text-cyan-400 font-bold text-xs select-none">enlace-pbx*CLI&gt;</span>
+              <input
+                type="text"
+                value={cliInput}
+                onChange={(e) => setCliInput(e.target.value)}
+                placeholder="Digite um comando (ex: core show channels, pjsip show endpoints, help)..."
+                className="flex-1 bg-transparent border-none text-white font-mono text-xs focus:outline-none placeholder-slate-500"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={cliLoading || !cliInput.trim()}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-sans font-bold text-xs rounded-lg transition"
+              >
+                Executar
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 3. CONFIGS TAB */}
       {activeTab === 'configs' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">

@@ -439,6 +439,125 @@ password = ENLACE_ARI_SEC_TOKEN_PROD
 password_format = plain
 `;
   }
+
+  // Asterisk CLI Engine Execution (Simulated real Asterisk 20 console)
+  executeCliCommand(rawCmd: string): string {
+    const cmd = rawCmd.trim().toLowerCase();
+
+    if (cmd === 'core show version' || cmd === 'version') {
+      return `Asterisk 20.17.0 LTS built by root @ enlace-core-node-01 on a x86_64 running Linux on 2026-03-01 02:14:10 UTC`;
+    }
+
+    if (cmd === 'core show uptime' || cmd === 'uptime') {
+      return `System uptime: 4 days, 18 hours, 32 minutes, 14 seconds
+Last reload: 1 day, 6 hours, 10 minutes, 2 segundos`;
+    }
+
+    if (cmd === 'core show channels' || cmd.startsWith('core show chan')) {
+      const chans = this.activeChannels;
+      const count = chans.length;
+      let out = `Channel              Location             State   Application(Data)\n`;
+      out += `--------------------------------------------------------------------------------\n`;
+      chans.forEach((c) => {
+        out += `${c.name.padEnd(20)} ${c.callerNumber.padEnd(20)} ${c.state.padEnd(7)} ${c.application}\n`;
+      });
+      out += `--------------------------------------------------------------------------------\n`;
+      out += `${count} active channel${count === 1 ? '' : 's'}\n${count} active call${count === 1 ? '' : 's'}\n`;
+      return out;
+    }
+
+    if (cmd === 'pjsip show endpoints' || cmd === 'pjsip show endpoints' || cmd === 'pjsip endpoints') {
+      let out = ` Endpoint:  <Endpoint/CID.....................................>  <State.....>  <Channels.>\n`;
+      out += `==========================================================================================\n\n`;
+      db.extensions.forEach((ext) => {
+        const state = ext.status === 'online' ? 'Available' : ext.status === 'busy' ? 'In use' : 'Unavailable';
+        out += ` Endpoint:  ${ext.number}/${ext.callerId.padEnd(35)}  ${state.padEnd(12)} 0 of 5\n`;
+        out += `     InAuth:  ${ext.number}-auth/${ext.number}\n`;
+        out += `        Aor:  ${ext.number} (Contacts: 1/5, RTT: 12.4ms)\n\n`;
+      });
+      out += `Objects found: ${db.extensions.length}\n`;
+      return out;
+    }
+
+    if (cmd === 'pjsip show registrations' || cmd.startsWith('pjsip show reg')) {
+      let out = ` <Registration/ServerURI..............................>  <Auth..........>  <Status.......>\n`;
+      out += `==========================================================================================\n`;
+      db.trunks.forEach((t) => {
+        out += ` ${t.id}/sip:${t.host}:${t.port}  ${t.username.padEnd(16)}  Registered\n`;
+      });
+      out += `\nObjects found: ${db.trunks.length}\n`;
+      return out;
+    }
+
+    if (cmd === 'queue show' || cmd.startsWith('queue show')) {
+      let out = ``;
+      db.queues.forEach((q) => {
+        out += `${q.name} has 0 calls (timeout ${q.timeoutSeconds}s) in '${q.strategy}' strategy (0s holdtime, 0s talktime), W:0, C:${q.answeredToday || 0}, A:${q.abandonedToday || 0}, SL:98.4% within 20s\n`;
+        out += `   Members:\n`;
+        q.members.forEach((m) => {
+          out += `      PJSIP/${m} (ringinuse enabled) (dynamic) (Not in use) has taken 14 calls (last was 340 secs ago)\n`;
+        });
+        out += `   No Callers\n\n`;
+      });
+      return out;
+    }
+
+    if (cmd === 'core reload' || cmd === 'reload') {
+      return `Module 'res_pjsip.so' reloaded successfully.\nModule 'app_audiosocket.so' reloaded successfully.\nModule 'res_ari.so' reloaded successfully.\nModule 'pbx_config.so' reloaded successfully.\nAsterisk configuration reloaded.`;
+    }
+
+    if (cmd === 'pjsip reload') {
+      return `PJSIP configuration reloaded successfully.\n- 0 endpoints updated\n- 0 aors updated\n- 0 auths updated`;
+    }
+
+    if (cmd.startsWith('stasis show') || cmd.includes('stasis')) {
+      return `Application: enlace_ai_bridge
+Description: Stasis ARI bridge for Enlace Google Gemini AudioSocket
+Channels subscribed: ${this.activeChannels.filter(c => c.aiBridgeActive).length}
+Endpoints subscribed: PJSIP/trunk-claro-0800, PJSIP/4101
+Bridges subscribed: 1
+Device states subscribed: 4`;
+    }
+
+    if (cmd.startsWith('audiosocket') || cmd.includes('audiosocket')) {
+      return `AudioSocket Subsystem:
+Active TCP/WS streams: 1 (Port 9092)
+Format: PCM 16-bit linear 24000 Hz
+Active latency: 18.2 ms
+Packets exchanged: 48,120 (0 lost)`;
+    }
+
+    if (cmd === 'dialplan show' || cmd.startsWith('dialplan show')) {
+      return `[ Context 'from-internal' ]
+  '4101' =>          1. Dial(PJSIP/4101,30)                        [pbx_config]
+  '4102' =>          1. Dial(PJSIP/4102,30)                        [pbx_config]
+  '4103' =>          1. Dial(PJSIP/4103,30)                        [pbx_config]
+  '4104' =>          1. Dial(PJSIP/4104,30)                        [pbx_config]
+  '5000' =>          1. Stasis(enlace_ai_bridge,maia)              [pbx_config]
+  '5001' =>          1. Queue(fila_suporte_tecnico)                [pbx_config]
+  '_0[1-9]XXXXXXXXX' => 1. Set(CALLERID(num)=1140030000)           [pbx_config]
+                     2. Dial(PJSIP/\${EXTEN}@trunk-claro-0800)       [pbx_config]
+
+-= 1 context, 7 extensions, 8 priors =-`;
+    }
+
+    if (cmd === 'help' || cmd === '?') {
+      return `Available Commands:
+  core show channels        - List active channels and calls
+  core show version         - Display Asterisk core release
+  core show uptime          - Display uptime and reload history
+  pjsip show endpoints      - List PJSIP endpoints (extensions)
+  pjsip show registrations  - List SIP trunk registrations
+  queue show                - ACD queues and agent status
+  dialplan show             - Inspect generated dialplan contexts
+  stasis show app           - Inspect active Stasis ARI application
+  audiosocket show          - Inspect 24kHz AudioSocket stream
+  core reload               - Reload all PBX modules
+  pjsip reload              - Reload PJSIP transport and endpoints`;
+    }
+
+    return `No such command '${rawCmd}' (type 'help' for Asterisk 20 command list)`;
+  }
 }
 
 export const asteriskService = new AsteriskService();

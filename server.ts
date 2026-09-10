@@ -381,6 +381,12 @@ async function startServer() {
     });
   });
 
+  app.post('/api/v1/asterisk/cli', (req, res) => {
+    const cmd = (req.body.command || '').trim();
+    const output = asteriskService.executeCliCommand(cmd);
+    res.json({ command: cmd, output });
+  });
+
   // -------------------------------------------------------------------------
   // Webhooks & Audit Logs & Users
   // -------------------------------------------------------------------------
