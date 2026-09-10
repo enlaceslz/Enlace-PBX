@@ -295,6 +295,20 @@ export interface AuditLog {
 }
 
 // Initial In-Memory Seed Data adhering to Brazilian context & Enlace Telecom standards
+export interface OutboundCampaign {
+  id: string;
+  tenantId: string;
+  name: string;
+  type: 'predictive' | 'power_dialer' | 'ai_voicebot';
+  status: 'draft' | 'running' | 'paused' | 'completed';
+  aiAgentId?: string;
+  totalLeads: number;
+  processedLeads: number;
+  successCount: number;
+  activeCalls: number;
+  createdAt: string;
+}
+
 export interface SystemSnapshot {
   id: string;
   tenantId: string;
@@ -304,6 +318,34 @@ export interface SystemSnapshot {
 }
 
 export class Database {
+  outboundCampaigns: OutboundCampaign[] = [
+    {
+      id: 'camp-001',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'Cobrança de Inadimplentes - Q3',
+      type: 'ai_voicebot',
+      status: 'running',
+      aiAgentId: 'agent-1', // MaIA Cobrança
+      totalLeads: 5000,
+      processedLeads: 1250,
+      successCount: 310, // Acordos gerados
+      activeCalls: 12,
+      createdAt: '2026-09-08T10:00:00Z',
+    },
+    {
+      id: 'camp-002',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'Boas-vindas Novos Clientes',
+      type: 'power_dialer',
+      status: 'paused',
+      totalLeads: 300,
+      processedLeads: 145,
+      successCount: 140,
+      activeCalls: 0,
+      createdAt: '2026-09-09T09:00:00Z',
+    }
+  ];
+
   snapshots: SystemSnapshot[] = [];
   
   takeSnapshot(tenantId: string, name: string): SystemSnapshot {

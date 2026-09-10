@@ -25,6 +25,7 @@ import {
   Plug,
   MessageSquare,
   Zap,
+  Megaphone,
 } from 'lucide-react';
 
 export type ActiveView =
@@ -33,6 +34,7 @@ export type ActiveView =
   | 'quick_setup'
   | 'crm_hub'
   | 'omnichannel'
+  | 'campaigns'
   | 'extensions'
   | 'trunks'
   | 'routes'
@@ -75,6 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       items: [
         { id: 'omnichannel' as ActiveView, label: 'Webchat & WhatsApp', icon: MessageSquare },
         { id: 'crm_hub' as ActiveView, label: 'Integrações (CRM)', icon: Plug },
+        { id: 'campaigns' as ActiveView, label: 'Campanhas & Ativo', icon: Megaphone },
       ],
     },
     {

@@ -40,6 +40,27 @@ async function startServer() {
     res.json(getHealthStatus());
   });
 
+  // -------------------------------------------------------------------------
+  // Campaigns API
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/campaigns', (req, res) => {
+    res.json(db.outboundCampaigns);
+  });
+
+  app.post('/api/v1/campaigns/:id/toggle', (req, res) => {
+    const camp = db.outboundCampaigns.find(c => c.id === req.params.id);
+    if (!camp) return res.status(404).json({ error: 'Not found' });
+    
+    if (camp.status === 'running') {
+      camp.status = 'paused';
+      camp.activeCalls = 0;
+    } else if (camp.status === 'paused' || camp.status === 'draft') {
+      camp.status = 'running';
+      camp.activeCalls = camp.type === 'ai_voicebot' ? 12 : 5; // mock active calls
+    }
+    res.json(camp);
+  });
+
   app.get('/api/v1/health', (req, res) => {
     res.json(getHealthStatus());
   });

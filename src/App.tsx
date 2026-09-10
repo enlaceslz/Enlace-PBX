@@ -7,6 +7,7 @@ import { DashboardView } from './components/views/DashboardView';
 import { OperationDashboardView } from './components/views/OperationDashboardView';
 import { OmnichannelView } from './components/views/OmnichannelView';
 import { CrmHubView } from './components/views/CrmHubView';
+import { CampaignsView } from './components/views/CampaignsView';
 import { QuickSetupView } from './components/views/QuickSetupView';
 import { ExtensionsView } from './components/views/ExtensionsView';
 import { TrunksView } from './components/views/TrunksView';
@@ -192,6 +193,8 @@ export default function App() {
         return <OmnichannelView />;
       case 'crm_hub':
         return <CrmHubView />;
+      case 'campaigns':
+        return <CampaignsView />;
       case 'quick_setup':
         return <QuickSetupView />;
       case 'extensions':
