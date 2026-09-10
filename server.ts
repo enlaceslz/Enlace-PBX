@@ -435,8 +435,147 @@ async function startServer() {
   });
 
   app.get('/api/v1/audit-logs', (req, res) => res.json(db.auditLogs));
+  app.post('/api/v1/audit-logs', (req, res) => {
+    const newLog = {
+      id: `audit-${Date.now()}`,
+      tenantId: req.body.tenantId || 'tenant-enlace-matriz',
+      userId: req.body.userId || 'user-1',
+      userName: req.body.userName || 'Administrador',
+      action: req.body.action || 'CUSTOM_AUDIT_EVENT',
+      resource: req.body.resource || 'system',
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: req.body.details || 'Evento registrado manualmente pelo console',
+    };
+    db.auditLogs.unshift(newLog);
+    res.status(201).json(newLog);
+  });
+
   app.get('/api/v1/users', (req, res) => res.json(db.users));
+  app.post('/api/v1/users', (req, res) => {
+    const { name, email, role, extension, tenantId } = req.body;
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Nome e e-mail são obrigatórios.' });
+    }
+    const newUser = {
+      id: `user-${Date.now()}`,
+      tenantId: tenantId || 'tenant-enlace-matriz',
+      name,
+      email,
+      role: role || 'operador',
+      extension: extension || undefined,
+      isActive: true,
+      lastLogin: new Date().toISOString(),
+    };
+    db.users.push(newUser);
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: newUser.tenantId,
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'CREATE_USER',
+      resource: `users/${newUser.id}`,
+      ip: req.ip || '189.40.122.14',
+      timestamp: new Date().toISOString(),
+      details: `Criação do usuário ${newUser.name} com papel ${newUser.role}.`,
+    });
+    res.status(201).json(newUser);
+  });
+
+  app.put('/api/v1/users/:id', (req, res) => {
+    const idx = db.users.findIndex((u) => u.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+    db.users[idx] = { ...db.users[idx], ...req.body };
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: db.users[idx].tenantId,
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'UPDATE_USER',
+      resource: `users/${req.params.id}`,
+      ip: req.ip || '189.40.122.14',
+      timestamp: new Date().toISOString(),
+      details: `Atualização de parâmetros do usuário ${db.users[idx].name}.`,
+    });
+    res.json(db.users[idx]);
+  });
+
+  app.delete('/api/v1/users/:id', (req, res) => {
+    const idx = db.users.findIndex((u) => u.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+    const removed = db.users.splice(idx, 1)[0];
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: removed.tenantId,
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'DELETE_USER',
+      resource: `users/${req.params.id}`,
+      ip: req.ip || '189.40.122.14',
+      timestamp: new Date().toISOString(),
+      details: `Exclusão do usuário ${removed.name} (${removed.email}).`,
+    });
+    res.json({ success: true });
+  });
+
   app.get('/api/v1/tenants', (req, res) => res.json(db.tenants));
+  app.post('/api/v1/tenants', (req, res) => {
+    const { name, cnpj, plan, maxExtensions, maxTrunks, aiCreditsUsd } = req.body;
+    if (!name || !cnpj) {
+      return res.status(400).json({ error: 'Nome e CNPJ da empresa são obrigatórios.' });
+    }
+    const newTenant = {
+      id: `tenant-${Date.now()}`,
+      name,
+      cnpj,
+      plan: plan || 'Business Voice Standard',
+      maxExtensions: Number(maxExtensions) || 50,
+      maxTrunks: Number(maxTrunks) || 10,
+      aiCreditsUsd: Number(aiCreditsUsd) || 500,
+      createdAt: new Date().toISOString(),
+    };
+    db.tenants.push(newTenant);
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: newTenant.id,
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'CREATE_TENANT',
+      resource: `tenants/${newTenant.id}`,
+      ip: req.ip || '189.40.122.14',
+      timestamp: new Date().toISOString(),
+      details: `Provisionamento de nova empresa multi-tenant ${newTenant.name} (CNPJ: ${newTenant.cnpj}).`,
+    });
+    res.status(201).json(newTenant);
+  });
+
+  app.post('/api/v1/health/run-diagnostic', (req, res) => {
+    // Generate fresh diagnostic telemetry
+    const rtt = Math.floor(Math.random() * 8) + 12; // 12-20ms
+    const pgLatency = (Math.random() * 1.5 + 0.8).toFixed(2);
+    const audioSocketLatency = Math.floor(Math.random() * 6) + 14;
+    const redisMem = (41 + Math.random() * 4).toFixed(1);
+
+    const diagnosticResult = {
+      timestamp: new Date().toISOString(),
+      testedBy: 'Engenharia NOC Enlace',
+      overallHealth: 'EXCELLENT',
+      diagnostics: [
+        { name: 'Asterisk 20 Core Engine', pingMs: 1.2, status: 'PASS', details: 'Socket /var/run/asterisk/asterisk.ctl operacional' },
+        { name: 'ARI REST Interface (Porta 8088)', pingMs: 2.1, status: 'PASS', details: 'Stasis App "enlace-gemini" ativo e ouvindo eventos' },
+        { name: 'PJSIP Stack & Transports (UDP/TCP/TLS)', pingMs: 1.0, status: 'PASS', details: `${db.extensions.length} endpoints registrados, ${db.trunks.length} troncos SIP monitorados` },
+        { name: 'AudioSocket 24kHz (PCM16)', pingMs: audioSocketLatency, status: 'PASS', details: 'Buffer de baixa latência (jitter < 2.5ms)' },
+        { name: 'PostgreSQL Realtime Database', pingMs: Number(pgLatency), status: 'PASS', details: 'Pool de conexões operando em 12/50' },
+        { name: 'Redis Cache & Session State', pingMs: 0.8, status: 'PASS', details: `Uso de memória estável em ${redisMem} MB` },
+        { name: 'Google Gemini AI Gateway API', pingMs: rtt, status: 'PASS', details: 'Modelo gemini-3.8-flash com streaming bidirecional Live ativo' },
+      ],
+    };
+    res.json(diagnosticResult);
+  });
 
   // -------------------------------------------------------------------------
   // Vite Integration (Development vs Production)

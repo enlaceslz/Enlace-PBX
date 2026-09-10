@@ -315,9 +315,11 @@ export default function App() {
           <AdminAndSecurityView
             users={users}
             tenants={tenants}
+            extensions={extensions}
             auditLogs={auditLogs}
             health={health}
             activeSubTab="users"
+            onRefresh={loadAllData}
           />
         );
       case 'tenants':
@@ -325,9 +327,11 @@ export default function App() {
           <AdminAndSecurityView
             users={users}
             tenants={tenants}
+            extensions={extensions}
             auditLogs={auditLogs}
             health={health}
             activeSubTab="tenants"
+            onRefresh={loadAllData}
           />
         );
       case 'audit_logs':
@@ -335,9 +339,11 @@ export default function App() {
           <AdminAndSecurityView
             users={users}
             tenants={tenants}
+            extensions={extensions}
             auditLogs={auditLogs}
             health={health}
             activeSubTab="audit_logs"
+            onRefresh={loadAllData}
           />
         );
       case 'health_check':
@@ -345,9 +351,11 @@ export default function App() {
           <AdminAndSecurityView
             users={users}
             tenants={tenants}
+            extensions={extensions}
             auditLogs={auditLogs}
             health={health}
             activeSubTab="health_check"
+            onRefresh={loadAllData}
           />
         );
       default:
