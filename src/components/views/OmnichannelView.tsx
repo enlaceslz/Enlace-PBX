@@ -116,19 +116,21 @@ export const OmnichannelView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 flex flex-col h-full">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-[1400px] mx-auto space-y-6 flex flex-col h-full pb-8">
+      {/* Premium Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <MessageSquare className="w-6 h-6 text-emerald-600" />
-            Inbox Omnichannel
-          </h2>
-          <p className="text-sm text-slate-500 mt-1">Gestão centralizada de atendimentos via Voz, WhatsApp Oficial e Transcrições IA em tempo real.</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+            <MessageSquare className="w-8 h-8 text-blue-600 fill-blue-600" />
+            Unified Inbox (Omnichannel)
+          </h1>
+          <p className="text-sm font-medium text-slate-500 mt-1">
+            Gestão unificada de chamadas SIP (RAG em Tempo Real) e sessões de WhatsApp Business API.
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-sm transition flex items-center gap-2">
-            <Filter className="w-4 h-4" /> Filtros
+          <button className="px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs uppercase tracking-wider transition flex items-center gap-2 shadow-sm">
+            <Filter className="w-4 h-4" /> Configurar Filtros
           </button>
         </div>
       </div>

@@ -134,43 +134,44 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Filas e Grupos de Chamada
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+              <Layers className="w-8 h-8 text-blue-600 fill-blue-600" />
+              Filas & Grupos (ACD)
             </h1>
-            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-mono">
-              app_queue • Asterisk 20
+            <span className="px-2.5 py-1 bg-slate-900 text-white border border-slate-700 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ml-2 shadow-sm">
+               Asterisk app_queue
             </span>
           </div>
-          <p className="text-xs text-slate-500">
-            Distribuição automática de chamadas (ACD) com estratégias roundrobin, ringall, SLAs e música em espera.
+          <p className="text-sm font-medium text-slate-500 mt-1">
+            Distribuição automática de chamadas, SLAs, música em espera e estratégias de ring avançadas.
           </p>
         </div>
 
         <div className="flex items-center gap-2 self-start">
-          <div className="flex bg-white p-1 rounded-xl border border-slate-200">
+          <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shadow-sm">
             <button
               onClick={() => setActiveTab('queues')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`px-5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
                 activeTab === 'queues'
-                  ? 'bg-blue-600 text-white shadow'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
               }`}
             >
-              Filas de Atendimento (ACD)
+              <Split className="w-4 h-4" /> Filas de Atendimento (ACD)
             </button>
             <button
               onClick={() => setActiveTab('ring_groups')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`px-5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
                 activeTab === 'ring_groups'
-                  ? 'bg-blue-600 text-white shadow'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
               }`}
             >
-              Grupos de Toque (Ring Groups)
+              <Users className="w-4 h-4" /> Grupos de Toque (Ring Groups)
             </button>
           </div>
 

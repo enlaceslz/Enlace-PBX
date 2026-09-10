@@ -549,6 +549,28 @@ async function startServer() {
   // CDR & Recordings
   // -------------------------------------------------------------------------
   app.get('/api/v1/cdr', (req, res) => {
+    // Inject dynamic realistic CDRs to the front of the list
+    const dynamicCdrs = [];
+    const now = Date.now();
+    for(let i = 0; i < 8; i++) {
+        const isAi = Math.random() > 0.5;
+        const duration = Math.floor(Math.random() * 180) + 10;
+        dynamicCdrs.push({
+            id: `cdr-dyn-${now - i}`,
+            tenantId: 'tenant-enlace-matriz',
+            caller: `119${Math.floor(Math.random() * 90000000 + 10000000)}`,
+            callee: isAi ? '9001' : '5002',
+            direction: 'inbound',
+            startTime: new Date(now - (i * 1000 * 60 * 15)).toISOString(),
+            duration: duration,
+            disposition: Math.random() > 0.1 ? 'ANSWERED' : 'NO ANSWER',
+            aiAgentId: isAi ? 'agent-maia-01' : undefined
+        });
+    }
+    
+    const combinedCdrs = [...dynamicCdrs, ...db.cdr];
+    res.json(combinedCdrs);
+    return;
     res.json(db.cdrs);
   });
 
@@ -924,6 +946,41 @@ async function startServer() {
   });
 
   app.get('/api/v1/omnichannel/conversations', (req, res) => res.json(db.omnichannelConversations));
+
+  app.get('/api/v1/dashboard/metrics', (req, res) => {
+    // Generate some dynamic metrics for the dashboard
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    // Simulate realistic daily curve
+    const hourlyCallDistribution = Array.from({ length: 24 }).map((_, i) => {
+      const isWorkHour = i >= 8 && i <= 18;
+      const baseCalls = isWorkHour ? Math.floor(Math.random() * 50) + 20 : Math.floor(Math.random() * 10) + 1;
+      const aiCalls = Math.floor(baseCalls * (Math.random() * 0.4 + 0.3)); // 30-70% handled by AI
+      return {
+        hour: `${i.toString().padStart(2, '0')}:00`,
+        total: i <= currentHour ? baseCalls : 0,
+        ai: i <= currentHour ? aiCalls : 0
+      };
+    });
+
+    const callsToday = hourlyCallDistribution.reduce((acc, curr) => acc + curr.total, 0);
+    const aiTranscriptionsToday = Math.floor(callsToday * 1.5); // Approx 1.5 mins per call
+    const callsAnswered = Math.floor(callsToday * 0.94); // 94% SLA
+
+    res.json({
+      callsToday,
+      callsAnswered,
+      callsMissed: callsToday - callsAnswered,
+      extensionsTotal: db.extensions.length,
+      extensionsOnline: db.extensions.filter(e => e.status === 'online').length,
+      trunksTotal: db.trunks.length,
+      trunksOnline: db.trunks.filter(t => t.status === 'registered').length,
+      aiLatencyAvgMs: Math.floor(Math.random() * 50) + 320,
+      aiTranscriptionsToday,
+      hourlyCallDistribution,
+    });
+  });
 
   app.post('/api/v1/health/run-diagnostic', (req, res) => {
     // Generate fresh diagnostic telemetry

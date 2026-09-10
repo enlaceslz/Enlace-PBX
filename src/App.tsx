@@ -20,6 +20,7 @@ import { AiGatewayView } from './components/views/AiGatewayView';
 import { AsteriskCoreView } from './components/views/AsteriskCoreView';
 import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
 import { HealthCheckView } from './components/views/HealthCheckView';
+import { SettingsView } from './components/views/SettingsView';
 import {
   Tenant,
   User,
@@ -368,6 +369,8 @@ export default function App() {
         );
       case 'health_check':
         return <HealthCheckView />;
+      case 'settings':
+        return <SettingsView onNavigate={setActiveView} />;
       default:
         return (
           <DashboardView

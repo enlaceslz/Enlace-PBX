@@ -2,6 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard,
   Users,
+  Settings,
   PhoneCall,
   GitFork,
   Radio,
@@ -56,7 +57,8 @@ export type ActiveView =
   | 'tenants'
   | 'audit_logs'
   | 'billing'
-  | 'health_check';
+  | 'health_check'
+  | 'settings';
 
 interface SidebarProps {
   activeView: ActiveView;
@@ -127,6 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
         { id: 'billing' as ActiveView, label: 'Faturamento & Custos', icon: FileText },
         { id: 'audit_logs' as ActiveView, label: 'Auditoria LGPD', icon: ShieldAlert },
         { id: 'health_check' as ActiveView, label: 'Health Check do PBX', icon: HeartPulse },
+        { id: 'settings' as ActiveView, label: 'Configurações Globais', icon: Settings },
       ],
     },
   ];

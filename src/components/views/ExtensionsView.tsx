@@ -146,30 +146,30 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
   );
 
   return (
-    <div className="space-y-6">
-      {/* View Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      {/* Premium Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Ramais SIP (PJSIP Realtime)
-            </h1>
-            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-mono">
-              res_pjsip • Asterisk 20
-            </span>
-          </div>
-          <p className="text-xs text-slate-500">
-            Gerenciamento de ramais IP, telefones físicos, softphones e endpoints WebRTC no padrão brasileiro.
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+            <Users className="w-8 h-8 text-blue-600 fill-blue-600" />
+            Central de Ramais
+          </h1>
+          <p className="text-sm font-medium text-slate-500 mt-1">
+            Gestão PJSIP para Softphones, Telefones IP de Mesa e Endpoints WebRTC.
           </p>
         </div>
-
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-blue-600/20 transition active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          Novo Ramal PJSIP
-        </button>
+        
+        <div className="flex items-center gap-3">
+            <span className="px-3 py-1.5 bg-slate-900 text-white border border-slate-700 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-sm">
+              res_pjsip
+            </span>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-md shadow-blue-600/20"
+            >
+              <Plus className="w-4 h-4" /> Provisionar Ramal
+            </button>
+        </div>
       </div>
 
       {/* Filter / Search Bar */}

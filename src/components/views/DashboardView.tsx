@@ -36,109 +36,105 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
 }) => {
   return (
-    <div className="space-y-6">
-      {/* Top Banner / Hero Context */}
-      <div className="bg-gradient-to-r from-blue-700 via-blue-600 to-sky-500 p-6 rounded-2xl border border-blue-400/50 shadow-lg shadow-blue-600/20 flex flex-col md:flex-row md:items-center justify-between gap-4 relative overflow-hidden">
-        {/* Abstract background shapes */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
-        <div className="absolute bottom-0 left-10 w-40 h-40 bg-sky-300/20 rounded-full blur-2xl translate-y-1/2 pointer-events-none" />
-
-        <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/20 text-blue-50 border border-white/20 backdrop-blur-sm">
-              Operação Nacional Brasil
-            </span>
-            <span className="text-xs text-blue-100 font-mono">Asterisk 20.17 LTS Puro • Google Gemini</span>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight drop-shadow-sm">
-            Central de Controle Enlace-PBX
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      {/* Premium Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+        <div>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+            <Radio className="w-8 h-8 text-blue-600 fill-blue-600" />
+            Central de Operações Enlace-PBX
           </h1>
-          <p className="text-sm text-blue-50/90 mt-1.5 max-w-2xl leading-relaxed">
-            Telefonia IP corporativa com núcleo Asterisk aberto, orquestração de canais via ARI e agentes de voz inteligentes integrados ao Google Gemini Live API.
+          <p className="text-sm font-medium text-slate-500 mt-1">
+            Plataforma de Telefonia IP baseada no núcleo Asterisk 20.17 LTS e integração nativa ao Google Gemini Live.
           </p>
         </div>
-
-        <div className="flex items-center gap-2.5 relative z-10 shrink-0 mt-2 md:mt-0">
-          <button
-            onClick={() => onOpenWebphone('9001')}
-            className="px-4 py-2.5 bg-white text-blue-700 hover:bg-blue-50 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-black/10 transition-all duration-300 hover:scale-105 active:scale-95"
-          >
-            <Bot className="w-4 h-4 text-blue-600" />
-            Ligar para MaIA (IA)
-          </button>
-          <button
-            onClick={() => onNavigate('extensions')}
-            className="px-4 py-2.5 bg-blue-800/40 hover:bg-blue-800/60 text-white font-semibold rounded-xl text-xs border border-white/20 backdrop-blur-sm transition-all duration-300 hover:scale-105 active:scale-95"
-          >
-            Gerenciar Ramais
-          </button>
+        
+        <div className="flex items-center gap-3">
+            <button
+              onClick={() => onNavigate('extensions')}
+              className="px-5 py-2.5 bg-white text-slate-700 hover:bg-slate-50 font-bold rounded-xl text-sm border border-slate-200 transition-all flex items-center gap-2 shadow-sm"
+            >
+              Gerenciar Extensões
+            </button>
+            <button
+              onClick={() => onOpenWebphone('9001')}
+              className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-xl text-sm border border-blue-700 transition-all flex items-center gap-2 shadow-md shadow-blue-600/20"
+            >
+              <Bot className="w-4 h-4" /> Discar para Agente IA
+            </button>
         </div>
       </div>
 
-      {/* Primary KPI Metrics Grid */}
+      {/* NOC / Wallboard KPI Metrics Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Metric 1 */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-2">
-            <span>Chamadas Hoje</span>
-            <PhoneCall className="w-4 h-4 text-blue-600" />
+        <div className="bg-slate-900 rounded-2xl p-5 relative overflow-hidden flex items-center gap-4 border border-slate-800 shadow-lg group hover:border-blue-500/50 transition-colors">
+          <div className="absolute right-0 top-0 w-24 h-24 bg-blue-500/10 rounded-bl-full -mr-4 -mt-4 z-0 transition-transform group-hover:scale-110" />
+          <div className="w-12 h-12 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center relative z-10 border border-blue-500/30">
+            <PhoneCall className="w-6 h-6" />
           </div>
-          <div className="text-2xl font-black text-slate-900 font-mono">
-            {metrics?.callsToday ?? 35}
-          </div>
-          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-blue-600 font-medium">
-            <span className="flex items-center">
-              <ArrowUpRight className="w-3.5 h-3.5" />
-              {metrics?.callsAnswered ?? 30} atendidas
-            </span>
-            <span className="text-slate-300">•</span>
-            <span className="text-rose-500">{metrics?.callsMissed ?? 5} perdidas</span>
+          <div className="relative z-10 flex-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Tráfego Hoje</div>
+            <div className="text-2xl font-black text-white font-mono flex items-end gap-2">
+              {metrics?.callsToday ?? 35} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">chamadas</span>
+            </div>
+            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-emerald-400 font-bold">
+              <ArrowUpRight className="w-3 h-3" /> {(metrics?.callsAnswered ?? 30)} ACD
+            </div>
           </div>
         </div>
 
         {/* Metric 2 */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-2">
-            <span>Canais ARI Ativos</span>
-            <Activity className="w-4 h-4 text-teal-600" />
+        <div className="bg-slate-900 rounded-2xl p-5 relative overflow-hidden flex items-center gap-4 border border-slate-800 shadow-lg group hover:border-cyan-500/50 transition-colors">
+          <div className="absolute right-0 top-0 w-24 h-24 bg-cyan-500/10 rounded-bl-full -mr-4 -mt-4 z-0 transition-transform group-hover:scale-110" />
+          <div className="w-12 h-12 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center relative z-10 border border-cyan-500/30">
+            <Activity className="w-6 h-6" />
           </div>
-          <div className="text-2xl font-black text-slate-900 font-mono flex items-center gap-2">
-            <span>{channels.length}</span>
-            {channels.length > 0 && <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-ping" />}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-2 flex items-center gap-1 font-mono">
-            <span>{channels.filter((c) => c.aiBridgeActive).length} canal em Stasis com Gemini</span>
+          <div className="relative z-10 flex-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 flex justify-between items-center">
+              Canais ARI
+              {channels.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping mr-1" />}
+            </div>
+            <div className="text-2xl font-black text-white font-mono flex items-end gap-2">
+              {channels.length} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">ativos</span>
+            </div>
+            <div className="mt-1 text-[10px] text-cyan-400 font-mono">
+              {channels.filter((c) => c.aiBridgeActive).length} STASIS/RAG
+            </div>
           </div>
         </div>
 
         {/* Metric 3 */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-2">
-            <span>Ramais PJSIP Online</span>
-            <Users className="w-4 h-4 text-blue-600" />
+        <div className="bg-slate-900 rounded-2xl p-5 relative overflow-hidden flex items-center gap-4 border border-slate-800 shadow-lg group hover:border-emerald-500/50 transition-colors">
+          <div className="absolute right-0 top-0 w-24 h-24 bg-emerald-500/10 rounded-bl-full -mr-4 -mt-4 z-0 transition-transform group-hover:scale-110" />
+          <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center relative z-10 border border-emerald-500/30">
+            <Users className="w-6 h-6" />
           </div>
-          <div className="text-2xl font-black text-slate-900 font-mono">
-            {metrics?.extensionsOnline ?? 4}
-            <span className="text-xs text-slate-500 font-normal ml-1">/ {metrics?.extensionsTotal ?? 5}</span>
-          </div>
-          <div className="text-[11px] text-blue-600 mt-2 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>WebRTC e SIP Realtime ativos</span>
+          <div className="relative z-10 flex-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">SIP Endpoints</div>
+            <div className="text-2xl font-black text-white font-mono flex items-end gap-2">
+              {metrics?.extensionsOnline ?? 4} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">/ {metrics?.extensionsTotal ?? 5} online</span>
+            </div>
+            <div className="mt-1 text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+               <CheckCircle2 className="w-3 h-3" /> WebRTC OK
+            </div>
           </div>
         </div>
 
         {/* Metric 4 */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-medium mb-2">
-            <span>Troncos SIP Operadoras</span>
-            <Radio className="w-4 h-4 text-blue-600" />
+        <div className="bg-slate-900 rounded-2xl p-5 relative overflow-hidden flex items-center gap-4 border border-slate-800 shadow-lg group hover:border-purple-500/50 transition-colors">
+          <div className="absolute right-0 top-0 w-24 h-24 bg-purple-500/10 rounded-bl-full -mr-4 -mt-4 z-0 transition-transform group-hover:scale-110" />
+          <div className="w-12 h-12 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center relative z-10 border border-purple-500/30">
+            <Radio className="w-6 h-6" />
           </div>
-          <div className="text-2xl font-black text-slate-900 font-mono">
-            {metrics?.trunksOnline ?? 3}
-            <span className="text-xs text-slate-500 font-normal ml-1">/ {metrics?.trunksTotal ?? 3}</span>
-          </div>
-          <div className="text-[11px] text-slate-500 mt-2 font-mono">
-            Vivo Fibra • Claro 0800 • Algar
+          <div className="relative z-10 flex-1">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Gateway PJSIP</div>
+            <div className="text-2xl font-black text-white font-mono flex items-end gap-2">
+              {metrics?.trunksOnline ?? 3} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">/ {metrics?.trunksTotal ?? 3} troncos</span>
+            </div>
+            <div className="mt-1 text-[10px] text-slate-500 font-mono truncate">
+               Vivo Fibra / Algar
+            </div>
           </div>
         </div>
       </div>
