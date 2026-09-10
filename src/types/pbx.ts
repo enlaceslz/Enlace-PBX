@@ -124,7 +124,7 @@ export interface AiProvider {
   id: string;
   tenantId: string;
   name: string;
-  providerType: 'gemini_api' | 'gemini_live' | 'vertex_ai' | 'custom';
+  providerType: 'gemini_api' | 'gemini_live' | 'vertex_ai' | '9router' | 'custom';
   baseUrl?: string;
   apiKeyMasked: string;
   googleProjectId?: string;
