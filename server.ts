@@ -41,6 +41,15 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------------------
+  // Billing API
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/billing/:tenantId', (req, res) => {
+    const billing = db.billing.find(b => b.tenantId === req.params.tenantId);
+    if (!billing) return res.status(404).json({ error: 'Billing record not found' });
+    res.json(billing);
+  });
+
+  // -------------------------------------------------------------------------
   // Campaigns API
   // -------------------------------------------------------------------------
   app.get('/api/v1/campaigns', (req, res) => {

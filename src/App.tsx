@@ -9,6 +9,7 @@ import { OmnichannelView } from './components/views/OmnichannelView';
 import { CrmHubView } from './components/views/CrmHubView';
 import { CampaignsView } from './components/views/CampaignsView';
 import { QuickSetupView } from './components/views/QuickSetupView';
+import { BillingView } from './components/views/BillingView';
 import { ExtensionsView } from './components/views/ExtensionsView';
 import { TrunksView } from './components/views/TrunksView';
 import { RoutesView } from './components/views/RoutesView';
@@ -18,6 +19,7 @@ import { CdrAndRecordingsView } from './components/views/CdrAndRecordingsView';
 import { AiGatewayView } from './components/views/AiGatewayView';
 import { AsteriskCoreView } from './components/views/AsteriskCoreView';
 import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
+import { HealthCheckView } from './components/views/HealthCheckView';
 import {
   Tenant,
   User,
@@ -195,6 +197,8 @@ export default function App() {
         return <CrmHubView />;
       case 'campaigns':
         return <CampaignsView />;
+      case 'billing':
+        return <BillingView />;
       case 'quick_setup':
         return <QuickSetupView />;
       case 'extensions':
@@ -363,17 +367,7 @@ export default function App() {
           />
         );
       case 'health_check':
-        return (
-          <AdminAndSecurityView
-            users={users}
-            tenants={tenants}
-            extensions={extensions}
-            auditLogs={auditLogs}
-            health={health}
-            activeSubTab="health_check"
-            onRefresh={loadAllData}
-          />
-        );
+        return <HealthCheckView />;
       default:
         return (
           <DashboardView

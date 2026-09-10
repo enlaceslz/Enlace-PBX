@@ -55,6 +55,7 @@ export type ActiveView =
   | 'users'
   | 'tenants'
   | 'audit_logs'
+  | 'billing'
   | 'health_check';
 
 interface SidebarProps {
@@ -123,6 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
         { id: 'quick_setup' as ActiveView, label: 'Quick Setup Wizard', icon: Zap },
         { id: 'users' as ActiveView, label: 'Usuários & RBAC', icon: Users },
         { id: 'tenants' as ActiveView, label: 'Empresas (Multi-Tenant)', icon: Building },
+        { id: 'billing' as ActiveView, label: 'Faturamento & Custos', icon: FileText },
         { id: 'audit_logs' as ActiveView, label: 'Auditoria LGPD', icon: ShieldAlert },
         { id: 'health_check' as ActiveView, label: 'Health Check do PBX', icon: HeartPulse },
       ],

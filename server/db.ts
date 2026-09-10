@@ -4,7 +4,7 @@ export interface CrmProvider {
   id: string;
   tenantId: string;
   name: string;
-  type: 'hubspot' | 'pipedrive' | 'rdstation' | 'salesforce' | 'zoho';
+  type: 'hubspot' | 'pipedrive' | 'rdstation' | 'salesforce' | 'zoho' | 'odoo' | 'suitecrm' | 'twenty' | 'espocrm' | 'basaltcrm';
   isConnected: boolean;
   syncedAt?: string;
   config: Record<string, any>;
@@ -317,7 +317,45 @@ export interface SystemSnapshot {
   data: string; // JSON stringified state of extensions, trunks, routes, etc.
 }
 
+export interface TenantBilling {
+  tenantId: string;
+  plan: 'prepaid' | 'postpaid';
+  balance: number;
+  currency: string;
+  currentMonthCosts: {
+    telephony: number;
+    aiTokens: number;
+    omnichannel: number;
+    licenses: number;
+  };
+  recentInvoices: {
+    id: string;
+    date: string;
+    amount: number;
+    status: 'paid' | 'pending' | 'overdue';
+  }[];
+}
+
 export class Database {
+  billing: TenantBilling[] = [
+    {
+      tenantId: 'tenant-enlace-matriz',
+      plan: 'prepaid',
+      balance: 1450.75,
+      currency: 'BRL',
+      currentMonthCosts: {
+        telephony: 345.20,
+        aiTokens: 128.50,
+        omnichannel: 90.00,
+        licenses: 150.00,
+      },
+      recentInvoices: [
+        { id: 'INV-2026-08', date: '2026-08-01', amount: 850.00, status: 'paid' },
+        { id: 'INV-2026-07', date: '2026-07-01', amount: 790.30, status: 'paid' },
+      ]
+    }
+  ];
+
   outboundCampaigns: OutboundCampaign[] = [
     {
       id: 'camp-001',
@@ -1248,6 +1286,46 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       isConnected: false,
       config: {},
     },
+    {
+      id: 'crm-suitecrm-1',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'SuiteCRM (Open Source)',
+      type: 'suitecrm',
+      isConnected: false,
+      config: { url: 'https://crm.meudominio.com.br' },
+    },
+    {
+      id: 'crm-odoo-1',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'Odoo ERP (Community)',
+      type: 'odoo',
+      isConnected: false,
+      config: { url: 'https://erp.meudominio.com.br' },
+    },
+    {
+      id: 'crm-twenty-1',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'Twenty CRM',
+      type: 'twenty',
+      isConnected: false,
+      config: { url: 'https://app.twenty.com', apiKey: '' },
+    },
+    {
+      id: 'crm-espocrm-1',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'EspoCRM',
+      type: 'espocrm',
+      isConnected: false,
+      config: { url: 'https://meu-espo.com', apiKey: '' },
+    },
+    {
+      id: 'crm-basalt-1',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'BasaltCRM',
+      type: 'basaltcrm',
+      isConnected: false,
+      config: { url: 'https://basalt.meudominio.com.br', apiKey: '' },
+    }
   ];
 
   crmContacts: CrmContact[] = [
