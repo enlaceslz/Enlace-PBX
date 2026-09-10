@@ -86,7 +86,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             <h1 className="text-xl font-black text-slate-900 tracking-tight">
               Asterisk 20 LTS & Infraestrutura de Telefonia
             </h1>
-            <span className="text-[10px] bg-sky-950 text-blue-700 border border-sky-800/80 px-2 py-0.5 rounded-full font-mono">
+            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-mono">
               Pure Open Source Core
             </span>
           </div>
@@ -160,7 +160,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
 
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
               <span className="text-[10px] text-slate-500 font-mono uppercase block">STREAMING DE ÁUDIO</span>
-              <div className="text-lg font-bold text-purple-400 font-mono mt-1">app_audiosocket</div>
+              <div className="text-lg font-bold text-purple-600 font-mono mt-1">app_audiosocket</div>
               <p className="text-[10px] text-slate-500 mt-1">24kHz PCM linear bidirecional</p>
             </div>
           </div>

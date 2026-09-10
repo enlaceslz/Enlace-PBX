@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Bot,
   Sparkles,
@@ -14,6 +14,12 @@ import {
   Code,
   CheckCircle2,
   Lock,
+  Edit3,
+  Save,
+  X,
+  FileText,
+  Check,
+  Settings,
 } from 'lucide-react';
 import {
   AiAgent,
@@ -49,6 +55,173 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
   const [selectedTool, setSelectedTool] = useState<AiTool | null>(null);
   const [testToolArgs, setTestToolArgs] = useState('{"documento": "12345678900"}');
   const [toolSimResult, setToolSimResult] = useState<any>(null);
+
+  // Edit Selected Agent State
+  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
+  const [editPrompt, setEditPrompt] = useState('');
+  const [editGreeting, setEditGreeting] = useState('');
+  const [editVoice, setEditVoice] = useState('');
+  const [editModel, setEditModel] = useState('');
+  const [editTransferExt, setEditTransferExt] = useState('');
+  const [isSavingAgent, setIsSavingAgent] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
+  // Sync edit states when selectedAgent changes
+  useEffect(() => {
+    if (selectedAgent) {
+      setEditPrompt(selectedAgent.systemInstruction);
+      setEditGreeting(selectedAgent.initialGreeting);
+      setEditVoice(selectedAgent.voice);
+      setEditModel(selectedAgent.model);
+      setEditTransferExt(selectedAgent.transferExtension);
+      setIsEditingPrompt(false);
+    }
+  }, [selectedAgent]);
+
+  // Create Agent Modal State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const [createFormData, setCreateFormData] = useState({
+    name: '',
+    description: '',
+    model: 'gemini-2.5-flash',
+    voice: 'Zephyr',
+    initialGreeting: 'Olá! Sou seu assistente virtual da Enlace Telecom. Como posso ajudar hoje?',
+    systemInstruction: `Você é um assistente virtual telefônico da Enlace Telecom, atendendo chamadas no Asterisk 20.
+Fale em português brasileiro culto, objetivo e empático.
+Suas respostas devem ser curtas (1 a 2 frases) para manter o diálogo natural.
+Se o chamador solicitar um atendente humano, acione a ferramenta transferir_chamada.`,
+    transferExtension: '4101',
+    fallbackAction: 'transfer_human' as const,
+    tools: ['tool-consultar-cliente', 'tool-transferir-chamada', 'tool-encerrar-chamada'],
+    knowledgeSources: knowledge.map((k) => k.id),
+    allowBargeIn: true,
+    temperature: 0.3,
+  });
+
+  const agentPresets = [
+    {
+      title: 'SAC & Suporte N1',
+      desc: 'Atendimento e triagem de problemas técnicos com transbordo.',
+      greeting: 'Olá! Sou a assistente virtual de Suporte da Enlace. Como posso ajudar com sua conexão ou ramais?',
+      instruction: `Você é a atendente de suporte técnico e SAC N1. Responda em português brasileiro com gentileza e clareza. Use consultar_cliente para identificar a conta e abra ticket ou transfira para o ramal 4102 se não resolver.`,
+      voice: 'Zephyr',
+      model: 'gemini-2.5-flash',
+      transfer: '4102',
+    },
+    {
+      title: 'Cobrança & Acordo Financeiro',
+      desc: 'Negociação humanizada e envio de 2ª via / Pix.',
+      greeting: 'Olá! Sou da Central Financeira da Enlace Telecom. Gostaria de tratar sobre a regularização de sua fatura.',
+      instruction: `Você é uma especialista em negociação financeira amigável. Identifique o chamador com consultar_cliente, informe o status com consultar_fatura e ofereça pagamento via Pix ou código de barras.`,
+      voice: 'Charon',
+      model: 'gemini-2.5-flash',
+      transfer: '4101',
+    },
+    {
+      title: 'Agendamento & Recepção',
+      desc: 'Confirmação e marcação de visitas e reuniões.',
+      greeting: 'Olá! Estou ligando da Central de Agendamentos da Enlace para confirmar o seu horário.',
+      instruction: `Você é a assistente de agendamentos e recepção corporativa. Confirme dados, tire dúvidas sobre horário de funcionamento e transfira para o ramal 4101 se houver pedidos especiais.`,
+      voice: 'Aoede',
+      model: 'gemini-2.5-flash',
+      transfer: '4101',
+    },
+    {
+      title: 'Qualificação SDR Comercial',
+      desc: 'Pré-vendas, dimensionamento de troncos/ramais.',
+      greeting: 'Olá! Sou o especialista comercial da Enlace Telecom. Como podemos modernizar sua telefonia IP?',
+      instruction: `Você é um pré-vendedor corporativo. Entenda quantos ramais a empresa do cliente necessita e se já possuem link dedicado. Em seguida, transfira para o executivo de contas no ramal 4103.`,
+      voice: 'Puck',
+      model: 'gemini-2.5-flash',
+      transfer: '4103',
+    },
+  ];
+
+  const handleApplyPreset = (p: typeof agentPresets[0]) => {
+    setCreateFormData((prev) => ({
+      ...prev,
+      name: p.title,
+      description: p.desc,
+      initialGreeting: p.greeting,
+      systemInstruction: p.instruction,
+      voice: p.voice,
+      model: p.model,
+      transferExtension: p.transfer,
+    }));
+  };
+
+  const handleSaveAgentChanges = async () => {
+    if (!selectedAgent) return;
+    setIsSavingAgent(true);
+    try {
+      const payload = {
+        ...selectedAgent,
+        systemInstruction: editPrompt,
+        initialGreeting: editGreeting,
+        voice: editVoice,
+        model: editModel,
+        transferExtension: editTransferExt,
+      };
+      const res = await fetch(`/api/v1/ai/agents/${selectedAgent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSelectedAgent(updated);
+        setIsEditingPrompt(false);
+        setSaveSuccessMsg('Parâmetros e Prompt do Agente atualizados com sucesso no Asterisk Stasis!');
+        setTimeout(() => setSaveSuccessMsg(null), 4000);
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Erro ao salvar agente:', err);
+    } finally {
+      setIsSavingAgent(false);
+    }
+  };
+
+  const handleCreateAgentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createFormData.name) return;
+    setIsCreatingAgent(true);
+    try {
+      const res = await fetch('/api/v1/ai/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: createFormData.name,
+          description: createFormData.description,
+          providerId: providers[0]?.id || 'provider-gemini-live',
+          model: createFormData.model,
+          voice: createFormData.voice,
+          language: 'pt-BR',
+          systemInstruction: createFormData.systemInstruction,
+          initialGreeting: createFormData.initialGreeting,
+          temperature: createFormData.temperature,
+          tools: createFormData.tools,
+          knowledgeSources: createFormData.knowledgeSources,
+          allowBargeIn: createFormData.allowBargeIn,
+          silenceTimeoutSeconds: 5,
+          maxSessionMinutes: 15,
+          transferExtension: createFormData.transferExtension,
+          fallbackAction: createFormData.fallbackAction,
+        }),
+      });
+      if (res.ok) {
+        const newAgent = await res.json();
+        setIsCreateModalOpen(false);
+        onRefresh();
+        setSelectedAgent(newAgent);
+      }
+    } catch (err) {
+      console.error('Erro ao criar agente:', err);
+    } finally {
+      setIsCreatingAgent(false);
+    }
+  };
 
   const handleSimulateTool = (tool: AiTool) => {
     setSelectedTool(tool);
@@ -139,10 +312,15 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between mb-3">
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                Agentes Cadastrados
+                Agentes Cadastrados ({agents.length})
               </span>
-              <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Novo Agente">
-                <Plus className="w-4 h-4" />
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="px-2.5 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg flex items-center gap-1 shadow-sm transition"
+                title="Cadastrar Novo Agente"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Novo Agente
               </button>
             </div>
             {agents.map((agent) => (
@@ -157,7 +335,7 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold">
-                    Ramal / DID: 9001
+                    Ramal / DID: {agent.transferExtension ? `900${agent.id.slice(-1) || '1'}` : '9001'}
                   </span>
                   <span className="text-[11px] text-green-600 font-semibold flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Ativo
@@ -186,41 +364,121 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
           {/* Agent Configuration Details Panel */}
           {selectedAgent && (
             <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">{selectedAgent.name}</h2>
+                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    {selectedAgent.name}
+                    <span className="text-[10px] bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-sans font-semibold">
+                      Operacional
+                    </span>
+                  </h2>
                   <p className="text-xs text-slate-500">
-                    Configuração detalhada do fluxo de voz com Asterisk Stasis
+                    Configuração detalhada do fluxo de voz com Asterisk Stasis & Gemini Live
                   </p>
                 </div>
-                <button
-                  onClick={() => onOpenWebphone('9001')}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  Iniciar Chamada de Teste
-                </button>
+                <div className="flex items-center gap-2">
+                  {!isEditingPrompt ? (
+                    <button
+                      onClick={() => setIsEditingPrompt(true)}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-slate-600" />
+                      Editar Agente
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setIsEditingPrompt(false)}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={handleSaveAgentChanges}
+                        disabled={isSavingAgent}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow transition disabled:opacity-50"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        {isSavingAgent ? 'Salvando...' : 'Salvar Alterações'}
+                      </button>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => onOpenWebphone('9001')}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition shadow-sm"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    Iniciar Chamada
+                  </button>
+                </div>
               </div>
+
+              {saveSuccessMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>{saveSuccessMsg}</span>
+                </div>
+              )}
 
               {/* Engine Parameters */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <span className="text-slate-500 font-mono text-[10px] block">MODELO GEMINI</span>
-                  <span className="text-slate-700 font-mono font-bold">{selectedAgent.model}</span>
+                  {!isEditingPrompt ? (
+                    <span className="text-slate-700 font-mono font-bold">{selectedAgent.model}</span>
+                  ) : (
+                    <select
+                      value={editModel}
+                      onChange={(e) => setEditModel(e.target.value)}
+                      className="mt-1 w-full text-xs font-mono bg-white border border-slate-300 rounded px-1.5 py-1 text-slate-800"
+                    >
+                      <option value="gemini-2.5-flash">gemini-2.5-flash (Baixa Latência)</option>
+                      <option value="gemini-2.5-pro">gemini-2.5-pro (Raciocínio Avançado)</option>
+                      <option value="gemini-3.1-flash-live-preview">gemini-3.1-flash-live-preview</option>
+                    </select>
+                  )}
                 </div>
+
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <span className="text-slate-500 font-mono text-[10px] block">VOZ SINTETIZADA</span>
-                  <span className="text-slate-700 font-bold">{selectedAgent.voice} (pt-BR)</span>
+                  {!isEditingPrompt ? (
+                    <span className="text-slate-700 font-bold">{selectedAgent.voice} (pt-BR)</span>
+                  ) : (
+                    <select
+                      value={editVoice}
+                      onChange={(e) => setEditVoice(e.target.value)}
+                      className="mt-1 w-full text-xs bg-white border border-slate-300 rounded px-1.5 py-1 text-slate-800"
+                    >
+                      <option value="Zephyr">Zephyr (Equilibrada/Profissional)</option>
+                      <option value="Puck">Puck (Jovem/Dinâmica)</option>
+                      <option value="Charon">Charon (Sóbria/Institucional)</option>
+                      <option value="Aoede">Aoede (Acolhedora/Melódica)</option>
+                      <option value="Kore">Kore (Calma/Empática)</option>
+                      <option value="Fenrir">Fenrir (Firme/Confiante)</option>
+                    </select>
+                  )}
                 </div>
+
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-slate-500 font-mono text-[10px] block">BARGE-IN</span>
+                  <span className="text-slate-500 font-mono text-[10px] block">BARGE-IN (INTERRUPÇÃO)</span>
                   <span className="text-blue-600 font-bold">Habilitado</span>
                 </div>
+
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <span className="text-slate-500 font-mono text-[10px] block">TRANSBORDO RAMAL</span>
-                  <span className="text-teal-600 font-mono font-bold">
-                    Ramal {selectedAgent.transferExtension}
-                  </span>
+                  {!isEditingPrompt ? (
+                    <span className="text-teal-600 font-mono font-bold">
+                      Ramal {selectedAgent.transferExtension}
+                    </span>
+                  ) : (
+                    <input
+                      type="text"
+                      value={editTransferExt}
+                      onChange={(e) => setEditTransferExt(e.target.value)}
+                      className="mt-1 w-full text-xs font-mono bg-white border border-slate-300 rounded px-2 py-1 text-slate-800"
+                      placeholder="Ex: 4101"
+                    />
+                  )}
                 </div>
               </div>
 
@@ -229,9 +487,19 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
                 <label className="text-slate-500 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
                   System Instruction / Prompt do Sistema (pt-BR):
                 </label>
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs text-slate-700 font-mono leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">
-                  {selectedAgent.systemInstruction}
-                </div>
+                {!isEditingPrompt ? (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs text-slate-700 font-mono leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    {selectedAgent.systemInstruction}
+                  </div>
+                ) : (
+                  <textarea
+                    rows={7}
+                    value={editPrompt}
+                    onChange={(e) => setEditPrompt(e.target.value)}
+                    className="w-full bg-slate-50 p-3 rounded-xl border border-blue-400 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="Defina o comportamento e restrições de fala do agente em português..."
+                  />
+                )}
               </div>
 
               {/* Initial Greeting */}
@@ -239,9 +507,19 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
                 <label className="text-slate-500 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
                   Mensagem de Saudação Inicial:
                 </label>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700">
-                  "{selectedAgent.initialGreeting}"
-                </div>
+                {!isEditingPrompt ? (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700">
+                    "{selectedAgent.initialGreeting}"
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={editGreeting}
+                    onChange={(e) => setEditGreeting(e.target.value)}
+                    className="w-full bg-slate-50 p-2.5 rounded-xl border border-slate-300 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="Primeira frase falada pelo agente após o atendimento"
+                  />
+                )}
               </div>
 
               {/* Tools Active */}
@@ -478,6 +756,260 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {/* CREATE AGENT MODAL */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col my-auto">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">
+                    Cadastrar Novo Agente de Voz Gemini
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Agente autônomo com suporte a Barge-in, Function Calling e transbordo Asterisk
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleCreateAgentSubmit} className="p-5 space-y-4 overflow-y-auto">
+              {/* Presets */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">
+                  Modelos Prontos (Presets Brasileiros):
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {agentPresets.map((p, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleApplyPreset(p)}
+                      className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-left transition group"
+                    >
+                      <div className="text-xs font-bold text-slate-800 group-hover:text-blue-600">
+                        {p.title}
+                      </div>
+                      <div className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">
+                        {p.desc}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Basic Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Nome do Agente *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={createFormData.name}
+                    onChange={(e) =>
+                      setCreateFormData({ ...createFormData, name: e.target.value })
+                    }
+                    className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="Ex: MaIA Cobrança & Negociação"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Ramal de Transbordo (Humano)
+                  </label>
+                  <input
+                    type="text"
+                    value={createFormData.transferExtension}
+                    onChange={(e) =>
+                      setCreateFormData({
+                        ...createFormData,
+                        transferExtension: e.target.value,
+                      })
+                    }
+                    className="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="Ex: 4101"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Descrição do Agente
+                </label>
+                <input
+                  type="text"
+                  value={createFormData.description}
+                  onChange={(e) =>
+                    setCreateFormData({ ...createFormData, description: e.target.value })
+                  }
+                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Ex: Realiza atendimento receptivo com validação de CPF e envio de Pix"
+                />
+              </div>
+
+              {/* Model and Voice */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Modelo Gemini
+                  </label>
+                  <select
+                    value={createFormData.model}
+                    onChange={(e) =>
+                      setCreateFormData({ ...createFormData, model: e.target.value })
+                    }
+                    className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
+                  >
+                    <option value="gemini-2.5-flash">gemini-2.5-flash (Recomendado - Ultra Rápido)</option>
+                    <option value="gemini-2.5-pro">gemini-2.5-pro (Raciocínio Complexo)</option>
+                    <option value="gemini-3.1-flash-live-preview">gemini-3.1-flash-live-preview (Streaming Direto)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Voz Neural (pt-BR)
+                  </label>
+                  <select
+                    value={createFormData.voice}
+                    onChange={(e) =>
+                      setCreateFormData({ ...createFormData, voice: e.target.value })
+                    }
+                    className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
+                  >
+                    <option value="Zephyr">Zephyr (Profissional / Equilibrada)</option>
+                    <option value="Puck">Puck (Jovem / Dinâmica)</option>
+                    <option value="Charon">Charon (Sóbria / Institucional)</option>
+                    <option value="Aoede">Aoede (Acolhedora / Empática)</option>
+                    <option value="Kore">Kore (Calma / Cuidadosa)</option>
+                    <option value="Fenrir">Fenrir (Firme / Assertiva)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Initial Greeting */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Mensagem de Saudação Inicial (Áudio de Atendimento)
+                </label>
+                <input
+                  type="text"
+                  value={createFormData.initialGreeting}
+                  onChange={(e) =>
+                    setCreateFormData({
+                      ...createFormData,
+                      initialGreeting: e.target.value,
+                    })
+                  }
+                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Primeira frase falada pelo agente"
+                />
+              </div>
+
+              {/* System Instruction */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  System Instruction / Prompt de Comportamento (pt-BR)
+                </label>
+                <textarea
+                  rows={5}
+                  value={createFormData.systemInstruction}
+                  onChange={(e) =>
+                    setCreateFormData({
+                      ...createFormData,
+                      systemInstruction: e.target.value,
+                    })
+                  }
+                  className="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 leading-relaxed"
+                  placeholder="Instruções para o modelo Gemini com regras de atendimento telefônico..."
+                />
+              </div>
+
+              {/* Tools Selection */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                  Ferramentas Vinculadas (Function Calling)
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {tools.map((tool) => {
+                    const isChecked = createFormData.tools.includes(tool.id) || createFormData.tools.includes(tool.name);
+                    return (
+                      <label
+                        key={tool.id}
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs cursor-pointer transition ${
+                          isChecked
+                            ? 'bg-cyan-50/70 border-cyan-300 text-cyan-900'
+                            : 'bg-slate-50 border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setCreateFormData({
+                                ...createFormData,
+                                tools: [...createFormData.tools, tool.id],
+                              });
+                            } else {
+                              setCreateFormData({
+                                ...createFormData,
+                                tools: createFormData.tools.filter(
+                                  (t) => t !== tool.id && t !== tool.name
+                                ),
+                              });
+                            }
+                          }}
+                          className="mt-0.5 rounded text-blue-600"
+                        />
+                        <div>
+                          <div className="font-mono font-bold">{tool.name}</div>
+                          <div className="text-[10px] text-slate-500 leading-tight">
+                            {tool.description}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingAgent}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  {isCreatingAgent ? 'Registrando...' : 'Cadastrar Agente'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

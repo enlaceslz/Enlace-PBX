@@ -193,10 +193,17 @@ export default function App() {
             queues={queues}
             ringGroups={ringGroups}
             onOpenWebphone={handleOpenWebphone}
+            onRefresh={loadAllData}
           />
         );
       case 'ivr':
-        return <IvrView ivrs={ivrs} onOpenWebphone={handleOpenWebphone} />;
+        return (
+          <IvrView
+            ivrs={ivrs}
+            onOpenWebphone={handleOpenWebphone}
+            onRefresh={loadAllData}
+          />
+        );
       case 'cdr':
       case 'recordings':
       case 'transcriptions':
