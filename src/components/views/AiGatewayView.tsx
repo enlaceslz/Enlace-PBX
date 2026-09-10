@@ -229,84 +229,154 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      {/* Premium Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Gateway de Inteligência Artificial & Gemini Live
-            </h1>
-            <span className="text-[10px] bg-cyan-50 text-cyan-700 border border-cyan-200 px-2 py-0.5 rounded-full font-mono">
-              Google GenAI SDK • AudioSocket
-            </span>
-          </div>
-          <p className="text-xs text-slate-500">
-            Orquestração de agentes de voz conversacionais em português brasileiro com suporte a barge-in e function calling.
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+            <Bot className="w-8 h-8 text-blue-600 fill-blue-600" />
+            AI Gateway & Gemini Live
+          </h1>
+          <p className="text-sm font-medium text-slate-500 mt-1">
+            Orquestração de agentes de voz conversacionais e inteligência semântica integrados ao núcleo Asterisk PJSIP.
           </p>
         </div>
-
-        {/* Sub Navigation */}
-        <div className="flex bg-white p-1 rounded-xl border border-slate-200 self-start overflow-x-auto">
-          <button
-            onClick={() => setCurrentTab('agents')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
-              currentTab === 'agents'
-                ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Bot className="w-3.5 h-3.5" />
-            Agentes de Voz ({agents.length})
-          </button>
-          <button
-            onClick={() => setCurrentTab('providers')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
-              currentTab === 'providers'
-                ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Provedores de IA ({providers.length})
-          </button>
-          <button
-            onClick={() => setCurrentTab('tools')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
-              currentTab === 'tools'
-                ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Wrench className="w-3.5 h-3.5" />
-            Tools / APIs ({tools.length})
-          </button>
-          <button
-            onClick={() => setCurrentTab('knowledge')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
-              currentTab === 'knowledge'
-                ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            Base RAG ({knowledge.length})
-          </button>
-          <button
-            onClick={() => setCurrentTab('sessions')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
-              currentTab === 'sessions'
-                ? 'bg-blue-600 text-white shadow'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            Sessões Ativas ({sessions.length})
-          </button>
+        
+        <div className="flex items-center gap-3">
+            <span className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-sm">
+              <Sparkles className="w-4 h-4 text-blue-500" /> Google GenAI SDK
+            </span>
+            <span className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-sm">
+              <Zap className="w-4 h-4 text-purple-500" /> AudioSocket Realtime
+            </span>
         </div>
       </div>
 
-      {/* 1. AGENTS TAB */}
-      {currentTab === 'agents' && (
+      {/* KPI Stats Top Bar */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-slate-900 rounded-2xl p-5 relative overflow-hidden flex items-center gap-4 border border-slate-800 shadow-lg">
+          <div className="absolute right-0 top-0 w-24 h-24 bg-blue-500/10 rounded-bl-full -mr-4 -mt-4 z-0" />
+          <div className="w-12 h-12 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center relative z-10 border border-blue-500/30">
+            <Bot className="w-6 h-6" />
+          </div>
+          <div className="relative z-10">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Agentes Ativos</div>
+            <div className="text-2xl font-black text-white">{agents.length} <span className="text-[10px] font-mono text-slate-500 font-normal">/ ilimitado</span></div>
+          </div>
+        </div>
+        <div className="bg-slate-900 rounded-2xl p-5 relative overflow-hidden flex items-center gap-4 border border-slate-800 shadow-lg">
+          <div className="absolute right-0 top-0 w-24 h-24 bg-emerald-500/10 rounded-bl-full -mr-4 -mt-4 z-0" />
+          <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center relative z-10 border border-emerald-500/30">
+            <Activity className="w-6 h-6" />
+          </div>
+          <div className="relative z-10">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Sessões RAG (Live)</div>
+            <div className="text-2xl font-black text-white">{sessions.length} <span className="text-[10px] font-mono text-slate-500 font-normal">conexões</span></div>
+          </div>
+        </div>
+        <div className="bg-slate-900 rounded-2xl p-5 relative overflow-hidden flex items-center gap-4 border border-slate-800 shadow-lg">
+          <div className="absolute right-0 top-0 w-24 h-24 bg-purple-500/10 rounded-bl-full -mr-4 -mt-4 z-0" />
+          <div className="w-12 h-12 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center relative z-10 border border-purple-500/30">
+            <Wrench className="w-6 h-6" />
+          </div>
+          <div className="relative z-10">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Function Calling</div>
+            <div className="text-2xl font-black text-white">{tools.length} <span className="text-[10px] font-mono text-slate-500 font-normal">APIs plugadas</span></div>
+          </div>
+        </div>
+        <div className="bg-slate-900 rounded-2xl p-5 relative overflow-hidden flex items-center gap-4 border border-slate-800 shadow-lg">
+          <div className="absolute right-0 top-0 w-24 h-24 bg-rose-500/10 rounded-bl-full -mr-4 -mt-4 z-0" />
+          <div className="w-12 h-12 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center relative z-10 border border-rose-500/30">
+            <Clock className="w-6 h-6" />
+          </div>
+          <div className="relative z-10">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Latência TTY</div>
+            <div className="text-2xl font-black text-white">~355<span className="text-[10px] font-mono text-slate-500 font-normal ml-1">ms</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-8">
+        
+        {/* Sub Navigation Sidebar */}
+        <div className="lg:w-64 shrink-0 flex flex-col gap-2">
+          <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 px-2">Módulos de Orquestração</div>
+          
+          <button
+            onClick={() => setCurrentTab('agents')}
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group ${
+              currentTab === 'agents'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 border border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Bot className="w-5 h-5" /> Agentes de Voz
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'agents' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>{agents.length}</span>
+          </button>
+          
+          <button
+            onClick={() => setCurrentTab('providers')}
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group ${
+              currentTab === 'providers'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 border border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5" /> Provedores LLM
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'providers' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>{providers.length}</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('tools')}
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group ${
+              currentTab === 'tools'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 border border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Wrench className="w-5 h-5" /> Funções (Tools)
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'tools' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>{tools.length}</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('knowledge')}
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group ${
+              currentTab === 'knowledge'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 border border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <BookOpen className="w-5 h-5" /> Contextos RAG
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'knowledge' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>{knowledge.length}</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('sessions')}
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group mt-4 ${
+              currentTab === 'sessions'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                : 'bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Activity className="w-5 h-5" /> Live Monitor
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'sessions' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-emerald-100 group-hover:text-emerald-600'}`}>{sessions.length}</span>
+          </button>
+        </div>
+        
+        {/* Main Content Area */}
+        <div className="flex-1 min-w-0">
+          {/* 1. AGENTS TAB */}
+          {currentTab === 'agents' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Agents List */}
           <div className="space-y-3">
@@ -760,6 +830,8 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
           ))}
         </div>
       )}
+        </div>
+      </div>
       {/* CREATE AGENT MODAL */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">

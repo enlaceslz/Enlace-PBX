@@ -207,24 +207,25 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Asterisk 20 LTS & Infraestrutura de Telefonia
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+              <Server className="w-8 h-8 text-blue-600 fill-blue-600" />
+              Asterisk Core 20 LTS
             </h1>
-            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-mono">
-              Pure Open Source Core
+            <span className="px-2.5 py-1 bg-slate-900 text-white border border-slate-700 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ml-2">
+              <Radio className="w-3 h-3 text-emerald-400 animate-pulse" /> Motor SIP Ativo
             </span>
           </div>
-          <p className="text-xs text-slate-500">
-            Conexão com ARI (Asterisk REST Interface), geração de arquivos de configuração e script automatizado para Ubuntu/Debian.
+          <p className="text-sm font-medium text-slate-500 mt-1">
+            Gestão avançada do kernel, Asterisk REST Interface (ARI) e provisionamento via PJSIP.
           </p>
         </div>
 
         {/* Tab Controls */}
-        <div className="flex bg-white p-1 rounded-xl border border-slate-200 self-start">
+        <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shadow-sm self-start">
           <button
             onClick={() => setActiveTab('monitor')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
