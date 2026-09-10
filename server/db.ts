@@ -284,7 +284,64 @@ export interface AuditLog {
 }
 
 // Initial In-Memory Seed Data adhering to Brazilian context & Enlace Telecom standards
+export interface SystemSnapshot {
+  id: string;
+  tenantId: string;
+  name: string;
+  createdAt: string;
+  data: string; // JSON stringified state of extensions, trunks, routes, etc.
+}
+
 export class Database {
+  snapshots: SystemSnapshot[] = [];
+  
+  takeSnapshot(tenantId: string, name: string): SystemSnapshot {
+    const snap = {
+      id: `snap-${Date.now()}`,
+      tenantId,
+      name,
+      createdAt: new Date().toISOString(),
+      data: JSON.stringify({
+        extensions: this.extensions.filter(e => e.tenantId === tenantId),
+        trunks: this.trunks.filter(t => t.tenantId === tenantId),
+        routes: this.routes.filter(r => r.tenantId === tenantId),
+        ringGroups: this.ringGroups.filter(rg => rg.tenantId === tenantId),
+        queues: this.queues.filter(q => q.tenantId === tenantId),
+      })
+    };
+    this.snapshots.unshift(snap);
+    return snap;
+  }
+
+  rollbackSnapshot(snapshotId: string): boolean {
+    const snap = this.snapshots.find(s => s.id === snapshotId);
+    if (!snap) return false;
+    
+    try {
+      const data = JSON.parse(snap.data);
+      const tenantId = snap.tenantId;
+      
+      // Remove current tenant data
+      this.extensions = this.extensions.filter(e => e.tenantId !== tenantId);
+      this.trunks = this.trunks.filter(t => t.tenantId !== tenantId);
+      this.routes = this.routes.filter(r => r.tenantId !== tenantId);
+      this.ringGroups = this.ringGroups.filter(rg => rg.tenantId !== tenantId);
+      this.queues = this.queues.filter(q => q.tenantId !== tenantId);
+      
+      // Restore from snapshot
+      this.extensions.push(...data.extensions);
+      this.trunks.push(...data.trunks);
+      this.routes.push(...data.routes);
+      this.ringGroups.push(...data.ringGroups);
+      this.queues.push(...data.queues);
+      
+      return true;
+    } catch (e) {
+      console.error("Rollback failed", e);
+      return false;
+    }
+  }
+
   tenants: Tenant[] = [
     {
       id: 'tenant-enlace-matriz',

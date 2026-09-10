@@ -21,10 +21,18 @@ import {
   Server,
   Building,
   HeartPulse,
+  MonitorPlay,
+  Plug,
+  MessageSquare,
+  Zap,
 } from 'lucide-react';
 
 export type ActiveView =
   | 'dashboard'
+  | 'operation_dashboard'
+  | 'quick_setup'
+  | 'crm_hub'
+  | 'omnichannel'
   | 'extensions'
   | 'trunks'
   | 'routes'
@@ -59,6 +67,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       title: 'GERAL',
       items: [
         { id: 'dashboard' as ActiveView, label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'operation_dashboard' as ActiveView, label: 'NOC / Tempo Real', icon: MonitorPlay },
+      ],
+    },
+    {
+      title: 'CONTACT CENTER OMNICHANNEL',
+      items: [
+        { id: 'omnichannel' as ActiveView, label: 'Webchat & WhatsApp', icon: MessageSquare },
+        { id: 'crm_hub' as ActiveView, label: 'Integrações (CRM)', icon: Plug },
       ],
     },
     {
@@ -101,6 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
     {
       title: 'ADMINISTRAÇÃO & LGPD',
       items: [
+        { id: 'quick_setup' as ActiveView, label: 'Quick Setup Wizard', icon: Zap },
         { id: 'users' as ActiveView, label: 'Usuários & RBAC', icon: Users },
         { id: 'tenants' as ActiveView, label: 'Empresas (Multi-Tenant)', icon: Building },
         { id: 'audit_logs' as ActiveView, label: 'Auditoria LGPD', icon: ShieldAlert },

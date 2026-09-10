@@ -4,6 +4,10 @@ import { Navbar } from './components/Navbar';
 import { Sidebar, ActiveView } from './components/Sidebar';
 import { WebphoneModal } from './components/WebphoneModal';
 import { DashboardView } from './components/views/DashboardView';
+import { OperationDashboardView } from './components/views/OperationDashboardView';
+import { OmnichannelView } from './components/views/OmnichannelView';
+import { CrmHubView } from './components/views/CrmHubView';
+import { QuickSetupView } from './components/views/QuickSetupView';
 import { ExtensionsView } from './components/views/ExtensionsView';
 import { TrunksView } from './components/views/TrunksView';
 import { RoutesView } from './components/views/RoutesView';
@@ -181,6 +185,14 @@ export default function App() {
             onNavigate={(v) => setActiveView(v)}
           />
         );
+      case 'operation_dashboard':
+        return <OperationDashboardView channels={channels} metrics={metrics} />;
+      case 'omnichannel':
+        return <OmnichannelView />;
+      case 'crm_hub':
+        return <CrmHubView />;
+      case 'quick_setup':
+        return <QuickSetupView />;
       case 'extensions':
         return (
           <ExtensionsView

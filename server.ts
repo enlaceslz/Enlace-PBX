@@ -45,6 +45,103 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------------------
+  // Quick Setup (FASE 6)
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/setup/snapshots', (req, res) => {
+    res.json(db.snapshots);
+  });
+
+  app.post('/api/v1/setup/preview', (req, res) => {
+    const { prefix, quantity, startNumber, trunkName } = req.body;
+    const qty = parseInt(quantity) || 10;
+    const start = parseInt(startNumber) || 1;
+    
+    const previewExtensions = [];
+    for (let i = 0; i < qty; i++) {
+      const numStr = (start + i).toString().padStart(2, '0');
+      const ext = `${prefix}${numStr}`;
+      previewExtensions.push({ number: ext, name: `Ramal ${ext}` });
+    }
+    
+    res.json({
+      extensions: previewExtensions,
+      trunks: trunkName ? [{ name: trunkName, provider: 'SIP Genérico' }] : [],
+    });
+  });
+
+  app.post('/api/v1/setup/apply', (req, res) => {
+    const { tenantId, prefix, quantity, startNumber, trunkName } = req.body;
+    const tId = tenantId || 'tenant-enlace-matriz';
+    const qty = parseInt(quantity) || 10;
+    const start = parseInt(startNumber) || 1;
+
+    // Snapshot before applying
+    const snap = db.takeSnapshot(tId, `Pré-geração em massa (${prefix})`);
+
+    // Generate Extensions
+    const createdExtensions = [];
+    for (let i = 0; i < qty; i++) {
+      const numStr = (start + i).toString().padStart(2, '0');
+      const ext = `${prefix}${numStr}`;
+      
+      const newExt = {
+        id: `ext-${Date.now()}-${i}`,
+        tenantId: tId,
+        number: ext,
+        name: `Ramal ${ext}`,
+        sipSecret: `secret_${Math.random().toString(36).substring(2, 10)}`,
+        context: 'from-internal',
+        callerId: `"${ext}" <${ext}>`,
+        codecs: ['alaw', 'ulaw', 'opus'],
+        nat: true,
+        webrtc: true,
+        recording: 'on_demand' as any,
+        voicemail: true,
+        dnd: false,
+        status: 'offline' as any,
+        allowAiTransfer: true,
+      };
+      db.extensions.push(newExt);
+      createdExtensions.push(newExt);
+    }
+
+    let createdTrunk = null;
+    if (trunkName) {
+      createdTrunk = {
+        id: `trunk-${Date.now()}`,
+        tenantId: tId,
+        name: trunkName,
+        providerName: trunkName,
+        host: 'sip.provider.com',
+        port: 5060,
+        username: 'user',
+        secretMasked: '********',
+        transport: 'UDP' as any,
+        callerId: '0800000000',
+        codecs: ['alaw', 'ulaw'],
+        context: 'from-trunk',
+        register: true,
+        status: 'registered' as any,
+        channelsMax: 30,
+        channelsInUse: 0,
+      };
+      db.trunks.push(createdTrunk);
+    }
+    
+    res.json({ success: true, snapshotId: snap.id, generatedCount: createdExtensions.length, trunk: createdTrunk });
+  });
+
+  app.post('/api/v1/setup/rollback', (req, res) => {
+    const { snapshotId } = req.body;
+    const success = db.rollbackSnapshot(snapshotId);
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ error: 'Falha no rollback. Snapshot não encontrado ou inválido.' });
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // Dashboard Metrics (PRD Section 36) & Real-time SSE
   // -------------------------------------------------------------------------
   const getDashboardMetrics = () => {
