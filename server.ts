@@ -381,6 +381,33 @@ async function startServer() {
     res.status(201).json(newRecord);
   });
 
+  app.post('/api/v1/cdr/:id/summarize', async (req, res) => {
+    try {
+      const record = db.cdrs.find((c) => c.id === req.params.id);
+      if (!record) {
+        return res.status(404).json({ error: 'Registro CDR não encontrado.' });
+      }
+
+      const transcript =
+        record.transcription ||
+        `[00:02] Atendente: Olá! Obrigado por ligar para a Enlace Telecom. Em que posso ajudar?\n[00:08] Cliente (${record.caller}): Olá, estou ligando para confirmar os dados da minha linha e o status do plano.\n[00:18] Atendente: Perfeito! Localizei aqui no sistema que a linha ${record.caller} está ativa com telefonia IP e suporte dedicado.\n[00:26] Cliente: Excelente, muito obrigado pela rápida confirmação e bom dia!\n[00:30] Atendente: A Enlace agradece seu contato. Tenha um excelente dia!`;
+
+      const analysis = await geminiService.summarizeAndAnalyzeCall(
+        transcript,
+        record.caller,
+        record.callee
+      );
+
+      record.summary = analysis.summary;
+      record.transcription = transcript;
+
+      res.json({ success: true, analysis, cdr: record });
+    } catch (e) {
+      console.error('Error summarizing CDR:', e);
+      res.status(500).json({ error: 'Erro ao gerar resumo da chamada com Gemini.' });
+    }
+  });
+
   // -------------------------------------------------------------------------
   // Asterisk Core & Config Generation
   // -------------------------------------------------------------------------
