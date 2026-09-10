@@ -742,6 +742,62 @@ async function startServer() {
     res.status(201).json(newTenant);
   });
 
+  // -------------------------------------------------------------------------
+  // CRM Integration Hub & Omnichannel API
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/crm/providers', (req, res) => res.json(db.crmProviders));
+  
+  app.post('/api/v1/crm/providers/:id/connect', (req, res) => {
+    const provider = db.crmProviders.find(p => p.id === req.params.id);
+    if (!provider) return res.status(404).json({ error: 'Provedor CRM não encontrado' });
+    
+    // Simulate OAuth connection success
+    provider.isConnected = true;
+    provider.syncedAt = new Date().toISOString();
+    
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: provider.tenantId,
+      userId: 'system',
+      userName: 'Enlace System',
+      action: 'CRM_CONNECT',
+      resource: `crm_providers/${provider.id}`,
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `Integração autorizada via OAuth com ${provider.name}.`,
+    });
+    
+    res.json(provider);
+  });
+
+  app.post('/api/v1/crm/providers/:id/disconnect', (req, res) => {
+    const provider = db.crmProviders.find(p => p.id === req.params.id);
+    if (!provider) return res.status(404).json({ error: 'Provedor CRM não encontrado' });
+    
+    provider.isConnected = false;
+    provider.config = {};
+    
+    res.json({ success: true, provider });
+  });
+
+  app.get('/api/v1/crm/contacts', (req, res) => res.json(db.crmContacts));
+  
+  app.post('/api/v1/crm/contacts', (req, res) => {
+    const newContact = {
+      id: `contact-${Date.now()}`,
+      tenantId: req.body.tenantId || 'tenant-enlace-matriz',
+      name: req.body.name,
+      phone: req.body.phone,
+      email: req.body.email,
+      crmId: req.body.crmId,
+      lastInteraction: new Date().toISOString(),
+    };
+    db.crmContacts.push(newContact);
+    res.status(201).json(newContact);
+  });
+
+  app.get('/api/v1/omnichannel/conversations', (req, res) => res.json(db.omnichannelConversations));
+
   app.post('/api/v1/health/run-diagnostic', (req, res) => {
     // Generate fresh diagnostic telemetry
     const rtt = Math.floor(Math.random() * 8) + 12; // 12-20ms

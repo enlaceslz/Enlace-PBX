@@ -1,5 +1,34 @@
 // Enlace-PBX Data Store & State Engine (PostgreSQL Simulation with Multi-Tenant & RLS support)
 
+export interface CrmProvider {
+  id: string;
+  tenantId: string;
+  name: string;
+  type: 'hubspot' | 'pipedrive' | 'rdstation' | 'salesforce' | 'zoho';
+  isConnected: boolean;
+  syncedAt?: string;
+  config: Record<string, any>;
+}
+
+export interface CrmContact {
+  id: string;
+  tenantId: string;
+  name: string;
+  phone: string;
+  email: string;
+  crmId?: string;
+  lastInteraction?: string;
+}
+
+export interface OmnichannelConversation {
+  id: string;
+  tenantId: string;
+  contactId: string;
+  channel: 'whatsapp' | 'voice' | 'webrtc';
+  status: 'active' | 'closed' | 'queued';
+  createdAt: string;
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -1076,6 +1105,49 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       ip: '189.40.122.14',
       timestamp: '2026-09-09T17:40:22Z',
       details: 'Renovação de certificado TLS e verificação de registro SIP.',
+    },
+  ];
+
+  crmProviders: CrmProvider[] = [
+    {
+      id: 'crm-hubspot-1',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'HubSpot Corporativo',
+      type: 'hubspot',
+      isConnected: true,
+      syncedAt: '2026-09-10T11:20:00Z',
+      config: { portalId: '1234567' },
+    },
+    {
+      id: 'crm-pipedrive-1',
+      tenantId: 'tenant-hospital-vida',
+      name: 'Pipedrive Vida & Saúde',
+      type: 'pipedrive',
+      isConnected: false,
+      config: {},
+    },
+  ];
+
+  crmContacts: CrmContact[] = [
+    {
+      id: 'contact-001',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'João da Silva',
+      phone: '5511999999999',
+      email: 'joao@cliente.com',
+      crmId: 'hubspot-8291',
+      lastInteraction: '2026-09-09T14:00:00Z',
+    },
+  ];
+
+  omnichannelConversations: OmnichannelConversation[] = [
+    {
+      id: 'conv-whatsapp-1',
+      tenantId: 'tenant-enlace-matriz',
+      contactId: 'contact-001',
+      channel: 'whatsapp',
+      status: 'active',
+      createdAt: '2026-09-10T12:00:00Z',
     },
   ];
 }

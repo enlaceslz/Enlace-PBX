@@ -135,8 +135,27 @@ ${knowledgeSnippets}`;
       if (functionCalls && functionCalls.length > 0) {
         const fc = functionCalls[0];
         const toolObj = db.aiTools.find((t) => t.name === fc.name);
+        
+        // AI Policy Engine: Strict validation
+        if (!toolObj || !agent.tools.includes(toolObj.id)) {
+          throw new Error(`Policy Engine Violation: Agent attempted to execute unauthorized tool ${fc.name}`);
+        }
+
         const args = (fc.args as Record<string, unknown>) || {};
         let result: Record<string, unknown> = toolObj ? { ...toolObj.mockResponse } : { status: 'ok' };
+
+        // Log AI tool execution to Audit
+        db.auditLogs.unshift({
+          id: `audit-${Date.now()}`,
+          tenantId,
+          userId: 'ai-gateway',
+          userName: `AI Agent: ${agent.name}`,
+          action: 'EXECUTE_TOOL',
+          resource: `ai_tools/${toolObj.id}`,
+          ip: 'internal',
+          timestamp: new Date().toISOString(),
+          details: `Execução da ferramenta ${fc.name} com os argumentos: ${JSON.stringify(args)}`,
+        });
 
         if (fc.name === 'transferir_chamada') {
           action = 'transfer';
