@@ -110,16 +110,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
   ];
 
   return (
-    <aside className="w-64 bg-slate-950/95 backdrop-blur-sm border-r border-slate-800/80 flex flex-col h-[calc(100vh-4rem)] select-none relative overflow-hidden">
+    <aside className="w-64 bg-white/95 backdrop-blur-sm border-r border-slate-200 flex flex-col h-[calc(100vh-4rem)] select-none relative overflow-hidden">
       {/* Subtle tech background glow */}
-      <div className="absolute top-0 left-0 w-full h-48 bg-sky-900/10 blur-[80px] pointer-events-none" />
+      <div className="absolute top-0 left-0 w-full h-48 bg-blue-50/50 blur-[80px] pointer-events-none" />
 
       <div className="flex-1 overflow-y-auto py-5 px-4 space-y-7 relative z-10 custom-scrollbar">
         {sections.map((section, idx) => (
           <div key={idx} className="relative">
             <div className="px-1 mb-2.5 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-slate-700/50" />
-              <span className="text-[10px] font-bold tracking-[0.15em] text-slate-500 uppercase">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />
+              <span className="text-[10px] font-bold tracking-[0.15em] text-slate-400 uppercase">
                 {section.title}
               </span>
             </div>
@@ -133,19 +133,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
                     onClick={() => onSelectView(item.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 group ${
                       isActive
-                        ? 'bg-gradient-to-r from-sky-500/15 to-transparent text-sky-300 font-semibold shadow-[inset_2px_0_0_0_rgba(56,189,248,1)]'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-[inset_2px_0_0_0_rgba(37,99,235,1)]'
+                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                     }`}
                   >
                     <Icon
                       className={`w-4 h-4 transition-colors ${
-                        isActive ? 'text-sky-400' : 'text-slate-500 group-hover:text-slate-300'
+                        isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-500'
                       }`}
                     />
                     <span className="truncate">{item.label}</span>
-                    {isActive && (
-                      <span className="ml-auto w-1 h-1 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.8)]" />
-                    )}
                   </button>
                 );
               })}
@@ -155,19 +152,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       </div>
 
       {/* Webphone Quick Drawer Footer */}
-      <div className="p-4 border-t border-slate-800/80 bg-slate-950/90 backdrop-blur-md relative z-10">
+      <div className="p-4 border-t border-slate-200 bg-white/90 backdrop-blur-md relative z-10">
         <button
           onClick={onOpenWebphone}
-          className="w-full py-3 px-4 rounded-xl bg-gradient-to-br from-slate-900 to-slate-950 hover:from-slate-800 hover:to-slate-900 border border-slate-700/60 shadow-lg flex items-center justify-between text-xs text-slate-200 group transition-all duration-300 hover:border-sky-500/40"
+          className="w-full py-3 px-4 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 border border-blue-400 shadow-lg shadow-blue-600/20 flex items-center justify-between text-xs text-white group transition-all duration-300"
         >
           <div className="flex items-center gap-2.5">
             <div className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-200 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
             </div>
             <span className="font-semibold tracking-wide">Webphone</span>
           </div>
-          <span className="text-[10px] font-mono font-bold text-sky-400 group-hover:text-sky-300 transition-colors">ABRIR</span>
+          <span className="text-[10px] font-mono font-bold text-blue-100 transition-colors">ABRIR</span>
         </button>
       </div>
     </aside>

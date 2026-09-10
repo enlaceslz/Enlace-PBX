@@ -83,10 +83,10 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-100 tracking-tight">
+            <h1 className="text-xl font-black text-slate-800 tracking-tight">
               Asterisk 20 LTS & Infraestrutura de Telefonia
             </h1>
-            <span className="text-[10px] bg-sky-950 text-sky-300 border border-sky-800/80 px-2 py-0.5 rounded-full font-mono">
+            <span className="text-[10px] bg-sky-950 text-blue-700 border border-sky-800/80 px-2 py-0.5 rounded-full font-mono">
               Pure Open Source Core
             </span>
           </div>
@@ -96,13 +96,13 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
         </div>
 
         {/* Tab Controls */}
-        <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 self-start">
+        <div className="flex bg-white p-1 rounded-xl border border-slate-200 self-start">
           <button
             onClick={() => setActiveTab('monitor')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
               activeTab === 'monitor'
-                ? 'bg-sky-500 text-slate-950 shadow'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-700'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
@@ -112,8 +112,8 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             onClick={() => setActiveTab('configs')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
               activeTab === 'configs'
-                ? 'bg-sky-500 text-slate-950 shadow'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-700'
             }`}
           >
             <FileCode className="w-3.5 h-3.5" />
@@ -123,8 +123,8 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             onClick={() => setActiveTab('installer')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
               activeTab === 'installer'
-                ? 'bg-sky-500 text-slate-950 shadow'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-700'
             }`}
           >
             <Download className="w-3.5 h-3.5" />
@@ -138,39 +138,39 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
         <div className="space-y-6">
           {/* Status Indicators */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
-              <span className="text-[10px] text-slate-500 font-mono uppercase block">VERSÃO DO NÚCLEO</span>
-              <div className="text-lg font-bold text-slate-100 font-mono mt-1">Asterisk 20.17.0 LTS</div>
-              <p className="text-[10px] text-sky-400 mt-1 flex items-center gap-1">
+            <div className="bg-white p-4 rounded-2xl border border-slate-100">
+              <span className="text-[10px] text-slate-400 font-mono uppercase block">VERSÃO DO NÚCLEO</span>
+              <div className="text-lg font-bold text-slate-800 font-mono mt-1">Asterisk 20.17.0 LTS</div>
+              <p className="text-[10px] text-blue-600 mt-1 flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3" /> LTS com suporte estendido
               </p>
             </div>
 
-            <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
-              <span className="text-[10px] text-slate-500 font-mono uppercase block">PORTA ARI & HTTP</span>
-              <div className="text-lg font-bold text-cyan-400 font-mono mt-1">8088 /ws</div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100">
+              <span className="text-[10px] text-slate-400 font-mono uppercase block">PORTA ARI & HTTP</span>
+              <div className="text-lg font-bold text-teal-600 font-mono mt-1">8088 /ws</div>
               <p className="text-[10px] text-slate-400 mt-1">Stasis app: "enlace_ai_bridge"</p>
             </div>
 
-            <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
-              <span className="text-[10px] text-slate-500 font-mono uppercase block">DRIVER DE CANAL</span>
-              <div className="text-lg font-bold text-slate-100 font-mono mt-1">res_pjsip</div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100">
+              <span className="text-[10px] text-slate-400 font-mono uppercase block">DRIVER DE CANAL</span>
+              <div className="text-lg font-bold text-slate-800 font-mono mt-1">res_pjsip</div>
               <p className="text-[10px] text-slate-400 mt-1">PJSIP 2.13 com SRTP e WSS</p>
             </div>
 
-            <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80">
-              <span className="text-[10px] text-slate-500 font-mono uppercase block">STREAMING DE ÁUDIO</span>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100">
+              <span className="text-[10px] text-slate-400 font-mono uppercase block">STREAMING DE ÁUDIO</span>
               <div className="text-lg font-bold text-purple-400 font-mono mt-1">app_audiosocket</div>
               <p className="text-[10px] text-slate-400 mt-1">24kHz PCM linear bidirecional</p>
             </div>
           </div>
 
           {/* Realtime Channels Table */}
-          <div className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-sky-400" />
+                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-blue-600" />
                   Canais e Bridges Ativos via ARI (Stasis)
                 </h3>
                 <p className="text-xs text-slate-400">
@@ -179,7 +179,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
               </div>
               <button
                 onClick={onRefreshChannels}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl flex items-center gap-1.5 transition"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 Atualizar Canais
@@ -187,14 +187,14 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             </div>
 
             {channels.length === 0 ? (
-              <div className="py-12 text-center text-slate-500 text-xs">
+              <div className="py-12 text-center text-slate-400 text-xs">
                 Nenhum canal ativo neste momento. Use o Webphone para originar uma chamada e inspecionar os canais do Asterisk.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase">
+                    <tr className="border-b border-slate-200 text-slate-400 font-mono text-[11px] uppercase">
                       <th className="py-2.5 px-3">ID do Canal</th>
                       <th className="py-2.5 px-3">Nome do Canal</th>
                       <th className="py-2.5 px-3">Origem</th>
@@ -206,20 +206,20 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-800 font-mono">
                     {channels.map((chan) => (
-                      <tr key={chan.id} className="hover:bg-slate-800/40">
+                      <tr key={chan.id} className="hover:bg-slate-50">
                         <td className="py-3 px-3 text-slate-400">{chan.id}</td>
-                        <td className="py-3 px-3 text-slate-200 font-bold">{chan.name}</td>
-                        <td className="py-3 px-3 text-sky-400">{chan.callerNumber}</td>
-                        <td className="py-3 px-3 text-slate-300">{chan.connectedLine}</td>
+                        <td className="py-3 px-3 text-slate-700 font-bold">{chan.name}</td>
+                        <td className="py-3 px-3 text-blue-600">{chan.callerNumber}</td>
+                        <td className="py-3 px-3 text-slate-600">{chan.connectedLine}</td>
                         <td className="py-3 px-3 text-slate-400">{chan.application}</td>
-                        <td className="py-3 px-3 text-slate-300">{chan.durationSeconds}s</td>
+                        <td className="py-3 px-3 text-slate-600">{chan.durationSeconds}s</td>
                         <td className="py-3 px-3">
                           {chan.aiBridgeActive ? (
-                            <span className="text-cyan-400 font-bold bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800 text-[10px]">
+                            <span className="text-teal-600 font-bold bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800 text-[10px]">
                               Stasis / Gemini
                             </span>
                           ) : (
-                            <span className="text-slate-500 text-[10px]">Dial padrão</span>
+                            <span className="text-slate-400 text-[10px]">Dial padrão</span>
                           )}
                         </td>
                       </tr>
@@ -234,15 +234,15 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
 
       {/* 2. CONFIGS TAB */}
       {activeTab === 'configs' && (
-        <div className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setActiveConfigFile('pjsip')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
                   activeConfigFile === 'pjsip'
-                    ? 'bg-sky-500 text-slate-950 font-bold'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 /etc/asterisk/pjsip.conf
@@ -251,8 +251,8 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
                 onClick={() => setActiveConfigFile('extensions')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
                   activeConfigFile === 'extensions'
-                    ? 'bg-sky-500 text-slate-950 font-bold'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 /etc/asterisk/extensions.conf
@@ -261,8 +261,8 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
                 onClick={() => setActiveConfigFile('ari')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
                   activeConfigFile === 'ari'
-                    ? 'bg-sky-500 text-slate-950 font-bold'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 /etc/asterisk/ari.conf
@@ -272,14 +272,14 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleCopy(configContent)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-sky-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-blue-600" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Copiado!' : 'Copiar'}
               </button>
               <button
                 onClick={() => handleDownloadFile(configContent, `${activeConfigFile}.conf`)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
               >
                 <Download className="w-3.5 h-3.5" />
                 Baixar .conf
@@ -287,7 +287,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             </div>
           </div>
 
-          <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs font-mono text-sky-400 overflow-x-auto max-h-[500px] leading-relaxed">
+          <pre className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs font-mono text-blue-600 overflow-x-auto max-h-[500px] leading-relaxed">
             {loadingConfig ? 'Gerando arquivo de configuração a partir do banco...' : configContent}
           </pre>
         </div>
@@ -295,11 +295,11 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
 
       {/* 3. INSTALLER TAB */}
       {activeTab === 'installer' && (
-        <div className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-sky-400" />
+              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-blue-600" />
                 Script Oficial de Instalação Asterisk 20 LTS (Ubuntu / Debian)
               </h3>
               <p className="text-xs text-slate-400">
@@ -310,14 +310,14 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleCopy(installerScript)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-sky-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-blue-600" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Copiado!' : 'Copiar Script'}
               </button>
               <button
                 onClick={() => handleDownloadFile(installerScript, 'install-enlace-pbx.sh')}
-                className="px-3 py-1.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1.5 transition"
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition"
               >
                 <Download className="w-3.5 h-3.5" />
                 Baixar install-enlace-pbx.sh
@@ -325,16 +325,16 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
             <span className="text-slate-400 font-mono block mb-2 font-bold">
               Como executar em um servidor Linux puro (Ubuntu 22.04/24.04 ou Debian 12):
             </span>
-            <div className="bg-slate-900 p-3 rounded-lg border border-slate-700/60 font-mono text-sky-400 select-all">
+            <div className="bg-white p-3 rounded-lg border border-slate-200 font-mono text-blue-600 select-all">
               curl -fsSL https://app.enlacepbx.com.br/install.sh | sudo bash
             </div>
           </div>
 
-          <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs font-mono text-slate-300 overflow-x-auto max-h-[440px] leading-relaxed">
+          <pre className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs font-mono text-slate-600 overflow-x-auto max-h-[440px] leading-relaxed">
             {installerScript}
           </pre>
         </div>

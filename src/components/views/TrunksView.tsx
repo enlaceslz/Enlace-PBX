@@ -84,10 +84,10 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-100 tracking-tight">
+            <h1 className="text-xl font-black text-slate-800 tracking-tight">
               Troncos SIP (Operadoras Brasileiras)
             </h1>
-            <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono">
+            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-mono">
               PJSIP Trunking
             </span>
           </div>
@@ -98,7 +98,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-sky-950/40 transition active:scale-95"
+          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-blue-600/20 transition active:scale-95"
         >
           <Plus className="w-4 h-4" />
           Conectar Novo Tronco SIP
@@ -110,11 +110,11 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
         {trunks.map((trunk) => (
           <div
             key={trunk.id}
-            className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 flex flex-col justify-between group"
+            className="bg-white rounded-2xl border border-slate-100 p-5 flex flex-col justify-between group"
           >
             <div>
               <div className="flex items-center justify-between mb-3">
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-slate-800 text-slate-300">
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-slate-100 text-slate-600">
                   {trunk.transport}
                 </span>
                 <div className="flex items-center gap-3">
@@ -126,7 +126,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                     />
                     <span
                       className={`font-semibold ${
-                        trunk.status === 'registered' ? 'text-sky-400' : 'text-rose-400'
+                        trunk.status === 'registered' ? 'text-blue-600' : 'text-rose-400'
                       }`}
                     >
                       {trunk.status === 'registered' ? 'Registrado' : 'Desconectado'}
@@ -134,7 +134,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                   </div>
                   <button
                     onClick={() => handleDelete(trunk.id, trunk.name)}
-                    className="text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition p-1 rounded-lg hover:bg-slate-800"
+                    className="text-slate-400 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition p-1 rounded-lg hover:bg-slate-100"
                     title="Remover Tronco"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -142,32 +142,32 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                 </div>
               </div>
 
-              <h3 className="font-bold text-slate-100 text-base">{trunk.name}</h3>
+              <h3 className="font-bold text-slate-800 text-base">{trunk.name}</h3>
               <p className="text-xs text-slate-400 mt-0.5">{trunk.providerName}</p>
 
               <div className="mt-4 space-y-2 text-xs font-mono">
-                <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
+                <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-100">
                   <span>Host / Servidor:</span>
-                  <span className="text-slate-200">{trunk.host}:{trunk.port}</span>
+                  <span className="text-slate-700">{trunk.host}:{trunk.port}</span>
                 </div>
-                <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
+                <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-100">
                   <span>Caller ID:</span>
-                  <span className="text-slate-200">{trunk.callerId}</span>
+                  <span className="text-slate-700">{trunk.callerId}</span>
                 </div>
-                <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
+                <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-100">
                   <span>Canais Simultâneos:</span>
-                  <span className="text-sky-400 font-bold">
+                  <span className="text-blue-600 font-bold">
                     {trunk.channelsInUse} / {trunk.channelsMax} em uso
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-slate-400 py-1">
                   <span>Codecs:</span>
-                  <span className="text-slate-300">{trunk.codecs.join(', ')}</span>
+                  <span className="text-slate-600">{trunk.codecs.join(', ')}</span>
                 </div>
               </div>
             </div>
 
-            <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
+            <div className="mt-5 pt-3 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400">
               <span>Contexto: {trunk.context}</span>
               <span className="text-slate-400">Qualify: 60s</span>
             </div>
@@ -177,14 +177,14 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
 
       {/* Modal: New Trunk */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
-            <div className="px-6 py-4 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-50/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-100">Adicionar Tronco SIP</h3>
+                <h3 className="text-base font-bold text-slate-800">Adicionar Tronco SIP</h3>
                 <p className="text-xs text-slate-400">Configuração de operadora brasileira para Asterisk 20</p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-200">
+              <button onClick={() => setIsModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-700">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -201,7 +201,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                       key={idx}
                       type="button"
                       onClick={() => handleApplyPreset(p)}
-                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px] transition"
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[11px] transition"
                     >
                       {p.label}
                     </button>
@@ -210,69 +210,69 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Nome do Tronco *</label>
+                <label className="block text-slate-600 font-semibold mb-1">Nome do Tronco *</label>
                 <input
                   type="text"
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="Ex: Vivo Fibra SIP Principal"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-sky-500 focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:border-sky-500 focus:outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
-                  <label className="block text-slate-300 font-semibold mb-1">Host / SIP Proxy *</label>
+                  <label className="block text-slate-600 font-semibold mb-1">Host / SIP Proxy *</label>
                   <input
                     type="text"
                     required
                     value={formData.host}
                     onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Porta</label>
+                  <label className="block text-slate-600 font-semibold mb-1">Porta</label>
                   <input
                     type="number"
                     value={formData.port}
                     onChange={(e) => setFormData({ ...formData, port: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Usuário / Conta SIP</label>
+                  <label className="block text-slate-600 font-semibold mb-1">Usuário / Conta SIP</label>
                   <input
                     type="text"
                     value={formData.username}
                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                     placeholder="Ex: 1130900100"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Caller ID de Saída</label>
+                  <label className="block text-slate-600 font-semibold mb-1">Caller ID de Saída</label>
                   <input
                     type="text"
                     value={formData.callerId}
                     onChange={(e) => setFormData({ ...formData, callerId: e.target.value })}
                     placeholder="Ex: 1130900100"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Protocolo Transporte</label>
+                  <label className="block text-slate-600 font-semibold mb-1">Protocolo Transporte</label>
                   <select
                     value={formData.transport}
                     onChange={(e) => setFormData({ ...formData, transport: e.target.value as any })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:border-sky-500 focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:border-sky-500 focus:outline-none"
                   >
                     <option value="UDP">UDP (Padrão)</option>
                     <option value="TCP">TCP</option>
@@ -280,27 +280,27 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Canais Simultâneos</label>
+                  <label className="block text-slate-600 font-semibold mb-1">Canais Simultâneos</label>
                   <input
                     type="number"
                     value={formData.channelsMax}
                     onChange={(e) => setFormData({ ...formData, channelsMax: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono focus:border-sky-500 focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-mono focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded-xl transition"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-xl transition"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition"
                 >
                   Salvar Tronco
                 </button>

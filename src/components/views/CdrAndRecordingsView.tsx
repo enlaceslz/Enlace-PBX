@@ -88,10 +88,10 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-100 tracking-tight">
+            <h1 className="text-xl font-black text-slate-800 tracking-tight">
               Histórico de Chamadas (CDR) & Gravações
             </h1>
-            <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono">
+            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-mono">
               PostgreSQL • Transcrição Gemini
             </span>
           </div>
@@ -103,14 +103,14 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={handleExportCsv}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition border border-slate-700"
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition border border-slate-300"
           >
             <Download className="w-3.5 h-3.5" />
             Exportar CSV
           </button>
           <button
             onClick={onRefresh}
-            className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition border border-slate-700"
+            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition border border-slate-300"
             title="Atualizar"
           >
             <RefreshCw className="w-4 h-4" />
@@ -119,7 +119,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
       </div>
 
       {/* Filters Bar */}
-      <div className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-white rounded-2xl border border-slate-100 p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-[240px]">
           <Search className="w-4 h-4 text-slate-400" />
           <input
@@ -127,7 +127,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
             placeholder="Filtrar por número, ramal ou ID da chamada..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="bg-transparent text-xs text-slate-200 placeholder-slate-500 w-full focus:outline-none"
+            className="bg-transparent text-xs text-slate-700 placeholder-slate-500 w-full focus:outline-none"
           />
         </div>
 
@@ -137,7 +137,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
             <select
               value={directionFilter}
               onChange={(e) => setDirectionFilter(e.target.value as any)}
-              className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs focus:outline-none"
+              className="bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 text-xs focus:outline-none"
             >
               <option value="all">Todas</option>
               <option value="inbound">Entrada (Inbound)</option>
@@ -151,7 +151,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
             <select
               value={dispositionFilter}
               onChange={(e) => setDispositionFilter(e.target.value as any)}
-              className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs focus:outline-none"
+              className="bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 text-xs focus:outline-none"
             >
               <option value="all">Todos</option>
               <option value="ANSWERED">Atendidas</option>
@@ -162,11 +162,11 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
       </div>
 
       {/* CDR Table */}
-      <div className="bg-slate-900/80 rounded-2xl border border-slate-800/80 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-slate-800 bg-slate-950/50 text-slate-400 font-mono text-[11px] uppercase">
+              <tr className="border-b border-slate-200 bg-slate-50/50 text-slate-400 font-mono text-[11px] uppercase">
                 <th className="py-3 px-4">Data / Hora</th>
                 <th className="py-3 px-4">Origem</th>
                 <th className="py-3 px-4">Destino</th>
@@ -178,19 +178,19 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                 <th className="py-3 px-4 text-right">Ação</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60 font-sans">
+            <tbody className="divide-y divide-slate-100 font-sans">
               {filteredCdrs.map((cdr) => (
-                <tr key={cdr.id} className="hover:bg-slate-800/40 transition">
+                <tr key={cdr.id} className="hover:bg-slate-50 transition">
                   <td className="py-3 px-4 font-mono text-slate-400 text-[11px]">
                     <div>{new Date(cdr.startTime).toLocaleDateString('pt-BR')}</div>
-                    <div className="text-[10px] text-slate-500">
+                    <div className="text-[10px] text-slate-400">
                       {new Date(cdr.startTime).toLocaleTimeString('pt-BR')}
                     </div>
                   </td>
-                  <td className="py-3 px-4 font-mono font-bold text-slate-100">
+                  <td className="py-3 px-4 font-mono font-bold text-slate-800">
                     {cdr.caller}
                   </td>
-                  <td className="py-3 px-4 font-mono text-slate-200">
+                  <td className="py-3 px-4 font-mono text-slate-700">
                     {cdr.callee}
                   </td>
                   <td className="py-3 px-4">
@@ -200,21 +200,21 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                           ? 'bg-blue-950 text-blue-300'
                           : cdr.direction === 'outbound'
                           ? 'bg-purple-950 text-purple-300'
-                          : 'bg-slate-800 text-slate-300'
+                          : 'bg-slate-100 text-slate-600'
                       }`}
                     >
                       {cdr.direction}
                     </span>
                   </td>
-                  <td className="py-3 px-4 font-mono text-slate-300">
+                  <td className="py-3 px-4 font-mono text-slate-600">
                     {Math.floor(cdr.duration / 60)}m {cdr.duration % 60}s
-                    <div className="text-[10px] text-slate-500">Bill: {cdr.billsec}s</div>
+                    <div className="text-[10px] text-slate-400">Bill: {cdr.billsec}s</div>
                   </td>
                   <td className="py-3 px-4">
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         cdr.disposition === 'ANSWERED'
-                          ? 'bg-sky-950/80 text-sky-300 border border-sky-800/60'
+                          ? 'bg-sky-950/80 text-blue-700 border border-sky-800/60'
                           : 'bg-rose-950/80 text-rose-300 border border-rose-800/60'
                       }`}
                     >
@@ -226,7 +226,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setPlayingId(playingId === cdr.id ? null : cdr.id)}
-                          className="w-7 h-7 rounded-full bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 flex items-center justify-center transition"
+                          className="w-7 h-7 rounded-full bg-blue-600/20 hover:bg-blue-600/30 text-blue-600 flex items-center justify-center transition"
                           title="Tocar gravação"
                         >
                           {playingId === cdr.id ? (
@@ -245,7 +245,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                     {cdr.summary ? (
                       <button
                         onClick={() => setSelectedCdrForModal(cdr)}
-                        className="text-[11px] text-cyan-400 hover:underline flex items-center gap-1 font-semibold max-w-[200px] truncate"
+                        className="text-[11px] text-teal-600 hover:underline flex items-center gap-1 font-semibold max-w-[200px] truncate"
                       >
                         <Sparkles className="w-3 h-3 flex-shrink-0" />
                         <span className="truncate">{cdr.summary}</span>
@@ -264,7 +264,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                   <td className="py-3 px-4 text-right">
                     <button
                       onClick={() => onOpenWebphone(cdr.caller)}
-                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-medium transition"
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-medium transition"
                     >
                       Retornar
                     </button>
@@ -278,40 +278,40 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
 
       {/* Modal: Detailed AI Call Summary */}
       {selectedCdrForModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
-            <div className="px-6 py-4 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-50/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-cyan-400" />
-                <h3 className="text-base font-bold text-slate-100">
+                <Sparkles className="w-4 h-4 text-teal-600" />
+                <h3 className="text-base font-bold text-slate-800">
                   Resumo Executivo da Chamada (Gemini)
                 </h3>
               </div>
               <button
                 onClick={() => setSelectedCdrForModal(null)}
-                className="p-1 text-slate-400 hover:text-slate-200"
+                className="p-1 text-slate-400 hover:text-slate-700"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-4 bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[11px]">
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono text-[11px]">
                 <div>
-                  <span className="text-slate-500 block">Origem:</span>
-                  <span className="text-slate-200 font-bold">{selectedCdrForModal.caller}</span>
+                  <span className="text-slate-400 block">Origem:</span>
+                  <span className="text-slate-700 font-bold">{selectedCdrForModal.caller}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Destino:</span>
-                  <span className="text-slate-200 font-bold">{selectedCdrForModal.callee}</span>
+                  <span className="text-slate-400 block">Destino:</span>
+                  <span className="text-slate-700 font-bold">{selectedCdrForModal.callee}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Duração:</span>
-                  <span className="text-slate-200">{selectedCdrForModal.duration} segundos</span>
+                  <span className="text-slate-400 block">Duração:</span>
+                  <span className="text-slate-700">{selectedCdrForModal.duration} segundos</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Data:</span>
-                  <span className="text-slate-200">
+                  <span className="text-slate-400 block">Data:</span>
+                  <span className="text-slate-700">
                     {new Date(selectedCdrForModal.startTime).toLocaleString('pt-BR')}
                   </span>
                 </div>
@@ -321,7 +321,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                 <label className="text-slate-400 uppercase text-[10px] font-bold tracking-wider block mb-1.5">
                   Resumo e Tópicos Discutidos:
                 </label>
-                <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 text-slate-200 leading-relaxed">
+                <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 text-slate-700 leading-relaxed">
                   {selectedCdrForModal.summary}
                 </div>
               </div>
@@ -331,7 +331,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                   <label className="text-slate-400 uppercase text-[10px] font-bold tracking-wider block mb-1.5">
                     Transcrição Integral da Conversa:
                   </label>
-                  <pre className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-300 font-mono text-[11px] max-h-48 overflow-y-auto whitespace-pre-wrap">
+                  <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-600 font-mono text-[11px] max-h-48 overflow-y-auto whitespace-pre-wrap">
                     {selectedCdrForModal.transcription}
                   </pre>
                 </div>
@@ -340,7 +340,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
               <div className="pt-2 flex justify-end">
                 <button
                   onClick={() => setSelectedCdrForModal(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-semibold"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold"
                 >
                   Fechar
                 </button>

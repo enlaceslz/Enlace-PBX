@@ -278,20 +278,20 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   return (
     <div
       id="enlace-webphone-modal"
-      className={`fixed z-50 transition-all duration-200 shadow-2xl rounded-2xl border border-slate-700/80 bg-slate-900 text-slate-100 flex flex-col overflow-hidden ${
+      className={`fixed z-50 transition-all duration-200 shadow-2xl rounded-2xl border border-slate-200 bg-white text-slate-800 flex flex-col overflow-hidden ${
         isMinimized
           ? 'bottom-6 right-6 w-80 h-16 cursor-pointer'
           : 'bottom-6 right-6 w-96 h-[640px] max-h-[90vh]'
       }`}
     >
       {/* Softphone Header */}
-      <div className="bg-slate-950/90 px-4 py-3 border-b border-slate-800 flex items-center justify-between select-none">
+      <div className="bg-slate-50/90 px-4 py-3 border-b border-slate-200 flex items-center justify-between select-none">
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse" />
+          <div className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
           <div>
-            <div className="text-xs font-bold tracking-wide text-sky-400 uppercase flex items-center gap-1.5">
+            <div className="text-xs font-bold tracking-wide text-blue-600 uppercase flex items-center gap-1.5">
               <span>Webphone PJSIP</span>
-              <span className="text-[10px] bg-sky-950 text-sky-300 px-1.5 py-0.2 rounded border border-sky-800/60">
+              <span className="text-[10px] bg-sky-950 text-blue-700 px-1.5 py-0.2 rounded border border-sky-800/60">
                 Ramal 4101
               </span>
             </div>
@@ -302,14 +302,14 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         <div className="flex items-center gap-1">
           <button
             onClick={() => setIsMinimized(!isMinimized)}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
             title={isMinimized ? 'Expandir' : 'Minimizar'}
           >
             {isMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
+            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-100 rounded-lg transition"
             title="Fechar"
           >
             <X className="w-3.5 h-3.5" />
@@ -320,22 +320,22 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       {isMinimized && (
         <div
           onClick={() => setIsMinimized(false)}
-          className="flex-1 flex items-center justify-between px-4 text-xs font-medium text-slate-300"
+          className="flex-1 flex items-center justify-between px-4 text-xs font-medium text-slate-600"
         >
           <span>{callState === 'connected' ? `Em chamada (${formatSeconds(callDuration)})` : 'Ramal 4101 Pronto'}</span>
-          <span className="text-sky-400 font-semibold">Clique para abrir</span>
+          <span className="text-blue-600 font-semibold">Clique para abrir</span>
         </div>
       )}
 
       {!isMinimized && (
-        <div className="flex-1 flex flex-col min-h-0 bg-slate-900/95">
+        <div className="flex-1 flex flex-col min-h-0 bg-white/95">
           {/* Status Bar / Active Call Display */}
-          <div className="bg-slate-950/60 p-4 border-b border-slate-800/80">
+          <div className="bg-slate-50/60 p-4 border-b border-slate-100">
             {callState === 'idle' ? (
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11px] text-slate-400 font-mono">DISCADOR BRASILEIRO</span>
-                  <span className="text-[10px] text-sky-400 flex items-center gap-1">
+                  <span className="text-[10px] text-blue-600 flex items-center gap-1">
                     <ShieldCheck className="w-3 h-3" /> PJSIP Registrado
                   </span>
                 </div>
@@ -345,12 +345,12 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     value={dialNumber}
                     onChange={(e) => setDialNumber(e.target.value)}
                     placeholder="Ramal ou Telefone..."
-                    className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-2.5 text-lg font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 tracking-wider"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-lg font-mono text-slate-800 placeholder-slate-500 focus:outline-none focus:border-sky-500 tracking-wider"
                   />
                   {dialNumber && (
                     <button
                       onClick={handleBackspace}
-                      className="absolute right-3 text-slate-400 hover:text-slate-200 text-xs px-1.5 py-0.5"
+                      className="absolute right-3 text-slate-400 hover:text-slate-700 text-xs px-1.5 py-0.5"
                     >
                       ⌫
                     </button>
@@ -359,11 +359,11 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
               </div>
             ) : (
               <div className="text-center py-2">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 text-xs font-semibold mb-2">
-                  <Radio className="w-3.5 h-3.5 animate-pulse text-sky-400" />
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-600/10 border border-sky-500/30 text-blue-600 text-xs font-semibold mb-2">
+                  <Radio className="w-3.5 h-3.5 animate-pulse text-blue-600" />
                   {callState === 'calling' ? 'Chamando...' : `Em chamada: ${formatSeconds(callDuration)}`}
                 </div>
-                <h3 className="text-base font-bold text-slate-100">
+                <h3 className="text-base font-bold text-slate-800">
                   {dialNumber === '9001' ? 'MaIA — Agente de Voz IA' : dialNumber || 'Chamada Externa'}
                 </h3>
                 <p className="text-[11px] text-slate-400 font-mono mt-0.5">
@@ -393,27 +393,27 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
           {/* Quick Dial Tags (When Idle) */}
           {callState === 'idle' && (
-            <div className="px-4 py-2 border-b border-slate-800/60 flex items-center gap-1.5 overflow-x-auto text-xs no-scrollbar">
-              <span className="text-[10px] uppercase text-slate-500 font-semibold tracking-wider mr-1">Atalhos:</span>
+            <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto text-xs no-scrollbar">
+              <span className="text-[10px] uppercase text-slate-400 font-semibold tracking-wider mr-1">Atalhos:</span>
               <button
                 onClick={() => {
                   setDialNumber('9001');
                   startCall('9001');
                 }}
-                className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-sky-500/15 border border-sky-500/40 text-sky-300 hover:bg-sky-500/25 flex items-center gap-1 font-medium transition"
+                className="whitespace-nowrap px-2.5 py-1 rounded-lg bg-blue-600/15 border border-sky-500/40 text-blue-700 hover:bg-blue-600/25 flex items-center gap-1 font-medium transition"
               >
-                <Bot className="w-3 h-3 text-sky-400" />
+                <Bot className="w-3 h-3 text-blue-600" />
                 MaIA IA (9001)
               </button>
               <button
                 onClick={() => setDialNumber('4102')}
-                className="whitespace-nowrap px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition"
+                className="whitespace-nowrap px-2 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
               >
                 Suporte (4102)
               </button>
               <button
                 onClick={() => setDialNumber('6001')}
-                className="whitespace-nowrap px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition"
+                className="whitespace-nowrap px-2 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
               >
                 URA (6001)
               </button>
@@ -422,13 +422,13 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
           {/* Connected Tabs (Keypad vs Live AI Transcript) */}
           {callState === 'connected' && isAiCall && (
-            <div className="flex border-b border-slate-800 bg-slate-950/40">
+            <div className="flex border-b border-slate-200 bg-slate-50/40">
               <button
                 onClick={() => setActiveTab('ai_live')}
                 className={`flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 border-b-2 transition ${
                   activeTab === 'ai_live'
-                    ? 'border-sky-500 text-sky-400 bg-sky-500/5'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                    ? 'border-sky-500 text-blue-600 bg-blue-600/5'
+                    : 'border-transparent text-slate-400 hover:text-slate-700'
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
@@ -438,8 +438,8 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                 onClick={() => setActiveTab('keypad')}
                 className={`flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 border-b-2 transition ${
                   activeTab === 'keypad'
-                    ? 'border-sky-500 text-sky-400 bg-sky-500/5'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                    ? 'border-sky-500 text-blue-600 bg-blue-600/5'
+                    : 'border-transparent text-slate-400 hover:text-slate-700'
                 }`}
               >
                 <Clock className="w-3.5 h-3.5" />
@@ -461,10 +461,10 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                         item.role === 'user'
                           ? 'bg-sky-950/50 border border-sky-800/50 text-sky-100 ml-6'
                           : item.role === 'model'
-                          ? 'bg-slate-800/80 border border-slate-700/60 text-slate-100 mr-6'
+                          ? 'bg-slate-50 border border-slate-200 text-slate-800 mr-6'
                           : item.role === 'tool'
                           ? 'bg-amber-950/30 border border-amber-800/40 text-amber-200 font-mono text-[11px]'
-                          : 'bg-slate-900 border border-slate-800 text-slate-400 text-[10px] text-center'
+                          : 'bg-white border border-slate-200 text-slate-400 text-[10px] text-center'
                       }`}
                     >
                       <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
@@ -485,28 +485,28 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                 </div>
 
                 {/* Quick Prompts & Speech Input */}
-                <div className="mt-3 pt-3 border-t border-slate-800">
-                  <div className="text-[10px] uppercase text-slate-500 font-semibold tracking-wider mb-1.5 flex items-center justify-between">
+                <div className="mt-3 pt-3 border-t border-slate-200">
+                  <div className="text-[10px] uppercase text-slate-400 font-semibold tracking-wider mb-1.5 flex items-center justify-between">
                     <span>Falar ou enviar pergunta:</span>
-                    <span className="text-sky-400">Barge-in ativo</span>
+                    <span className="text-blue-600">Barge-in ativo</span>
                   </div>
 
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     <button
                       onClick={() => handleSendVoiceTurn('Quero consultar a minha fatura em aberto')}
-                      className="text-[11px] px-2 py-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700/60 text-left"
+                      className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-600 rounded-lg transition border border-slate-200 text-left"
                     >
                       "Consultar minha fatura"
                     </button>
                     <button
                       onClick={() => handleSendVoiceTurn('Pode me transferir para o suporte humano?')}
-                      className="text-[11px] px-2 py-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700/60 text-left"
+                      className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-600 rounded-lg transition border border-slate-200 text-left"
                     >
                       "Transferir para suporte"
                     </button>
                     <button
                       onClick={() => handleSendVoiceTurn('Estou sem internet no escritório')}
-                      className="text-[11px] px-2 py-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700/60 text-left"
+                      className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-600 rounded-lg transition border border-slate-200 text-left"
                     >
                       "Estou sem internet"
                     </button>
@@ -524,12 +524,12 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                       value={userInputText}
                       onChange={(e) => setUserInputText(e.target.value)}
                       placeholder="Diga ou digite algo para a MaIA..."
-                      className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                      className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 placeholder-slate-500 focus:outline-none focus:border-sky-500"
                     />
                     <button
                       type="submit"
                       disabled={isProcessingTurn || !userInputText.trim()}
-                      className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1 transition"
+                      className="px-3 py-1.5 bg-sky-600 hover:bg-blue-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center gap-1 transition"
                     >
                       <Send className="w-3.5 h-3.5" />
                     </button>
@@ -556,9 +556,9 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                   <button
                     key={d}
                     onClick={() => handleKeypadPress(d)}
-                    className="h-12 bg-slate-800/80 hover:bg-slate-700 active:bg-sky-600 active:text-slate-950 rounded-xl flex flex-col items-center justify-center border border-slate-700/60 shadow-sm transition active:scale-95 group"
+                    className="h-12 bg-slate-50 hover:bg-slate-200 active:bg-sky-600 active:text-white rounded-xl flex flex-col items-center justify-center border border-slate-200 shadow-sm transition active:scale-95 group"
                   >
-                    <span className="text-lg font-bold font-mono text-slate-100 group-active:text-slate-950 leading-tight">
+                    <span className="text-lg font-bold font-mono text-slate-800 group-active:text-white leading-tight">
                       {d}
                     </span>
                     {sub.trim() && (
@@ -573,12 +573,12 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
           </div>
 
           {/* Call Controls Footer */}
-          <div className="bg-slate-950/80 p-4 border-t border-slate-800">
+          <div className="bg-slate-50/80 p-4 border-t border-slate-200">
             {callState === 'idle' ? (
               <button
                 onClick={() => startCall()}
                 disabled={!dialNumber}
-                className="w-full py-3 bg-sky-500 hover:bg-sky-400 disabled:opacity-40 disabled:hover:bg-sky-500 text-slate-950 font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-sky-950 transition active:scale-98"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition active:scale-98"
               >
                 <Phone className="w-4 h-4 fill-slate-950" />
                 Ligar para {dialNumber || '...'}
@@ -590,7 +590,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                   className={`p-3 rounded-xl border transition flex items-center justify-center ${
                     isMuted
                       ? 'bg-rose-500/20 border-rose-500 text-rose-400'
-                      : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      : 'bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200'
                   }`}
                   title={isMuted ? 'Desmutar' : 'Mudar para Mudo'}
                 >
@@ -602,7 +602,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                   className={`p-3 rounded-xl border transition flex items-center justify-center ${
                     isOnHold
                       ? 'bg-amber-500/20 border-amber-500 text-amber-400'
-                      : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      : 'bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200'
                   }`}
                   title={isOnHold ? 'Retomar chamada' : 'Colocar em espera'}
                 >
@@ -616,7 +616,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                       alert(`Transferência assistida via Asterisk ARI iniciada para o ramal ${dest}.`);
                     }
                   }}
-                  className="p-3 bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 rounded-xl transition flex items-center justify-center"
+                  className="p-3 bg-slate-100 border border-slate-300 text-slate-600 hover:bg-slate-200 rounded-xl transition flex items-center justify-center"
                   title="Transferir chamada"
                 >
                   <ArrowRight className="w-5 h-5" />

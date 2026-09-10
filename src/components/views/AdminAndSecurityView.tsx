@@ -37,10 +37,10 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-black text-slate-100 tracking-tight">
+            <h1 className="text-xl font-black text-slate-800 tracking-tight">
               Administração, Segurança & Conformidade LGPD
             </h1>
-            <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono">
+            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-mono">
               RBAC • Multi-Tenant • Auditoria Imutável
             </span>
           </div>
@@ -50,13 +50,13 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
         </div>
 
         {/* Sub Navigation */}
-        <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 self-start overflow-x-auto">
+        <div className="flex bg-white p-1 rounded-xl border border-slate-200 self-start overflow-x-auto">
           <button
             onClick={() => setCurrentTab('users')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'users'
-                ? 'bg-sky-500 text-slate-950 shadow'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-700'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
@@ -66,8 +66,8 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
             onClick={() => setCurrentTab('tenants')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'tenants'
-                ? 'bg-sky-500 text-slate-950 shadow'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-700'
             }`}
           >
             <Building className="w-3.5 h-3.5" />
@@ -77,8 +77,8 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
             onClick={() => setCurrentTab('audit_logs')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'audit_logs'
-                ? 'bg-sky-500 text-slate-950 shadow'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-700'
             }`}
           >
             <ShieldAlert className="w-3.5 h-3.5" />
@@ -88,8 +88,8 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
             onClick={() => setCurrentTab('health_check')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
               currentTab === 'health_check'
-                ? 'bg-sky-500 text-slate-950 shadow'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-700'
             }`}
           >
             <HeartPulse className="w-3.5 h-3.5" />
@@ -100,11 +100,11 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
 
       {/* 1. USERS TAB */}
       {currentTab === 'users' && (
-        <div className="bg-slate-900/80 rounded-2xl border border-slate-800/80 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-800 bg-slate-950/50 text-slate-400 font-mono text-[11px] uppercase">
+                <tr className="border-b border-slate-200 bg-slate-50/50 text-slate-400 font-mono text-[11px] uppercase">
                   <th className="py-3 px-4">Nome</th>
                   <th className="py-3 px-4">E-mail</th>
                   <th className="py-3 px-4">Perfil (RBAC)</th>
@@ -113,10 +113,10 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                   <th className="py-3 px-4">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-sans">
+              <tbody className="divide-y divide-slate-100 font-sans">
                 {users.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-800/40 transition">
-                    <td className="py-3.5 px-4 font-semibold text-slate-200">
+                  <tr key={u.id} className="hover:bg-slate-50 transition">
+                    <td className="py-3.5 px-4 font-semibold text-slate-700">
                       {u.name}
                     </td>
                     <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
@@ -128,21 +128,21 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                           u.role === 'super_admin'
                             ? 'bg-purple-950 text-purple-300 border border-purple-800'
                             : u.role === 'admin'
-                            ? 'bg-sky-950 text-sky-300 border border-sky-800'
-                            : 'bg-slate-800 text-slate-300'
+                            ? 'bg-sky-950 text-blue-700 border border-sky-800'
+                            : 'bg-slate-100 text-slate-600'
                         }`}
                       >
                         {u.role.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 font-mono text-slate-300">
+                    <td className="py-3.5 px-4 font-mono text-slate-600">
                       {u.extension ? `Ramal ${u.extension}` : '-'}
                     </td>
                     <td className="py-3.5 px-4 text-slate-400 text-[11px] font-mono">
                       {new Date(u.lastLogin).toLocaleString('pt-BR')}
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className="text-sky-400 text-[11px] font-semibold flex items-center gap-1">
+                      <span className="text-blue-600 text-[11px] font-semibold flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Ativo
                       </span>
                     </td>
@@ -160,32 +160,32 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
           {tenants.map((t) => (
             <div
               key={t.id}
-              className="bg-slate-900/80 rounded-2xl border border-slate-800/80 p-5 space-y-4"
+              className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4"
             >
               <div className="flex items-center justify-between">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-950 text-sky-300 border border-sky-800">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-950 text-blue-700 border border-sky-800">
                   {t.plan}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">ID: {t.id}</span>
               </div>
 
               <div>
-                <h3 className="font-bold text-slate-100 text-base">{t.name}</h3>
+                <h3 className="font-bold text-slate-800 text-base">{t.name}</h3>
                 <p className="text-xs text-slate-400 font-mono mt-0.5">CNPJ: {t.cnpj}</p>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800 text-center font-mono">
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-center font-mono">
                 <div>
-                  <span className="text-[10px] text-slate-500 block uppercase">Ramais Máx.</span>
-                  <span className="text-slate-200 font-bold text-sm">{t.maxExtensions}</span>
+                  <span className="text-[10px] text-slate-400 block uppercase">Ramais Máx.</span>
+                  <span className="text-slate-700 font-bold text-sm">{t.maxExtensions}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 block uppercase">Troncos Máx.</span>
-                  <span className="text-slate-200 font-bold text-sm">{t.maxTrunks}</span>
+                  <span className="text-[10px] text-slate-400 block uppercase">Troncos Máx.</span>
+                  <span className="text-slate-700 font-bold text-sm">{t.maxTrunks}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 block uppercase">Créditos IA</span>
-                  <span className="text-sky-400 font-bold text-sm">${t.aiCreditsUsd}</span>
+                  <span className="text-[10px] text-slate-400 block uppercase">Créditos IA</span>
+                  <span className="text-blue-600 font-bold text-sm">${t.aiCreditsUsd}</span>
                 </div>
               </div>
             </div>
@@ -206,11 +206,11 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-slate-900/80 rounded-2xl border border-slate-800/80 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-slate-800 bg-slate-950/50 text-slate-400 font-mono text-[11px] uppercase">
+                  <tr className="border-b border-slate-200 bg-slate-50/50 text-slate-400 font-mono text-[11px] uppercase">
                     <th className="py-3 px-4">Data / Hora</th>
                     <th className="py-3 px-4">Usuário</th>
                     <th className="py-3 px-4">Ação</th>
@@ -219,24 +219,24 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                     <th className="py-3 px-4">Detalhes</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60 font-sans">
+                <tbody className="divide-y divide-slate-100 font-sans">
                   {auditLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-800/40 transition">
+                    <tr key={log.id} className="hover:bg-slate-50 transition">
                       <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px] whitespace-nowrap">
                         {new Date(log.timestamp).toLocaleString('pt-BR')}
                       </td>
-                      <td className="py-3.5 px-4 font-semibold text-slate-200">
+                      <td className="py-3.5 px-4 font-semibold text-slate-700">
                         {log.userName}
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className="font-mono text-[10px] uppercase font-bold bg-slate-800 px-2 py-0.5 rounded text-slate-300">
+                        <span className="font-mono text-[10px] uppercase font-bold bg-slate-100 px-2 py-0.5 rounded text-slate-600">
                           {log.action}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px]">
+                      <td className="py-3.5 px-4 text-slate-600 font-mono text-[11px]">
                         {log.resource}
                       </td>
-                      <td className="py-3.5 px-4 font-mono text-sky-400 text-[11px]">
+                      <td className="py-3.5 px-4 font-mono text-blue-600 text-[11px]">
                         {log.ip}
                       </td>
                       <td className="py-3.5 px-4 text-slate-400 text-xs">
@@ -259,25 +259,25 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
               Object.entries(health.components).map(([key, val]: [string, any]) => (
                 <div
                   key={key}
-                  className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800/80 space-y-2"
+                  className="bg-white p-5 rounded-2xl border border-slate-100 space-y-2"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase font-bold">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">
                       {key}
                     </span>
                     <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
                   </div>
 
-                  <div className="text-base font-bold text-slate-100 capitalize">
+                  <div className="text-base font-bold text-slate-800 capitalize">
                     {key === 'geminiApi' ? 'Google Gemini AI' : key}
                   </div>
 
-                  <div className="pt-2 border-t border-slate-800 text-xs font-mono text-slate-400 space-y-1">
-                    <div>Status: <span className="text-sky-400 font-bold">{val.status}</span></div>
-                    {val.version && <div>Versão: <span className="text-slate-200">{val.version}</span></div>}
-                    {val.model && <div>Modelo: <span className="text-cyan-400">{val.model}</span></div>}
-                    {val.latencyMs && <div>Latência: <span className="text-slate-200">{val.latencyMs}ms</span></div>}
-                    {val.port && <div>Porta: <span className="text-slate-200">{val.port}</span></div>}
+                  <div className="pt-2 border-t border-slate-200 text-xs font-mono text-slate-400 space-y-1">
+                    <div>Status: <span className="text-blue-600 font-bold">{val.status}</span></div>
+                    {val.version && <div>Versão: <span className="text-slate-700">{val.version}</span></div>}
+                    {val.model && <div>Modelo: <span className="text-teal-600">{val.model}</span></div>}
+                    {val.latencyMs && <div>Latência: <span className="text-slate-700">{val.latencyMs}ms</span></div>}
+                    {val.port && <div>Porta: <span className="text-slate-700">{val.port}</span></div>}
                   </div>
                 </div>
               ))}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Navbar } from './components/Navbar';
 import { Sidebar, ActiveView } from './components/Sidebar';
 import { WebphoneModal } from './components/WebphoneModal';
@@ -349,7 +350,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-sky-500 selection:text-slate-950">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       {/* Top Navigation */}
       <Navbar
         tenants={tenants}
@@ -370,14 +371,25 @@ export default function App() {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-slate-950/95">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-slate-50 relative">
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-              <div className="w-8 h-8 rounded-full border-2 border-sky-500 border-t-transparent animate-spin" />
+              <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
               <p className="text-xs font-mono">Conectando ao núcleo Asterisk 20 e PostgreSQL...</p>
             </div>
           ) : (
-            renderActiveView()
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeView}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="h-full max-w-7xl mx-auto"
+              >
+                {renderActiveView()}
+              </motion.div>
+            </AnimatePresence>
           )}
         </main>
       </div>
