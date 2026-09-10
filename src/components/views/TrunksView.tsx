@@ -121,7 +121,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
                   <div className="flex items-center gap-1.5 text-xs">
                     <span
                       className={`w-2 h-2 rounded-full ${
-                        trunk.status === 'registered' ? 'bg-sky-400' : 'bg-rose-500'
+                        trunk.status === 'registered' ? 'bg-blue-400' : 'bg-rose-500'
                       }`}
                     />
                     <span

@@ -21,7 +21,10 @@ Nascida para democratizar o acesso à telefonia IP inteligente no Brasil, a plat
 - **Frontend:** React 18, TypeScript, Tailwind CSS, Lucide Icons, Vite.
 - **Backend:** Node.js, Express, WebSockets, Google GenAI SDK (`@google/genai`).
 - **Telefonia:** Asterisk 20 LTS, SIP/PJSIP, WebRTC, ARI (Asterisk REST Interface).
-- **Design System:** Tema escuro profissional (`slate-950`) focado em legibilidade técnica, utilizando tipografia *Plus Jakarta Sans* e *JetBrains Mono*.
+- **Tema Visual e Design System:** Interface *Clean Light Canvas* focada em operações de NOC (Network Operations Center). Tema claro de alto contraste (slate-50/blue-600) para máxima legibilidade técnica, utilizando tipografia *Plus Jakarta Sans* e *JetBrains Mono* para logs e CLI.
+- **Console Asterisk CLI Interativo:** Terminal web conectado ao núcleo do Asterisk (via `asterisk -rvvv`), permitindo execução de comandos (ex: `core show channels`, `pjsip show endpoints`, `core reload`) em tempo real.
+- **Auditoria, CDR e Gravações:** Histórico de chamadas com player de áudio integrado para escuta de gravações em Opus (24kHz MixMonitor), barra de progresso temporal e sintetizador vocal (TTS).
+- **Gestão PJSIP Avançada:** Modais para provisionamento de ramais SIP, credenciais formatadas, e gerenciamento de Troncos SIP (com presets para provedores do Brasil como Claro, Vivo e Directcall).
 
 ## 📦 Estrutura do Projeto
 
