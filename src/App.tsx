@@ -154,9 +154,9 @@ export default function App() {
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.error('SSE Error:', err);
-      eventSource.close();
+    eventSource.onerror = () => {
+      // Browser or proxy closed connection, EventSource will auto-reconnect
+      // Mute the error to avoid console noise
     };
 
     return () => {

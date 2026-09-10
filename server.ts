@@ -29,7 +29,7 @@ async function startServer() {
       aiGateway: { status: 'up', activeSessions: db.aiSessions.filter((s) => s.status === 'active').length },
       geminiApi: {
         status: process.env.GEMINI_API_KEY ? 'connected' : 'configured-local-mode',
-        model: 'gemini-3.8-flash',
+        model: 'gemini-flash-latest',
         liveVoiceModel: 'gemini-3.1-flash-live-preview',
         defaultVoice: 'Zephyr',
       },
@@ -760,7 +760,7 @@ async function startServer() {
         { name: 'AudioSocket 24kHz (PCM16)', pingMs: audioSocketLatency, status: 'PASS', details: 'Buffer de baixa latência (jitter < 2.5ms)' },
         { name: 'PostgreSQL Realtime Database', pingMs: Number(pgLatency), status: 'PASS', details: 'Pool de conexões operando em 12/50' },
         { name: 'Redis Cache & Session State', pingMs: 0.8, status: 'PASS', details: `Uso de memória estável em ${redisMem} MB` },
-        { name: 'Google Gemini AI Gateway API', pingMs: rtt, status: 'PASS', details: 'Modelo gemini-3.8-flash com streaming bidirecional Live ativo' },
+        { name: 'Google Gemini AI Gateway API', pingMs: rtt, status: 'PASS', details: 'Modelo gemini-flash-latest com streaming bidirecional Live ativo' },
       ],
     };
     res.json(diagnosticResult);

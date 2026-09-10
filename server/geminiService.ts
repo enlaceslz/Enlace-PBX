@@ -114,7 +114,7 @@ ${knowledgeSnippets}`;
       const userPromptWithContext = `${formattedHistory ? `Histórico recente:\n${formattedHistory}\n\n` : ''}Chamador (${req.callerNumber || 'Desconhecido'}): "${req.userMessage}"`;
 
       const response = await ai.models.generateContent({
-        model: agent.model || 'gemini-3.8-flash',
+        model: agent.model || 'gemini-flash-latest',
         contents: userPromptWithContext,
         config: {
           systemInstruction: systemPrompt,
@@ -232,7 +232,7 @@ Retorne uma análise em português no seguinte formato JSON:
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-flash-latest',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
