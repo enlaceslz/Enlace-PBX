@@ -20,6 +20,17 @@ export interface CrmContact {
   lastInteraction?: string;
 }
 
+export interface CustomerMemory {
+  id: string;
+  tenantId: string;
+  contactId: string;
+  phone: string;
+  summary: string;
+  preferences: string[];
+  sentimentHistory: 'positive' | 'neutral' | 'negative';
+  churnRisk: number;
+}
+
 export interface OmnichannelConversation {
   id: string;
   tenantId: string;
@@ -687,16 +698,28 @@ export class Database {
     {
       id: 'provider-gemini-live',
       tenantId: 'tenant-enlace-matriz',
-      name: 'Google Gemini Live & Flash API (Oficial)',
+      name: 'Google Gemini (Gateway Oficial)',
       providerType: 'gemini_live',
       apiKeyMasked: 'AIza••••••••••••••••••••8F92',
       googleProjectId: 'enlace-telecom-pbx-cloud',
-      googleLocation: 'southamerica-east1', // São Paulo regional endpoint
-      defaultModel: 'gemini-3.8-flash',
+      googleLocation: 'southamerica-east1',
+      defaultModel: 'gemini-flash-latest',
       defaultVoice: 'Zephyr',
       defaultTemperature: 0.3,
       isActive: true,
       updatedAt: '2026-09-08T14:20:00Z',
+    },
+    {
+      id: 'provider-9router-1',
+      tenantId: 'tenant-enlace-matriz',
+      name: '9Router Enterprise AI',
+      providerType: '9router',
+      apiKeyMasked: '9R-••••••••••••••••••••XYZ',
+      defaultModel: '9router-voice-pro',
+      defaultVoice: 'Camila (BR)',
+      defaultTemperature: 0.5,
+      isActive: true,
+      updatedAt: '2026-09-09T09:00:00Z',
     },
     {
       id: 'provider-vertex-enterprise',
@@ -1195,6 +1218,19 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       crmId: 'hubspot-8291',
       lastInteraction: '2026-09-09T14:00:00Z',
     },
+  ];
+
+  customerMemories: CustomerMemory[] = [
+    {
+      id: 'mem-001',
+      tenantId: 'tenant-enlace-matriz',
+      contactId: 'contact-001',
+      phone: '5511999999999',
+      summary: 'Cliente interessado em migrar de plano PME para Corporativo. Reclamou de lentidão na rota internacional.',
+      preferences: ['Prefere atendimento via WhatsApp', 'Aprovação de orçamentos apenas na sexta-feira'],
+      sentimentHistory: 'neutral',
+      churnRisk: 30,
+    }
   ];
 
   omnichannelConversations: OmnichannelConversation[] = [

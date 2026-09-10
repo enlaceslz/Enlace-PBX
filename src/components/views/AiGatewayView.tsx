@@ -267,7 +267,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            Provedores Gemini ({providers.length})
+            Provedores de IA ({providers.length})
           </button>
           <button
             onClick={() => setCurrentTab('tools')}
@@ -563,9 +563,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
               <div>
                 <h3 className="font-bold text-slate-900 text-base">{prov.name}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Região Cloud: <strong className="text-slate-700 font-mono">{prov.googleLocation || 'southamerica-east1 (São Paulo)'}</strong>
-                </p>
+                {prov.googleLocation && (
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Região Cloud: <strong className="text-slate-700 font-mono">{prov.googleLocation}</strong>
+                  </p>
+                )}
               </div>
 
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs font-mono">

@@ -104,6 +104,14 @@ ${knowledgeSnippets}`;
           },
         }));
 
+      // Customer Memory Retrieval
+      const customerContact = db.crmContacts.find(c => c.phone.replace(/\D/g, '') === (req.callerNumber || '').replace(/\D/g, '') && c.tenantId === tenantId);
+      const customerMem = customerContact ? db.customerMemories.find(m => m.contactId === customerContact.id) : null;
+      let memoryContext = '';
+      if (customerMem) {
+        memoryContext = `[MEMÓRIA DO CLIENTE - ${customerContact?.name || 'Desconhecido'}]\nResumo: ${customerMem.summary}\nPreferências: ${customerMem.preferences.join(', ')}\nSentimento anterior: ${customerMem.sentimentHistory}\nRisco de Churn: ${customerMem.churnRisk}%\n\n`;
+      }
+
       // Convert history
       const formattedHistory = req.history
         .filter((h) => h.role === 'user' || h.role === 'model')
@@ -111,7 +119,7 @@ ${knowledgeSnippets}`;
         .map((h) => `${h.role === 'user' ? 'Chamador' : 'MaIA'}: ${h.text}`)
         .join('\n');
 
-      const userPromptWithContext = `${formattedHistory ? `Histórico recente:\n${formattedHistory}\n\n` : ''}Chamador (${req.callerNumber || 'Desconhecido'}): "${req.userMessage}"`;
+      const userPromptWithContext = `${memoryContext}${formattedHistory ? `Histórico recente:\n${formattedHistory}\n\n` : ''}Chamador (${req.callerNumber || 'Desconhecido'}): "${req.userMessage}"`;
 
       const response = await ai.models.generateContent({
         model: agent.model || 'gemini-flash-latest',
@@ -328,6 +336,42 @@ Retorne uma análise em português no seguinte formato JSON:
       latencyMs: Date.now() - startTime + 180,
       tokensUsed: { input: 120, output: 45 },
     };
+  }
+
+  async evaluateSession(sessionHistory: Array<{ role: string; text: string }>, callerNumber: string): Promise<any> {
+    const ai = getAiClient();
+    if (!ai) return null; // Or mock response
+
+    const formattedHistory = sessionHistory.map(h => `${h.role}: ${h.text}`).join('\n');
+    const prompt = `Você é um Supervisor de Qualidade de Contact Center (AI Supervisor). Analise a seguinte transcrição de atendimento:
+    
+    TRANSCRICAO:
+    ${formattedHistory}
+    
+    Forneça uma avaliação JSON estrita com as seguintes chaves:
+    - sentiment (string: "positive", "neutral", "negative")
+    - intent (string: intenção principal do cliente)
+    - resolved (boolean)
+    - churnRisk (number: 0 a 100)
+    - score (number: 0 a 100)
+    - summary (string: resumo em 1 frase)
+    - violations (array of strings: se alguma palavra proibida ou grosseria ocorreu)`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-flash-latest',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        }
+      });
+      const text = response.text;
+      return JSON.parse(text || '{}');
+    } catch (e) {
+      console.error('Supervisor Evaluation failed', e);
+      return null;
+    }
   }
 }
 
