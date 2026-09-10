@@ -27,11 +27,13 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   initialTab = 'monitor',
 }) => {
   const [activeTab, setActiveTab] = useState<'monitor' | 'cli' | 'configs' | 'installer'>(initialTab);
-  const [activeConfigFile, setActiveConfigFile] = useState<'pjsip' | 'extensions' | 'ari'>('pjsip');
+  const [activeConfigFile, setActiveConfigFile] = useState<'pjsip' | 'extensions' | 'queues' | 'rtp' | 'audiosocket' | 'ari'>('pjsip');
   const [configContent, setConfigContent] = useState<string>('');
   const [installerScript, setInstallerScript] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
+  const [reloadingCore, setReloadingCore] = useState(false);
+  const [reloadSuccessMsg, setReloadSuccessMsg] = useState<string | null>(null);
 
   // Asterisk CLI Terminal state
   const [cliHistory, setCliHistory] = useState<Array<{ cmd: string; output: string }>>([
@@ -67,12 +69,28 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
     }
   };
 
+  const handleReloadAsterisk = async () => {
+    setReloadingCore(true);
+    setReloadSuccessMsg(null);
+    try {
+      const res = await fetch('/api/v1/asterisk/reload', { method: 'POST' });
+      const data = await res.json();
+      setReloadSuccessMsg('Módulos PJSIP, Dialplan e AudioSocket recarregados com sucesso!');
+      setTimeout(() => setReloadSuccessMsg(null), 4000);
+      onRefreshChannels();
+    } catch (e) {
+      console.error('Reload error:', e);
+    } finally {
+      setReloadingCore(false);
+    }
+  };
+
   useEffect(() => {
     fetchConfig(activeConfigFile);
     fetchInstallerScript();
   }, [activeConfigFile]);
 
-  const fetchConfig = async (file: 'pjsip' | 'extensions' | 'ari') => {
+  const fetchConfig = async (file: 'pjsip' | 'extensions' | 'queues' | 'rtp' | 'audiosocket' | 'ari') => {
     setLoadingConfig(true);
     try {
       const res = await fetch(`/api/v1/asterisk/configs/${file}`);
@@ -387,56 +405,109 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
       {/* 3. CONFIGS TAB */}
       {activeTab === 'configs' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 onClick={() => setActiveConfigFile('pjsip')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
                   activeConfigFile === 'pjsip'
-                    ? 'bg-blue-600 text-white font-bold'
+                    ? 'bg-blue-600 text-white font-bold shadow-sm'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                /etc/asterisk/pjsip.conf
+                pjsip.conf
               </button>
               <button
                 onClick={() => setActiveConfigFile('extensions')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
                   activeConfigFile === 'extensions'
-                    ? 'bg-blue-600 text-white font-bold'
+                    ? 'bg-blue-600 text-white font-bold shadow-sm'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                /etc/asterisk/extensions.conf
+                extensions.conf
+              </button>
+              <button
+                onClick={() => setActiveConfigFile('queues')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
+                  activeConfigFile === 'queues'
+                    ? 'bg-blue-600 text-white font-bold shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                queues.conf
+              </button>
+              <button
+                onClick={() => setActiveConfigFile('rtp')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
+                  activeConfigFile === 'rtp'
+                    ? 'bg-blue-600 text-white font-bold shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                rtp.conf
+              </button>
+              <button
+                onClick={() => setActiveConfigFile('audiosocket')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
+                  activeConfigFile === 'audiosocket'
+                    ? 'bg-blue-600 text-white font-bold shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                audiosocket.conf
               </button>
               <button
                 onClick={() => setActiveConfigFile('ari')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
                   activeConfigFile === 'ari'
-                    ? 'bg-blue-600 text-white font-bold'
+                    ? 'bg-blue-600 text-white font-bold shadow-sm'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                /etc/asterisk/ari.conf
+                ari.conf
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleReloadAsterisk}
+                disabled={reloadingCore}
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-xl flex items-center gap-1.5 transition font-bold shadow-sm disabled:opacity-50"
+                title="Recarrega todos os módulos do Asterisk (core reload)"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${reloadingCore ? 'animate-spin' : ''}`} />
+                {reloadingCore ? 'Recarregando...' : 'Aplicar no Asterisk (core reload)'}
+              </button>
+
               <button
                 onClick={() => handleCopy(configContent)}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium border border-slate-200"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-blue-600" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Copiado!' : 'Copiar'}
               </button>
+
               <button
                 onClick={() => handleDownloadFile(configContent, `${activeConfigFile}.conf`)}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium border border-slate-200"
               >
                 <Download className="w-3.5 h-3.5" />
                 Baixar .conf
               </button>
             </div>
+          </div>
+
+          {reloadSuccessMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 animate-in fade-in">
+              <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <span>{reloadSuccessMsg}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between text-slate-500 font-mono text-[11px] px-1">
+            <span>Caminho no servidor: /etc/asterisk/{activeConfigFile}.conf</span>
+            <span>Modo: Somente Leitura (Gerado via Banco Centralizado)</span>
           </div>
 
           <pre className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs font-mono text-slate-700 overflow-x-auto max-h-[500px] leading-relaxed">

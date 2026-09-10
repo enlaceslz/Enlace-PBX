@@ -440,6 +440,90 @@ password_format = plain
 `;
   }
 
+  // queues.conf generator (ACD Queues)
+  generateQueuesConf(tenantId: string = 'tenant-enlace-matriz'): string {
+    const queues = db.queues.filter((q) => q.tenantId === tenantId);
+
+    let output = `; ====================================================================
+; Enlace-PBX — Configuração de Filas de Atendimento ACD (queues.conf)
+; Asterisk 20 LTS — Enlace Telecom
+; Gerado automaticamente: ${new Date().toISOString()}
+; ====================================================================
+
+[general]
+persistentmembers = yes
+autofill = yes
+monitor-type = MixMonitor
+shared_lastcall = yes
+
+`;
+
+    queues.forEach((q) => {
+      output += `[${q.id}]
+musicclass = default
+strategy = ${q.strategy}
+timeout = ${q.timeoutSeconds}
+retry = 5
+wrapuptime = 15
+maxlen = 50
+joinempty = no
+leavewhenempty = yes
+ringinuse = no
+announce-frequency = 30
+announce-holdtime = yes
+announce-position = yes
+`;
+      q.members.forEach((member) => {
+        output += `member => PJSIP/${member},0,Ramal ${member}\n`;
+      });
+      output += '\n';
+    });
+
+    return output;
+  }
+
+  // rtp.conf generator (WebRTC, STUN/TURN, RTP Range)
+  generateRtpConf(): string {
+    return `; ====================================================================
+; Enlace-PBX — Configuração RTP & WebRTC ICE/STUN (rtp.conf)
+; Asterisk 20 LTS — Enlace Telecom
+; ====================================================================
+
+[general]
+rtpstart=10000
+rtpend=20000
+dtmftimeout=3000
+strictrtp=yes
+probation=8
+
+; Servidores STUN públicos e corporativos para atravessamento NAT WebRTC
+icesupport=yes
+stunaddr=stun.l.google.com:19302
+`;
+  }
+
+  // audiosocket.conf generator (Google Gemini Live 24kHz PCM16)
+  generateAudioSocketConf(): string {
+    return `; ====================================================================
+; Enlace-PBX — Configuração AudioSocket para Google Gemini (audiosocket.conf)
+; Asterisk 20 LTS — Stasis AI Bridge / app_audiosocket
+; Taxa de Amostragem: 24000 Hz Linear PCM16 Bidirecional (Zero Latency)
+; ====================================================================
+
+[general]
+; Porta do serviço local Node.js / Express AudioSocket Server
+bindaddr = 127.0.0.1
+port = 9092
+
+[gemini-live]
+uuid = e8a7419c-09b3-4f9e-8c34-7164b97d8123
+endpoint = 127.0.0.1:9092
+timeout = 10
+sample_rate = 24000
+format = slin24
+`;
+  }
+
   // Asterisk CLI Engine Execution (Simulated real Asterisk 20 console)
   executeCliCommand(rawCmd: string): string {
     const cmd = rawCmd.trim().toLowerCase();

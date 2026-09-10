@@ -404,8 +404,58 @@ async function startServer() {
       pjsipConf: asteriskService.generatePjsipConf(tenantId),
       extensionsConf: asteriskService.generateExtensionsConf(tenantId),
       ariConf: asteriskService.generateAriConf(),
+      queuesConf: asteriskService.generateQueuesConf(tenantId),
+      rtpConf: asteriskService.generateRtpConf(),
+      audioSocketConf: asteriskService.generateAudioSocketConf(),
       installerScript: asteriskService.generateInstallScript(),
     });
+  });
+
+  app.get('/api/v1/asterisk/configs/:file', (req, res) => {
+    const tenantId = (req.query.tenantId as string) || 'tenant-enlace-matriz';
+    const { file } = req.params;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+
+    if (file === 'pjsip') {
+      return res.send(asteriskService.generatePjsipConf(tenantId));
+    }
+    if (file === 'extensions') {
+      return res.send(asteriskService.generateExtensionsConf(tenantId));
+    }
+    if (file === 'ari') {
+      return res.send(asteriskService.generateAriConf());
+    }
+    if (file === 'queues') {
+      return res.send(asteriskService.generateQueuesConf(tenantId));
+    }
+    if (file === 'rtp') {
+      return res.send(asteriskService.generateRtpConf());
+    }
+    if (file === 'audiosocket') {
+      return res.send(asteriskService.generateAudioSocketConf());
+    }
+    return res.status(404).send('; Arquivo de configuração não encontrado');
+  });
+
+  app.get('/api/v1/asterisk/install-script', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(asteriskService.generateInstallScript());
+  });
+
+  app.post('/api/v1/asterisk/reload', (req, res) => {
+    const output = asteriskService.executeCliCommand('core reload');
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'RELOAD_ASTERISK_CORE',
+      resource: 'asterisk/core',
+      ip: req.ip || '189.40.122.14',
+      timestamp: new Date().toISOString(),
+      details: 'Recarregamento total dos módulos do Asterisk (PJSIP, Dialplan, AudioSocket e ARI).',
+    });
+    res.json({ success: true, message: output });
   });
 
   app.post('/api/v1/asterisk/cli', (req, res) => {
