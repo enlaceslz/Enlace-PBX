@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { AsteriskChannel, DashboardMetrics } from '../../types/pbx';
-import { Activity, PhoneCall, PhoneMissed, PhoneForwarded, Phone, Bot, CheckCircle2, AlertTriangle, Users, HeadphonesIcon, TrendingUp, Clock, BarChart3, SignalHigh } from 'lucide-react';
+import { Activity, PhoneCall, Ear, Mic, Users2,  PhoneMissed, PhoneForwarded, Phone, Bot, CheckCircle2, AlertTriangle, Users, HeadphonesIcon, TrendingUp, Clock, BarChart3, SignalHigh } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
 
 interface OperationDashboardViewProps {
   channels: AsteriskChannel[];
   metrics: DashboardMetrics | null;
+  onOpenWebphone?: () => void;
 }
 
-export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ channels, metrics }) => {
+export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ channels, metrics, onOpenWebphone }) => {
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -214,6 +215,7 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
                   <th className="px-5 py-3">Origem</th>
                   <th className="px-5 py-3">Destino / App</th>
                   <th className="px-5 py-3">Duração</th>
+                  <th className="px-5 py-3 text-right">Intervenção (NOC)</th>
                 </tr>
               </thead>
               <tbody className="text-sm divide-y divide-slate-800/50">
@@ -237,11 +239,26 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
                     <td className="px-5 py-3 font-mono text-xs text-slate-300">
                       {Math.floor(chan.durationSeconds / 60)}:{chan.durationSeconds % 60 < 10 ? '0' : ''}{chan.durationSeconds % 60}
                     </td>
+                    <td className="px-5 py-3 text-right">
+                      {chan.state === 'Up' && (
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => onOpenWebphone?.()} title="Spy (Escuta silenciosa)" className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-md border border-slate-700 transition">
+                            <Ear className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => onOpenWebphone?.()} title="Whisper (Sussurrar para o operador)" className="p-1.5 bg-slate-800 hover:bg-sky-900/50 text-slate-400 hover:text-sky-400 rounded-md border border-slate-700 hover:border-sky-700 transition">
+                            <Mic className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => onOpenWebphone?.()} title="Barge (Intervenção a 3)" className="p-1.5 bg-slate-800 hover:bg-rose-900/50 text-slate-400 hover:text-rose-400 rounded-md border border-slate-700 hover:border-rose-700 transition">
+                            <Users2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {channels.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-12 text-center text-slate-500">
+                    <td colSpan={6} className="px-5 py-12 text-center text-slate-500">
                       <div className="flex flex-col items-center gap-2">
                         <Phone className="w-8 h-8 opacity-20" />
                         <span>Nenhuma chamada cruzando o core no momento.</span>

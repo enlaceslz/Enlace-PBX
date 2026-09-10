@@ -23,6 +23,8 @@ import {
   CheckCircle2,
   Headphones,
   Forward,
+  Video,
+  VideoOff,
 } from 'lucide-react';
 import { playDtmfTone, playRingbackTone, playCallEndBeep } from '../utils/audio';
 
@@ -44,6 +46,8 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isOnHold, setIsOnHold] = useState(false);
+  const [isVideoCall, setIsVideoCall] = useState(false);
+  const [isVideoCamOn, setIsVideoCamOn] = useState(true);
   const [activeTab, setActiveTab] = useState<'keypad' | 'ai_live' | 'ivr' | 'queue' | 'extension'>('keypad');
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -386,6 +390,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     if (stopRingbackRef.current) stopRingbackRef.current();
     playCallEndBeep();
     setCallState('idle');
+    setIsVideoCall(false);
     setCallType('idle');
     setShowTransferDialog(false);
     setIvrAnnouncement('');
@@ -939,9 +944,37 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
             ) : callState === 'connected' && activeTab === 'extension' ? (
               /* Connected Extension Screen */
               <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-                <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mb-3 shadow-inner">
-                  <Headphones className="w-8 h-8" />
-                </div>
+                {isVideoCall ? (
+                  <div className="w-full h-48 bg-slate-900 rounded-2xl mb-4 relative overflow-hidden border-2 border-slate-800 shadow-inner flex items-center justify-center">
+                    {/* Simulated Remote Video */}
+                    <div className="absolute inset-0 opacity-20 bg-[url('https://images.unsplash.com/photo-1573164713988-8665fc963095?auto=format&fit=crop&q=80&w=800')] bg-cover bg-center" />
+                    
+                    {!isVideoCamOn && (
+                      <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center z-10 backdrop-blur-sm">
+                        <VideoOff className="w-8 h-8 text-slate-500" />
+                      </div>
+                    )}
+                    
+                    {/* Simulated Local PIP */}
+                    <div className="absolute bottom-2 right-2 w-16 h-24 bg-slate-800 rounded-lg border-2 border-slate-600 overflow-hidden shadow-lg z-20">
+                      <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=400')] bg-cover bg-center" />
+                      {!isVideoCamOn && (
+                        <div className="absolute inset-0 bg-slate-900 flex items-center justify-center backdrop-blur-md">
+                           <VideoOff className="w-4 h-4 text-slate-500" />
+                        </div>
+                      )}
+                    </div>
+                    
+                    <span className="absolute top-2 left-2 bg-slate-900/60 text-white text-[9px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20">
+                      H.264 / VP8 (WebRTC)
+                    </span>
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mb-3 shadow-inner">
+                    <Headphones className="w-8 h-8" />
+                  </div>
+                )}
+                
                 <h4 className="text-sm font-bold text-slate-900 mb-0.5">
                   {extInfo?.name || `Ramal ${connectedDestination}`}
                 </h4>
@@ -950,19 +983,15 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                 <div className="space-y-2 w-full max-w-xs text-left text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono">
                   <div className="flex justify-between text-[11px]">
                     <span className="text-slate-500">Protocolo:</span>
-                    <span className="text-slate-800 font-semibold">PJSIP SIP/2.0 UDP</span>
+                    <span className="text-slate-800 font-semibold">PJSIP SIP/2.0 {isVideoCall ? 'WSS' : 'UDP'}</span>
                   </div>
                   <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-500">Codec de Voz:</span>
-                    <span className="text-blue-600 font-semibold">Opus HD (48 kHz)</span>
+                    <span className="text-slate-500">{isVideoCall ? 'Codecs' : 'Codec de Voz'}:</span>
+                    <span className="text-blue-600 font-semibold">{isVideoCall ? 'Opus + VP8' : 'Opus HD'}</span>
                   </div>
                   <div className="flex justify-between text-[11px]">
                     <span className="text-slate-500">Criptografia:</span>
-                    <span className="text-emerald-600 font-semibold">SRTP / TLS Ativo</span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-500">Jitter Buffer:</span>
-                    <span className="text-slate-800">4.2 ms (Excelente)</span>
+                    <span className="text-emerald-600 font-semibold">SRTP / DTLS</span>
                   </div>
                 </div>
               </div>
@@ -1068,16 +1097,41 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
           {/* Call Controls Footer */}
           <div className="bg-slate-50/80 p-4 border-t border-slate-200">
             {callState === 'idle' ? (
-              <button
-                onClick={() => startCall()}
-                disabled={!dialNumber}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition active:scale-98"
-              >
-                <Phone className="w-4 h-4 fill-white" />
-                Ligar para {dialNumber || '...'}
-              </button>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setIsVideoCall(false); startCall(); }}
+                    disabled={!dialNumber}
+                    className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition active:scale-98"
+                  >
+                    <Phone className="w-4 h-4 fill-white" />
+                    Ligar {dialNumber ? `(${dialNumber})` : ''}
+                  </button>
+                  <button
+                    onClick={() => { setIsVideoCall(true); startCall(); }}
+                    disabled={!dialNumber}
+                    className="flex-1 py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 transition active:scale-98"
+                  >
+                    <Video className="w-4 h-4 fill-white" />
+                    Vídeo
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="flex items-center justify-between gap-3">
+                {isVideoCall && (
+                  <button
+                    onClick={() => setIsVideoCamOn(!isVideoCamOn)}
+                    className={`p-3 rounded-xl border transition flex items-center justify-center ${
+                      !isVideoCamOn
+                        ? 'bg-rose-500/20 border-rose-500 text-rose-400'
+                        : 'bg-purple-100 border-purple-200 text-purple-700 hover:bg-purple-200'
+                    }`}
+                    title={isVideoCamOn ? 'Desligar Câmera' : 'Ligar Câmera'}
+                  >
+                    {isVideoCamOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+                  </button>
+                )}
                 <button
                   onClick={() => setIsMuted(!isMuted)}
                   className={`p-3 rounded-xl border transition flex items-center justify-center ${

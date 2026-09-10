@@ -37,6 +37,7 @@ export interface Extension {
   status: 'online' | 'offline' | 'busy' | 'ringing';
   ipAddress?: string;
   allowAiTransfer: boolean;
+  videoEnabled?: boolean;
 }
 
 export interface Trunk {

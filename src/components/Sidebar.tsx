@@ -23,6 +23,7 @@ import {
   Building,
   HeartPulse,
   HelpCircle,
+  Database,
   MonitorPlay,
   Plug,
   MessageSquare,
@@ -60,7 +61,8 @@ export type ActiveView =
   | 'billing'
   | 'health_check'
   | 'settings'
-  | 'help_manual';
+  | 'help_manual'
+  | 'backup_restore';
 
 interface SidebarProps {
   activeView: ActiveView;
@@ -120,6 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
         { id: 'asterisk_monitor' as ActiveView, label: 'Monitor ARI & Canais', icon: Terminal },
         { id: 'asterisk_configs' as ActiveView, label: 'Configurações PJSIP/Dialplan', icon: FileCode },
         { id: 'asterisk_installer' as ActiveView, label: 'Instalador Linux Oficial', icon: Download },
+        { id: 'backup_restore' as ActiveView, label: 'Backup & Restore', icon: Database },
       ],
     },
     {
@@ -182,6 +185,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Open Source Contribution */}
+      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 text-center">
+        <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
+          O Enlace-PBX é uma contribuição open-source da <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Enlace Telecom</a> e <strong>André LJP</strong>.
+          <br />
+          <a href="mailto:slzenlace@gmail.com" className="hover:text-slate-600 transition-colors">slzenlace@gmail.com</a>
+        </p>
       </div>
 
       {/* Webphone Quick Drawer Footer */}

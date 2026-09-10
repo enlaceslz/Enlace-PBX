@@ -22,6 +22,7 @@ import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
 import { HealthCheckView } from './components/views/HealthCheckView';
 import { SettingsView } from './components/views/SettingsView';
 import { HelpManualView } from './components/views/HelpManualView';
+import { BackupRestoreView } from './components/views/BackupRestoreView';
 import {
   Tenant,
   User,
@@ -192,7 +193,7 @@ export default function App() {
           />
         );
       case 'operation_dashboard':
-        return <OperationDashboardView channels={channels} metrics={metrics} />;
+        return <OperationDashboardView channels={channels} metrics={metrics} onOpenWebphone={handleOpenWebphone} />;
       case 'omnichannel':
         return <OmnichannelView />;
       case 'crm_hub':
@@ -374,6 +375,8 @@ export default function App() {
         return <SettingsView onNavigate={setActiveView} />;
       case 'help_manual':
         return <HelpManualView />;
+      case 'backup_restore':
+        return <BackupRestoreView />;
       default:
         return (
           <DashboardView

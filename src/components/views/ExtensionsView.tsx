@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Video,
   Users,
   Plus,
   Phone,
@@ -48,6 +49,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
     recording: 'always' as const,
     voicemail: true,
     allowAiTransfer: true,
+    videoEnabled: true,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -72,6 +74,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
           recording: formData.recording,
           voicemail: formData.voicemail,
           allowAiTransfer: formData.allowAiTransfer,
+          videoEnabled: formData.videoEnabled,
         }),
       });
       setIsModalOpen(false);
@@ -87,6 +90,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
         recording: 'always',
         voicemail: true,
         allowAiTransfer: true,
+        videoEnabled: true,
       });
       onRefresh();
     } catch (err) {
