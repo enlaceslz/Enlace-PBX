@@ -219,6 +219,11 @@ export interface CdrRecord {
   extension?: string;
   aiAgentId?: string;
   aiSessionId?: string;
+  isAiHandled?: boolean;
+  isTransferred?: boolean;
+  transferredTo?: string;
+  ivrPath?: string;
+  sentiment?: 'positive' | 'neutral' | 'negative';
   transcription?: string;
   summary?: string;
   costBrl: number;

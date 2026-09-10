@@ -282,7 +282,66 @@ async function startServer() {
   });
 
   app.get('/api/v1/ai/tools', (req, res) => res.json(db.aiTools));
+  app.post('/api/v1/ai/tools', (req, res) => {
+    const newTool = {
+      id: `tool-${Date.now()}`,
+      tenantId: req.body.tenantId || 'tenant-enlace-matriz',
+      name: req.body.name,
+      description: req.body.description,
+      endpoint: req.body.endpoint || '/api/v1/integrations/custom',
+      method: req.body.method || 'POST',
+      requiresConfirmation: req.body.requiresConfirmation === true,
+      schemaJson: req.body.schemaJson || { type: 'object', properties: {} },
+      mockResponse: req.body.mockResponse || { status: 'sucesso' },
+    };
+    db.aiTools.push(newTool);
+    res.status(201).json(newTool);
+  });
+  app.put('/api/v1/ai/tools/:id', (req, res) => {
+    const idx = db.aiTools.findIndex((t) => t.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Ferramenta não encontrada' });
+    db.aiTools[idx] = { ...db.aiTools[idx], ...req.body };
+    res.json(db.aiTools[idx]);
+  });
+  app.delete('/api/v1/ai/tools/:id', (req, res) => {
+    db.aiTools = db.aiTools.filter((t) => t.id !== req.params.id);
+    res.json({ success: true });
+  });
+  app.post('/api/v1/ai/tools/:id/test', (req, res) => {
+    const tool = db.aiTools.find((t) => t.id === req.params.id);
+    if (!tool) return res.status(404).json({ error: 'Ferramenta não encontrada' });
+    res.json({
+      executedAt: new Date().toISOString(),
+      toolName: tool.name,
+      inputParams: req.body.params || {},
+      result: tool.mockResponse,
+    });
+  });
+
   app.get('/api/v1/ai/knowledge', (req, res) => res.json(db.aiKnowledge));
+  app.post('/api/v1/ai/knowledge', (req, res) => {
+    const newDoc = {
+      id: `kb-${Date.now()}`,
+      tenantId: req.body.tenantId || 'tenant-enlace-matriz',
+      title: req.body.title,
+      category: req.body.category || 'Geral',
+      content: req.body.content,
+      updatedAt: new Date().toISOString(),
+    };
+    db.aiKnowledge.push(newDoc);
+    res.status(201).json(newDoc);
+  });
+  app.put('/api/v1/ai/knowledge/:id', (req, res) => {
+    const idx = db.aiKnowledge.findIndex((k) => k.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Documento RAG não encontrado' });
+    db.aiKnowledge[idx] = { ...db.aiKnowledge[idx], ...req.body, updatedAt: new Date().toISOString() };
+    res.json(db.aiKnowledge[idx]);
+  });
+  app.delete('/api/v1/ai/knowledge/:id', (req, res) => {
+    db.aiKnowledge = db.aiKnowledge.filter((k) => k.id !== req.params.id);
+    res.json({ success: true });
+  });
+
   app.get('/api/v1/ai/sessions', (req, res) => res.json(db.aiSessions));
 
   // Voice Interaction endpoint - Connects real phone voice turns with Google Gemini
@@ -423,6 +482,59 @@ async function startServer() {
   app.delete('/api/v1/asterisk/channels/:id', (req, res) => {
     asteriskService.terminateSimulationChannel(req.params.id);
     res.json({ success: true });
+  });
+
+  app.post('/api/v1/asterisk/channels/:id/hangup', (req, res) => {
+    const success = asteriskService.hangupChannel(req.params.id);
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'HANGUP_CHANNEL',
+      resource: `channels/${req.params.id}`,
+      ip: req.ip || '189.40.122.14',
+      timestamp: new Date().toISOString(),
+      details: `Canal ${req.params.id} desconectado manualmente via comando ARI/CLI.`,
+    });
+    res.json({ success, message: `Canal ${req.params.id} encerrado.` });
+  });
+
+  app.post('/api/v1/asterisk/channels/:id/transfer', (req, res) => {
+    const destination = (req.body.destination || '4102').trim();
+    const chan = asteriskService.transferChannel(req.params.id, destination);
+    if (!chan) {
+      return res.status(404).json({ error: 'Canal não encontrado para transferência.' });
+    }
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'TRANSFER_CHANNEL',
+      resource: `channels/${req.params.id}`,
+      ip: req.ip || '189.40.122.14',
+      timestamp: new Date().toISOString(),
+      details: `Transferência cega/assistida do canal ${chan.name} para destino ${destination}.`,
+    });
+    res.json({ success: true, channel: chan, message: `Canal transferido para ${destination}.` });
+  });
+
+  app.post('/api/v1/asterisk/channels/:id/spy', (req, res) => {
+    const supervisorExt = (req.body.supervisorExt || '4101').trim();
+    const spyChan = asteriskService.spyChannel(req.params.id, supervisorExt);
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'CHANSPY_CHANNEL',
+      resource: `channels/${req.params.id}`,
+      ip: req.ip || '189.40.122.14',
+      timestamp: new Date().toISOString(),
+      details: `Originação de ChanSpy no ramal supervisor ${supervisorExt} para monitoramento silencioso do canal ${req.params.id}.`,
+    });
+    res.json({ success: true, channel: spyChan, message: `ChanSpy iniciado no ramal ${supervisorExt}.` });
   });
 
   app.get('/api/v1/asterisk/configs', (req, res) => {

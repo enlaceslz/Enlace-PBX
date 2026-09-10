@@ -67,6 +67,42 @@ export class AsteriskService {
     this.activeChannels = this.activeChannels.filter((c) => c.id !== channelId);
   }
 
+  hangupChannel(channelId: string): boolean {
+    const prevCount = this.activeChannels.length;
+    this.activeChannels = this.activeChannels.filter((c) => c.id !== channelId && c.name !== channelId);
+    return this.activeChannels.length < prevCount;
+  }
+
+  transferChannel(channelId: string, destination: string): AsteriskChannel | null {
+    const chan = this.activeChannels.find((c) => c.id === channelId || c.name === channelId);
+    if (!chan) return null;
+    chan.connectedLine = destination;
+    chan.exten = destination;
+    chan.application = `Dial(PJSIP/${destination})`;
+    chan.aiBridgeActive = destination === '9001' || destination.toLowerCase().includes('maia');
+    return chan;
+  }
+
+  spyChannel(channelId: string, supervisorExt: string = '4101'): AsteriskChannel {
+    const targetChan = this.activeChannels.find((c) => c.id === channelId || c.name === channelId);
+    const targetName = targetChan ? targetChan.name : channelId;
+    const spyId = `chan-spy-${Date.now()}`;
+    const spyChan: AsteriskChannel = {
+      id: spyId,
+      name: `PJSIP/${supervisorExt}-spy`,
+      state: 'Up',
+      callerNumber: supervisorExt,
+      connectedLine: `ChanSpy(${targetName})`,
+      context: 'from-internal',
+      exten: supervisorExt,
+      application: `ChanSpy(${targetName},qb)`,
+      durationSeconds: 1,
+      aiBridgeActive: false,
+    };
+    this.activeChannels.push(spyChan);
+    return spyChan;
+  }
+
   // Pure Asterisk 20+ PJSIP configuration generator (pjsip.conf)
   generatePjsipConf(tenantId: string = 'tenant-enlace-matriz'): string {
     const extensions = db.extensions.filter((e) => e.tenantId === tenantId);

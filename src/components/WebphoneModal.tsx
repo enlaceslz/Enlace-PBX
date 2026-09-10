@@ -18,6 +18,11 @@ import {
   ShieldCheck,
   Radio,
   ArrowRight,
+  GitFork,
+  Users,
+  CheckCircle2,
+  Headphones,
+  Forward,
 } from 'lucide-react';
 import { playDtmfTone, playRingbackTone, playCallEndBeep } from '../utils/audio';
 
@@ -39,8 +44,18 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isOnHold, setIsOnHold] = useState(false);
-  const [activeTab, setActiveTab] = useState<'keypad' | 'ai_live'>('keypad');
+  const [activeTab, setActiveTab] = useState<'keypad' | 'ai_live' | 'ivr' | 'queue' | 'extension'>('keypad');
   const [isMinimized, setIsMinimized] = useState(false);
+
+  // Call classification & target states
+  const [callType, setCallType] = useState<'idle' | 'ai' | 'ivr' | 'queue' | 'extension' | 'external'>('idle');
+  const [connectedDestination, setConnectedDestination] = useState<string>('');
+  const [ivrAnnouncement, setIvrAnnouncement] = useState<string>('');
+  const [queueInfo, setQueueInfo] = useState<{ name: string; position: number; agentName?: string } | null>(null);
+  const [extInfo, setExtInfo] = useState<{ name: string; number: string; dept: string } | null>(null);
+  const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [transferDestination, setTransferDestination] = useState('4102');
+  const [transferStatusMsg, setTransferStatusMsg] = useState<string | null>(null);
 
   // AI Voice conversation state
   const [isAiCall, setIsAiCall] = useState(false);
@@ -131,24 +146,182 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     };
   }, [callState]);
 
+  const processIvrSelection = (digit: string) => {
+    playDtmfTone(digit);
+    if (digit === '1') {
+      // Comercial (Ramal 4103)
+      setIvrAnnouncement('Opção 1 selecionada: Transferindo para Comercial (4103)...');
+      speakText('Opção um. Transferindo para Comercial no ramal 4103. Por favor, aguarde.');
+      setTimeout(() => {
+        setCallType('extension');
+        setActiveTab('extension');
+        setConnectedDestination('4103 (Comercial)');
+        setExtInfo({ name: 'Mariana Costa', number: '4103', dept: 'Comercial & Vendas' });
+        setTimeout(() => {
+          speakText('Comercial Enlace, boa tarde! Mariana falando, como posso ajudar?');
+        }, 1200);
+      }, 2200);
+    } else if (digit === '2') {
+      // Suporte Técnico (Fila 7001)
+      setIvrAnnouncement('Opção 2 selecionada: Encaminhando para Fila de Suporte...');
+      speakText('Opção dois. Encaminhando para a Fila de Suporte Técnico. Você é o próximo da fila.');
+      setTimeout(() => {
+        setCallType('queue');
+        setActiveTab('queue');
+        setConnectedDestination('Fila Suporte N1 (7001)');
+        setQueueInfo({ name: 'Suporte Técnico N1', position: 1, agentName: 'Lucas Oliveira' });
+        setTimeout(() => {
+          speakText('Suporte Enlace, boa tarde! Meu nome é Lucas, em que posso ajudar com a sua conexão?');
+        }, 2500);
+      }, 2000);
+    } else if (digit === '3') {
+      // Financeiro (Fila 7002)
+      setIvrAnnouncement('Opção 3 selecionada: Encaminhando para o Financeiro...');
+      speakText('Opção três. Encaminhando para a Fila Financeira.');
+      setTimeout(() => {
+        setCallType('queue');
+        setActiveTab('queue');
+        setConnectedDestination('Fila Financeiro (7002)');
+        setQueueInfo({ name: 'Financeiro & Faturamento', position: 1, agentName: 'Renata Lima' });
+        setTimeout(() => {
+          speakText('Financeiro Enlace Telecom, boa tarde! Renata falando.');
+        }, 2200);
+      }, 2000);
+    } else if (digit === '9') {
+      // MaIA IA
+      setIvrAnnouncement('Opção 9 selecionada: Conectando com Inteligência Artificial MaIA...');
+      speakText('Opção nove. Transferindo para MaIA, nossa assistente virtual de inteligência artificial.');
+      setTimeout(() => {
+        setCallType('ai');
+        setIsAiCall(true);
+        setActiveTab('ai_live');
+        setConnectedDestination('MaIA (Gemini Live)');
+        const greeting = 'Olá! Sou a MaIA, assistente virtual da Enlace Telecom. Como posso ajudar você hoje?';
+        setAiHistory([
+          {
+            role: 'system',
+            text: 'Conexão estabelecida com Asterisk 20 [from-gemini] via AudioSocket e Google Gemini Live API.',
+            timestamp: new Date().toLocaleTimeString('pt-BR'),
+          },
+          {
+            role: 'model',
+            text: greeting,
+            timestamp: new Date().toLocaleTimeString('pt-BR'),
+          },
+        ]);
+        speakText(greeting);
+      }, 2200);
+    } else if (digit === '0') {
+      // Operador
+      setIvrAnnouncement('Opção 0 selecionada: Transferindo para Telefonista...');
+      speakText('Opção zero. Transferindo para o operador humano no ramal 4101.');
+      setTimeout(() => {
+        setCallType('extension');
+        setActiveTab('extension');
+        setConnectedDestination('4101 (Operador)');
+        setExtInfo({ name: 'Carlos Henrique Silva', number: '4101', dept: 'Central Telefônica' });
+        speakText('Central Enlace Telecom, boa tarde!');
+      }, 2000);
+    }
+  };
+
   const handleKeypadPress = (digit: string) => {
     playDtmfTone(digit);
-    setDialNumber((prev) => prev + digit);
+    if (callState === 'idle') {
+      setDialNumber((prev) => prev + digit);
+    } else if (callState === 'connected') {
+      if (callType === 'ivr') {
+        processIvrSelection(digit);
+      }
+    }
   };
 
   const handleBackspace = () => {
     setDialNumber((prev) => prev.slice(0, -1));
   };
 
+  const executeInlineTransfer = async () => {
+    if (!transferDestination.trim()) return;
+    const dest = transferDestination.trim();
+    speakText(`Transferindo chamada para o destino ${dest}. Por favor, aguarde.`);
+    setTransferStatusMsg(`Transferência para ${dest} iniciada...`);
+
+    try {
+      await fetch('/api/v1/asterisk/channels/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ destination: dest }),
+      });
+    } catch {
+      // simulated fallback
+    }
+
+    setTimeout(() => {
+      setConnectedDestination(dest);
+      setShowTransferDialog(false);
+      setTransferStatusMsg(null);
+      if (dest === '9001') {
+        setCallType('ai');
+        setIsAiCall(true);
+        setActiveTab('ai_live');
+        speakText('Olá! Sou a MaIA, fui conectada à sua chamada transferida. Como posso ajudar?');
+      } else if (dest === '7001' || dest === '7002') {
+        setCallType('queue');
+        setIsAiCall(false);
+        setQueueInfo({
+          name: dest === '7001' ? 'Fila Suporte N1' : 'Fila Financeiro',
+          position: 1,
+          agentName: 'Atendente Transferido',
+        });
+      } else {
+        setCallType('extension');
+        setIsAiCall(false);
+        setExtInfo({
+          name: `Ramal ${dest}`,
+          number: dest,
+          dept: 'Atendimento',
+        });
+      }
+    }, 2000);
+  };
+
   const startCall = async (targetNumber?: string) => {
-    const num = targetNumber || dialNumber;
+    const num = (targetNumber || dialNumber).trim();
     if (!num) return;
 
     setCallState('calling');
-    const isTargetAi = num === '9001' || num.includes('0800') || num.toLowerCase().includes('maia') || num === '6001';
+    setConnectedDestination(num);
+    const isTargetAi = num === '9001' || num.includes('0800') || num.toLowerCase().includes('maia');
+    const isIvr = num === '6001';
+    const isQueue = num === '7001' || num === '7002';
+    const isExt = num === '4101' || num === '4102' || num === '4103';
+
     setIsAiCall(isTargetAi);
     if (isTargetAi) {
+      setCallType('ai');
       setActiveTab('ai_live');
+    } else if (isIvr) {
+      setCallType('ivr');
+      setActiveTab('ivr');
+      setIvrAnnouncement('URA Principal — Digite a opção no teclado');
+    } else if (isQueue) {
+      setCallType('queue');
+      setActiveTab('queue');
+      setQueueInfo({
+        name: num === '7001' ? 'Suporte Técnico N1' : 'Financeiro & Faturamento',
+        position: 1,
+      });
+    } else if (isExt) {
+      setCallType('extension');
+      setActiveTab('extension');
+      setExtInfo({
+        name: num === '4102' ? 'Roberto Mendes' : num === '4103' ? 'Mariana Costa' : 'Carlos Silva',
+        number: num,
+        dept: num === '4102' ? 'NOC / Suporte' : num === '4103' ? 'Comercial' : 'Administração',
+      });
+    } else {
+      setCallType('external');
+      setActiveTab('keypad');
     }
 
     // Play ringing tone
@@ -189,6 +362,22 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
           },
         ]);
         speakText(initialGreeting);
+      } else if (isIvr) {
+        const ivrPrompt = 'Olá! Você ligou para a Enlace Telecom. Para Comercial digite 1. Para Suporte Técnico digite 2. Para Financeiro digite 3. Ou digite 9 para falar com a MaIA.';
+        speakText(ivrPrompt);
+      } else if (isQueue) {
+        speakText('Você ligou para a Fila de Atendimento da Enlace Telecom. Posição 1 na fila. Aguarde um instante.');
+        setTimeout(() => {
+          speakText('Suporte Enlace, boa tarde! Meu nome é Lucas, em que posso ajudar com a sua conexão hoje?');
+          setQueueInfo((prev) => prev ? { ...prev, agentName: 'Lucas Oliveira (Atendendo)' } : null);
+        }, 3200);
+      } else if (isExt) {
+        const greeting = num === '4102'
+          ? 'Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar?'
+          : num === '4103'
+          ? 'Comercial Enlace, boa tarde! Mariana falando.'
+          : 'Alô, central Enlace!';
+        speakText(greeting);
       }
     }, 1800);
   };
@@ -197,6 +386,11 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     if (stopRingbackRef.current) stopRingbackRef.current();
     playCallEndBeep();
     setCallState('idle');
+    setCallType('idle');
+    setShowTransferDialog(false);
+    setIvrAnnouncement('');
+    setQueueInfo(null);
+    setExtInfo(null);
 
     // Save CDR record
     try {
@@ -205,11 +399,16 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           caller: '4101',
-          callee: dialNumber || '9001',
+          callee: connectedDestination || dialNumber || '9001',
           direction: 'outbound',
           duration: callDuration || 12,
           billsec: callDuration || 12,
           aiAgentId: isAiCall ? 'agent-maia-247' : undefined,
+          isAiHandled: isAiCall,
+          isTransferred: Boolean(transferDestination),
+          transferredTo: transferDestination ? `Ramal/Fila ${transferDestination}` : undefined,
+          ivrPath: callType === 'ivr' ? 'URA Principal [6001]' : undefined,
+          sentiment: isAiCall ? 'positive' : 'neutral',
           transcription: aiHistory.map((h) => `${h.role}: ${h.text}`).join('\n'),
         }),
       });
@@ -218,6 +417,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       // Ignored
     }
 
+    setTransferDestination('');
     setAiHistory([]);
     setLastExecutedTool(null);
     window.speechSynthesis?.cancel();
@@ -422,10 +622,24 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                   {callState === 'calling' ? 'Chamando...' : `Em chamada: ${formatSeconds(callDuration)}`}
                 </div>
                 <h3 className="text-base font-bold text-slate-900">
-                  {dialNumber === '9001' ? 'MaIA — Agente de Voz IA' : dialNumber || 'Chamada Externa'}
+                  {callType === 'ai'
+                    ? 'MaIA — Agente de Voz IA (9001)'
+                    : callType === 'ivr'
+                    ? 'URA de Autoatendimento (6001)'
+                    : callType === 'queue'
+                    ? `${queueInfo?.name || 'Fila de Atendimento'} (${connectedDestination || '7001'})`
+                    : callType === 'extension'
+                    ? `${extInfo?.name || 'Ramal'} (${connectedDestination || 'Ramal'})`
+                    : (connectedDestination || dialNumber || 'Chamada Externa')}
                 </h3>
                 <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                  {isAiCall ? 'Google Gemini Live API • AudioSocket 24kHz' : 'Codec Opus / 48kHz • Criptografado SRTP'}
+                  {callType === 'ai'
+                    ? 'Google Gemini Live API • AudioSocket 24kHz'
+                    : callType === 'ivr'
+                    ? 'Asterisk 20 IVR Menu • DTMF RFC 4733'
+                    : callType === 'queue'
+                    ? 'Asterisk app_queue • Distribuição ACD'
+                    : 'Codec Opus / 48kHz • Criptografado SRTP'}
                 </p>
 
                 {/* Animated Waveform when speaking */}
@@ -464,13 +678,19 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                 MaIA IA (9001)
               </button>
               <button
-                onClick={() => setDialNumber('4102')}
+                onClick={() => {
+                  setDialNumber('4102');
+                  startCall('4102');
+                }}
                 className="whitespace-nowrap px-2 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
               >
                 Suporte (4102)
               </button>
               <button
-                onClick={() => setDialNumber('6001')}
+                onClick={() => {
+                  setDialNumber('6001');
+                  startCall('6001');
+                }}
                 className="whitespace-nowrap px-2 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
               >
                 URA (6001)
@@ -478,19 +698,43 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
             </div>
           )}
 
-          {/* Connected Tabs (Keypad vs Live AI Transcript) */}
-          {callState === 'connected' && isAiCall && (
+          {/* Connected Tabs (Context view vs DTMF Keypad) */}
+          {callState === 'connected' && (
             <div className="flex border-b border-slate-200 bg-slate-50/40">
               <button
-                onClick={() => setActiveTab('ai_live')}
+                onClick={() => {
+                  if (callType === 'ai') setActiveTab('ai_live');
+                  else if (callType === 'ivr') setActiveTab('ivr');
+                  else if (callType === 'queue') setActiveTab('queue');
+                  else if (callType === 'extension') setActiveTab('extension');
+                }}
                 className={`flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 border-b-2 transition ${
-                  activeTab === 'ai_live'
+                  activeTab !== 'keypad'
                     ? 'border-sky-500 text-blue-600 bg-blue-600/5'
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                Interação com MaIA
+                {callType === 'ai' ? (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Interação com MaIA
+                  </>
+                ) : callType === 'ivr' ? (
+                  <>
+                    <GitFork className="w-3.5 h-3.5" />
+                    Menu da URA
+                  </>
+                ) : callType === 'queue' ? (
+                  <>
+                    <Users className="w-3.5 h-3.5" />
+                    Fila de Espera
+                  </>
+                ) : (
+                  <>
+                    <Headphones className="w-3.5 h-3.5" />
+                    Painel do Ramal
+                  </>
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('keypad')}
@@ -616,6 +860,112 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                   </form>
                 </div>
               </div>
+            ) : callState === 'connected' && activeTab === 'ivr' ? (
+              /* Interactive IVR Menu */
+              <div className="flex-1 flex flex-col justify-between">
+                <div>
+                  <div className="bg-blue-50/90 border border-blue-200 rounded-xl p-3 mb-3 shadow-xs">
+                    <div className="flex items-center gap-2 text-blue-800 font-bold text-xs mb-1">
+                      <GitFork className="w-4 h-4 text-blue-600" />
+                      <span>URA Asterisk 20 — Escolha sua opção:</span>
+                    </div>
+                    <p className="text-[11px] text-blue-700 leading-relaxed">
+                      {ivrAnnouncement || 'Pressione o dígito no teclado DTMF ou clique na opção desejada:'}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {[
+                      { key: '1', title: 'Comercial & Vendas', dest: 'Ramal 4103', desc: 'Planos corporativos e novos contratos' },
+                      { key: '2', title: 'Suporte Técnico N1', dest: 'Fila 7001', desc: 'NOC, roteadores e link de fibra' },
+                      { key: '3', title: 'Financeiro & Faturamento', dest: 'Fila 7002', desc: '2ª via, boletos e pagamentos via Pix' },
+                      { key: '9', title: 'MaIA — Agente IA Gemini', dest: 'Gemini Live', desc: 'Assistente virtual por voz com IA generativa' },
+                      { key: '0', title: 'Atendente Humano', dest: 'Ramal 4101', desc: 'Central de telefonistas Enlace' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.key}
+                        onClick={() => processIvrSelection(opt.key)}
+                        className="w-full text-left p-2.5 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 bg-white transition flex items-center justify-between group shadow-xs active:scale-99"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 font-mono font-bold flex items-center justify-center text-xs group-hover:bg-blue-600 group-hover:text-white transition">
+                            {opt.key}
+                          </span>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-900 group-hover:text-blue-700 transition">
+                              {opt.title}
+                            </p>
+                            <p className="text-[10px] text-slate-500">{opt.desc}</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-500 bg-slate-100 group-hover:bg-blue-100 group-hover:text-blue-700 px-2 py-0.5 rounded transition">
+                          {opt.dest}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-[10px] text-slate-500 text-center font-mono pt-2 border-t border-slate-200 mt-2">
+                  Asterisk 20 dialplan context: [ivr-main-menu]
+                </div>
+              </div>
+            ) : callState === 'connected' && activeTab === 'queue' ? (
+              /* Queue Wait Screen */
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 mb-3 shadow-inner">
+                  <Users className="w-8 h-8 animate-pulse" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 mb-0.5">
+                  {queueInfo?.name || 'Fila de Atendimento'}
+                </h4>
+                <p className="text-xs text-slate-500 font-mono mb-4">Estratégia ACD: Round-Robin (Toque alternado)</p>
+
+                <div className="grid grid-cols-2 gap-2.5 w-full max-w-xs mb-4">
+                  <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-center">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-medium">Sua Posição</span>
+                    <span className="text-xl font-bold font-mono text-blue-600">#{queueInfo?.position || 1}</span>
+                  </div>
+                  <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-center">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-medium">SLA de Espera</span>
+                    <span className="text-xl font-bold font-mono text-emerald-600">&lt; 20s</span>
+                  </div>
+                </div>
+
+                <div className="w-full max-w-xs bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-800 flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                  <span className="font-medium">{queueInfo?.agentName || 'Conectando com o primeiro agente livre...'}</span>
+                </div>
+              </div>
+            ) : callState === 'connected' && activeTab === 'extension' ? (
+              /* Connected Extension Screen */
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mb-3 shadow-inner">
+                  <Headphones className="w-8 h-8" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 mb-0.5">
+                  {extInfo?.name || `Ramal ${connectedDestination}`}
+                </h4>
+                <p className="text-xs text-slate-500 mb-4">{extInfo?.dept || 'Departamento'} • Ramal {extInfo?.number || connectedDestination}</p>
+
+                <div className="space-y-2 w-full max-w-xs text-left text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-500">Protocolo:</span>
+                    <span className="text-slate-800 font-semibold">PJSIP SIP/2.0 UDP</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-500">Codec de Voz:</span>
+                    <span className="text-blue-600 font-semibold">Opus HD (48 kHz)</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-500">Criptografia:</span>
+                    <span className="text-emerald-600 font-semibold">SRTP / TLS Ativo</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-500">Jitter Buffer:</span>
+                    <span className="text-slate-800">4.2 ms (Excelente)</span>
+                  </div>
+                </div>
+              </div>
             ) : (
               /* DTMF Keypad Grid */
               <div className="grid grid-cols-3 gap-2.5 max-w-[280px] mx-auto w-full my-auto">
@@ -651,6 +1001,69 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
               </div>
             )}
           </div>
+
+          {/* Inline Transfer Box (When open) */}
+          {showTransferDialog && callState === 'connected' && (
+            <div className="p-3 bg-slate-50 border-t border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Forward className="w-3.5 h-3.5 text-blue-600" />
+                  Transferir Chamada (Asterisk ARI)
+                </span>
+                <button
+                  onClick={() => setShowTransferDialog(false)}
+                  className="text-slate-400 hover:text-slate-600 text-xs p-1"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+
+              <div className="flex gap-1.5 mb-2">
+                {[
+                  { label: 'Suporte 4102', dest: '4102' },
+                  { label: 'Comercial 4103', dest: '4103' },
+                  { label: 'Fila N1 7001', dest: '7001' },
+                  { label: 'MaIA 9001', dest: '9001' },
+                ].map((sc) => (
+                  <button
+                    key={sc.dest}
+                    onClick={() => setTransferDestination(sc.dest)}
+                    className={`text-[10px] px-2 py-1 rounded-lg border font-mono transition ${
+                      transferDestination === sc.dest
+                        ? 'bg-blue-600 text-white border-blue-700 font-bold'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {sc.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={transferDestination}
+                  onChange={(e) => setTransferDestination(e.target.value)}
+                  placeholder="Ramal ou fila (ex: 4102)..."
+                  className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  onClick={executeInlineTransfer}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-sm"
+                >
+                  <Forward className="w-3.5 h-3.5" />
+                  Transferir
+                </button>
+              </div>
+
+              {transferStatusMsg && (
+                <p className="text-[11px] text-blue-700 mt-2 font-medium flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  {transferStatusMsg}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Call Controls Footer */}
           <div className="bg-slate-50/80 p-4 border-t border-slate-200">
@@ -690,16 +1103,15 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                 </button>
 
                 <button
-                  onClick={() => {
-                    const dest = prompt('Número do ramal ou fila para transferência (ex: 4102):', '4102');
-                    if (dest) {
-                      alert(`Transferência assistida via Asterisk ARI iniciada para o ramal ${dest}.`);
-                    }
-                  }}
-                  className="p-3 bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 rounded-xl transition flex items-center justify-center"
-                  title="Transferir chamada"
+                  onClick={() => setShowTransferDialog(!showTransferDialog)}
+                  className={`p-3 rounded-xl border transition flex items-center justify-center ${
+                    showTransferDialog
+                      ? 'bg-blue-600 border-blue-700 text-white shadow-sm'
+                      : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                  }`}
+                  title="Transferir chamada (Asterisk ARI)"
                 >
-                  <ArrowRight className="w-5 h-5" />
+                  <Forward className="w-5 h-5" />
                 </button>
 
                 <button
