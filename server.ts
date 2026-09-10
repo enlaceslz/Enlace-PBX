@@ -45,9 +45,9 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------------------
-  // Dashboard Metrics (PRD Section 36)
+  // Dashboard Metrics (PRD Section 36) & Real-time SSE
   // -------------------------------------------------------------------------
-  app.get('/api/v1/dashboard/metrics', (req, res) => {
+  const getDashboardMetrics = () => {
     const todayCdrs = db.cdrs;
     const answered = todayCdrs.filter((c) => c.disposition === 'ANSWERED').length;
     const missed = todayCdrs.filter((c) => c.disposition !== 'ANSWERED').length;
@@ -59,7 +59,7 @@ async function startServer() {
     );
     const activeChannels = asteriskService.getActiveChannels();
 
-    res.json({
+    return {
       callsToday: todayCdrs.length,
       callsActive: activeChannels.length,
       callsAnswered: answered,
@@ -84,6 +84,33 @@ async function startServer() {
         { hour: '13:00', total: 22, ai: 11 },
         { hour: '14:00', total: 29, ai: 13 },
       ],
+    };
+  };
+
+  app.get('/api/v1/dashboard/metrics', (req, res) => {
+    res.json(getDashboardMetrics());
+  });
+
+  app.get('/api/v1/events/asterisk', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const sendUpdate = () => {
+      const data = JSON.stringify({
+        channels: asteriskService.getActiveChannels(),
+        metrics: getDashboardMetrics(),
+      });
+      res.write(`data: ${data}\n\n`);
+    };
+
+    sendUpdate(); // initial state
+
+    const intervalId = setInterval(sendUpdate, 2000); // 2 second interval
+
+    req.on('close', () => {
+      clearInterval(intervalId);
     });
   });
 

@@ -140,21 +140,28 @@ export default function App() {
     loadAllData();
   }, [loadAllData]);
 
-  // Periodic polling for channels and metrics
+  // Real-time SSE for channels and metrics
   useEffect(() => {
-    const interval = setInterval(async () => {
+    const eventSource = new EventSource('/api/v1/events/asterisk');
+    
+    eventSource.onmessage = (event) => {
       try {
-        const [chRes, metRes] = await Promise.all([
-          fetch('/api/v1/asterisk/channels').then((r) => r.json()),
-          fetch('/api/v1/dashboard/metrics').then((r) => r.json()),
-        ]);
-        setChannels(chRes);
-        setMetrics(metRes);
-      } catch {
+        const data = JSON.parse(event.data);
+        if (data.channels) setChannels(data.channels);
+        if (data.metrics) setMetrics(data.metrics);
+      } catch (err) {
         // Ignored
       }
-    }, 4000);
-    return () => clearInterval(interval);
+    };
+
+    eventSource.onerror = (err) => {
+      console.error('SSE Error:', err);
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
   }, []);
 
   const handleOpenWebphone = (number?: string) => {
