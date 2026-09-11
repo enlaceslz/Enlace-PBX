@@ -40,9 +40,10 @@ import {
   BannedIp,
   Fail2banJail,
 } from '../../types/pbx';
+import { VpnMonitoringDashboard } from './VpnMonitoringDashboard';
 
 export const NetworkSecurityView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'wireguard' | 'zerotier' | 'fail2ban_monitor' | 'fail2ban_rules'>('wireguard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'wireguard' | 'zerotier' | 'fail2ban_monitor' | 'fail2ban_rules'>('dashboard');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -636,6 +637,19 @@ export const NetworkSecurityView: React.FC = () => {
       {/* Tabs Navigation */}
       <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto custom-scrollbar pb-1">
         <button
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl transition whitespace-nowrap ${
+            activeTab === 'dashboard'
+              ? 'bg-blue-700 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+          <span>Dashboard &amp; Telemetria VPN</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+        </button>
+
+        <button
           onClick={() => setActiveTab('wireguard')}
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl transition whitespace-nowrap ${
             activeTab === 'wireguard'
@@ -692,6 +706,11 @@ export const NetworkSecurityView: React.FC = () => {
           <span>Regras de Proteção &amp; Whitelist</span>
         </button>
       </div>
+
+      {/* TAB 0: DASHBOARD & TELEMETRIA VPN */}
+      {activeTab === 'dashboard' && (
+        <VpnMonitoringDashboard onNavigateToTab={(tab) => setActiveTab(tab)} />
+      )}
 
       {/* TAB 1: WIREGUARD VPN */}
       {activeTab === 'wireguard' && (

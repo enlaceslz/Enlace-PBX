@@ -31,6 +31,7 @@ import {
   Zap,
   Megaphone,
   BarChart3,
+  ScrollText,
 } from 'lucide-react';
 
 export type ActiveView =
@@ -56,6 +57,7 @@ export type ActiveView =
   | 'ai_knowledge'
   | 'ai_sessions'
   | 'network_security'
+  | 'system_logs'
   | 'asterisk_monitor'
   | 'asterisk_configs'
   | 'asterisk_installer'
@@ -125,6 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       title: 'ASTERISK & INFRAESTRUTURA',
       items: [
         { id: 'network_security' as ActiveView, label: 'Redes, VPN & Fail2ban', icon: ShieldCheck },
+        { id: 'system_logs' as ActiveView, label: 'Logs do Sistema em Tempo Real', icon: ScrollText },
         { id: 'asterisk_monitor' as ActiveView, label: 'Monitor ARI & Canais', icon: Terminal },
         { id: 'asterisk_configs' as ActiveView, label: 'Configurações PJSIP/Dialplan', icon: FileCode },
         { id: 'asterisk_installer' as ActiveView, label: 'Instalador Linux Oficial', icon: Download },

@@ -16,13 +16,15 @@ import {
   Forward,
   Eye,
   X,
+  ScrollText,
 } from 'lucide-react';
 import { AsteriskChannel } from '../../types/pbx';
+import { SystemLogsView } from './SystemLogsView';
 
 interface AsteriskCoreViewProps {
   channels: AsteriskChannel[];
   onRefreshChannels: () => void;
-  initialTab?: 'monitor' | 'cli' | 'configs' | 'installer';
+  initialTab?: 'monitor' | 'cli' | 'configs' | 'installer' | 'syslog';
 }
 
 export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
@@ -30,7 +32,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   onRefreshChannels,
   initialTab = 'monitor',
 }) => {
-  const [activeTab, setActiveTab] = useState<'monitor' | 'cli' | 'configs' | 'installer'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'monitor' | 'cli' | 'configs' | 'installer' | 'syslog'>(initialTab);
 
   useEffect(() => {
     if (initialTab) {
@@ -275,6 +277,17 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
           >
             <Download className="w-3.5 h-3.5" />
             Instalador Linux Oficial
+          </button>
+          <button
+            onClick={() => setActiveTab('syslog')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+              activeTab === 'syslog'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <ScrollText className="w-3.5 h-3.5" />
+            Logs Syslog (Tempo Real)
           </button>
         </div>
       </div>
@@ -784,6 +797,11 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             {installerScript}
           </pre>
         </div>
+      )}
+
+      {/* 5. SYSLOG TAB */}
+      {activeTab === 'syslog' && (
+        <SystemLogsView initialService="asterisk" />
       )}
     </div>
   );

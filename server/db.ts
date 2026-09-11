@@ -1627,6 +1627,28 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
     ],
   };
 
+  vpnRouting: {
+    primaryTunnel: 'wireguard' | 'zerotier' | 'failover_auto';
+    autoFailover: boolean;
+    activeTunnel: 'wireguard' | 'zerotier';
+    healthCheckIntervalSec: number;
+    wireguardHealthy: boolean;
+    zerotierHealthy: boolean;
+    lastSwitch: string;
+    sipPriorityQoS: boolean;
+    mtuOptimization: boolean;
+  } = {
+    primaryTunnel: 'wireguard',
+    autoFailover: true,
+    activeTunnel: 'wireguard',
+    healthCheckIntervalSec: 5,
+    wireguardHealthy: true,
+    zerotierHealthy: true,
+    lastSwitch: new Date().toISOString(),
+    sipPriorityQoS: true,
+    mtuOptimization: true,
+  };
+
   fail2ban: {
     daemonStatus: 'active' | 'inactive' | 'reloading';
     version: string;

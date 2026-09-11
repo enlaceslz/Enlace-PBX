@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.js';
 import { geminiService } from './server/geminiService.js';
 import { asteriskService } from './server/asteriskService.js';
+import { systemLogsManager } from './server/systemLogs.js';
 
 async function startServer() {
   const app = express();
@@ -122,6 +123,69 @@ async function startServer() {
   app.get('/api/v1/health', (req, res) => {
     res.json(getHealthStatus());
   });
+
+  // -------------------------------------------------------------------------
+  // Logs de Sistema em Tempo Real (Asterisk, Nginx, WireGuard, Fail2ban, etc.)
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/system/logs', (req, res) => {
+    const { service, level, date, search, since, limit } = req.query;
+    const result = systemLogsManager.getLogs({
+      service: service as string,
+      level: level as string,
+      date: date as string,
+      search: search as string,
+      since: since as string,
+      limit: limit ? parseInt(limit as string, 10) : 200,
+    });
+    res.json(result);
+  });
+
+  app.post('/api/v1/system/logs/simulate', (req, res) => {
+    const { service, level, message, component, metadata } = req.body || {};
+    let created;
+    if (service && level && message) {
+      created = systemLogsManager.addLog({
+        service,
+        serviceLabel: '',
+        level,
+        component: component || 'custom-trigger',
+        message,
+        metadata,
+      });
+    } else {
+      created = systemLogsManager.generateRandomEvent();
+    }
+    res.json({ success: true, log: created });
+  });
+
+  app.post('/api/v1/system/logs/clear', (req, res) => {
+    systemLogsManager.clearLogs();
+    res.json({ success: true, message: 'Buffer de logs limpo com sucesso' });
+  });
+
+  app.get('/api/v1/system/logs/download', (req, res) => {
+    const { service, level, date, search } = req.query;
+    const result = systemLogsManager.getLogs({
+      service: service as string,
+      level: level as string,
+      date: date as string,
+      search: search as string,
+      limit: 1000,
+    });
+
+    const lines = result.logs.map(
+      (l) => `[${l.timestamp}] [${l.level.padEnd(8)}] [${l.service.padEnd(14)}] [${l.component || 'sys'}]: ${l.message}`
+    ).join('\n');
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="system-logs-${new Date().toISOString().split('T')[0]}.log"`);
+    res.send(lines);
+  });
+
+  // Gerador contínuo de logs suaves em background a cada 5 segundos
+  setInterval(() => {
+    systemLogsManager.generateRandomEvent();
+  }, 5000);
 
   // -------------------------------------------------------------------------
   // Redes, VPN & Conectividade (WireGuard & ZeroTier)
@@ -290,6 +354,220 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
     const left = db.zerotier.networks.splice(idx, 1)[0];
     res.json({ success: true, left });
+  });
+
+  // -------------------------------------------------------------------------
+  // Telemetria, Monitoramento de Nós & Alternância de Túneis (WireGuard & ZeroTier)
+  // -------------------------------------------------------------------------
+  let telemetryBuffer: Array<{
+    time: string;
+    wgRxKbps: number;
+    wgTxKbps: number;
+    ztRxKbps: number;
+    ztTxKbps: number;
+    totalKbps: number;
+    latencyMs: number;
+    jitterMs: number;
+    pps: number;
+  }> = [];
+
+  const seedTelemetryHistory = () => {
+    if (telemetryBuffer.length > 0) return;
+    const now = Date.now();
+    for (let i = 14; i >= 0; i--) {
+      const d = new Date(now - i * 3000);
+      const timeStr = d.toTimeString().split(' ')[0];
+      const baseWgRx = 450 + Math.floor(Math.sin(i / 2) * 120) + Math.floor(Math.random() * 80);
+      const baseWgTx = 580 + Math.floor(Math.cos(i / 2) * 140) + Math.floor(Math.random() * 90);
+      const baseZtRx = 180 + Math.floor(Math.random() * 60);
+      const baseZtTx = 220 + Math.floor(Math.random() * 70);
+      telemetryBuffer.push({
+        time: timeStr,
+        wgRxKbps: baseWgRx,
+        wgTxKbps: baseWgTx,
+        ztRxKbps: baseZtRx,
+        ztTxKbps: baseZtTx,
+        totalKbps: baseWgRx + baseWgTx + baseZtRx + baseZtTx,
+        latencyMs: Number((18 + Math.random() * 6).toFixed(1)),
+        jitterMs: Number((1.5 + Math.random() * 1.2).toFixed(2)),
+        pps: 320 + Math.floor(Math.random() * 110),
+      });
+    }
+  };
+
+  seedTelemetryHistory();
+
+  app.get('/api/v1/network/telemetry', (req, res) => {
+    // Adiciona novo ponto no tempo
+    const now = new Date();
+    const timeStr = now.toTimeString().split(' ')[0];
+    const isWgActive = db.wireguard.status === 'active';
+    const isZtActive = db.zerotier.status === 'online';
+
+    // Se WireGuard ativo, taxa VoIP + dados
+    const currentWgRx = isWgActive ? 460 + Math.floor(Math.random() * 140) : 0;
+    const currentWgTx = isWgActive ? 620 + Math.floor(Math.random() * 160) : 0;
+    const currentZtRx = isZtActive ? 190 + Math.floor(Math.random() * 80) : 0;
+    const currentZtTx = isZtActive ? 230 + Math.floor(Math.random() * 90) : 0;
+    const totalKbps = currentWgRx + currentWgTx + currentZtRx + currentZtTx;
+    const latencyAvg = Number((16.4 + Math.random() * 5.2).toFixed(1));
+    const jitterAvg = Number((1.8 + Math.random() * 0.9).toFixed(2));
+    const pps = (isWgActive ? 280 : 0) + (isZtActive ? 140 : 0) + Math.floor(Math.random() * 60);
+
+    // Incrementar bytes acumulados de WireGuard
+    if (isWgActive) {
+      db.wireguard.bytesRx += Math.floor(currentWgRx * 1024 * 0.1);
+      db.wireguard.bytesTx += Math.floor(currentWgTx * 1024 * 0.1);
+    }
+
+    telemetryBuffer.push({
+      time: timeStr,
+      wgRxKbps: currentWgRx,
+      wgTxKbps: currentWgTx,
+      ztRxKbps: currentZtRx,
+      ztTxKbps: currentZtTx,
+      totalKbps,
+      latencyMs: latencyAvg,
+      jitterMs: jitterAvg,
+      pps,
+    });
+
+    if (telemetryBuffer.length > 20) {
+      telemetryBuffer.shift();
+    }
+
+    // Montar nós consolidados de WireGuard e ZeroTier
+    const nodes = [
+      // WireGuard Peers
+      ...db.wireguard.peers.map(p => ({
+        id: p.id,
+        name: p.name,
+        tunnelType: 'wireguard' as const,
+        virtualIp: p.allowedIps,
+        endpoint: p.endpoint || 'Dinâmico (NAT Traversal)',
+        status: !p.enabled ? ('offline' as const) : p.status,
+        latencyMs: p.status === 'connected' ? 14 + Math.floor(Math.random() * 12) : 0,
+        jitterMs: p.status === 'connected' ? Number((1.4 + Math.random() * 1.8).toFixed(1)) : 0,
+        packetLossPercent: 0,
+        bytesRx: p.transferRx,
+        bytesTx: p.transferTx,
+        latestHandshake: p.latestHandshake,
+        roleOrExtension: p.assignedExtension,
+        location: p.location,
+        enabled: p.enabled,
+        isPrimaryRoute: db.vpnRouting.activeTunnel === 'wireguard' && p.enabled && p.status === 'connected',
+      })),
+      // ZeroTier Peers
+      ...db.zerotier.peers.map(zt => ({
+        id: `zt-peer-${zt.nodeId}`,
+        name: zt.role === 'PLANET' ? `Root Planet ZeroTier (${zt.nodeId})` : `P2P Node Mesh (${zt.nodeId})`,
+        tunnelType: 'zerotier' as const,
+        virtualIp: '192.168.192.x',
+        endpoint: zt.physicalAddress,
+        status: db.zerotier.status === 'online' ? ('connected' as const) : ('offline' as const),
+        latencyMs: zt.latencyMs + Math.floor(Math.random() * 4 - 2),
+        jitterMs: Number((2.1 + Math.random() * 1.2).toFixed(1)),
+        packetLossPercent: 0,
+        bytesRx: 18500000 + Math.floor(Math.random() * 500000),
+        bytesTx: 24200000 + Math.floor(Math.random() * 600000),
+        latestHandshake: 'Ativo via UDP 9993',
+        roleOrExtension: `ZeroTier ${zt.role} (${zt.linkType})`,
+        location: zt.role === 'PLANET' ? 'Global Root Server' : 'Nó P2P Enlace',
+        enabled: db.zerotier.status === 'online',
+        isPrimaryRoute: db.vpnRouting.activeTunnel === 'zerotier' && db.zerotier.status === 'online',
+      })),
+    ];
+
+    res.json({
+      routing: db.vpnRouting,
+      currentRates: {
+        wgRxKbps: currentWgRx,
+        wgTxKbps: currentWgTx,
+        ztRxKbps: currentZtRx,
+        ztTxKbps: currentZtTx,
+        totalKbps,
+        pps,
+        latencyAvgMs: latencyAvg,
+        jitterAvgMs: jitterAvg,
+        packetLossPercent: 0,
+      },
+      history: telemetryBuffer,
+      nodes,
+    });
+  });
+
+  // Alternar Rota Primária / Túnel Ativo
+  app.post('/api/v1/network/tunnel-switch', (req, res) => {
+    const { primaryTunnel } = req.body;
+    if (!['wireguard', 'zerotier', 'failover_auto'].includes(primaryTunnel)) {
+      return res.status(400).json({ error: 'Modo de túnel inválido' });
+    }
+
+    db.vpnRouting.primaryTunnel = primaryTunnel;
+    db.vpnRouting.lastSwitch = new Date().toISOString();
+
+    if (primaryTunnel === 'wireguard') {
+      db.vpnRouting.activeTunnel = 'wireguard';
+    } else if (primaryTunnel === 'zerotier') {
+      db.vpnRouting.activeTunnel = 'zerotier';
+    } else if (primaryTunnel === 'failover_auto') {
+      db.vpnRouting.activeTunnel = db.wireguard.status === 'active' ? 'wireguard' : 'zerotier';
+    }
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'VPN_TUNNEL_SWITCH',
+      resource: 'network/routing',
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `Rota prioritária de telefonia alterada para: ${primaryTunnel.toUpperCase()} (Túnel Ativo: ${db.vpnRouting.activeTunnel.toUpperCase()})`,
+    });
+
+    res.json({
+      success: true,
+      message: `Rota prioritária alternada com sucesso para ${primaryTunnel}`,
+      routing: db.vpnRouting,
+    });
+  });
+
+  // Teste de Ping / Conectividade Instantâneo no Nó
+  app.post('/api/v1/network/nodes/:type/:id/ping', (req, res) => {
+    const { type, id } = req.params;
+    const latency = Number((12 + Math.random() * 24).toFixed(1));
+    const jitter = Number((1.2 + Math.random() * 1.8).toFixed(2));
+    const ttl = 64;
+
+    res.json({
+      success: true,
+      type,
+      id,
+      status: 'online',
+      latencyMs: latency,
+      jitterMs: jitter,
+      ttl,
+      timestamp: new Date().toISOString(),
+      details: `Ping ICMP e SIP OPTIONS responderam em ${latency}ms (Jitter ${jitter}ms, TTL ${ttl}). Nenhuma perda de pacote detectada.`,
+    });
+  });
+
+  // Alternar Estado Ativo / Inativo de um Nó no Painel
+  app.post('/api/v1/network/nodes/:type/:id/toggle', (req, res) => {
+    const { type, id } = req.params;
+    if (type === 'wireguard') {
+      const peer = db.wireguard.peers.find(p => p.id === id);
+      if (!peer) return res.status(404).json({ error: 'Peer WireGuard não encontrado' });
+      peer.enabled = !peer.enabled;
+      if (!peer.enabled) peer.status = 'offline';
+      else peer.status = 'connected';
+      db.wireguard.activePeersCount = db.wireguard.peers.filter(p => p.status === 'connected' && p.enabled).length;
+      return res.json({ success: true, enabled: peer.enabled, status: peer.status });
+    } else {
+      // Zerotier peer ou daemon
+      return res.json({ success: true, message: 'Status do nó ZeroTier sincronizado' });
+    }
   });
 
   // -------------------------------------------------------------------------

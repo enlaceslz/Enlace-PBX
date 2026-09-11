@@ -432,3 +432,114 @@ export interface Fail2banStatus {
   globalRules: Fail2banRules;
 }
 
+// ---------------------------------------------------------------------------
+// Telemetria & Monitoramento em Tempo Real de Túneis VPN
+// ---------------------------------------------------------------------------
+
+export type TunnelMode = 'wireguard' | 'zerotier' | 'failover_auto';
+
+export interface VpnRoutingConfig {
+  primaryTunnel: TunnelMode;
+  autoFailover: boolean;
+  activeTunnel: 'wireguard' | 'zerotier';
+  healthCheckIntervalSec: number;
+  wireguardHealthy: boolean;
+  zerotierHealthy: boolean;
+  lastSwitch: string;
+  sipPriorityQoS: boolean;
+  mtuOptimization: boolean;
+}
+
+export interface VpnTelemetryPoint {
+  time: string;
+  wgRxKbps: number;
+  wgTxKbps: number;
+  ztRxKbps: number;
+  ztTxKbps: number;
+  totalKbps: number;
+  latencyMs: number;
+  jitterMs: number;
+  pps: number;
+}
+
+export interface VpnNodeMonitoringItem {
+  id: string;
+  name: string;
+  tunnelType: 'wireguard' | 'zerotier';
+  virtualIp: string;
+  endpoint: string;
+  status: 'connected' | 'idle' | 'offline';
+  latencyMs: number;
+  jitterMs: number;
+  packetLossPercent: number;
+  bytesRx: number;
+  bytesTx: number;
+  latestHandshake: string;
+  roleOrExtension?: string;
+  location?: string;
+  enabled: boolean;
+  isPrimaryRoute?: boolean;
+}
+
+export interface VpnTelemetryResponse {
+  routing: VpnRoutingConfig;
+  currentRates: {
+    wgRxKbps: number;
+    wgTxKbps: number;
+    ztRxKbps: number;
+    ztTxKbps: number;
+    totalKbps: number;
+    pps: number;
+    latencyAvgMs: number;
+    jitterAvgMs: number;
+    packetLossPercent: number;
+  };
+  history: VpnTelemetryPoint[];
+  nodes: VpnNodeMonitoringItem[];
+}
+
+// ---------------------------------------------------------------------------
+// Logs de Sistema em Tempo Real (Syslog & Infraestrutura)
+// ---------------------------------------------------------------------------
+
+export type SystemLogLevel = 'DEBUG' | 'INFO' | 'NOTICE' | 'WARNING' | 'ERROR' | 'CRITICAL';
+
+export type SystemLogService =
+  | 'asterisk'
+  | 'nginx'
+  | 'wireguard'
+  | 'zerotier'
+  | 'fail2ban'
+  | 'postgresql'
+  | 'redis'
+  | 'gemini-gateway'
+  | 'audiosocket';
+
+export interface SystemLogEntry {
+  id: string;
+  timestamp: string;
+  service: SystemLogService;
+  serviceLabel: string;
+  level: SystemLogLevel;
+  component?: string;
+  message: string;
+  metadata?: Record<string, string | number | boolean>;
+}
+
+export interface SystemLogStats {
+  total: number;
+  byLevel: {
+    DEBUG: number;
+    INFO: number;
+    NOTICE: number;
+    WARNING: number;
+    ERROR: number;
+    CRITICAL: number;
+  };
+  byService: Record<string, number>;
+  eventsPerMinute: number;
+  lastTimestamp: string;
+}
+
+
+

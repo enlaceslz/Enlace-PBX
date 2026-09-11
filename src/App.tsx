@@ -19,6 +19,7 @@ import { CdrAndRecordingsView } from './components/views/CdrAndRecordingsView';
 import { AiGatewayView } from './components/views/AiGatewayView';
 import { AsteriskCoreView } from './components/views/AsteriskCoreView';
 import { NetworkSecurityView } from './components/views/NetworkSecurityView';
+import { SystemLogsView } from './components/views/SystemLogsView';
 import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
 import { HealthCheckView } from './components/views/HealthCheckView';
 import { SettingsView } from './components/views/SettingsView';
@@ -364,6 +365,8 @@ export default function App() {
         );
       case 'network_security':
         return <NetworkSecurityView key="network_security" />;
+      case 'system_logs':
+        return <SystemLogsView key="system_logs" />;
       case 'asterisk_monitor':
         return (
           <AsteriskCoreView
