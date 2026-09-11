@@ -1430,7 +1430,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
             startTime: new Date(now - (i * 1000 * 60 * 15)).toISOString(),
             duration: duration,
             disposition: Math.random() > 0.1 ? 'ANSWERED' : 'NO ANSWER',
-            aiAgentId: isAi ? 'agent-maia-01' : undefined
+            aiAgentId: isAi ? 'agent-maia-01' : undefined,
+            // QoS Metrics
+            mos: (Math.random() * (4.5 - 3.8) + 3.8).toFixed(1),
+            jitter: Math.floor(Math.random() * 15) + 1,
+            packetLoss: (Math.random() * 0.5).toFixed(2)
         });
     }
     

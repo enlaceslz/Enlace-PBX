@@ -303,6 +303,11 @@ export interface CdrRecord {
   transcription?: string;
   summary?: string;
   costBrl: number;
+  
+  // VoIP QoS Metrics (Quality of Service)
+  mos?: number; // Mean Opinion Score (1.0 to 4.5)
+  jitter?: number; // In milliseconds
+  packetLoss?: number; // Percentage (0.0 to 100.0)
 }
 
 export interface AsteriskChannel {

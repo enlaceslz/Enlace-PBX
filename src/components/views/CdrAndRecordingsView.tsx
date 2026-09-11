@@ -30,6 +30,7 @@ import {
   PieChart as PieChartIcon,
   BarChart3,
   Printer,
+  Activity
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { CdrRecord, Tenant } from '../../types/pbx';
@@ -620,6 +621,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                 <th className="py-3.5 px-4">Destino & Rota</th>
                 <th className="py-3.5 px-4">Tratamento & Transferência</th>
                 <th className="py-3.5 px-4">Duração</th>
+                <th className="py-3.5 px-4">QoS (MOS)</th>
                 <th className="py-3.5 px-4">Status</th>
                 <th className="py-3.5 px-4">Gravação</th>
                 <th className="py-3.5 px-4">Análise IA Gemini</th>
@@ -710,6 +712,32 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                         {Math.floor(cdr.duration / 60)}m {cdr.duration % 60}s
                       </div>
                       <div className="text-[10px] text-slate-400">Tarif: {cdr.billsec}s</div>
+                    </td>
+
+                    {/* QoS (MOS) */}
+                    <td className="py-3 px-4">
+                      {cdr.mos ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded w-fit ${
+                              cdr.mos >= 4.0
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : cdr.mos >= 3.5
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`}
+                            title={`Jitter: ${cdr.jitter}ms | Loss: ${cdr.packetLoss}%`}
+                          >
+                            <Activity className="w-3 h-3" />
+                            {cdr.mos}
+                          </span>
+                          <span className="text-[9px] text-slate-400 font-mono">
+                            {cdr.packetLoss}% loss
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-300 italic">-</span>
+                      )}
                     </td>
 
                     {/* Status */}
@@ -853,7 +881,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
 
             <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto">
               {/* Top metadata grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 font-mono text-[11px]">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 font-mono text-[11px]">
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase block">Origem</span>
                   <span className="text-slate-900 font-bold">{selectedCdrForModal.caller}</span>
@@ -865,6 +893,10 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase block">Duração / Fatura</span>
                   <span className="text-slate-900 font-semibold">{selectedCdrForModal.duration}s ({selectedCdrForModal.billsec}s)</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase block">QoS (MOS)</span>
+                  <span className="text-slate-900 font-semibold">{selectedCdrForModal.mos ? `${selectedCdrForModal.mos} (J: ${selectedCdrForModal.jitter}ms, L: ${selectedCdrForModal.packetLoss}%)` : 'N/A'}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase block">Custo Estimado</span>
