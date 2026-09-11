@@ -17,6 +17,7 @@ import {
   Eye,
   X,
   ScrollText,
+  Play
 } from 'lucide-react';
 import { AsteriskChannel } from '../../types/pbx';
 import { SystemLogsView } from './SystemLogsView';
@@ -24,7 +25,7 @@ import { SystemLogsView } from './SystemLogsView';
 interface AsteriskCoreViewProps {
   channels: AsteriskChannel[];
   onRefreshChannels: () => void;
-  initialTab?: 'monitor' | 'cli' | 'configs' | 'installer' | 'syslog';
+  initialTab?: 'monitor' | 'cli' | 'configs' | 'installer' | 'syslog' | 'sip_trace';
 }
 
 export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
@@ -32,7 +33,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   onRefreshChannels,
   initialTab = 'monitor',
 }) => {
-  const [activeTab, setActiveTab] = useState<'monitor' | 'cli' | 'configs' | 'installer' | 'syslog'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'monitor' | 'cli' | 'configs' | 'installer' | 'syslog' | 'sip_trace'>(initialTab);
 
   useEffect(() => {
     if (initialTab) {
@@ -287,7 +288,18 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
             }`}
           >
             <ScrollText className="w-3.5 h-3.5" />
-            Logs Syslog (Tempo Real)
+            Logs Syslog
+          </button>
+          <button
+            onClick={() => setActiveTab('sip_trace')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+              activeTab === 'sip_trace'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5" />
+            SIP Trace / PCAP
           </button>
         </div>
       </div>
@@ -802,6 +814,263 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
       {/* 5. SYSLOG TAB */}
       {activeTab === 'syslog' && (
         <SystemLogsView initialService="asterisk" />
+      )}
+
+      {/* 6. SIP TRACE TAB */}
+      {activeTab === 'sip_trace' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Radio className="w-5 h-5 text-indigo-500" />
+                sngrep / SIP Trace PCAP
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Visualização em tempo real do fluxo de sinalização SIP (INVITE, BYE, CANCEL, ACK, OPTIONS).
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold border border-indigo-200 hover:bg-indigo-100 transition flex items-center gap-2">
+                <Download className="w-4 h-4" />
+                Exportar PCAP
+              </button>
+              <button className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition flex items-center gap-2">
+                <Play className="w-4 h-4 text-emerald-400" />
+                Capturar Auto
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col font-mono text-xs text-slate-300">
+            {/* Toolbar */}
+            <div className="bg-slate-950 p-2 border-b border-slate-800 flex items-center gap-4 text-[10px]">
+              <div className="flex items-center gap-2 px-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Capturing on interface eth0 (UDP port 5060)
+              </div>
+              <div className="h-4 w-px bg-slate-800"></div>
+              <div className="flex items-center gap-3 opacity-60">
+                <span>Filter: sip</span>
+                <span>Limit: 1000 packets</span>
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="overflow-x-auto border-b border-slate-800 h-64">
+              <table className="w-full text-left whitespace-nowrap">
+                <thead className="bg-[#0b1120] text-slate-500 sticky top-0 border-b border-slate-800">
+                  <tr>
+                    <th className="py-1.5 px-3 font-normal">No.</th>
+                    <th className="py-1.5 px-3 font-normal">Time</th>
+                    <th className="py-1.5 px-3 font-normal">Source</th>
+                    <th className="py-1.5 px-3 font-normal">Destination</th>
+                    <th className="py-1.5 px-3 font-normal">Protocol</th>
+                    <th className="py-1.5 px-3 font-normal">Info</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  <tr className="hover:bg-indigo-900/30 cursor-pointer bg-slate-800/20">
+                    <td className="py-1 px-3 text-slate-500">1</td>
+                    <td className="py-1 px-3 text-slate-400">14:23:45.102</td>
+                    <td className="py-1 px-3">192.168.1.100:5060</td>
+                    <td className="py-1 px-3">10.0.0.5:5060</td>
+                    <td className="py-1 px-3 text-indigo-400">SIP</td>
+                    <td className="py-1 px-3 font-bold text-slate-200">Request: INVITE sip:9001@10.0.0.5:5060</td>
+                  </tr>
+                  <tr className="hover:bg-indigo-900/30 cursor-pointer">
+                    <td className="py-1 px-3 text-slate-500">2</td>
+                    <td className="py-1 px-3 text-slate-400">14:23:45.105</td>
+                    <td className="py-1 px-3">10.0.0.5:5060</td>
+                    <td className="py-1 px-3">192.168.1.100:5060</td>
+                    <td className="py-1 px-3 text-indigo-400">SIP</td>
+                    <td className="py-1 px-3 text-slate-300">Status: 100 Trying</td>
+                  </tr>
+                  <tr className="hover:bg-indigo-900/30 cursor-pointer">
+                    <td className="py-1 px-3 text-slate-500">3</td>
+                    <td className="py-1 px-3 text-slate-400">14:23:45.210</td>
+                    <td className="py-1 px-3">10.0.0.5:5060</td>
+                    <td className="py-1 px-3">192.168.1.100:5060</td>
+                    <td className="py-1 px-3 text-indigo-400">SIP</td>
+                    <td className="py-1 px-3 text-amber-300">Status: 180 Ringing</td>
+                  </tr>
+                  <tr className="hover:bg-indigo-900/30 cursor-pointer">
+                    <td className="py-1 px-3 text-slate-500">4</td>
+                    <td className="py-1 px-3 text-slate-400">14:23:48.005</td>
+                    <td className="py-1 px-3">10.0.0.5:5060</td>
+                    <td className="py-1 px-3">192.168.1.100:5060</td>
+                    <td className="py-1 px-3 text-indigo-400">SIP</td>
+                    <td className="py-1 px-3 text-emerald-400 font-bold">Status: 200 OK (INVITE)</td>
+                  </tr>
+                  <tr className="hover:bg-indigo-900/30 cursor-pointer">
+                    <td className="py-1 px-3 text-slate-500">5</td>
+                    <td className="py-1 px-3 text-slate-400">14:23:48.012</td>
+                    <td className="py-1 px-3">192.168.1.100:5060</td>
+                    <td className="py-1 px-3">10.0.0.5:5060</td>
+                    <td className="py-1 px-3 text-indigo-400">SIP</td>
+                    <td className="py-1 px-3 text-slate-200">Request: ACK sip:9001@10.0.0.5:5060</td>
+                  </tr>
+                  <tr className="hover:bg-indigo-900/30 cursor-pointer">
+                    <td className="py-1 px-3 text-slate-500">6</td>
+                    <td className="py-1 px-3 text-slate-400">14:25:12.800</td>
+                    <td className="py-1 px-3">192.168.1.100:5060</td>
+                    <td className="py-1 px-3">10.0.0.5:5060</td>
+                    <td className="py-1 px-3 text-indigo-400">SIP</td>
+                    <td className="py-1 px-3 text-rose-400 font-bold">Request: BYE sip:9001@10.0.0.5:5060</td>
+                  </tr>
+                  <tr className="hover:bg-indigo-900/30 cursor-pointer">
+                    <td className="py-1 px-3 text-slate-500">7</td>
+                    <td className="py-1 px-3 text-slate-400">14:25:12.805</td>
+                    <td className="py-1 px-3">10.0.0.5:5060</td>
+                    <td className="py-1 px-3">192.168.1.100:5060</td>
+                    <td className="py-1 px-3 text-indigo-400">SIP</td>
+                    <td className="py-1 px-3 text-slate-300">Status: 200 OK (BYE)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Sequence Diagram Details */}
+            <div className="flex h-72">
+              <div className="w-1/2 border-r border-slate-800 p-4 bg-[#0a0f18] overflow-y-auto">
+                <h3 className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-4 border-b border-slate-800 pb-2">
+                  Detalhes do Pacote SIP (Frame 1)
+                </h3>
+                <pre className="text-emerald-400 font-mono text-[11px] leading-relaxed">
+{`INVITE sip:9001@10.0.0.5:5060 SIP/2.0
+Via: SIP/2.0/UDP 192.168.1.100:5060;branch=z9hG4bK-524287-1---101
+Max-Forwards: 70
+Contact: <sip:11987654321@192.168.1.100:5060>
+To: <sip:9001@10.0.0.5:5060>
+From: "Cliente"<sip:11987654321@10.0.0.5:5060>;tag=6a3d
+Call-ID: c542b89a31191a24
+CSeq: 1 INVITE
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, NOTIFY
+Supported: replaces, timer
+Content-Type: application/sdp
+Content-Length: 264
+
+v=0
+o=- 3855663673 3855663673 IN IP4 192.168.1.100
+s=pjmedia
+c=IN IP4 192.168.1.100
+t=0 0
+m=audio 4000 RTP/AVP 111 8 0 101
+a=rtpmap:111 opus/48000/2
+a=rtpmap:8 PCMA/8000
+a=rtpmap:0 PCMU/8000
+a=rtpmap:101 telephone-event/8000
+a=sendrecv`}
+                </pre>
+              </div>
+              <div className="w-1/2 p-4 bg-slate-900/50 overflow-y-auto relative">
+                 <h3 className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-4 border-b border-slate-800 pb-2">
+                  Diagrama de Fluxo (Call Flow)
+                </h3>
+                <div className="absolute top-12 bottom-4 left-1/2 w-px bg-slate-800 -ml-px z-0"></div>
+                <div className="relative z-10 space-y-4 text-[11px]">
+                  
+                  {/* Agents Headers */}
+                  <div className="flex justify-between font-bold text-slate-400 mb-6">
+                    <span>192.168.1.100<br/><span className="text-[9px] font-normal text-slate-500">UAC (Cliente)</span></span>
+                    <span className="text-right">10.0.0.5<br/><span className="text-[9px] font-normal text-slate-500">UAS (Asterisk)</span></span>
+                  </div>
+
+                  <div className="relative flex justify-center items-center group">
+                    <div className="w-full flex items-center">
+                      <div className="w-1/2 flex items-center relative">
+                        <div className="absolute right-0 h-px bg-emerald-500 w-full group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                        <div className="absolute right-0 w-2 h-2 border-t border-r border-emerald-500 transform rotate-45 -mr-1"></div>
+                      </div>
+                      <div className="absolute -top-3 bg-slate-900 px-2 text-emerald-400 font-bold whitespace-nowrap">
+                        INVITE
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative flex justify-center items-center group">
+                    <div className="w-full flex items-center">
+                      <div className="w-1/2 ml-auto flex items-center justify-end relative">
+                        <div className="absolute left-0 h-px bg-slate-600 w-full border-dashed border-b border-slate-600"></div>
+                        <div className="absolute left-0 w-2 h-2 border-b border-l border-slate-600 transform rotate-45 -ml-1"></div>
+                      </div>
+                      <div className="absolute -top-3 bg-slate-900 px-2 text-slate-400 whitespace-nowrap">
+                        100 Trying
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative flex justify-center items-center group">
+                    <div className="w-full flex items-center">
+                      <div className="w-1/2 ml-auto flex items-center justify-end relative">
+                        <div className="absolute left-0 h-px bg-amber-500 w-full group-hover:bg-amber-400 transition-colors shadow-[0_0_5px_rgba(245,158,11,0.3)]"></div>
+                        <div className="absolute left-0 w-2 h-2 border-b border-l border-amber-500 transform rotate-45 -ml-1"></div>
+                      </div>
+                      <div className="absolute -top-3 bg-slate-900 px-2 text-amber-400 whitespace-nowrap">
+                        180 Ringing
+                      </div>
+                    </div>
+                  </div>
+
+                   <div className="relative flex justify-center items-center group mt-6">
+                    <div className="w-full flex items-center">
+                      <div className="w-1/2 ml-auto flex items-center justify-end relative">
+                        <div className="absolute left-0 h-px bg-emerald-500 w-full group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                        <div className="absolute left-0 w-2 h-2 border-b border-l border-emerald-500 transform rotate-45 -ml-1"></div>
+                      </div>
+                      <div className="absolute -top-3 bg-slate-900 px-2 text-emerald-400 font-bold whitespace-nowrap">
+                        200 OK
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative flex justify-center items-center group">
+                    <div className="w-full flex items-center">
+                      <div className="w-1/2 flex items-center relative">
+                        <div className="absolute right-0 h-px bg-slate-500 w-full"></div>
+                        <div className="absolute right-0 w-2 h-2 border-t border-r border-slate-500 transform rotate-45 -mr-1"></div>
+                      </div>
+                      <div className="absolute -top-3 bg-slate-900 px-2 text-slate-300 whitespace-nowrap">
+                        ACK
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="py-4 flex flex-col items-center justify-center opacity-60">
+                    <div className="w-px h-6 bg-slate-700 mb-1"></div>
+                    <span className="bg-slate-800 text-[9px] px-2 py-0.5 rounded text-slate-400">Audio Stream (RTP) - 87s</span>
+                    <div className="w-px h-6 bg-slate-700 mt-1"></div>
+                  </div>
+
+                  <div className="relative flex justify-center items-center group">
+                    <div className="w-full flex items-center">
+                      <div className="w-1/2 flex items-center relative">
+                        <div className="absolute right-0 h-px bg-rose-500 w-full group-hover:bg-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.5)]"></div>
+                        <div className="absolute right-0 w-2 h-2 border-t border-r border-rose-500 transform rotate-45 -mr-1"></div>
+                      </div>
+                      <div className="absolute -top-3 bg-slate-900 px-2 text-rose-400 font-bold whitespace-nowrap">
+                        BYE
+                      </div>
+                    </div>
+                  </div>
+
+                   <div className="relative flex justify-center items-center group pb-4">
+                    <div className="w-full flex items-center">
+                      <div className="w-1/2 ml-auto flex items-center justify-end relative">
+                        <div className="absolute left-0 h-px bg-slate-500 w-full"></div>
+                        <div className="absolute left-0 w-2 h-2 border-b border-l border-slate-500 transform rotate-45 -ml-1"></div>
+                      </div>
+                      <div className="absolute -top-3 bg-slate-900 px-2 text-slate-300 whitespace-nowrap">
+                        200 OK
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
       )}
     </div>
   );
