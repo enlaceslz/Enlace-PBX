@@ -285,6 +285,54 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onNavigate }) => {
                      </div>
                    </div>
 
+                   {/* Identidade Visual & Logotipos Oficiais */}
+                   <div className="pt-4 border-t border-slate-100">
+                     <div className="flex items-center justify-between mb-3">
+                       <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                         Logotipos Oficiais do Sistema (Ativos &amp; Validados)
+                       </label>
+                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                         <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Sincronizados
+                       </span>
+                     </div>
+
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                       {/* Logo 1: Horizontal Navbar & Relatórios */}
+                       <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70 hover:bg-white hover:shadow-sm transition">
+                         <div className="flex items-center justify-between mb-2">
+                           <span className="text-xs font-bold text-slate-800">1. Logo Principal</span>
+                           <span className="text-[9px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Horizontal</span>
+                         </div>
+                         <div className="h-16 flex items-center justify-center p-2 bg-white rounded-xl border border-slate-200/80 mb-2">
+                           <img src="/logo.png" alt="Logo Principal Enlace" className="max-h-12 w-auto object-contain" />
+                         </div>
+                         <p className="text-[10px] text-slate-500 mb-2">Barra superior, relatórios e faturas PDF.</p>
+                         <div className="flex items-center gap-2">
+                           <a href="/logo.png" download="enlace-pbx-logo.png" className="text-[10px] font-bold text-blue-600 hover:underline">PNG</a>
+                           <span className="text-slate-300">•</span>
+                           <a href="/logo.svg" download="enlace-pbx-logo.svg" className="text-[10px] font-bold text-blue-600 hover:underline">SVG</a>
+                         </div>
+                       </div>
+
+                       {/* Logo 2: Símbolo / Ícone Enlace */}
+                       <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70 hover:bg-white hover:shadow-sm transition">
+                         <div className="flex items-center justify-between mb-2">
+                           <span className="text-xs font-bold text-slate-800">2. Símbolo / Ícone</span>
+                           <span className="text-[9px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Squircle</span>
+                         </div>
+                         <div className="h-16 flex items-center justify-center p-2 bg-white rounded-xl border border-slate-200/80 mb-2">
+                           <img src="/logo-icon.png" alt="Símbolo Enlace" className="max-h-12 w-auto object-contain" />
+                         </div>
+                         <p className="text-[10px] text-slate-500 mb-2">Menu lateral, Webphone, PWA e favicon.</p>
+                         <div className="flex items-center gap-2">
+                           <a href="/logo-icon.png" download="enlace-icon.png" className="text-[10px] font-bold text-blue-600 hover:underline">PNG</a>
+                           <span className="text-slate-300">•</span>
+                           <a href="/logo-icon.svg" download="enlace-icon.svg" className="text-[10px] font-bold text-blue-600 hover:underline">SVG</a>
+                         </div>
+                       </div>
+                     </div>
+                   </div>
+
                    <div>
                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Siga-me (Call Forwarding)</label>
                      <div className="flex items-center gap-3">

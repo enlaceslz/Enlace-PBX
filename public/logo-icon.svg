@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="sqBgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="40%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+    <linearGradient id="sqCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <filter id="sqShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#1e3a8a" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect x="36" y="36" width="440" height="440" rx="115" fill="url(#sqBgGrad)" filter="url(#sqShadow)" />
+
+  <!-- Outer Orbit Link Rings -->
+  <circle cx="256" cy="256" r="168" fill="none" stroke="url(#sqCyan)" stroke-width="7" stroke-dasharray="24 18" opacity="0.6" />
+  <circle cx="256" cy="256" r="198" fill="none" stroke="#ffffff" stroke-width="3" stroke-dasharray="10 14" opacity="0.25" />
+
+  <!-- Telecom Soundwaves & Link Arcs -->
+  <!-- Left Side -->
+  <path d="M 170,256 A 86,86 0 0,1 256,170" fill="none" stroke="#ffffff" stroke-width="24" stroke-linecap="round" />
+  <path d="M 136,256 A 120,120 0 0,1 256,136" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.8" />
+  <path d="M 104,256 A 152,152 0 0,1 256,104" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.5" />
+
+  <!-- Right Side -->
+  <path d="M 342,256 A 86,86 0 0,1 256,342" fill="none" stroke="#ffffff" stroke-width="24" stroke-linecap="round" />
+  <path d="M 376,256 A 120,120 0 0,1 256,376" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.8" />
+  <path d="M 408,256 A 152,152 0 0,1 256,408" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.5" />
+
+  <!-- Fiber Center Link Beam -->
+  <path d="M 190,256 L 322,256" stroke="url(#sqCyan)" stroke-width="16" stroke-linecap="round" />
+
+  <!-- Central Intelligence AI Node -->
+  <circle cx="256" cy="256" r="54" fill="#ffffff" filter="url(#sqShadow)" />
+  <circle cx="256" cy="256" r="28" fill="#2563eb" />
+  <circle cx="256" cy="256" r="11" fill="#38bdf8" />
+</svg>

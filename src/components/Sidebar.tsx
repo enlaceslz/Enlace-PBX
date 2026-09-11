@@ -153,7 +153,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       {/* Subtle tech background glow */}
       <div className="absolute top-0 left-0 w-full h-48 bg-blue-50/50 blur-[80px] pointer-events-none" />
 
-      <div className="flex-1 overflow-y-auto py-5 px-4 space-y-7 relative z-10 custom-scrollbar">
+      {/* Brand & Logo Header Card */}
+      <div className="p-3 pb-0 relative z-10">
+        <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-blue-50/60 hover:border-blue-200 transition group">
+          <img 
+            src="/logo-icon.png" 
+            alt="Enlace Telecom Logo" 
+            className="w-9 h-9 rounded-lg object-contain shadow-sm border border-white"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
+            }}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-black text-slate-900 tracking-tight truncate">Enlace Telecom</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Sistema Online" />
+            </div>
+            <p className="text-[10px] font-medium text-slate-500 truncate">Telecom &amp; IA Asterisk 20</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto py-4 px-4 space-y-7 relative z-10 custom-scrollbar">
         {sections.map((section, idx) => (
           <div key={idx} className="relative">
             <div className="px-1 mb-2.5 flex items-center gap-2">

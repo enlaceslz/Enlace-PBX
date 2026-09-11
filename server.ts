@@ -1152,8 +1152,11 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------------------
-  // Vite Integration (Development vs Production)
+  // Static Assets & Vite Integration (Development vs Production)
   // -------------------------------------------------------------------------
+  const publicPath = path.join(process.cwd(), 'public');
+  app.use(express.static(publicPath));
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

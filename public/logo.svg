@@ -1,31 +1,64 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 140" width="540" height="140">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="800" height="200">
   <defs>
-    <linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0284c7" />
-      <stop offset="50%" stop-color="#2563eb" />
-      <stop offset="100%" stop-color="#1d4ed8" />
+      <stop offset="45%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1e40af" />
     </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#2563eb" flood-opacity="0.3" />
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <linearGradient id="accentGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0" />
+    </linearGradient>
+    <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#1d4ed8" flood-opacity="0.25" />
     </filter>
   </defs>
 
-  <!-- Modern Icon Badge -->
-  <g transform="translate(10, 10)">
-    <rect x="0" y="0" width="120" height="120" rx="26" fill="url(#brandGrad)" filter="url(#glow)" />
+  <!-- Modern Icon Badge (140x140) -->
+  <g transform="translate(30, 30)">
+    <!-- Badge Background -->
+    <rect x="0" y="0" width="140" height="140" rx="34" fill="url(#bgGrad)" filter="url(#cardShadow)" />
     
-    <!-- Sound Waves & Telecom Nodes -->
-    <path d="M 40,60 A 20,20 0 0,1 60,40" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" />
-    <path d="M 32,60 A 28,28 0 0,1 60,32" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.85" />
-    <path d="M 80,60 A 20,20 0 0,1 60,80" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" />
-    <path d="M 88,60 A 28,28 0 0,1 60,88" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.85" />
+    <!-- Outer decorative link rings (Enlace / Interconnection) -->
+    <circle cx="70" cy="70" r="52" fill="none" stroke="url(#cyanGrad)" stroke-width="2.5" stroke-dasharray="8 6" opacity="0.6" />
+
+    <!-- Waveform & Optical Loop Arc Left -->
+    <path d="M 44,70 A 26,26 0 0,1 70,44" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" />
+    <path d="M 34,70 A 36,36 0 0,1 70,34" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" opacity="0.8" />
     
+    <!-- Waveform Arc Right -->
+    <path d="M 96,70 A 26,26 0 0,1 70,96" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" />
+    <path d="M 106,70 A 36,36 0 0,1 70,106" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" opacity="0.8" />
+    
+    <!-- Connecting Fiber / Link Bridge -->
+    <path d="M 50,70 L 90,70" stroke="#38bdf8" stroke-width="5" stroke-linecap="round" />
+
     <!-- Central AI Core Node -->
-    <circle cx="60" cy="60" r="13" fill="#ffffff" />
-    <circle cx="60" cy="60" r="6" fill="#2563eb" />
+    <circle cx="70" cy="70" r="16" fill="#ffffff" />
+    <circle cx="70" cy="70" r="8" fill="#2563eb" />
+    <circle cx="70" cy="70" r="3.5" fill="#38bdf8" />
   </g>
 
-  <!-- Typography -->
-  <text x="150" y="70" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="52" fill="#0f172a" letter-spacing="-0.5">ENLACE<tspan fill="#2563eb">-PBX</tspan></text>
-  <text x="152" y="102" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="14" fill="#64748b" letter-spacing="2.5">TELECOM &amp; ENTERPRISE AI</text>
+  <!-- Typography: ENLACE-PBX -->
+  <text x="198" y="105" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Plus Jakarta Sans', sans-serif" font-weight="900" font-size="70" fill="#0f172a" letter-spacing="-1.5">
+    ENLACE<tspan fill="#2563eb">-PBX</tspan>
+  </text>
+
+  <!-- Subtitle: TELECOM & AI VOICE PLATFORM -->
+  <text x="202" y="146" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Plus Jakarta Sans', sans-serif" font-weight="700" font-size="17" fill="#64748b" letter-spacing="3.8">
+    TELECOM &amp; INTELLIGENCE
+  </text>
+
+  <!-- Micro badge: ASTERISK 20 LTS -->
+  <g transform="translate(540, 127)">
+    <rect x="0" y="0" width="146" height="24" rx="12" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.2" />
+    <circle cx="12" cy="12" r="3.5" fill="#2563eb" />
+    <text x="22" y="16" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="10.5" fill="#1d4ed8" letter-spacing="1">
+      ASTERISK 20
+    </text>
+  </g>
 </svg>
