@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Phone,
   Server,
@@ -33,6 +33,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   isWebphoneOpen,
   onToggleMobileMenu,
 }) => {
+  const [logoError, setLogoError] = useState(false);
+
   return (
     <header className="h-16 bg-slate-50 border-b border-slate-200 shadow-sm px-4 md:px-6 flex items-center justify-between z-30 sticky top-0">
       {/* Brand & Slogan */}
@@ -46,7 +48,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="Enlace PBX Logo" className="h-12 w-auto object-contain" />
+          {!logoError ? (
+            <img 
+              src="/logo.png" 
+              alt="Enlace PBX Logo" 
+              className="h-11 w-auto max-w-[190px] object-contain cursor-pointer" 
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center shadow-md shadow-blue-600/20 border border-sky-400/30">
+                <Phone className="w-5 h-5 text-white font-black fill-slate-950" />
+              </div>
+              <span className="font-extrabold text-lg text-slate-900 tracking-tight">
+                Enlace<span className="text-blue-600">-PBX</span>
+              </span>
+            </div>
+          )}
           <div className="hidden sm:block">
             <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">
               Asterisk 20 + Gemini
