@@ -15,3 +15,18 @@
     background-color: theme('colors.slate.300');
   }
 }
+
+/* NOC Dark Mode implementation using CSS filter inversion */
+html.dark-noc {
+  filter: invert(1) hue-rotate(180deg);
+  background-color: #070503; /* Matches inverted slate-50 */
+}
+
+/* Re-invert media and specific elements so they look normal */
+html.dark-noc img,
+html.dark-noc video,
+html.dark-noc svg,
+html.dark-noc canvas,
+html.dark-noc [data-revert-dark="true"] {
+  filter: invert(1) hue-rotate(180deg);
+}

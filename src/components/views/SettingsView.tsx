@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Settings, Clock, Music, Route, Shield, HardDrive, Bell, CheckCircle2, Search, ArrowUpRight, Save, Play, Upload, Plus, Bot, Network
 } from 'lucide-react';
@@ -9,6 +9,25 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onNavigate }) => {
   const [activeTab, setActiveTab] = useState<'business_hours' | 'media' | 'routing' | 'preferences'>('business_hours');
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  useEffect(() => {
+    if (document.documentElement.classList.contains('dark-noc')) {
+      setTheme('dark');
+    } else {
+      setTheme('light');
+    }
+  }, []);
+
+  const toggleTheme = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+    localStorage.setItem('enlace_theme', newTheme);
+    if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark-noc');
+    } else {
+      document.documentElement.classList.remove('dark-noc');
+    }
+  };
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
@@ -294,8 +313,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onNavigate }) => {
                    <div>
                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Tema do Sistema</label>
                      <div className="flex items-center gap-3">
-                        <button className="flex-1 py-3 border-2 border-blue-600 bg-blue-50 text-blue-700 font-bold rounded-xl text-sm">Claro (Padrão)</button>
-                        <button className="flex-1 py-3 border border-slate-200 bg-slate-50 text-slate-500 font-bold rounded-xl text-sm">Escuro (NOC)</button>
+                        <button 
+                          onClick={() => toggleTheme('light')}
+                          className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${
+                            theme === 'light' 
+                              ? 'border-2 border-blue-600 bg-blue-50 text-blue-700' 
+                              : 'border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          Claro (Padrão)
+                        </button>
+                        <button 
+                          onClick={() => toggleTheme('dark')}
+                          className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${
+                            theme === 'dark' 
+                              ? 'border-2 border-blue-600 bg-blue-50 text-blue-700' 
+                              : 'border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          Escuro (NOC)
+                        </button>
                      </div>
                    </div>
 
