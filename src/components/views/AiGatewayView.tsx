@@ -1967,7 +1967,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       </div>
       {/* CREATE AGENT MODAL */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col my-auto">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-200 flex items-center justify-between">
@@ -2343,7 +2343,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
       {/* KNOWLEDGE BASE UPLOAD & REVIEW MODAL */}
       {isUploadModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-[#0f172a]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col my-auto">
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-200 flex items-center justify-between">
@@ -2489,7 +2489,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
       {/* VIEW FULL DOCUMENT MODAL */}
       {viewingDoc && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-[#0f172a]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col my-auto">
             {/* Header */}
             <div className="p-5 border-b border-slate-200 flex items-center justify-between">

@@ -352,7 +352,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
 
       {/* CREATE MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col my-auto">
             <div className="p-5 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-3">

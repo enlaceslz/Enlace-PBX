@@ -171,7 +171,7 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
         
         {/* Active Queues Panel */}
         <div className="xl:col-span-1 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+          <div className="px-5 py-4 border-b border-slate-800 bg-[#0f172a]/50 flex justify-between items-center">
             <h3 className="font-bold text-white flex items-center gap-2">
               <Users className="w-5 h-5 text-slate-400" /> Filas de Atendimento
             </h3>
@@ -198,7 +198,7 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
 
         {/* Live Channels Table */}
         <div className="xl:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
-          <div className="px-5 py-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+          <div className="px-5 py-4 border-b border-slate-800 bg-[#0f172a]/50 flex justify-between items-center">
             <h3 className="font-bold text-white flex items-center gap-2">
               <Activity className="w-5 h-5 text-slate-400 animate-pulse" /> Canais Ao Vivo (Asterisk)
             </h3>
@@ -209,7 +209,7 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-900/80 border-b border-slate-800 text-xs text-slate-400 font-bold uppercase tracking-wider">
+                <tr className="bg-[#0f172a]/80 border-b border-slate-800 text-xs text-slate-400 font-bold uppercase tracking-wider">
                   <th className="px-5 py-3">Canal</th>
                   <th className="px-5 py-3">Status</th>
                   <th className="px-5 py-3">Origem</th>

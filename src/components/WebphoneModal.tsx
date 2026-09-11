@@ -1072,7 +1072,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     <div className="absolute inset-0 opacity-20 bg-[url('https://images.unsplash.com/photo-1573164713988-8665fc963095?auto=format&fit=crop&q=80&w=800')] bg-cover bg-center" />
                     
                     {!isVideoCamOn && (
-                      <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center z-10 backdrop-blur-sm">
+                      <div className="absolute inset-0 bg-[#0f172a]/80 flex items-center justify-center z-10 backdrop-blur-sm">
                         <VideoOff className="w-8 h-8 text-slate-500" />
                       </div>
                     )}
@@ -1087,7 +1087,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                       )}
                     </div>
                     
-                    <span className="absolute top-2 left-2 bg-slate-900/60 text-white text-[9px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20">
+                    <span className="absolute top-2 left-2 bg-[#0f172a]/60 text-white text-[9px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20">
                       H.264 / VP8 (WebRTC)
                     </span>
                   </div>

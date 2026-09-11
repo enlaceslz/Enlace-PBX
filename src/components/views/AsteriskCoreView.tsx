@@ -443,7 +443,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
 
           {/* Transfer Channel Modal */}
           {transferModalChan && (
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl p-5 w-full max-w-md space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div className="flex items-center gap-2">

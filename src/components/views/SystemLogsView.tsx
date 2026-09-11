@@ -711,7 +711,7 @@ export const SystemLogsView: React.FC<SystemLogsViewProps> = ({ initialService =
 
                     {/* Metadata Drawer if expanded */}
                     {isExpanded && log.metadata && (
-                      <div className="mt-2 ml-4 p-2.5 rounded bg-slate-900/90 border border-slate-800 text-[11px] text-cyan-300">
+                      <div className="mt-2 ml-4 p-2.5 rounded bg-[#0f172a]/90 border border-slate-800 text-[11px] text-cyan-300">
                         <span className="text-slate-500 uppercase font-sans text-[10px] block mb-1">
                           Metadados Estruturados (JSON Payload):
                         </span>
@@ -843,7 +843,7 @@ export const SystemLogsView: React.FC<SystemLogsViewProps> = ({ initialService =
 
       {/* Modal de Simular / Injetar Evento de Log */}
       {isSimulateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0f172a]/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">

@@ -272,7 +272,7 @@ export const HealthCheckView: React.FC = () => {
 
           <div className="bg-slate-950 rounded-3xl border border-slate-800 flex-1 flex flex-col overflow-hidden relative group">
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-20 pointer-events-none mix-blend-overlay"></div>
-            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-[#0f172a]/50">
               <div className="flex items-center gap-2">
                 <Terminal className="w-4 h-4 text-emerald-500" />
                 <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Terminal / Logs</span>
