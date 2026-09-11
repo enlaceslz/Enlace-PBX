@@ -31,6 +31,12 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   initialTab = 'monitor',
 }) => {
   const [activeTab, setActiveTab] = useState<'monitor' | 'cli' | 'configs' | 'installer'>(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [activeConfigFile, setActiveConfigFile] = useState<'pjsip' | 'extensions' | 'queues' | 'rtp' | 'audiosocket' | 'ari'>('pjsip');
   const [configContent, setConfigContent] = useState<string>('');
   const [installerScript, setInstallerScript] = useState<string>('');

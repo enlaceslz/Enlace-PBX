@@ -217,9 +217,21 @@ export default function App() {
       case 'routes':
         return <RoutesView routes={routes} trunks={trunks} onRefresh={loadAllData} />;
       case 'ring_groups':
+        return (
+          <QueuesAndGroupsView
+            key="ring_groups"
+            initialTab="ring_groups"
+            queues={queues}
+            ringGroups={ringGroups}
+            onOpenWebphone={handleOpenWebphone}
+            onRefresh={loadAllData}
+          />
+        );
       case 'queues':
         return (
           <QueuesAndGroupsView
+            key="queues"
+            initialTab="queues"
             queues={queues}
             ringGroups={ringGroups}
             onOpenWebphone={handleOpenWebphone}
@@ -229,16 +241,37 @@ export default function App() {
       case 'ivr':
         return (
           <IvrView
+            key="ivr"
             ivrs={ivrs}
             onOpenWebphone={handleOpenWebphone}
             onRefresh={loadAllData}
           />
         );
       case 'cdr':
+        return (
+          <CdrAndRecordingsView
+            key="cdr"
+            initialTab="cdr"
+            cdrs={cdrs}
+            onRefresh={loadAllData}
+            onOpenWebphone={handleOpenWebphone}
+          />
+        );
       case 'recordings':
+        return (
+          <CdrAndRecordingsView
+            key="recordings"
+            initialTab="recordings"
+            cdrs={cdrs}
+            onRefresh={loadAllData}
+            onOpenWebphone={handleOpenWebphone}
+          />
+        );
       case 'transcriptions':
         return (
           <CdrAndRecordingsView
+            key="transcriptions"
+            initialTab="transcriptions"
             cdrs={cdrs}
             onRefresh={loadAllData}
             onOpenWebphone={handleOpenWebphone}
@@ -247,6 +280,7 @@ export default function App() {
       case 'ai_agents':
         return (
           <AiGatewayView
+            key="ai_agents"
             agents={aiAgents}
             providers={aiProviders}
             tools={aiTools}
@@ -260,6 +294,7 @@ export default function App() {
       case 'ai_providers':
         return (
           <AiGatewayView
+            key="ai_providers"
             agents={aiAgents}
             providers={aiProviders}
             tools={aiTools}
@@ -273,6 +308,7 @@ export default function App() {
       case 'ai_tools':
         return (
           <AiGatewayView
+            key="ai_tools"
             agents={aiAgents}
             providers={aiProviders}
             tools={aiTools}
@@ -286,6 +322,7 @@ export default function App() {
       case 'ai_knowledge':
         return (
           <AiGatewayView
+            key="ai_knowledge"
             agents={aiAgents}
             providers={aiProviders}
             tools={aiTools}
@@ -299,6 +336,7 @@ export default function App() {
       case 'ai_sessions':
         return (
           <AiGatewayView
+            key="ai_sessions"
             agents={aiAgents}
             providers={aiProviders}
             tools={aiTools}
@@ -312,6 +350,7 @@ export default function App() {
       case 'asterisk_monitor':
         return (
           <AsteriskCoreView
+            key="asterisk_monitor"
             channels={channels}
             onRefreshChannels={loadAllData}
             initialTab="monitor"
@@ -320,6 +359,7 @@ export default function App() {
       case 'asterisk_configs':
         return (
           <AsteriskCoreView
+            key="asterisk_configs"
             channels={channels}
             onRefreshChannels={loadAllData}
             initialTab="configs"
@@ -328,6 +368,7 @@ export default function App() {
       case 'asterisk_installer':
         return (
           <AsteriskCoreView
+            key="asterisk_installer"
             channels={channels}
             onRefreshChannels={loadAllData}
             initialTab="installer"
@@ -336,6 +377,7 @@ export default function App() {
       case 'users':
         return (
           <AdminAndSecurityView
+            key="users"
             users={users}
             tenants={tenants}
             extensions={extensions}
@@ -348,6 +390,7 @@ export default function App() {
       case 'tenants':
         return (
           <AdminAndSecurityView
+            key="tenants"
             users={users}
             tenants={tenants}
             extensions={extensions}
@@ -360,6 +403,7 @@ export default function App() {
       case 'audit_logs':
         return (
           <AdminAndSecurityView
+            key="audit_logs"
             users={users}
             tenants={tenants}
             extensions={extensions}

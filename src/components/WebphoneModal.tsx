@@ -543,8 +543,8 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       id="enlace-webphone-modal"
       className={`fixed z-50 transition-all duration-200 shadow-2xl rounded-2xl border border-slate-200 bg-white text-slate-900 flex flex-col overflow-hidden ${
         isMinimized
-          ? 'bottom-6 right-6 w-80 h-16 cursor-pointer'
-          : 'bottom-6 right-6 w-96 h-[640px] max-h-[90vh]'
+          ? 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 sm:w-80 h-14 sm:h-16 cursor-pointer'
+          : 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 sm:w-96 h-[580px] sm:h-[640px] max-h-[calc(100dvh-1rem)] sm:max-h-[90vh]'
       }`}
     >
       {/* Softphone Header */}
@@ -760,7 +760,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
             {callState === 'connected' && isAiCall && activeTab === 'ai_live' ? (
               <div className="flex-1 flex flex-col justify-between">
                 {/* Transcript feed */}
-                <div className="space-y-2.5 overflow-y-auto max-h-60 pr-1 text-xs font-sans">
+                <div className="space-y-2.5 overflow-y-auto max-h-40 sm:max-h-60 pr-1 text-xs font-sans">
                   {aiHistory.map((item, i) => (
                     <div
                       key={i}

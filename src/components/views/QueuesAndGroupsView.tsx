@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Layers,
   Split,
@@ -17,6 +17,7 @@ import { Queue, RingGroup } from '../../types/pbx';
 interface QueuesAndGroupsProps {
   queues: Queue[];
   ringGroups: RingGroup[];
+  initialTab?: 'queues' | 'ring_groups';
   onOpenWebphone: (num: string) => void;
   onRefresh?: () => void;
 }
@@ -24,10 +25,17 @@ interface QueuesAndGroupsProps {
 export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
   queues,
   ringGroups,
+  initialTab = 'queues',
   onOpenWebphone,
   onRefresh,
 }) => {
-  const [activeTab, setActiveTab] = useState<'queues' | 'ring_groups'>('queues');
+  const [activeTab, setActiveTab] = useState<'queues' | 'ring_groups'>(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 

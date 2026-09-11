@@ -51,6 +51,12 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
   onRefresh,
 }) => {
   const [currentTab, setCurrentTab] = useState<'agents' | 'providers' | 'tools' | 'knowledge' | 'sessions'>(activeSubTab);
+
+  useEffect(() => {
+    if (activeSubTab) {
+      setCurrentTab(activeSubTab);
+    }
+  }, [activeSubTab]);
   const [selectedAgent, setSelectedAgent] = useState<AiAgent | null>(agents[0] || null);
   const [selectedTool, setSelectedTool] = useState<AiTool | null>(null);
   const [testToolArgs, setTestToolArgs] = useState('{"documento": "12345678900"}');

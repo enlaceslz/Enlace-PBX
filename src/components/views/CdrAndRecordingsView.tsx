@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileText,
   Mic,
@@ -35,22 +35,38 @@ import { CdrRecord } from '../../types/pbx';
 
 interface CdrAndRecordingsProps {
   cdrs: CdrRecord[];
+  initialTab?: 'cdr' | 'recordings' | 'transcriptions';
   onRefresh: () => void;
   onOpenWebphone: (number: string) => void;
 }
 
 export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
   cdrs,
+  initialTab = 'cdr',
   onRefresh,
   onOpenWebphone,
 }) => {
+  const [activeTab, setActiveTab] = useState<'cdr' | 'recordings' | 'transcriptions'>(initialTab);
   const [searchTerm, setSearchTerm] = useState('');
   const [directionFilter, setDirectionFilter] = useState<'all' | 'inbound' | 'outbound' | 'internal'>('all');
   const [dispositionFilter, setDispositionFilter] = useState<'all' | 'ANSWERED' | 'NO ANSWER'>('all');
-  const [handlingFilter, setHandlingFilter] = useState<'all' | 'ai' | 'transferred' | 'human' | 'has_recording'>('all');
+  const [handlingFilter, setHandlingFilter] = useState<'all' | 'ai' | 'transferred' | 'human' | 'has_recording'>(
+    initialTab === 'recordings' ? 'has_recording' : 'all'
+  );
   const [sentimentFilter, setSentimentFilter] = useState<'all' | 'positive' | 'neutral' | 'negative'>('all');
   const [isSummarizingId, setIsSummarizingId] = useState<string | null>(null);
   const [selectedCdrForModal, setSelectedCdrForModal] = useState<CdrRecord | null>(null);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+      if (initialTab === 'recordings') {
+        setHandlingFilter('has_recording');
+      } else if (initialTab === 'cdr') {
+        setHandlingFilter('all');
+      }
+    }
+  }, [initialTab]);
 
   // Audio Playback state
   const [activeAudioCdr, setActiveAudioCdr] = useState<CdrRecord | null>(null);
@@ -221,12 +237,30 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <Bot className="w-8 h-8 text-blue-600" />
-              Gravador com IA (RAG)
+              {activeTab === 'cdr' ? (
+                <>
+                  <FileText className="w-8 h-8 text-blue-600" />
+                  Histórico de Chamadas (CDR)
+                </>
+              ) : activeTab === 'recordings' ? (
+                <>
+                  <Mic className="w-8 h-8 text-blue-600" />
+                  Gravações & Player de Áudio
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-8 h-8 text-blue-600" />
+                  Transcrições & IA (Gemini RAG)
+                </>
+              )}
             </h1>
           </div>
           <p className="text-sm font-medium text-slate-500">
-            Transcrição semântica, extração de sentimentos e sumarização via Google Gemini.
+            {activeTab === 'cdr'
+              ? 'Bilhetagem completa do Asterisk 20, tarifas, duração e status de todas as chamadas.'
+              : activeTab === 'recordings'
+              ? 'Armazenamento de áudio em alta definição (Opus/WAV), reprodução web e download.'
+              : 'Transcrição semântica de chamadas, análise de sentimento e sumarização via Google Gemini.'}
           </p>
         </div>
 
@@ -246,6 +280,43 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
             <RefreshCw className="w-5 h-5" />
           </button>
         </div>
+      </div>
+
+      {/* Subnav Tabs corresponding to Sidebar items */}
+      <div className="flex flex-col sm:flex-row border border-slate-200 bg-white rounded-xl p-1 shadow-xs gap-1">
+        <button
+          onClick={() => { setActiveTab('cdr'); setHandlingFilter('all'); }}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition ${
+            activeTab === 'cdr'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          Histórico CDR (Bilhetes)
+        </button>
+        <button
+          onClick={() => { setActiveTab('recordings'); setHandlingFilter('has_recording'); }}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition ${
+            activeTab === 'recordings'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <Mic className="w-4 h-4" />
+          Gravações & Player de Áudio
+        </button>
+        <button
+          onClick={() => { setActiveTab('transcriptions'); setHandlingFilter('all'); }}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition ${
+            activeTab === 'transcriptions'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          Transcrições & IA (Gemini RAG)
+        </button>
       </div>
 
       {/* AI Insights Dashboard */}

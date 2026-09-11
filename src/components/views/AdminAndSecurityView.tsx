@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
   ShieldCheck,
@@ -46,6 +46,12 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
   onRefresh,
 }) => {
   const [currentTab, setCurrentTab] = useState<'users' | 'tenants' | 'audit_logs' | 'health_check'>(activeSubTab);
+
+  useEffect(() => {
+    if (activeSubTab) {
+      setCurrentTab(activeSubTab);
+    }
+  }, [activeSubTab]);
 
   // User management modals
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
