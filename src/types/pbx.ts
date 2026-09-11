@@ -1,3 +1,13 @@
+export interface TenantAntiFraud {
+  maxConcurrentCalls: number;
+  maxInternationalPerDay: number;
+  blockInternational: boolean;
+  blockExpensiveDestinations: boolean;
+  maxCallDurationMinutes: number;
+  alertEmail: string;
+  autoSuspendOnAnomaly: boolean;
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -7,6 +17,7 @@ export interface Tenant {
   maxTrunks: number;
   aiCreditsUsd: number;
   createdAt: string;
+  antiFraud?: TenantAntiFraud;
 }
 
 export interface User {

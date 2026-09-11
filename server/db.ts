@@ -40,6 +40,16 @@ export interface OmnichannelConversation {
   createdAt: string;
 }
 
+export interface TenantAntiFraud {
+  maxConcurrentCalls: number;
+  maxInternationalPerDay: number;
+  blockInternational: boolean;
+  blockExpensiveDestinations: boolean;
+  maxCallDurationMinutes: number;
+  alertEmail: string;
+  autoSuspendOnAnomaly: boolean;
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -49,6 +59,7 @@ export interface Tenant {
   maxTrunks: number;
   aiCreditsUsd: number;
   createdAt: string;
+  antiFraud?: TenantAntiFraud;
 }
 
 export interface User {
@@ -579,6 +590,15 @@ export class Database {
       maxTrunks: 32,
       aiCreditsUsd: 1500.0,
       createdAt: '2025-01-10T08:00:00Z',
+      antiFraud: {
+        maxConcurrentCalls: 50,
+        maxInternationalPerDay: 5,
+        blockInternational: true,
+        blockExpensiveDestinations: true,
+        maxCallDurationMinutes: 180,
+        alertEmail: 'noc@enlacedigital.com.br',
+        autoSuspendOnAnomaly: true
+      }
     },
     {
       id: 'tenant-hospital-vida',
@@ -589,6 +609,15 @@ export class Database {
       maxTrunks: 64,
       aiCreditsUsd: 2800.0,
       createdAt: '2025-02-15T10:30:00Z',
+      antiFraud: {
+        maxConcurrentCalls: 100,
+        maxInternationalPerDay: 0,
+        blockInternational: true,
+        blockExpensiveDestinations: true,
+        maxCallDurationMinutes: 60,
+        alertEmail: 'ti@hospitalvida.com.br',
+        autoSuspendOnAnomaly: false
+      }
     },
   ];
 

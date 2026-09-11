@@ -23,6 +23,8 @@ import {
   Cpu,
   Radio,
   FileSpreadsheet,
+  ShieldOff,
+  Crosshair
 } from 'lucide-react';
 import { User, Tenant, AuditLog, HealthStatus, Extension } from '../../types/pbx';
 
@@ -32,7 +34,7 @@ interface AdminAndSecurityViewProps {
   extensions?: Extension[];
   auditLogs: AuditLog[];
   health: HealthStatus | null;
-  activeSubTab?: 'users' | 'tenants' | 'audit_logs' | 'health_check';
+  activeSubTab?: 'users' | 'tenants' | 'audit_logs' | 'health_check' | 'anti_fraud';
   onRefresh?: () => void;
 }
 
@@ -45,7 +47,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
   activeSubTab = 'users',
   onRefresh,
 }) => {
-  const [currentTab, setCurrentTab] = useState<'users' | 'tenants' | 'audit_logs' | 'health_check'>(activeSubTab);
+  const [currentTab, setCurrentTab] = useState<'users' | 'tenants' | 'audit_logs' | 'health_check' | 'anti_fraud'>(activeSubTab);
 
   useEffect(() => {
     if (activeSubTab) {
@@ -286,6 +288,18 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
           >
             <ShieldAlert className="w-3.5 h-3.5" />
             Auditoria LGPD ({auditLogs.length})
+          </button>
+          <button
+            id="tab-anti-fraud-btn"
+            onClick={() => setCurrentTab('anti_fraud')}
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group ${
+              currentTab === 'anti_fraud'
+                ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                : 'bg-white text-slate-600 hover:bg-purple-50 hover:text-purple-600 border border-slate-200'
+            }`}
+          >
+            <ShieldOff className="w-3.5 h-3.5" />
+            Motor Anti-Fraude
           </button>
           <button
             id="tab-health-btn"
@@ -572,6 +586,83 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {currentTab === 'anti_fraud' && (
+        <div className="flex-1 space-y-6">
+          <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
+            <div className="w-12 h-12 bg-purple-100 text-purple-600 flex items-center justify-center rounded-2xl shadow-inner">
+              <ShieldOff className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-slate-800">Motor Anti-Fraude (Toll Fraud)</h2>
+              <p className="text-sm text-slate-500 font-medium mt-1">Configuração de limites e bloqueios de tráfego por tenant.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {tenants.map(tenant => (
+              <div key={tenant.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xl relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-bl-[100px] -z-10 group-hover:bg-purple-500/10 transition-colors"></div>
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-lg">{tenant.name}</h3>
+                    <p className="text-xs text-slate-400 font-mono mt-1">ID: {tenant.id}</p>
+                  </div>
+                  <span className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${tenant.antiFraud?.autoSuspendOnAnomaly ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                    {tenant.antiFraud?.autoSuspendOnAnomaly ? 'Auto-Suspend Ativo' : 'Apenas Alertas'}
+                  </span>
+                </div>
+
+                {tenant.antiFraud ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Chamadas Simultâneas (Max)</span>
+                        <span className="font-mono font-bold text-slate-700 text-lg">{tenant.antiFraud.maxConcurrentCalls}</span>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Duração Máxima (Min)</span>
+                        <span className="font-mono font-bold text-slate-700 text-lg">{tenant.antiFraud.maxCallDurationMinutes}</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl">
+                      <h4 className="text-[11px] font-bold text-rose-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <Crosshair className="w-3.5 h-3.5" /> Destinos Sensíveis
+                      </h4>
+                      <div className="flex flex-col gap-2 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-rose-700">Bloquear DDI (Internacional)</span>
+                          <span className="font-mono font-bold text-rose-900">{tenant.antiFraud.blockInternational ? 'SIM' : 'NÃO'}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-rose-700">Max DDI / Dia</span>
+                          <span className="font-mono font-bold text-rose-900">{tenant.antiFraud.maxInternationalPerDay}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-rose-700">Bloquear Premium (0900/0300)</span>
+                          <span className="font-mono font-bold text-rose-900">{tenant.antiFraud.blockExpensiveDestinations ? 'SIM' : 'NÃO'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                    <span className="text-xs font-semibold text-slate-500">Anti-Fraude não configurado para este Tenant.</span>
+                  </div>
+                )}
+                
+                <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
+                  <button className="px-4 py-2 bg-white border-2 border-slate-200 hover:border-purple-600 hover:text-purple-600 text-slate-600 rounded-xl text-xs font-bold transition-all flex items-center gap-2">
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Editar Regras
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
