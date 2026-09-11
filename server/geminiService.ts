@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
+import zlib from 'zlib';
 import { db } from './db.js';
 
 let aiClient: GoogleGenAI | null = null;
@@ -647,6 +648,134 @@ Retorne uma análise em português no seguinte formato JSON:
       return null;
     }
   }
+
+  async extractKnowledgeFromDocument(params: {
+    fileName: string;
+    fileType: string;
+    base64Data?: string;
+    rawText?: string;
+  }): Promise<{ title: string; category: string; content: string }> {
+    let rawContent = params.rawText || '';
+
+    // If PDF base64 provided and Gemini is available, use multimodal inlineData
+    if (params.fileType.includes('pdf') && params.base64Data) {
+      const ai = getAiClient();
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+              {
+                inlineData: {
+                  data: params.base64Data,
+                  mimeType: 'application/pdf',
+                },
+              },
+              'Extraia detalhadamente todo o conteúdo textual técnico, procedimentos de suporte, diretrizes de atendimento e dados operacionais deste manual. Formate em markdown claro com cabeçalhos e tópicos em português do Brasil.',
+            ],
+          });
+          if (response.text) {
+            rawContent = response.text.trim();
+          }
+        } catch (err) {
+          console.warn('Gemini PDF inline extraction warning:', err);
+        }
+      }
+
+      // If Gemini extraction was not available or empty, extract from PDF stream buffer
+      if (!rawContent && params.base64Data) {
+        try {
+          const buffer = Buffer.from(params.base64Data, 'base64');
+          rawContent = extractTextFromPdfBuffer(buffer);
+        } catch (err) {
+          console.warn('PDF stream extraction fallback error:', err);
+        }
+      }
+    }
+
+    // Default clean title from file name
+    const cleanTitle = params.fileName
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+
+    // Category auto-detection based on file name and content
+    let category = 'Suporte Técnico';
+    const lower = (params.fileName + ' ' + rawContent).toLowerCase();
+    if (lower.includes('financeir') || lower.includes('fatura') || lower.includes('pix') || lower.includes('boleto')) {
+      category = 'Financeiro & Faturamento';
+    } else if (lower.includes('plano') || lower.includes('venda') || lower.includes('comercial') || lower.includes('preço')) {
+      category = 'Comercial & Planos';
+    } else if (
+      lower.includes('rede') ||
+      lower.includes('sip') ||
+      lower.includes('noc') ||
+      lower.includes('asterisk') ||
+      lower.includes('pjsip') ||
+      lower.includes('onu') ||
+      lower.includes('fibra') ||
+      lower.includes('roberto')
+    ) {
+      category = 'Diagnóstico de Rede / NOC';
+    } else if (lower.includes('lgpd') || lower.includes('política') || lower.includes('horário') || lower.includes('jurídico')) {
+      category = 'Políticas & Institucional';
+    }
+
+    return {
+      title: cleanTitle || 'Manual de Suporte Carregado',
+      category,
+      content: rawContent || 'Conteúdo do documento indexado para consulta dos agentes de IA.',
+    };
+  }
+}
+
+function extractTextFromPdfBuffer(buffer: Buffer): string {
+  const textChunks: string[] = [];
+  const str = buffer.toString('binary');
+
+  // Attempt to decompress FlateDecode streams
+  const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = streamRegex.exec(str)) !== null) {
+    const rawStream = Buffer.from(match[1], 'binary');
+    try {
+      const decompressed = zlib.inflateSync(rawStream).toString('utf-8');
+      const tjRegex = /\(([^)]+)\)\s*Tj/g;
+      let tjMatch: RegExpExecArray | null;
+      while ((tjMatch = tjRegex.exec(decompressed)) !== null) {
+        textChunks.push(tjMatch[1]);
+      }
+      const tjArrayRegex = /\[([^\]]+)\]\s*TJ/g;
+      let arrayMatch: RegExpExecArray | null;
+      while ((arrayMatch = tjArrayRegex.exec(decompressed)) !== null) {
+        const innerRegex = /\(([^)]+)\)/g;
+        let innerMatch: RegExpExecArray | null;
+        while ((innerMatch = innerRegex.exec(arrayMatch[1])) !== null) {
+          textChunks.push(innerMatch[1]);
+        }
+      }
+    } catch {
+      // Non-compressed stream
+    }
+  }
+
+  if (textChunks.length > 5) {
+    return textChunks
+      .join(' ')
+      .replace(/\\([nrtbf()])/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Fallback: extract readable Portuguese text segments of length >= 4
+  const decoded = buffer.toString('utf-8');
+  const readableTokens = decoded.match(/[A-Za-z0-9À-ÿ\s\.,;:!?\-\(\)\/\@\#\%]{4,}/g) || [];
+  const cleanTokens = readableTokens
+    .map((t) => t.trim())
+    .filter((t) => t.length > 3 && !t.startsWith('/') && !t.includes('obj') && !t.includes('endobj'));
+
+  return cleanTokens.slice(0, 500).join('\n') || 'Documento PDF carregado para base de conhecimento.';
 }
 
 export const geminiService = new GeminiService();

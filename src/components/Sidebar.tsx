@@ -29,6 +29,7 @@ import {
   MessageSquare,
   Zap,
   Megaphone,
+  BarChart3,
 } from 'lucide-react';
 
 export type ActiveView =
@@ -47,6 +48,7 @@ export type ActiveView =
   | 'cdr'
   | 'recordings'
   | 'transcriptions'
+  | 'reports'
   | 'ai_providers'
   | 'ai_agents'
   | 'ai_tools'
@@ -104,6 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
         { id: 'cdr' as ActiveView, label: 'Histórico CDR', icon: FileText },
         { id: 'recordings' as ActiveView, label: 'Gravações & Player', icon: Mic },
         { id: 'transcriptions' as ActiveView, label: 'Transcrições & IA', icon: Sparkles },
+        { id: 'reports' as ActiveView, label: 'Relatórios & SLA (PDF)', icon: BarChart3 },
       ],
     },
     {

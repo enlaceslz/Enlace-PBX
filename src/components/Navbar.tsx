@@ -50,7 +50,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-3">
           {!logoError ? (
             <img 
-              src="/logo.png" 
+              src="/logo.svg" 
               alt="Enlace PBX Logo" 
               className="h-11 w-auto max-w-[190px] object-contain cursor-pointer" 
               onError={() => setLogoError(true)}

@@ -28,6 +28,14 @@ import {
   Layers,
   Radio,
   Mic,
+  Upload,
+  FileUp,
+  Trash2,
+  Search,
+  Eye,
+  FileCheck,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import {
   AiAgent,
@@ -444,6 +452,346 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     setToolSimResult(tool.mockResponse);
   };
 
+  // ---------------------------------------------------------------------------
+  // Knowledge Base State & File Upload Handlers
+  // ---------------------------------------------------------------------------
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [uploadProgressMsg, setUploadProgressMsg] = useState('');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [searchKnowledge, setSearchKnowledge] = useState('');
+  const [filterCategory, setFilterCategory] = useState('Todos');
+  const [viewingDoc, setViewingDoc] = useState<AiKnowledgeSource | null>(null);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+
+  // Upload Form Data
+  const [docFormData, setDocFormData] = useState<{
+    title: string;
+    category: string;
+    content: string;
+    fileName: string;
+    fileType: string;
+    fileSizeBytes: number;
+    base64Data: string;
+    targetAgentIds: string[];
+  }>({
+    title: '',
+    category: 'Suporte Técnico',
+    content: '',
+    fileName: '',
+    fileType: 'text/plain',
+    fileSizeBytes: 0,
+    base64Data: '',
+    targetAgentIds: agents.map((a) => a.id),
+  });
+
+  const handleTriggerFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleOpenManualEntry = () => {
+    setDocFormData({
+      title: '',
+      category: 'Suporte Técnico',
+      content: '',
+      fileName: '',
+      fileType: 'text/plain',
+      fileSizeBytes: 0,
+      base64Data: '',
+      targetAgentIds: agents.map((a) => a.id),
+    });
+    setUploadError(null);
+    setUploadProgressMsg('');
+    setIsUploadModalOpen(true);
+  };
+
+  const handleLoadSampleManual = () => {
+    setDocFormData({
+      title: 'Manual de Resolução de Falhas de Conexão FTTH & Ramal SIP',
+      category: 'Suporte Técnico',
+      content: `# PROCEDIMENTO OPERACIONAL PADRÃO — SUPORTE N1/N2 ENLACE TELECOM
+
+## 1. Verificação de Ramais SIP / PJSIP
+- Se o telefone IP ou Webphone exibir status "Offline" ou código 408 Request Timeout:
+  a) Verifique se o cabo RJ45 está conectado na porta LAN ou se o WebRTC está autorizado no navegador.
+  b) Confirme se o IP do PABX (192.168.10.250:5060) está acessível via rede local.
+  c) No ramal do cliente, confira se o Realm está definido como "enlace-pbx" e transporte UDP/WSS.
+  d) Se o erro for 403 Forbidden, resete a senha SIP ou confira o contexto 'from-internal'.
+
+## 2. Diagnóstico de Conexão de Fibra Óptica (GPON / ONU)
+- Lâmpada PON piscando: Falha de sincronismo óptico na OLT (Atenuação > -27dBm).
+- Lâmpada LOS vermelha: Rompimento físico do cordão óptico ou cabo drop externo.
+- Orientação ao cliente: Solicite que desligue e ligue o equipamento aguardando 30 segundos. Caso o LOS permaneça aceso, abra chamado técnico com prioridade alta para a equipe externa de campo.
+
+## 3. Faturamento, Segunda Via e Desbloqueio
+- Segunda via de fatura: Enviada automaticamente por WhatsApp ou link PIX copia-e-cola.
+- Desbloqueio em confiança: Concedido via atendimento automático por até 48 horas para clientes sem pendências nos últimos 6 meses.`,
+      fileName: 'manual_procedimentos_suporte_tecnico_pjsip.txt',
+      fileType: 'text/plain',
+      fileSizeBytes: 1460,
+      base64Data: '',
+      targetAgentIds: agents.map((a) => a.id),
+    });
+    setUploadError(null);
+    setUploadProgressMsg('');
+    setIsUploadModalOpen(true);
+  };
+
+  const processFile = async (file: File) => {
+    setUploadError(null);
+    setUploadProgressMsg(`Lendo ${file.name}...`);
+    setIsUploadingDoc(true);
+
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const isText =
+      file.type.startsWith('text/') ||
+      file.name.toLowerCase().endsWith('.txt') ||
+      file.name.toLowerCase().endsWith('.md') ||
+      file.name.toLowerCase().endsWith('.json') ||
+      file.name.toLowerCase().endsWith('.csv') ||
+      file.name.toLowerCase().endsWith('.log');
+
+    const cleanTitle = file.name
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+
+    let autoCategory = 'Suporte Técnico';
+    const lowerName = file.name.toLowerCase();
+    if (
+      lowerName.includes('rede') ||
+      lowerName.includes('noc') ||
+      lowerName.includes('sip') ||
+      lowerName.includes('onu') ||
+      lowerName.includes('fibra') ||
+      lowerName.includes('roberto')
+    ) {
+      autoCategory = 'Diagnóstico de Rede / NOC';
+    } else if (
+      lowerName.includes('comercial') ||
+      lowerName.includes('plano') ||
+      lowerName.includes('venda') ||
+      lowerName.includes('tabela')
+    ) {
+      autoCategory = 'Comercial & Planos';
+    } else if (
+      lowerName.includes('financeir') ||
+      lowerName.includes('fatura') ||
+      lowerName.includes('pix') ||
+      lowerName.includes('cobranca')
+    ) {
+      autoCategory = 'Financeiro & Faturamento';
+    } else if (
+      lowerName.includes('politica') ||
+      lowerName.includes('lgpd') ||
+      lowerName.includes('horario')
+    ) {
+      autoCategory = 'Políticas & Procedimentos';
+    }
+
+    try {
+      if (isText) {
+        const text = await file.text();
+        setDocFormData({
+          title: cleanTitle,
+          category: autoCategory,
+          content: text,
+          fileName: file.name,
+          fileType: file.type || 'text/plain',
+          fileSizeBytes: file.size,
+          base64Data: '',
+          targetAgentIds: agents.map((a) => a.id),
+        });
+        setIsUploadingDoc(false);
+        setUploadProgressMsg('');
+        setIsUploadModalOpen(true);
+      } else if (isPdf) {
+        setUploadProgressMsg('Extraindo texto e procedimentos do PDF via Gemini / RAG Engine...');
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const resultStr = reader.result as string;
+          const base64Data = resultStr.split(',')[1] || '';
+
+          try {
+            const res = await fetch('/api/v1/ai/knowledge/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fileName: file.name,
+                fileType: 'application/pdf',
+                base64Data,
+                title: cleanTitle,
+                category: autoCategory,
+                targetAgentIds: agents.map((a) => a.id),
+              }),
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              setDocFormData({
+                title: data.doc?.title || cleanTitle,
+                category: data.doc?.category || autoCategory,
+                content: data.doc?.content || '',
+                fileName: file.name,
+                fileType: 'application/pdf',
+                fileSizeBytes: file.size,
+                base64Data,
+                targetAgentIds: agents.map((a) => a.id),
+              });
+              setIsUploadingDoc(false);
+              setUploadProgressMsg('');
+              setIsUploadModalOpen(true);
+            } else {
+              throw new Error('Falha no processamento do PDF pelo backend');
+            }
+          } catch {
+            setDocFormData({
+              title: cleanTitle,
+              category: autoCategory,
+              content: `[Manual PDF: ${file.name}]\nDocumento importado para a base de conhecimento dos agentes de IA.`,
+              fileName: file.name,
+              fileType: 'application/pdf',
+              fileSizeBytes: file.size,
+              base64Data,
+              targetAgentIds: agents.map((a) => a.id),
+            });
+            setIsUploadingDoc(false);
+            setUploadProgressMsg('');
+            setIsUploadModalOpen(true);
+          }
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const text = await file.text();
+        setDocFormData({
+          title: cleanTitle,
+          category: autoCategory,
+          content: text || `Documento ${file.name} carregado para base de conhecimento.`,
+          fileName: file.name,
+          fileType: file.type || 'text/plain',
+          fileSizeBytes: file.size,
+          base64Data: '',
+          targetAgentIds: agents.map((a) => a.id),
+        });
+        setIsUploadingDoc(false);
+        setUploadProgressMsg('');
+        setIsUploadModalOpen(true);
+      }
+    } catch (err: any) {
+      console.error('Erro ao processar arquivo:', err);
+      setIsUploadingDoc(false);
+      setUploadError(err.message || 'Erro ao carregar arquivo.');
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      processFile(files[0]);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleSaveDocToKnowledge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docFormData.title.trim() || !docFormData.content.trim()) {
+      setUploadError('Título e conteúdo são obrigatórios.');
+      return;
+    }
+
+    setIsUploadingDoc(true);
+    setUploadError(null);
+    try {
+      const res = await fetch('/api/v1/ai/knowledge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: docFormData.title,
+          category: docFormData.category,
+          content: docFormData.content,
+          fileName: docFormData.fileName,
+          fileType: docFormData.fileType,
+          fileSizeBytes: docFormData.fileSizeBytes,
+          targetAgentIds: docFormData.targetAgentIds,
+        }),
+      });
+
+      if (res.ok) {
+        setIsUploadModalOpen(false);
+        setUploadSuccess(`Manual "${docFormData.title}" indexado com sucesso para os agentes!`);
+        setTimeout(() => setUploadSuccess(null), 4500);
+        onRefresh();
+      } else {
+        const data = await res.json();
+        setUploadError(data.error || 'Erro ao salvar documento.');
+      }
+    } catch (err: any) {
+      setUploadError(err.message || 'Erro ao salvar documento.');
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
+
+  const handleDeleteKnowledgeDoc = async (id: string) => {
+    if (!confirm('Deseja realmente remover este documento da base de conhecimento?')) return;
+    setDeletingDocId(id);
+    try {
+      const res = await fetch(`/api/v1/ai/knowledge/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Erro ao deletar documento:', err);
+    } finally {
+      setDeletingDocId(null);
+    }
+  };
+
+  const toggleAgentInTargetList = (agentId: string) => {
+    setDocFormData((prev) => {
+      const exists = prev.targetAgentIds.includes(agentId);
+      return {
+        ...prev,
+        targetAgentIds: exists
+          ? prev.targetAgentIds.filter((id) => id !== agentId)
+          : [...prev.targetAgentIds, agentId],
+      };
+    });
+  };
+
+  // Filtered knowledge list
+  const filteredKnowledge = knowledge.filter((k) => {
+    const matchesSearch =
+      k.title.toLowerCase().includes(searchKnowledge.toLowerCase()) ||
+      k.content.toLowerCase().includes(searchKnowledge.toLowerCase()) ||
+      k.category.toLowerCase().includes(searchKnowledge.toLowerCase());
+    const matchesCat = filterCategory === 'Todos' || k.category === filterCategory;
+    return matchesSearch && matchesCat;
+  });
+
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
       {/* Premium Header */}
@@ -569,7 +917,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             }`}
           >
             <div className="flex items-center gap-3">
-              <BookOpen className="w-5 h-5" /> Contextos RAG
+              <BookOpen className="w-5 h-5" /> Knowledge (RAG & Manuais)
             </div>
             <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'knowledge' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>{knowledge.length}</span>
           </button>
@@ -1274,31 +1622,284 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
       {/* 4. KNOWLEDGE TAB */}
       {currentTab === 'knowledge' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {knowledge.map((k) => (
-            <div
-              key={k.id}
-              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3 flex flex-col justify-between"
-            >
+        <div className="space-y-6">
+          {/* Hidden File Input for uploading */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileInputChange}
+            accept=".txt,.pdf,.md,.csv,.json,.log,text/plain,application/pdf"
+            className="hidden"
+          />
+
+          {/* Success Banner */}
+          {uploadSuccess && (
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between text-emerald-800 text-xs font-semibold animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{uploadSuccess}</span>
+              </div>
+              <button onClick={() => setUploadSuccess(null)} className="text-emerald-600 hover:text-emerald-800">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Top Action Header Bar */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shrink-0">
+                <BookOpen className="w-6 h-6" />
+              </div>
               <div>
-                <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-                  <span className="px-2 py-0.5 rounded bg-slate-100 text-[10px] font-mono">
-                    {k.category}
-                  </span>
-                  <span>{new Date(k.updatedAt).toLocaleDateString('pt-BR')}</span>
-                </div>
-                <h3 className="font-bold text-slate-900 text-sm">{k.title}</h3>
-                <p className="text-xs text-slate-500 mt-2 font-mono line-clamp-4 bg-slate-50 p-3 rounded-xl border border-slate-200 shadow-sm">
-                  {k.content}
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  Base de Conhecimento RAG & Grounding dos Agentes
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Manuais de suporte, PDFs técnicos e procedimentos consumidos pelo Gemini para embasar o atendimento telefônico.
                 </p>
               </div>
-
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-[11px] text-blue-600">
-                <span>Grounding Ativo</span>
-                <span>Enlace RAG Engine</span>
-              </div>
             </div>
-          ))}
+
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <button
+                type="button"
+                onClick={handleLoadSampleManual}
+                className="px-3.5 py-2.5 rounded-xl border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-bold transition flex items-center gap-2"
+                title="Carregar exemplo de manual de suporte técnico de telecomunicações"
+              >
+                <FileText className="w-4 h-4 text-blue-600" />
+                <span>Carregar Manual Exemplo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenManualEntry}
+                className="px-3.5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4 text-slate-500" />
+                <span>Artigo Manual</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTriggerFileInput}
+                disabled={isUploadingDoc}
+                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition flex items-center gap-2 disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Carregar Arquivo (TXT / PDF / MD)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Drag and Drop Zone */}
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={handleTriggerFileInput}
+            className={`border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all ${
+              isDragOver
+                ? 'border-blue-500 bg-blue-50/70 scale-[1.005]'
+                : 'border-slate-300 bg-slate-50/70 hover:bg-slate-100/70 hover:border-slate-400'
+            }`}
+          >
+            {isUploadingDoc ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-4">
+                <RefreshCw className="w-8 h-8 text-blue-600 animate-spin" />
+                <p className="text-xs font-bold text-slate-800">{uploadProgressMsg || 'Processando arquivo...'}</p>
+                <p className="text-[11px] text-slate-500">Aguarde a extração e estruturação para os agentes de IA</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2">
+                <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center text-blue-600 mb-1">
+                  <FileUp className="w-6 h-6" />
+                </div>
+                <div className="text-sm font-bold text-slate-800">
+                  Arraste e solte arquivos aqui, ou <span className="text-blue-600 underline">clique para selecionar</span>
+                </div>
+                <p className="text-xs text-slate-500 max-w-lg">
+                  Suporta arquivos de texto simples (como <strong>PDFs de manuais técnicos</strong>, <strong>TXT</strong> de scripts de suporte, Markdown, CSV ou JSON).
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-mono text-[10px] font-bold border border-blue-200">
+                    PDF
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-bold">
+                    TXT
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-bold">
+                    MARKDOWN
+                  </span>
+                  <span className="text-[11px] text-slate-500">• Vinculação imediata com Roberto Mendes e MaIA</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Search and Category Filters */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            {/* Category Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
+              {[
+                'Todos',
+                'Suporte Técnico',
+                'Diagnóstico de Rede / NOC',
+                'Comercial & Planos',
+                'Financeiro & Faturamento',
+                'Políticas & Procedimentos',
+              ].map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setFilterCategory(cat)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                    filterCategory === cat
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-full md:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchKnowledge}
+                onChange={(e) => setSearchKnowledge(e.target.value)}
+                placeholder="Buscar em manuais e fontes..."
+                className="w-full text-xs pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+          </div>
+
+          {/* Knowledge Cards Grid */}
+          {filteredKnowledge.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-3">
+              <BookOpen className="w-10 h-10 text-slate-400 mx-auto" />
+              <h3 className="font-bold text-sm text-slate-800">Nenhum documento encontrado</h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                {searchKnowledge || filterCategory !== 'Todos'
+                  ? 'Tente limpar a busca ou selecionar outra categoria.'
+                  : 'Carregue seu primeiro manual de suporte ou FAQ para os agentes de IA.'}
+              </p>
+              <button
+                onClick={handleTriggerFileInput}
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow hover:bg-blue-700 transition"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Carregar Manual Agora</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredKnowledge.map((k) => {
+                const isPdf = k.fileName?.toLowerCase().endsWith('.pdf') || k.fileType?.includes('pdf');
+                const isTxt = k.fileName?.toLowerCase().endsWith('.txt') || k.fileType?.includes('text');
+                const linkedAgents = agents.filter((a) => a.knowledgeSources?.includes(k.id));
+
+                return (
+                  <div
+                    key={k.id}
+                    className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3 flex flex-col justify-between hover:border-slate-300 transition group"
+                  >
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 text-[10px] font-mono text-slate-700 font-semibold">
+                            {k.category}
+                          </span>
+                          {isPdf && (
+                            <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-200 text-[9px] font-mono font-bold">
+                              PDF
+                            </span>
+                          )}
+                          {isTxt && (
+                            <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200 text-[9px] font-mono font-bold">
+                              TXT
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px]">
+                          {new Date(k.updatedAt).toLocaleDateString('pt-BR')}
+                        </span>
+                      </div>
+
+                      <h3 className="font-bold text-slate-900 text-sm leading-snug group-hover:text-blue-600 transition">
+                        {k.title}
+                      </h3>
+
+                      {k.fileName && (
+                        <div className="text-[10px] text-slate-400 font-mono truncate">
+                          Arquivo: {k.fileName} {k.fileSizeBytes ? `(${(k.fileSizeBytes / 1024).toFixed(1)} KB)` : ''}
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-600 font-mono line-clamp-4 bg-slate-50 p-3 rounded-xl border border-slate-200 shadow-inner whitespace-pre-wrap">
+                        {k.content}
+                      </p>
+
+                      {/* Agents with access */}
+                      <div className="pt-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
+                          Agentes com Acesso Grounding:
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {linkedAgents.length > 0 ? (
+                            linkedAgents.map((ag) => (
+                              <span
+                                key={ag.id}
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100"
+                              >
+                                <Bot className="w-3 h-3" />
+                                {ag.name.split('—')[0].trim()}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">
+                              Todos os agentes de voz ativos
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 text-blue-600 font-semibold text-[11px]">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>Grounding Ativo</span>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setViewingDoc(k)}
+                          title="Visualizar documento completo"
+                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingDocId === k.id}
+                          onClick={() => handleDeleteKnowledgeDoc(k.id)}
+                          title="Remover documento"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1736,6 +2337,215 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* KNOWLEDGE BASE UPLOAD & REVIEW MODAL */}
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col my-auto">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">
+                    {docFormData.fileName ? 'Indexar Arquivo na Base de Conhecimento' : 'Novo Documento de Conhecimento'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {docFormData.fileName
+                      ? `Arquivo: ${docFormData.fileName} (${docFormData.fileType || 'texto'})`
+                      : 'Adicione manuais técnicos, procedimentos ou scripts para consulta dos agentes'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUploadModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleSaveDocToKnowledge} className="p-6 space-y-4 overflow-y-auto flex-1">
+              {uploadError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{uploadError}</span>
+                </div>
+              )}
+
+              {/* Title & Category Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Título do Documento / Manual *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={docFormData.title}
+                    onChange={(e) => setDocFormData({ ...docFormData, title: e.target.value })}
+                    placeholder="Ex: Manual de Configuração de ONU Huawei"
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Categoria Operacional *
+                  </label>
+                  <select
+                    value={docFormData.category}
+                    onChange={(e) => setDocFormData({ ...docFormData, category: e.target.value })}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium"
+                  >
+                    <option value="Suporte Técnico">Suporte Técnico</option>
+                    <option value="Diagnóstico de Rede / NOC">Diagnóstico de Rede / NOC</option>
+                    <option value="Comercial & Planos">Comercial & Planos</option>
+                    <option value="Financeiro & Faturamento">Financeiro & Faturamento</option>
+                    <option value="Políticas & Procedimentos">Políticas & Procedimentos</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Agents Checkboxes */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Agentes de Voz com Acesso RAG a este Manual:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  {agents.map((ag) => {
+                    const isChecked = docFormData.targetAgentIds.includes(ag.id);
+                    return (
+                      <label
+                        key={ag.id}
+                        className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleAgentInTargetList(ag.id)}
+                          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-slate-300"
+                        />
+                        <span className="font-semibold">{ag.name.split('—')[0].trim()}</span>
+                        <span className="text-[10px] text-slate-400 capitalize">
+                          ({ag.voiceGender === 'female' ? 'Fem' : 'Masc'})
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Content Textarea */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    Conteúdo Textual para Grounding *
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    {docFormData.content.length} caracteres • ~
+                    {Math.round(docFormData.content.split(/\s+/).filter(Boolean).length)} palavras
+                  </span>
+                </div>
+                <textarea
+                  required
+                  rows={9}
+                  value={docFormData.content}
+                  onChange={(e) => setDocFormData({ ...docFormData, content: e.target.value })}
+                  placeholder="Cole ou edite o texto que o Gemini utilizará para responder perguntas dos chamadores..."
+                  className="w-full text-xs font-mono p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 leading-relaxed resize-y"
+                />
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsUploadModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploadingDoc}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <FileCheck className="w-3.5 h-3.5" />
+                  {isUploadingDoc ? 'Indexando...' : 'Salvar na Base de Conhecimento'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW FULL DOCUMENT MODAL */}
+      {viewingDoc && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col my-auto">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-slate-100 text-[10px] font-mono text-slate-700 font-semibold">
+                      {viewingDoc.category}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Atualizado em {new Date(viewingDoc.updatedAt).toLocaleDateString('pt-BR')}
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-base text-slate-900 mt-0.5">{viewingDoc.title}</h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingDoc(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Reader */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              {viewingDoc.fileName && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between">
+                  <span className="text-slate-600 font-medium">Nome do Arquivo:</span>
+                  <span className="font-mono text-slate-800 font-bold">{viewingDoc.fileName}</span>
+                </div>
+              )}
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-mono text-slate-800 whitespace-pre-wrap leading-relaxed">
+                {viewingDoc.content}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-200 flex items-center justify-between">
+              <div className="text-[11px] text-slate-400">
+                {viewingDoc.content.length} caracteres • ~
+                {Math.round(viewingDoc.content.split(/\s+/).filter(Boolean).length)} palavras
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingDoc(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

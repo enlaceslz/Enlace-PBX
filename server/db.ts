@@ -197,6 +197,9 @@ export interface AiKnowledgeSource {
   category: string;
   content: string;
   updatedAt: string;
+  fileName?: string;
+  fileType?: string;
+  fileSizeBytes?: number;
 }
 
 export interface AiAgent {
@@ -319,6 +322,33 @@ export interface SystemSnapshot {
   data: string; // JSON stringified state of extensions, trunks, routes, etc.
 }
 
+export interface BillingInvoice {
+  id: string;
+  date: string;
+  dueDate: string;
+  amount: number;
+  status: 'paid' | 'pending' | 'overdue';
+  paymentMethod?: string;
+  paidAt?: string;
+  items?: Array<{
+    description: string;
+    category: string;
+    qty: string | number;
+    unitPrice: number;
+    total: number;
+  }>;
+}
+
+export interface BillingTransaction {
+  id: string;
+  date: string;
+  description: string;
+  category: 'telephony' | 'ai_tokens' | 'omnichannel' | 'licenses' | 'recharge';
+  type: 'debit' | 'credit';
+  amount: number;
+  balanceAfter: number;
+}
+
 export interface TenantBilling {
   tenantId: string;
   plan: 'prepaid' | 'postpaid';
@@ -330,12 +360,8 @@ export interface TenantBilling {
     omnichannel: number;
     licenses: number;
   };
-  recentInvoices: {
-    id: string;
-    date: string;
-    amount: number;
-    status: 'paid' | 'pending' | 'overdue';
-  }[];
+  recentInvoices: BillingInvoice[];
+  transactions?: BillingTransaction[];
 }
 
 export class Database {
@@ -352,8 +378,59 @@ export class Database {
         licenses: 150.00,
       },
       recentInvoices: [
-        { id: 'INV-2026-08', date: '2026-08-01', amount: 850.00, status: 'paid' },
-        { id: 'INV-2026-07', date: '2026-07-01', amount: 790.30, status: 'paid' },
+        {
+          id: 'INV-2026-09',
+          date: '2026-09-01',
+          dueDate: '2026-09-15',
+          amount: 713.70,
+          status: 'pending',
+          paymentMethod: 'PIX ou Boleto',
+          items: [
+            { description: 'Tarifação Telefonia Fixa e Móvel (PSTN / SIP Trunk)', category: 'Telefonia', qty: '12.450 min', unitPrice: 0.028, total: 345.20 },
+            { description: 'Processamento de Voz Neural e Tokens (Gemini AI Voice Engine)', category: 'IA Gemini', qty: '2.850.000 tokens', unitPrice: 0.000045, total: 128.50 },
+            { description: 'Licenças Ramais PJSIP e WebRTC Cloud', category: 'Licenciamento', qty: '30 ramais', unitPrice: 5.00, total: 150.00 },
+            { description: 'Mensageria Omnichannel (WhatsApp Business API)', category: 'Omnichannel', qty: '4.500 msgs', unitPrice: 0.020, total: 90.00 },
+          ]
+        },
+        {
+          id: 'INV-2026-08',
+          date: '2026-08-01',
+          dueDate: '2026-08-10',
+          amount: 850.00,
+          status: 'paid',
+          paymentMethod: 'PIX',
+          paidAt: '2026-08-05T14:20:00Z',
+          items: [
+            { description: 'Minutos Tarifados Telefonia SIP (Troncos E1/SIP)', category: 'Telefonia', qty: '16.200 min', unitPrice: 0.028, total: 453.60 },
+            { description: 'Consumo Tokens Gemini Live Audio', category: 'IA Gemini', qty: '3.400.000 tokens', unitPrice: 0.000045, total: 153.00 },
+            { description: 'Licenças Ramais Asterisk PJSIP', category: 'Licenciamento', qty: '30 ramais', unitPrice: 5.00, total: 150.00 },
+            { description: 'Disparos Omnichannel WhatsApp Business', category: 'Omnichannel', qty: '4.670 msgs', unitPrice: 0.020, total: 93.40 },
+          ]
+        },
+        {
+          id: 'INV-2026-07',
+          date: '2026-07-01',
+          dueDate: '2026-07-10',
+          amount: 790.30,
+          status: 'paid',
+          paymentMethod: 'Boleto Bancário',
+          paidAt: '2026-07-08T09:12:00Z',
+          items: [
+            { description: 'Minutos Tarifados Telefonia SIP', category: 'Telefonia', qty: '14.800 min', unitPrice: 0.028, total: 414.40 },
+            { description: 'Consumo IA Agentes de Voz MaIA', category: 'IA Gemini', qty: '2.950.000 tokens', unitPrice: 0.000045, total: 132.75 },
+            { description: 'Licenças Ramais PJSIP', category: 'Licenciamento', qty: '30 ramais', unitPrice: 5.00, total: 150.00 },
+            { description: 'Mensagens Ativas e Receptivas WhatsApp', category: 'Omnichannel', qty: '4.657 msgs', unitPrice: 0.020, total: 93.15 },
+          ]
+        },
+      ],
+      transactions: [
+        { id: 'tx-001', date: '2026-09-11', description: 'Consumo tarifado de chamadas Asterisk 20', category: 'telephony', type: 'debit', amount: 18.40, balanceAfter: 1450.75 },
+        { id: 'tx-002', date: '2026-09-10', description: 'Processamento de voz IA Gemini (MaIA Atendimento)', category: 'ai_tokens', type: 'debit', amount: 12.80, balanceAfter: 1469.15 },
+        { id: 'tx-003', date: '2026-09-08', description: 'Disparos de WhatsApp Campanha de Cobrança Q3', category: 'omnichannel', type: 'debit', amount: 35.00, balanceAfter: 1481.95 },
+        { id: 'tx-004', date: '2026-09-05', description: 'Recarga de Saldo Pré-pago via PIX Instantâneo', category: 'recharge', type: 'credit', amount: 500.00, balanceAfter: 1516.95 },
+        { id: 'tx-005', date: '2026-09-01', description: 'Mensalidade Fixa Ramais PJSIP e WebRTC (30 ramais)', category: 'licenses', type: 'debit', amount: 150.00, balanceAfter: 1016.95 },
+        { id: 'tx-006', date: '2026-08-28', description: 'Tarifação minutos de telefonia celular e fixo', category: 'telephony', type: 'debit', amount: 84.50, balanceAfter: 1166.95 },
+        { id: 'tx-007', date: '2026-08-20', description: 'Recarga de Créditos Corporativos via Boleto', category: 'recharge', type: 'credit', amount: 1000.00, balanceAfter: 1251.45 },
       ]
     }
   ];

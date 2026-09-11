@@ -28,15 +28,18 @@ import {
   Tag,
   Share2,
   PieChart as PieChartIcon,
-  BarChart3
+  BarChart3,
+  Printer,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
-import { CdrRecord } from '../../types/pbx';
+import { CdrRecord, Tenant } from '../../types/pbx';
 import { speakHumanized, stopSpeaking, detectVoiceGender } from '../../utils/speechVoiceHelper';
+import { exportCdrReportPdf, exportCallDossierPdf } from '../../utils/pdfExportHelper';
 
 interface CdrAndRecordingsProps {
   cdrs: CdrRecord[];
-  initialTab?: 'cdr' | 'recordings' | 'transcriptions';
+  initialTab?: 'cdr' | 'recordings' | 'transcriptions' | 'reports';
+  currentTenant?: Tenant | null;
   onRefresh: () => void;
   onOpenWebphone: (number: string) => void;
 }
@@ -44,10 +47,11 @@ interface CdrAndRecordingsProps {
 export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
   cdrs,
   initialTab = 'cdr',
+  currentTenant,
   onRefresh,
   onOpenWebphone,
 }) => {
-  const [activeTab, setActiveTab] = useState<'cdr' | 'recordings' | 'transcriptions'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'cdr' | 'recordings' | 'transcriptions' | 'reports'>(initialTab);
   const [searchTerm, setSearchTerm] = useState('');
   const [directionFilter, setDirectionFilter] = useState<'all' | 'inbound' | 'outbound' | 'internal'>('all');
   const [dispositionFilter, setDispositionFilter] = useState<'all' | 'ANSWERED' | 'NO ANSWER'>('all');
@@ -233,6 +237,21 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
     document.body.removeChild(link);
   };
 
+  const handleExportExecutivePdf = () => {
+    const filtersText = [
+      directionFilter !== 'all' ? `Direção: ${directionFilter}` : null,
+      dispositionFilter !== 'all' ? `Status: ${dispositionFilter}` : null,
+      handlingFilter !== 'all' ? `Atendimento: ${handlingFilter}` : null,
+    ].filter(Boolean).join(', ') || 'Todas as chamadas do período';
+
+    exportCdrReportPdf(
+      filteredCdrs,
+      activeTab === 'reports' ? 'Relatório Executivo de SLA & Performance Asterisk 20' : 'Relatório Gerencial de Chamadas & Telefonia IA',
+      filtersText,
+      currentTenant?.name || 'Enlace Telecomunicações — Matriz São Paulo'
+    );
+  };
+
   // Sentiment data for chart
   const sentimentData = useMemo(() => {
     const pos = cdrs.filter(c => c.sentiment === 'positive').length;
@@ -262,10 +281,15 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                   <Mic className="w-8 h-8 text-blue-600" />
                   Gravações & Player de Áudio
                 </>
-              ) : (
+              ) : activeTab === 'transcriptions' ? (
                 <>
                   <Sparkles className="w-8 h-8 text-blue-600" />
                   Transcrições & IA (Gemini RAG)
+                </>
+              ) : (
+                <>
+                  <BarChart3 className="w-8 h-8 text-blue-600" />
+                  Relatórios Executivos & SLA
                 </>
               )}
             </h1>
@@ -275,24 +299,34 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
               ? 'Bilhetagem completa do Asterisk 20, tarifas, duração e status de todas as chamadas.'
               : activeTab === 'recordings'
               ? 'Armazenamento de áudio em alta definição (Opus/WAV), reprodução web e download.'
-              : 'Transcrição semântica de chamadas, análise de sentimento e sumarização via Google Gemini.'}
+              : activeTab === 'transcriptions'
+              ? 'Transcrição semântica de chamadas, análise de sentimento e sumarização via Google Gemini.'
+              : 'Indicadores de qualidade, tempo de espera na fila, nível de serviço e relatórios oficiais em PDF.'}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleExportCsv}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-lg flex items-center gap-2 transition shadow-sm"
+            onClick={handleExportExecutivePdf}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition shadow-sm"
+            title="Exportar relatório formatado com logo oficial em PDF"
           >
             <Download className="w-4 h-4" />
-            Exportar CSV
+            <span>Exportar Relatório PDF</span>
+          </button>
+          <button
+            onClick={handleExportCsv}
+            className="px-3.5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-2 transition border border-slate-200 shadow-xs"
+          >
+            <FileText className="w-4 h-4 text-slate-500" />
+            <span>CSV</span>
           </button>
           <button
             onClick={onRefresh}
-            className="p-2 bg-white hover:bg-slate-50 text-slate-500 rounded-lg transition border border-slate-200 shadow-sm"
+            className="p-2.5 bg-white hover:bg-slate-50 text-slate-500 rounded-xl transition border border-slate-200 shadow-xs"
             title="Atualizar registros"
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -331,6 +365,17 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
         >
           <Sparkles className="w-4 h-4" />
           Transcrições & IA (Gemini RAG)
+        </button>
+        <button
+          onClick={() => { setActiveTab('reports'); setHandlingFilter('all'); }}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition ${
+            activeTab === 'reports'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          Relatórios & SLA (Executivo)
         </button>
       </div>
 
@@ -762,6 +807,13 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                           Ligar
                         </button>
                         <button
+                          onClick={() => exportCallDossierPdf(cdr, currentTenant?.name)}
+                          className="p-1 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition border border-transparent hover:border-blue-100"
+                          title="Exportar Dossiê da Chamada em PDF"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                        <button
                           onClick={() => setSelectedCdrForModal(cdr)}
                           className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"
                           title="Ver detalhes da chamada"
@@ -942,25 +994,40 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
               )}
 
               {/* Modal footer buttons */}
-              <div className="pt-2 flex justify-between items-center border-t border-slate-100">
+              <div className="pt-2 flex justify-between items-center border-t border-slate-100 gap-2">
                 <button
                   onClick={() => {
                     const num = selectedCdrForModal.caller;
                     setSelectedCdrForModal(null);
                     onOpenWebphone(num);
                   }}
-                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-semibold flex items-center gap-1.5 transition border border-blue-200"
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-semibold flex items-center gap-1.5 transition border border-blue-200 text-xs"
                 >
                   <PhoneIncoming className="w-3.5 h-3.5" />
                   Retornar Chamada
                 </button>
 
-                <button
-                  onClick={() => setSelectedCdrForModal(null)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition"
-                >
-                  Fechar
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (selectedCdrForModal) {
+                        exportCallDossierPdf(selectedCdrForModal, currentTenant?.name);
+                      }
+                    }}
+                    className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold flex items-center gap-1.5 transition shadow-xs text-xs"
+                    title="Baixar dossiê com dados e logo em PDF"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Dossiê em PDF (com Logo)
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedCdrForModal(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition text-xs"
+                  >
+                    Fechar
+                  </button>
+                </div>
               </div>
             </div>
           </div>

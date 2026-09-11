@@ -201,7 +201,7 @@ export default function App() {
       case 'campaigns':
         return <CampaignsView />;
       case 'billing':
-        return <BillingView />;
+        return <BillingView currentTenant={currentTenant} />;
       case 'quick_setup':
         return <QuickSetupView />;
       case 'extensions':
@@ -252,6 +252,7 @@ export default function App() {
           <CdrAndRecordingsView
             key="cdr"
             initialTab="cdr"
+            currentTenant={currentTenant}
             cdrs={cdrs}
             onRefresh={loadAllData}
             onOpenWebphone={handleOpenWebphone}
@@ -262,6 +263,7 @@ export default function App() {
           <CdrAndRecordingsView
             key="recordings"
             initialTab="recordings"
+            currentTenant={currentTenant}
             cdrs={cdrs}
             onRefresh={loadAllData}
             onOpenWebphone={handleOpenWebphone}
@@ -272,6 +274,18 @@ export default function App() {
           <CdrAndRecordingsView
             key="transcriptions"
             initialTab="transcriptions"
+            currentTenant={currentTenant}
+            cdrs={cdrs}
+            onRefresh={loadAllData}
+            onOpenWebphone={handleOpenWebphone}
+          />
+        );
+      case 'reports':
+        return (
+          <CdrAndRecordingsView
+            key="reports"
+            initialTab="reports"
+            currentTenant={currentTenant}
             cdrs={cdrs}
             onRefresh={loadAllData}
             onOpenWebphone={handleOpenWebphone}

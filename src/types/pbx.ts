@@ -156,6 +156,9 @@ export interface AiKnowledgeSource {
   category: string;
   content: string;
   updatedAt: string;
+  fileName?: string;
+  fileType?: string;
+  fileSizeBytes?: number;
 }
 
 export interface AiAgent {

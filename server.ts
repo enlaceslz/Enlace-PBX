@@ -49,6 +49,55 @@ async function startServer() {
     res.json(billing);
   });
 
+  app.post('/api/v1/billing/:tenantId/recharge', (req, res) => {
+    const billing = db.billing.find(b => b.tenantId === req.params.tenantId);
+    if (!billing) return res.status(404).json({ error: 'Tenant billing record not found' });
+    
+    const amount = Number(req.body.amount) || 100;
+    const paymentMethod = req.body.paymentMethod || 'PIX Instantâneo';
+    
+    billing.balance += amount;
+    const newTx = {
+      id: `tx-${Date.now()}`,
+      date: new Date().toISOString().slice(0, 10),
+      description: `Recarga de saldo pré-pago via ${paymentMethod}`,
+      category: 'recharge' as const,
+      type: 'credit' as const,
+      amount: amount,
+      balanceAfter: billing.balance,
+    };
+    if (!billing.transactions) billing.transactions = [];
+    billing.transactions.unshift(newTx);
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: billing.tenantId,
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'BILLING_RECHARGE',
+      resource: `billing/${billing.tenantId}`,
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `Recarga de crédito no valor de R$ ${amount.toFixed(2)} confirmada via ${paymentMethod}.`,
+    });
+
+    res.json({ success: true, balance: billing.balance, transaction: newTx });
+  });
+
+  app.post('/api/v1/billing/:tenantId/invoices/:invoiceId/pay', (req, res) => {
+    const billing = db.billing.find(b => b.tenantId === req.params.tenantId);
+    if (!billing) return res.status(404).json({ error: 'Tenant billing not found' });
+
+    const inv = billing.recentInvoices.find(i => i.id === req.params.invoiceId);
+    if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+
+    inv.status = 'paid';
+    inv.paidAt = new Date().toISOString();
+    inv.paymentMethod = req.body.paymentMethod || 'PIX';
+
+    res.json({ success: true, invoice: inv });
+  });
+
   // -------------------------------------------------------------------------
   // Campaigns API
   // -------------------------------------------------------------------------
@@ -450,14 +499,86 @@ async function startServer() {
     const newDoc = {
       id: `kb-${Date.now()}`,
       tenantId: req.body.tenantId || 'tenant-enlace-matriz',
-      title: req.body.title,
+      title: req.body.title || 'Documento de Suporte',
       category: req.body.category || 'Geral',
-      content: req.body.content,
+      content: req.body.content || '',
+      fileName: req.body.fileName,
+      fileType: req.body.fileType,
+      fileSizeBytes: req.body.fileSizeBytes,
       updatedAt: new Date().toISOString(),
     };
     db.aiKnowledge.push(newDoc);
+
+    // Link to specified agents or default to all active agents
+    const targetAgents = Array.isArray(req.body.targetAgentIds) && req.body.targetAgentIds.length > 0
+      ? db.aiAgents.filter((a) => req.body.targetAgentIds.includes(a.id))
+      : db.aiAgents;
+
+    targetAgents.forEach((agent) => {
+      if (!agent.knowledgeSources.includes(newDoc.id)) {
+        agent.knowledgeSources.push(newDoc.id);
+      }
+    });
+
     res.status(201).json(newDoc);
   });
+
+  // Dedicated file upload endpoint for Knowledge Base (TXT, PDF, MD, etc.)
+  app.post('/api/v1/ai/knowledge/upload', async (req, res) => {
+    try {
+      const { fileName, fileType, base64Data, rawText, title, category, targetAgentIds } = req.body;
+
+      if (!fileName && !rawText) {
+        return res.status(400).json({ error: 'Nenhum arquivo ou texto fornecido.' });
+      }
+
+      // Extract and structure content using Gemini multimodal or stream parser
+      const extracted = await geminiService.extractKnowledgeFromDocument({
+        fileName: fileName || 'manual_suporte.txt',
+        fileType: fileType || 'text/plain',
+        base64Data,
+        rawText,
+      });
+
+      const newDoc = {
+        id: `kb-${Date.now()}`,
+        tenantId: 'tenant-enlace-matriz',
+        title: title || extracted.title,
+        category: category || extracted.category,
+        content: rawText || extracted.content,
+        fileName: fileName || 'manual.txt',
+        fileType: fileType || 'text/plain',
+        fileSizeBytes: base64Data ? Math.round((base64Data.length * 3) / 4) : (rawText?.length || 0),
+        updatedAt: new Date().toISOString(),
+      };
+
+      db.aiKnowledge.push(newDoc);
+
+      // Link to designated agents or all active voice agents for instant grounding
+      const targetAgents = Array.isArray(targetAgentIds) && targetAgentIds.length > 0
+        ? db.aiAgents.filter((a) => targetAgentIds.includes(a.id))
+        : db.aiAgents;
+
+      targetAgents.forEach((agent) => {
+        if (!agent.knowledgeSources.includes(newDoc.id)) {
+          agent.knowledgeSources.push(newDoc.id);
+        }
+      });
+
+      res.status(201).json({
+        success: true,
+        doc: newDoc,
+        message: 'Arquivo carregado e integrado com sucesso à base de conhecimento dos agentes.',
+      });
+    } catch (err: unknown) {
+      console.error('Error in knowledge upload:', err);
+      res.status(500).json({
+        error: 'Erro ao processar e salvar arquivo na base de conhecimento.',
+        details: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   app.put('/api/v1/ai/knowledge/:id', (req, res) => {
     const idx = db.aiKnowledge.findIndex((k) => k.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: 'Documento RAG não encontrado' });
@@ -465,7 +586,11 @@ async function startServer() {
     res.json(db.aiKnowledge[idx]);
   });
   app.delete('/api/v1/ai/knowledge/:id', (req, res) => {
-    db.aiKnowledge = db.aiKnowledge.filter((k) => k.id !== req.params.id);
+    const id = req.params.id;
+    db.aiKnowledge = db.aiKnowledge.filter((k) => k.id !== id);
+    db.aiAgents.forEach((agent) => {
+      agent.knowledgeSources = agent.knowledgeSources.filter((kId) => kId !== id);
+    });
     res.json({ success: true });
   });
 
