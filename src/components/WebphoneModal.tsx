@@ -27,6 +27,7 @@ import {
   VideoOff,
 } from 'lucide-react';
 import { playDtmfTone, playRingbackTone, playCallEndBeep } from '../utils/audio';
+import { speakHumanized, stopSpeaking, detectVoiceGender, VoicePersona } from '../utils/speechVoiceHelper';
 
 interface WebphoneProps {
   isOpen: boolean;
@@ -68,6 +69,8 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isProcessingTurn, setIsProcessingTurn] = useState(false);
   const [lastExecutedTool, setLastExecutedTool] = useState<string | null>(null);
+  const [currentVoiceGender, setCurrentVoiceGender] = useState<'male' | 'female'>('female');
+  const [currentVoiceSpeaker, setCurrentVoiceSpeaker] = useState<string>('MaIA (Voz Feminina • IA)');
 
   // Speech Recognition state
   const [isListening, setIsListening] = useState(false);
@@ -153,48 +156,48 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const processIvrSelection = (digit: string) => {
     playDtmfTone(digit);
     if (digit === '1') {
-      // Comercial (Ramal 4103)
+      // Comercial (Ramal 4103 - Mariana Costa)
       setIvrAnnouncement('Opção 1 selecionada: Transferindo para Comercial (4103)...');
-      speakText('Opção um. Transferindo para Comercial no ramal 4103. Por favor, aguarde.');
+      speakText('Opção um. Transferindo para o departamento Comercial. Por favor, aguarde.', 'female', 'ura');
       setTimeout(() => {
         setCallType('extension');
         setActiveTab('extension');
         setConnectedDestination('4103 (Comercial)');
         setExtInfo({ name: 'Mariana Costa', number: '4103', dept: 'Comercial & Vendas' });
         setTimeout(() => {
-          speakText('Comercial Enlace, boa tarde! Mariana falando, como posso ajudar?');
+          speakText('Comercial Enlace Telecom, boa tarde! Mariana falando, como posso ajudar?', 'female', 'mariana');
         }, 1200);
       }, 2200);
     } else if (digit === '2') {
-      // Suporte Técnico (Fila 7001)
-      setIvrAnnouncement('Opção 2 selecionada: Encaminhando para Fila de Suporte...');
-      speakText('Opção dois. Encaminhando para a Fila de Suporte Técnico. Você é o próximo da fila.');
+      // Suporte Técnico (Roberto Mendes - Ramal 4102 / Suporte N1)
+      setIvrAnnouncement('Opção 2 selecionada: Encaminhando para Suporte Técnico com Roberto Mendes...');
+      speakText('Opção dois. Encaminhando para o Suporte Técnico com Roberto Mendes. Por favor, aguarde.', 'female', 'ura');
       setTimeout(() => {
-        setCallType('queue');
-        setActiveTab('queue');
-        setConnectedDestination('Fila Suporte N1 (7001)');
-        setQueueInfo({ name: 'Suporte Técnico N1', position: 1, agentName: 'Lucas Oliveira' });
+        setCallType('extension');
+        setActiveTab('extension');
+        setConnectedDestination('4102 (Suporte - Roberto Mendes)');
+        setExtInfo({ name: 'Roberto Mendes', number: '4102', dept: 'NOC / Suporte Técnico N1' });
         setTimeout(() => {
-          speakText('Suporte Enlace, boa tarde! Meu nome é Lucas, em que posso ajudar com a sua conexão?');
-        }, 2500);
-      }, 2000);
+          speakText('Suporte Técnico Enlace, boa tarde! Roberto falando. Como posso ajudar com a sua conexão hoje?', 'male', 'roberto');
+        }, 1400);
+      }, 2200);
     } else if (digit === '3') {
-      // Financeiro (Fila 7002)
+      // Financeiro (Fila 7002 - Renata Lima)
       setIvrAnnouncement('Opção 3 selecionada: Encaminhando para o Financeiro...');
-      speakText('Opção três. Encaminhando para a Fila Financeira.');
+      speakText('Opção três. Encaminhando para a Fila Financeira.', 'female', 'ura');
       setTimeout(() => {
         setCallType('queue');
         setActiveTab('queue');
         setConnectedDestination('Fila Financeiro (7002)');
         setQueueInfo({ name: 'Financeiro & Faturamento', position: 1, agentName: 'Renata Lima' });
         setTimeout(() => {
-          speakText('Financeiro Enlace Telecom, boa tarde! Renata falando.');
-        }, 2200);
+          speakText('Financeiro Enlace Telecom, boa tarde! Renata falando, em que posso ajudar?', 'female', 'renata');
+        }, 1800);
       }, 2000);
     } else if (digit === '9') {
       // MaIA IA
       setIvrAnnouncement('Opção 9 selecionada: Conectando com Inteligência Artificial MaIA...');
-      speakText('Opção nove. Transferindo para MaIA, nossa assistente virtual de inteligência artificial.');
+      speakText('Opção nove. Transferindo para MaIA, nossa assistente virtual.', 'female', 'ura');
       setTimeout(() => {
         setCallType('ai');
         setIsAiCall(true);
@@ -213,18 +216,18 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
             timestamp: new Date().toLocaleTimeString('pt-BR'),
           },
         ]);
-        speakText(greeting);
+        speakText(greeting, 'female', 'maia');
       }, 2200);
     } else if (digit === '0') {
-      // Operador
+      // Operador (Carlos Silva - Ramal 4101)
       setIvrAnnouncement('Opção 0 selecionada: Transferindo para Telefonista...');
-      speakText('Opção zero. Transferindo para o operador humano no ramal 4101.');
+      speakText('Opção zero. Transferindo para o operador humano no ramal 4101.', 'female', 'ura');
       setTimeout(() => {
         setCallType('extension');
         setActiveTab('extension');
         setConnectedDestination('4101 (Operador)');
         setExtInfo({ name: 'Carlos Henrique Silva', number: '4101', dept: 'Central Telefônica' });
-        speakText('Central Enlace Telecom, boa tarde!');
+        speakText('Central Enlace Telecom, boa tarde! Carlos falando, em que posso ser útil?', 'male', 'carlos');
       }, 2000);
     }
   };
@@ -247,7 +250,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const executeInlineTransfer = async () => {
     if (!transferDestination.trim()) return;
     const dest = transferDestination.trim();
-    speakText(`Transferindo chamada para o destino ${dest}. Por favor, aguarde.`);
+    speakText(`Transferindo chamada para o destino ${dest}. Por favor, aguarde.`, 'female', 'ura');
     setTransferStatusMsg(`Transferência para ${dest} iniciada...`);
 
     try {
@@ -268,23 +271,44 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         setCallType('ai');
         setIsAiCall(true);
         setActiveTab('ai_live');
-        speakText('Olá! Sou a MaIA, fui conectada à sua chamada transferida. Como posso ajudar?');
+        speakText('Olá! Sou a MaIA, fui conectada à sua chamada transferida. Como posso ajudar?', 'female', 'maia');
+      } else if (dest === '4102') {
+        setCallType('extension');
+        setIsAiCall(false);
+        setActiveTab('extension');
+        setExtInfo({
+          name: 'Roberto Mendes',
+          number: '4102',
+          dept: 'NOC / Suporte Técnico N1',
+        });
+        speakText('Alô! Suporte Técnico Enlace, Roberto falando. Recebi a sua transferência, em que posso ajudar?', 'male', 'roberto');
       } else if (dest === '7001' || dest === '7002') {
         setCallType('queue');
         setIsAiCall(false);
+        setActiveTab('queue');
+        const isSupport = dest === '7001';
         setQueueInfo({
-          name: dest === '7001' ? 'Fila Suporte N1' : 'Fila Financeiro',
+          name: isSupport ? 'Fila Suporte N1 (Roberto Mendes)' : 'Fila Financeiro (Renata)',
           position: 1,
-          agentName: 'Atendente Transferido',
+          agentName: isSupport ? 'Roberto Mendes (Atendendo)' : 'Renata Lima',
         });
+        const greeting = isSupport
+          ? 'Suporte Técnico Enlace, Roberto falando. Recebi sua transferência da fila.'
+          : 'Financeiro Enlace Telecom, Renata falando.';
+        speakText(greeting, isSupport ? 'male' : 'female', isSupport ? 'roberto' : 'renata');
       } else {
         setCallType('extension');
         setIsAiCall(false);
+        setActiveTab('extension');
         setExtInfo({
-          name: `Ramal ${dest}`,
+          name: dest === '4103' ? 'Mariana Costa' : `Ramal ${dest}`,
           number: dest,
-          dept: 'Atendimento',
+          dept: dest === '4103' ? 'Comercial' : 'Atendimento Interno',
         });
+        const greeting = dest === '4103'
+          ? 'Comercial Enlace, Mariana falando. Como posso ajudar?'
+          : `Alô, ramal ${dest}!`;
+        speakText(greeting, dest === '4103' ? 'female' : 'male', dest === '4103' ? 'mariana' : 'carlos');
       }
     }, 2000);
   };
@@ -312,7 +336,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       setCallType('queue');
       setActiveTab('queue');
       setQueueInfo({
-        name: num === '7001' ? 'Suporte Técnico N1' : 'Financeiro & Faturamento',
+        name: num === '7001' ? 'Suporte Técnico N1 (Roberto Mendes)' : 'Financeiro & Faturamento',
         position: 1,
       });
     } else if (isExt) {
@@ -321,7 +345,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       setExtInfo({
         name: num === '4102' ? 'Roberto Mendes' : num === '4103' ? 'Mariana Costa' : 'Carlos Silva',
         number: num,
-        dept: num === '4102' ? 'NOC / Suporte' : num === '4103' ? 'Comercial' : 'Administração',
+        dept: num === '4102' ? 'NOC / Suporte Técnico N1' : num === '4103' ? 'Comercial & Vendas' : 'Central Telefônica',
       });
     } else {
       setCallType('external');
@@ -365,23 +389,30 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
             timestamp: new Date().toLocaleTimeString('pt-BR'),
           },
         ]);
-        speakText(initialGreeting);
+        speakText(initialGreeting, 'female', 'maia');
       } else if (isIvr) {
-        const ivrPrompt = 'Olá! Você ligou para a Enlace Telecom. Para Comercial digite 1. Para Suporte Técnico digite 2. Para Financeiro digite 3. Ou digite 9 para falar com a MaIA.';
-        speakText(ivrPrompt);
+        const ivrPrompt = 'Olá! Você ligou para a Enlace Telecom. Para Comercial digite 1. Para Suporte Técnico com Roberto digite 2. Para Financeiro digite 3. Ou digite 9 para falar com a MaIA.';
+        speakText(ivrPrompt, 'female', 'ura');
       } else if (isQueue) {
-        speakText('Você ligou para a Fila de Atendimento da Enlace Telecom. Posição 1 na fila. Aguarde um instante.');
+        speakText('Você ligou para a Fila de Atendimento da Enlace Telecom. Conectando com o suporte.', 'female', 'ura');
         setTimeout(() => {
-          speakText('Suporte Enlace, boa tarde! Meu nome é Lucas, em que posso ajudar com a sua conexão hoje?');
-          setQueueInfo((prev) => prev ? { ...prev, agentName: 'Lucas Oliveira (Atendendo)' } : null);
-        }, 3200);
+          const isSupport = num === '7001';
+          const agentGreeting = isSupport
+            ? 'Suporte Técnico Enlace, boa tarde! Roberto falando. Em que posso ajudar com a sua conexão hoje?'
+            : 'Financeiro Enlace Telecom, boa tarde! Renata falando, como posso ajudar?';
+          const agentGender = isSupport ? 'male' : 'female';
+          const agentPersona = isSupport ? 'roberto' : 'renata';
+          speakText(agentGreeting, agentGender, agentPersona);
+          setQueueInfo((prev) => prev ? { ...prev, agentName: isSupport ? 'Roberto Mendes (Atendendo)' : 'Renata Lima (Atendendo)' } : null);
+        }, 3000);
       } else if (isExt) {
-        const greeting = num === '4102'
-          ? 'Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar?'
-          : num === '4103'
-          ? 'Comercial Enlace, boa tarde! Mariana falando.'
-          : 'Alô, central Enlace!';
-        speakText(greeting);
+        if (num === '4102') {
+          speakText('Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar com seu chamado ou conexão?', 'male', 'roberto');
+        } else if (num === '4103') {
+          speakText('Comercial Enlace, boa tarde! Mariana falando, em que posso ajudar?', 'female', 'mariana');
+        } else {
+          speakText('Central Enlace Telecom, boa tarde! Carlos falando, como posso direcionar sua ligação?', 'male', 'carlos');
+        }
       }
     }, 1800);
   };
@@ -425,33 +456,58 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     setTransferDestination('');
     setAiHistory([]);
     setLastExecutedTool(null);
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
+    setIsAiSpeaking(false);
   };
 
-  const speakText = (text: string) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'pt-BR';
-    utterance.rate = 1.05;
-    utterance.pitch = 1.0;
-    setIsAiSpeaking(true);
+  const speakText = (text: string, explicitGender?: 'male' | 'female', persona?: VoicePersona) => {
+    let gender = explicitGender;
+    if (!gender) {
+      if (persona === 'roberto' || persona === 'carlos') {
+        gender = 'male';
+      } else if (persona === 'maia' || persona === 'mariana' || persona === 'renata' || persona === 'ura') {
+        gender = 'female';
+      } else if (
+        connectedDestination.includes('4102') ||
+        connectedDestination.toLowerCase().includes('roberto') ||
+        extInfo?.name.toLowerCase().includes('roberto') ||
+        queueInfo?.agentName?.toLowerCase().includes('roberto')
+      ) {
+        gender = 'male';
+      } else {
+        gender = detectVoiceGender(text, persona, 'female');
+      }
+    }
 
-    utterance.onend = () => {
-      setIsAiSpeaking(false);
-    };
-    utterance.onerror = () => {
-      setIsAiSpeaking(false);
-    };
+    setCurrentVoiceGender(gender);
+    const speakerLabel =
+      persona === 'roberto' || (gender === 'male' && (connectedDestination.includes('4102') || text.toLowerCase().includes('roberto')))
+        ? 'Roberto Mendes (Voz Masculina • Suporte N1)'
+        : persona === 'carlos' || (gender === 'male' && connectedDestination.includes('4101'))
+        ? 'Carlos Silva (Voz Masculina • Central)'
+        : persona === 'mariana'
+        ? 'Mariana Costa (Voz Feminina • Comercial)'
+        : persona === 'renata'
+        ? 'Renata Lima (Voz Feminina • Financeiro)'
+        : gender === 'male'
+        ? 'Voz Masculina Humanizada'
+        : 'MaIA (Voz Feminina • IA Enlace)';
+    setCurrentVoiceSpeaker(speakerLabel);
 
-    window.speechSynthesis.speak(utterance);
+    speakHumanized(text, {
+      gender,
+      persona: persona || (gender === 'male' ? 'roberto' : 'maia'),
+      onStart: () => setIsAiSpeaking(true),
+      onEnd: () => setIsAiSpeaking(false),
+      onError: () => setIsAiSpeaking(false),
+    });
   };
 
   const handleSendVoiceTurn = async (messageText: string) => {
     if (!messageText.trim() || isProcessingTurn) return;
 
     // Barge-in: interrupt AI if speaking
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
     setIsAiSpeaking(false);
 
     const userEntry = {
@@ -502,15 +558,23 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       speakText(modelReply);
 
       if (data.action === 'transfer') {
+        const transferTarget = data.transferDestination || '4102';
         setTimeout(() => {
           setAiHistory((prev) => [
             ...prev,
             {
               role: 'system',
-              text: `🔄 Asterisk Bridge ARI: Chamada transferida com sucesso para o Ramal ${data.transferDestination || '4102'}.`,
+              text: `🔄 Asterisk Bridge ARI: Chamada transferida com sucesso para o Ramal ${transferTarget}.`,
               timestamp: new Date().toLocaleTimeString('pt-BR'),
             },
           ]);
+          if (transferTarget === '4102' || transferTarget.includes('4102')) {
+            setCallType('extension');
+            setActiveTab('extension');
+            setConnectedDestination('4102 (Suporte - Roberto Mendes)');
+            setExtInfo({ name: 'Roberto Mendes', number: '4102', dept: 'NOC / Suporte Técnico N1' });
+            speakText('Alô! Aqui é o Roberto do Suporte Técnico. Recebi a sua transferência da MaIA, como posso ajudar?', 'male', 'roberto');
+          }
         }, 3000);
       } else if (data.action === 'hangup') {
         setTimeout(() => {
@@ -664,6 +728,22 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     ))}
                   </div>
                 )}
+
+                {/* Voice & Speaker Humanized Indicator */}
+                {callState === 'connected' && (
+                  <div className="mt-2.5 flex items-center justify-center gap-2">
+                    <span
+                      className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium border flex items-center gap-1.5 transition shadow-xs ${
+                        currentVoiceGender === 'male'
+                          ? 'bg-amber-50 text-amber-900 border-amber-300'
+                          : 'bg-blue-50 text-blue-900 border-blue-200'
+                      }`}
+                    >
+                      <Volume2 className="w-3 h-3 text-blue-600" />
+                      <span>{currentVoiceSpeaker}</span>
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -687,9 +767,19 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                   setDialNumber('4102');
                   startCall('4102');
                 }}
+                className="whitespace-nowrap px-2 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition flex items-center gap-1 font-medium"
+              >
+                <Headphones className="w-3 h-3 text-emerald-600" />
+                Roberto - Suporte (4102)
+              </button>
+              <button
+                onClick={() => {
+                  setDialNumber('4103');
+                  startCall('4103');
+                }}
                 className="whitespace-nowrap px-2 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
               >
-                Suporte (4102)
+                Mariana - Vendas (4103)
               </button>
               <button
                 onClick={() => {
@@ -881,11 +971,11 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
                   <div className="space-y-1.5">
                     {[
-                      { key: '1', title: 'Comercial & Vendas', dest: 'Ramal 4103', desc: 'Planos corporativos e novos contratos' },
-                      { key: '2', title: 'Suporte Técnico N1', dest: 'Fila 7001', desc: 'NOC, roteadores e link de fibra' },
-                      { key: '3', title: 'Financeiro & Faturamento', dest: 'Fila 7002', desc: '2ª via, boletos e pagamentos via Pix' },
+                      { key: '1', title: 'Comercial & Vendas (Mariana)', dest: 'Ramal 4103', desc: 'Planos corporativos e novos contratos' },
+                      { key: '2', title: 'Suporte Técnico (Roberto Mendes)', dest: 'Ramal 4102', desc: 'NOC, roteadores, link de fibra e diagnóstico de rede' },
+                      { key: '3', title: 'Financeiro & Faturamento (Renata)', dest: 'Fila 7002', desc: '2ª via, boletos e pagamentos via Pix' },
                       { key: '9', title: 'MaIA — Agente IA Gemini', dest: 'Gemini Live', desc: 'Assistente virtual por voz com IA generativa' },
-                      { key: '0', title: 'Atendente Humano', dest: 'Ramal 4101', desc: 'Central de telefonistas Enlace' },
+                      { key: '0', title: 'Atendente Central (Carlos)', dest: 'Ramal 4101', desc: 'Central de telefonistas Enlace' },
                     ].map((opt) => (
                       <button
                         key={opt.key}

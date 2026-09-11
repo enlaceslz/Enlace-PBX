@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { CdrRecord } from '../../types/pbx';
+import { speakHumanized, stopSpeaking, detectVoiceGender } from '../../utils/speechVoiceHelper';
 
 interface CdrAndRecordingsProps {
   cdrs: CdrRecord[];
@@ -75,7 +76,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
 
   const handlePlayRecording = (cdr: CdrRecord) => {
     if (activeAudioCdr?.id === cdr.id && isPlayingAudio) {
-      window.speechSynthesis?.cancel();
+      stopSpeaking();
       setIsPlayingAudio(false);
       return;
     }
@@ -84,14 +85,26 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
     setIsPlayingAudio(true);
     setAudioProgress(0);
 
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
     const textToRead =
       cdr.transcription ||
       cdr.summary ||
       `Gravação da chamada de ${cdr.caller} para ${cdr.callee}. Duração de ${cdr.duration} segundos com status ${cdr.disposition}.`;
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    utterance.lang = 'pt-BR';
-    utterance.rate = 1.05;
+
+    const isRoberto =
+      cdr.callee === '4102' ||
+      cdr.caller === '4102' ||
+      cdr.transferredTo?.includes('4102') ||
+      cdr.transferredTo?.toLowerCase().includes('roberto') ||
+      textToRead.toLowerCase().includes('roberto');
+
+    const isCarlos =
+      cdr.callee === '4101' ||
+      cdr.caller === '4101' ||
+      textToRead.toLowerCase().includes('carlos');
+
+    const gender = isRoberto || isCarlos ? 'male' : detectVoiceGender(textToRead, undefined, 'female');
+    const persona = isRoberto ? 'roberto' : isCarlos ? 'carlos' : 'maia';
 
     const totalSec = Math.max(6, Math.min(20, cdr.duration || 10));
     let elapsed = 0;
@@ -105,22 +118,24 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
       }
     }, 500);
 
-    utterance.onend = () => {
-      setIsPlayingAudio(false);
-      setAudioProgress(100);
-      clearInterval(interval);
-    };
-
-    utterance.onerror = () => {
-      setIsPlayingAudio(false);
-      clearInterval(interval);
-    };
-
-    window.speechSynthesis?.speak(utterance);
+    speakHumanized(textToRead, {
+      gender,
+      persona,
+      onStart: () => setIsPlayingAudio(true),
+      onEnd: () => {
+        setIsPlayingAudio(false);
+        setAudioProgress(100);
+        clearInterval(interval);
+      },
+      onError: () => {
+        setIsPlayingAudio(false);
+        clearInterval(interval);
+      },
+    });
   };
 
   const handleStopAudio = () => {
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
     setIsPlayingAudio(false);
     setAudioProgress(0);
   };

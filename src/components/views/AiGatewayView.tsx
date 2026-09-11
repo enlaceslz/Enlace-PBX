@@ -20,6 +20,8 @@ import {
   FileText,
   Check,
   Settings,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import {
   AiAgent,
@@ -28,6 +30,7 @@ import {
   AiKnowledgeSource,
   AiSession,
 } from '../../types/pbx';
+import { speakHumanized, stopSpeaking } from '../../utils/speechVoiceHelper';
 
 interface AiGatewayViewProps {
   agents: AiAgent[];
@@ -81,8 +84,42 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
       setEditModel(selectedAgent.model);
       setEditTransferExt(selectedAgent.transferExtension);
       setIsEditingPrompt(false);
+      stopSpeaking();
+      setIsPlayingVoiceSample(false);
     }
   }, [selectedAgent]);
+
+  const [isPlayingVoiceSample, setIsPlayingVoiceSample] = useState(false);
+
+  const handleToggleVoiceSample = (textToSpeak: string, voiceName: string) => {
+    if (isPlayingVoiceSample) {
+      stopSpeaking();
+      setIsPlayingVoiceSample(false);
+      return;
+    }
+
+    const isMale =
+      voiceName === 'Fenrir' ||
+      voiceName === 'Charon' ||
+      voiceName === 'Puck' ||
+      selectedAgent?.name.toLowerCase().includes('roberto') ||
+      selectedAgent?.name.toLowerCase().includes('carlos');
+
+    const persona =
+      selectedAgent?.name.toLowerCase().includes('roberto')
+        ? 'roberto'
+        : isMale
+        ? 'carlos'
+        : 'maia';
+
+    speakHumanized(textToSpeak, {
+      gender: isMale ? 'male' : 'female',
+      persona,
+      onStart: () => setIsPlayingVoiceSample(true),
+      onEnd: () => setIsPlayingVoiceSample(false),
+      onError: () => setIsPlayingVoiceSample(false),
+    });
+  };
 
   // Create Agent Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -580,9 +617,37 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
               {/* Initial Greeting */}
               <div>
-                <label className="text-slate-500 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
-                  Mensagem de Saudação Inicial:
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                    Mensagem de Saudação Inicial:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleToggleVoiceSample(
+                        isEditingPrompt ? editGreeting : selectedAgent.initialGreeting,
+                        isEditingPrompt ? editVoice : selectedAgent.voice
+                      )
+                    }
+                    className={`text-xs px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
+                      isPlayingVoiceSample
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                    }`}
+                  >
+                    {isPlayingVoiceSample ? (
+                      <>
+                        <VolumeX className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Parar Reprodução</span>
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Ouvir Voz Humanizada</span>
+                      </>
+                    )}
+                  </button>
+                </div>
                 {!isEditingPrompt ? (
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700">
                     "{selectedAgent.initialGreeting}"
