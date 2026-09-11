@@ -311,3 +311,124 @@ export interface HealthStatus {
     };
   };
 }
+
+// ---------------------------------------------------------------------------
+// Redes, VPN & Segurança (WireGuard, ZeroTier, Fail2ban)
+// ---------------------------------------------------------------------------
+
+export interface WireGuardPeer {
+  id: string;
+  name: string;
+  publicKey: string;
+  presharedKey?: string;
+  allowedIps: string;
+  endpoint?: string;
+  latestHandshake: string;
+  transferRx: number; // bytes
+  transferTx: number; // bytes
+  persistentKeepalive: number;
+  status: 'connected' | 'idle' | 'offline';
+  assignedExtension?: string;
+  location?: string;
+  createdAt: string;
+  enabled: boolean;
+}
+
+export interface WireGuardConfig {
+  interfaceName: string;
+  status: 'active' | 'inactive';
+  listenPort: number;
+  address: string;
+  publicKey: string;
+  peersCount: number;
+  activePeersCount: number;
+  bytesTx: number;
+  bytesRx: number;
+  dns: string;
+  peers: WireGuardPeer[];
+}
+
+export interface ZeroTierPeer {
+  nodeId: string;
+  role: 'LEAF' | 'PLANET' | 'MOON';
+  latencyMs: number;
+  physicalAddress: string;
+  linkType: 'DIRECT' | 'RELAY';
+  version: string;
+}
+
+export interface ZeroTierNetwork {
+  id: string;
+  name: string;
+  status: 'OK' | 'ACCESS_DENIED' | 'NOT_FOUND' | 'PORT_ERROR';
+  type: 'PRIVATE' | 'PUBLIC';
+  assignedIp: string;
+  mac: string;
+  mtu: number;
+  broadcastEnabled: boolean;
+  bridge: boolean;
+  routes: string[];
+}
+
+export interface ZeroTierConfig {
+  nodeId: string;
+  status: 'online' | 'offline' | 'connecting';
+  version: string;
+  networks: ZeroTierNetwork[];
+  peers: ZeroTierPeer[];
+}
+
+export interface Fail2banJail {
+  name: string;
+  title: string;
+  description: string;
+  status: 'active' | 'disabled';
+  filter: string;
+  port: string;
+  protocol: string;
+  currentlyFailed: number;
+  totalFailed: number;
+  currentlyBanned: number;
+  totalBanned: number;
+  maxRetry: number;
+  findTime: number; // seconds
+  banTime: number; // seconds
+}
+
+export interface BannedIp {
+  id: string;
+  ip: string;
+  jail: string;
+  country: string;
+  countryCode: string;
+  failures: number;
+  bannedAt: string;
+  expiresAt: string;
+  reason: string;
+  reverseDns?: string;
+}
+
+export interface Fail2banRules {
+  maxRetry: number;
+  findTimeSeconds: number;
+  banTimeSeconds: number;
+  destEmail: string;
+  action: string;
+  logPathAsterisk: string;
+  sipRateLimitPps: number;
+  blockUdpFlood: boolean;
+  autoSyncIptables: boolean;
+}
+
+export interface Fail2banStatus {
+  daemonStatus: 'active' | 'inactive' | 'reloading';
+  version: string;
+  uptime: string;
+  totalJails: number;
+  totalBanned: number;
+  jails: Fail2banJail[];
+  bannedIps: BannedIp[];
+  whitelist: string[];
+  globalRules: Fail2banRules;
+}
+

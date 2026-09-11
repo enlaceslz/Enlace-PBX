@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Settings, Clock, Music, Route, Shield, HardDrive, Bell, CheckCircle2, Search, ArrowUpRight, Save, Play, Upload, Plus, Bot
+  Settings, Clock, Music, Route, Shield, HardDrive, Bell, CheckCircle2, Search, ArrowUpRight, Save, Play, Upload, Plus, Bot, Network
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -90,6 +90,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onNavigate }) => {
               <Shield className="w-5 h-5" /> Minha Conta
             </div>
           </button>
+
+          <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mt-4 mb-2 px-2">Infraestrutura</div>
+
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('network_security')}
+              className="px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group bg-white text-slate-700 hover:bg-blue-50 hover:text-blue-700 border border-slate-200"
+            >
+              <div className="flex items-center gap-3">
+                <Network className="w-5 h-5 text-blue-600" /> Redes &amp; Fail2ban
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition" />
+            </button>
+          )}
         </div>
         
         {/* Main Content Area */}

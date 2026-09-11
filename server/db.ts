@@ -1447,6 +1447,412 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       createdAt: '2026-09-10T12:00:00Z',
     },
   ];
+
+  // -------------------------------------------------------------------------
+  // Redes, VPN & Segurança (WireGuard, ZeroTier, Fail2ban)
+  // -------------------------------------------------------------------------
+  wireguard: {
+    interfaceName: string;
+    status: 'active' | 'inactive';
+    listenPort: number;
+    address: string;
+    publicKey: string;
+    peersCount: number;
+    activePeersCount: number;
+    bytesTx: number;
+    bytesRx: number;
+    dns: string;
+    peers: {
+      id: string;
+      name: string;
+      publicKey: string;
+      presharedKey?: string;
+      allowedIps: string;
+      endpoint?: string;
+      latestHandshake: string;
+      transferRx: number;
+      transferTx: number;
+      persistentKeepalive: number;
+      status: 'connected' | 'idle' | 'offline';
+      assignedExtension?: string;
+      location?: string;
+      createdAt: string;
+      enabled: boolean;
+    }[];
+  } = {
+    interfaceName: 'wg0',
+    status: 'active',
+    listenPort: 51820,
+    address: '10.10.0.1/24',
+    publicKey: 'a7K9xQ2L0zP+enlace+PBX+pure+asterisk+2026+key=',
+    peersCount: 4,
+    activePeersCount: 3,
+    bytesTx: 142085734, // 142 MB
+    bytesRx: 98450122,  // 98 MB
+    dns: '10.10.0.1, 1.1.1.1',
+    peers: [
+      {
+        id: 'wg-peer-1',
+        name: 'Ramal 4101 - iPhone Diretoria (Softphone PJSIP)',
+        publicKey: 'v8Jk19MlpQxW+iphone+ramal+4101+enlace=',
+        allowedIps: '10.10.0.2/32',
+        endpoint: '177.136.212.45:52190',
+        latestHandshake: '14 segundos atrás',
+        transferRx: 45201980,
+        transferTx: 68120400,
+        persistentKeepalive: 25,
+        status: 'connected',
+        assignedExtension: '4101',
+        location: 'São Luís / MA (Móvel 5G)',
+        createdAt: '2026-08-15T10:00:00Z',
+        enabled: true,
+      },
+      {
+        id: 'wg-peer-2',
+        name: 'Filial Imperatriz - Gateway Grandstream FXS/PSTN',
+        publicKey: 'z3Bn92KlsQwE+gateway+imperatriz+fxs+trunk=',
+        allowedIps: '10.10.0.3/32, 192.168.88.0/24',
+        endpoint: '200.220.14.88:51820',
+        latestHandshake: '42 segundos atrás',
+        transferRx: 38902100,
+        transferTx: 51403000,
+        persistentKeepalive: 20,
+        status: 'connected',
+        assignedExtension: 'Tronco-Imperatriz',
+        location: 'Imperatriz / MA (Fibra Dedicada)',
+        createdAt: '2026-08-18T14:30:00Z',
+        enabled: true,
+      },
+      {
+        id: 'wg-peer-3',
+        name: 'Atendente Home-Office 01 (Softphone Desktop)',
+        publicKey: 'c4Np81QweRtY+homeoffice+ramal+4102+desk=',
+        allowedIps: '10.10.0.4/32',
+        endpoint: '189.40.92.110:48920',
+        latestHandshake: '2 minutos atrás',
+        transferRx: 14346042,
+        transferTx: 22562334,
+        persistentKeepalive: 25,
+        status: 'connected',
+        assignedExtension: '4102',
+        location: 'São José de Ribamar / MA',
+        createdAt: '2026-09-01T08:00:00Z',
+        enabled: true,
+      },
+      {
+        id: 'wg-peer-4',
+        name: 'Backup Linha PBX Secundário (Standby)',
+        publicKey: 'm9Kp01AsdFgh+standby+node+enlace+dr=',
+        allowedIps: '10.10.0.5/32',
+        endpoint: '179.184.22.10:51820',
+        latestHandshake: '5 horas atrás',
+        transferRx: 0,
+        transferTx: 0,
+        persistentKeepalive: 30,
+        status: 'idle',
+        location: 'Data Center São Paulo / SP',
+        createdAt: '2026-09-05T19:00:00Z',
+        enabled: true,
+      },
+    ],
+  };
+
+  zerotier: {
+    nodeId: string;
+    status: 'online' | 'offline' | 'connecting';
+    version: string;
+    networks: {
+      id: string;
+      name: string;
+      status: 'OK' | 'ACCESS_DENIED' | 'NOT_FOUND' | 'PORT_ERROR';
+      type: 'PRIVATE' | 'PUBLIC';
+      assignedIp: string;
+      mac: string;
+      mtu: number;
+      broadcastEnabled: boolean;
+      bridge: boolean;
+      routes: string[];
+    }[];
+    peers: {
+      nodeId: string;
+      role: 'LEAF' | 'PLANET' | 'MOON';
+      latencyMs: number;
+      physicalAddress: string;
+      linkType: 'DIRECT' | 'RELAY';
+      version: string;
+    }[];
+  } = {
+    nodeId: 'e3d4c892b1',
+    status: 'online',
+    version: '1.12.2',
+    networks: [
+      {
+        id: '8056c2e21c000001',
+        name: 'Enlace-Telecom-SDWAN-Mesh',
+        status: 'OK',
+        type: 'PRIVATE',
+        assignedIp: '192.168.192.105/24',
+        mac: 'e2:a1:88:42:01:1a',
+        mtu: 2800,
+        broadcastEnabled: true,
+        bridge: false,
+        routes: ['192.168.192.0/24'],
+      },
+    ],
+    peers: [
+      {
+        nodeId: '992a7f8041',
+        role: 'LEAF',
+        latencyMs: 14,
+        physicalAddress: '177.136.210.12:9993',
+        linkType: 'DIRECT',
+        version: '1.12.2',
+      },
+      {
+        nodeId: 'c1b4d0811e',
+        role: 'LEAF',
+        latencyMs: 28,
+        physicalAddress: '200.220.14.88:9993',
+        linkType: 'DIRECT',
+        version: '1.12.2',
+      },
+      {
+        nodeId: 'cafe000001',
+        role: 'PLANET',
+        latencyMs: 46,
+        physicalAddress: '50.116.37.144:9993',
+        linkType: 'DIRECT',
+        version: '1.12.0',
+      },
+    ],
+  };
+
+  fail2ban: {
+    daemonStatus: 'active' | 'inactive' | 'reloading';
+    version: string;
+    uptime: string;
+    totalJails: number;
+    totalBanned: number;
+    jails: {
+      name: string;
+      title: string;
+      description: string;
+      status: 'active' | 'disabled';
+      filter: string;
+      port: string;
+      protocol: string;
+      currentlyFailed: number;
+      totalFailed: number;
+      currentlyBanned: number;
+      totalBanned: number;
+      maxRetry: number;
+      findTime: number;
+      banTime: number;
+    }[];
+    bannedIps: {
+      id: string;
+      ip: string;
+      jail: string;
+      country: string;
+      countryCode: string;
+      failures: number;
+      bannedAt: string;
+      expiresAt: string;
+      reason: string;
+      reverseDns?: string;
+    }[];
+    whitelist: string[];
+    globalRules: {
+      maxRetry: number;
+      findTimeSeconds: number;
+      banTimeSeconds: number;
+      destEmail: string;
+      action: string;
+      logPathAsterisk: string;
+      sipRateLimitPps: number;
+      blockUdpFlood: boolean;
+      autoSyncIptables: boolean;
+    };
+  } = {
+    daemonStatus: 'active',
+    version: '1.0.2',
+    uptime: '4d 18h 32m',
+    totalJails: 4,
+    totalBanned: 7,
+    jails: [
+      {
+        name: 'asterisk-pjsip',
+        title: 'Asterisk SIP/PJSIP Proteção',
+        description: 'Bloqueia ataques de força bruta de registro SIP, flood de INVITE e scanner sipvicious/friendly-scanner na porta 5060/UDP',
+        status: 'active',
+        filter: 'asterisk',
+        port: '5060,5061',
+        protocol: 'udp,tcp',
+        currentlyFailed: 12,
+        totalFailed: 184,
+        currentlyBanned: 5,
+        totalBanned: 142,
+        maxRetry: 3,
+        findTime: 600,     // 10 min
+        banTime: 86400,    // 24 horas
+      },
+      {
+        name: 'asterisk-ami-ari',
+        title: 'Asterisk AMI & ARI API',
+        description: 'Protege contra tentativas não autorizadas nas APIs Asterisk Manager Interface (5038) e ARI HTTP/WebSocket (8088)',
+        status: 'active',
+        filter: 'asterisk-ami',
+        port: '5038,8088',
+        protocol: 'tcp',
+        currentlyFailed: 0,
+        totalFailed: 8,
+        currentlyBanned: 1,
+        totalBanned: 19,
+        maxRetry: 4,
+        findTime: 300,
+        banTime: 43200,    // 12 horas
+      },
+      {
+        name: 'ssh-asterisk',
+        title: 'Servidor SSH Linux',
+        description: 'Mitigação de ataques de dicionário e força bruta contra acesso ao terminal e CLI do servidor Asterisk 20',
+        status: 'active',
+        filter: 'sshd',
+        port: '22',
+        protocol: 'tcp',
+        currentlyFailed: 3,
+        totalFailed: 92,
+        currentlyBanned: 1,
+        totalBanned: 64,
+        maxRetry: 3,
+        findTime: 600,
+        banTime: 86400,
+      },
+      {
+        name: 'nginx-sip-wss',
+        title: 'WebRTC / WSS Gateway',
+        description: 'Controla taxa de requisições de handshake WebSocket (WSS) e Webphone nos endpoints /ws e /api/v1',
+        status: 'active',
+        filter: 'nginx-limit-req',
+        port: '80,443,8089',
+        protocol: 'tcp',
+        currentlyFailed: 0,
+        totalFailed: 15,
+        currentlyBanned: 0,
+        totalBanned: 8,
+        maxRetry: 5,
+        findTime: 180,
+        banTime: 7200,     // 2 horas
+      },
+    ],
+    bannedIps: [
+      {
+        id: 'ban-1',
+        ip: '185.196.220.14',
+        jail: 'asterisk-pjsip',
+        country: 'Alemanha',
+        countryCode: 'DE',
+        failures: 7,
+        bannedAt: '2026-09-11T07:14:22Z',
+        expiresAt: '2026-09-12T07:14:22Z',
+        reason: 'SIPVicious scanner: Tentativa de força bruta REGISTER para ramais 100 a 105',
+        reverseDns: 'scanner-node-04.hosted-sec.net',
+      },
+      {
+        id: 'ban-2',
+        ip: '194.26.29.112',
+        jail: 'asterisk-pjsip',
+        country: 'Rússia',
+        countryCode: 'RU',
+        failures: 5,
+        bannedAt: '2026-09-11T08:29:40Z',
+        expiresAt: '2026-09-12T08:29:40Z',
+        reason: 'INVITE Flood malicioso sem autenticação para rota internacional 00+44',
+        reverseDns: 'sip-attack-bot.ru',
+      },
+      {
+        id: 'ban-3',
+        ip: '45.154.255.89',
+        jail: 'asterisk-pjsip',
+        country: 'Holanda',
+        countryCode: 'NL',
+        failures: 4,
+        bannedAt: '2026-09-11T08:45:11Z',
+        expiresAt: '2026-09-12T08:45:11Z',
+        reason: 'PJSIP 403 Forbidden repetido: Credencial incorreta para endpoint 4101',
+        reverseDns: 'vpn-exit-node-nl.anonym.org',
+      },
+      {
+        id: 'ban-4',
+        ip: '91.240.118.52',
+        jail: 'ssh-asterisk',
+        country: 'Polônia',
+        countryCode: 'PL',
+        failures: 6,
+        bannedAt: '2026-09-11T09:02:18Z',
+        expiresAt: '2026-09-12T09:02:18Z',
+        reason: 'Tentativa de login SSH com usuário root e asterisk',
+        reverseDns: 'vps-91-240-pl.cloudhost.eu',
+      },
+      {
+        id: 'ban-5',
+        ip: '103.145.13.204',
+        jail: 'asterisk-ami-ari',
+        country: 'Vietnã',
+        countryCode: 'VN',
+        failures: 8,
+        bannedAt: '2026-09-11T09:12:05Z',
+        expiresAt: '2026-09-11T21:12:05Z',
+        reason: 'ARI HTTP 401: Força bruta em /ari/channels com senha default',
+        reverseDns: 'static.vnpt.vn',
+      },
+      {
+        id: 'ban-6',
+        ip: '193.32.162.77',
+        jail: 'asterisk-pjsip',
+        country: 'Ucrânia',
+        countryCode: 'UA',
+        failures: 4,
+        bannedAt: '2026-09-11T09:30:19Z',
+        expiresAt: '2026-09-12T09:30:19Z',
+        reason: 'OPTIONS Ping de enumeração SIP sem User-Agent válido',
+        reverseDns: 'probe-sip-77.colo.ua',
+      },
+      {
+        id: 'ban-7',
+        ip: '77.247.110.18',
+        jail: 'asterisk-pjsip',
+        country: 'Reino Unido',
+        countryCode: 'GB',
+        failures: 5,
+        bannedAt: '2026-09-11T09:44:50Z',
+        expiresAt: '2026-09-12T09:44:50Z',
+        reason: 'Envio maciço de SIP CANCEL e BYE anômalos',
+        reverseDns: 'relay-pool.london.net',
+      },
+    ],
+    whitelist: [
+      '127.0.0.1/8',
+      '::1',
+      '192.168.0.0/16',
+      '10.10.0.0/24',      // Sub-rede WireGuard VPN
+      '192.168.192.0/24',  // Sub-rede ZeroTier Mesh
+      '200.220.14.88/32',  // IP Fixo Filial Imperatriz
+      '177.136.210.0/24',  // Faixa IP Confiável Operadora Enlace
+    ],
+    globalRules: {
+      maxRetry: 3,
+      findTimeSeconds: 600,
+      banTimeSeconds: 86400,
+      destEmail: 'noc@enlacetentelecom.com.br',
+      action: '%(action_mwl)s',
+      logPathAsterisk: '/var/log/asterisk/messages',
+      sipRateLimitPps: 20,
+      blockUdpFlood: true,
+      autoSyncIptables: true,
+    },
+  };
 }
 
 export const db = new Database();
+

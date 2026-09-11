@@ -18,6 +18,7 @@ import { IvrView } from './components/views/IvrView';
 import { CdrAndRecordingsView } from './components/views/CdrAndRecordingsView';
 import { AiGatewayView } from './components/views/AiGatewayView';
 import { AsteriskCoreView } from './components/views/AsteriskCoreView';
+import { NetworkSecurityView } from './components/views/NetworkSecurityView';
 import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
 import { HealthCheckView } from './components/views/HealthCheckView';
 import { SettingsView } from './components/views/SettingsView';
@@ -361,6 +362,8 @@ export default function App() {
             onRefresh={loadAllData}
           />
         );
+      case 'network_security':
+        return <NetworkSecurityView key="network_security" />;
       case 'asterisk_monitor':
         return (
           <AsteriskCoreView

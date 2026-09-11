@@ -124,6 +124,379 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------------------
+  // Redes, VPN & Conectividade (WireGuard & ZeroTier)
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/network/wireguard', (req, res) => {
+    res.json(db.wireguard);
+  });
+
+  app.post('/api/v1/network/wireguard/toggle', (req, res) => {
+    db.wireguard.status = db.wireguard.status === 'active' ? 'inactive' : 'active';
+    res.json({ success: true, status: db.wireguard.status });
+  });
+
+  app.post('/api/v1/network/wireguard/peers', (req, res) => {
+    const { name, allowedIps, endpoint, persistentKeepalive, assignedExtension, location } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nome do peer é obrigatório' });
+
+    const newPeerId = `wg-peer-${Date.now()}`;
+    const randomHex = Math.random().toString(36).substring(2, 10);
+    const nextIpNum = db.wireguard.peers.length + 2;
+    const peerIp = allowedIps || `10.10.0.${nextIpNum}/32`;
+
+    const newPeer = {
+      id: newPeerId,
+      name,
+      publicKey: `pubKey+wg+${randomHex}+enlace=`,
+      allowedIps: peerIp,
+      endpoint: endpoint || '',
+      latestHandshake: 'Aguardando primeira conexão',
+      transferRx: 0,
+      transferTx: 0,
+      persistentKeepalive: Number(persistentKeepalive) || 25,
+      status: 'offline' as const,
+      assignedExtension: assignedExtension || undefined,
+      location: location || 'Remoto / Internet Pública',
+      createdAt: new Date().toISOString(),
+      enabled: true,
+    };
+
+    db.wireguard.peers.unshift(newPeer);
+    db.wireguard.peersCount = db.wireguard.peers.length;
+
+    // Log audit
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'WIREGUARD_PEER_CREATE',
+      resource: `network/wireguard/${newPeer.id}`,
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `Novo peer WireGuard cadastrado: ${name} (${peerIp})`,
+    });
+
+    res.json({ success: true, peer: newPeer });
+  });
+
+  app.delete('/api/v1/network/wireguard/peers/:id', (req, res) => {
+    const idx = db.wireguard.peers.findIndex(p => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Peer não encontrado' });
+
+    const removed = db.wireguard.peers.splice(idx, 1)[0];
+    db.wireguard.peersCount = db.wireguard.peers.length;
+    db.wireguard.activePeersCount = db.wireguard.peers.filter(p => p.status === 'connected').length;
+
+    res.json({ success: true, removed });
+  });
+
+  app.post('/api/v1/network/wireguard/peers/:id/toggle', (req, res) => {
+    const peer = db.wireguard.peers.find(p => p.id === req.params.id);
+    if (!peer) return res.status(404).json({ error: 'Peer não encontrado' });
+
+    peer.enabled = !peer.enabled;
+    if (!peer.enabled) {
+      peer.status = 'offline';
+    }
+    db.wireguard.activePeersCount = db.wireguard.peers.filter(p => p.status === 'connected' && p.enabled).length;
+
+    res.json({ success: true, peer });
+  });
+
+  app.get('/api/v1/network/wireguard/peers/:id/client-config', (req, res) => {
+    const peer = db.wireguard.peers.find(p => p.id === req.params.id);
+    if (!peer) return res.status(404).json({ error: 'Peer não encontrado' });
+
+    const clientConf = `# -------------------------------------------------------------
+# Enlace-PBX Telecom & AI - WireGuard Client Configuration
+# Peer: ${peer.name}
+# Ramal PJSIP Associado: ${peer.assignedExtension || 'N/A'}
+# -------------------------------------------------------------
+[Interface]
+PrivateKey = <CHAVE_PRIVADA_DO_CLIENTE_GERADA_NO_DEVICE>
+Address = ${peer.allowedIps}
+DNS = 10.10.0.1, 1.1.1.1
+
+[Peer]
+PublicKey = ${db.wireguard.publicKey}
+Endpoint = pbx.enlacetentelecom.com.br:${db.wireguard.listenPort}
+AllowedIPs = 10.10.0.0/24, 192.168.0.0/16
+PersistentKeepalive = ${peer.persistentKeepalive}
+`;
+
+    res.json({
+      success: true,
+      filename: `${peer.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.conf`,
+      config: clientConf,
+      peer,
+    });
+  });
+
+  app.get('/api/v1/network/zerotier', (req, res) => {
+    res.json(db.zerotier);
+  });
+
+  app.post('/api/v1/network/zerotier/toggle', (req, res) => {
+    db.zerotier.status = db.zerotier.status === 'online' ? 'offline' : 'online';
+    res.json({ success: true, status: db.zerotier.status });
+  });
+
+  app.post('/api/v1/network/zerotier/join', (req, res) => {
+    const { networkId, name } = req.body;
+    if (!networkId || networkId.length < 10) {
+      return res.status(400).json({ error: 'Network ID inválido (deve conter 16 caracteres hexadecimais)' });
+    }
+
+    const existing = db.zerotier.networks.find(n => n.id === networkId);
+    if (existing) {
+      return res.status(400).json({ error: 'O servidor já está conectado a esta rede ZeroTier' });
+    }
+
+    const newNet = {
+      id: networkId,
+      name: name || `Rede-Mesh-${networkId.substring(0, 6)}`,
+      status: 'OK' as const,
+      type: 'PRIVATE' as const,
+      assignedIp: `192.168.192.${Math.floor(Math.random() * 200 + 10)}/24`,
+      mac: `e2:a1:${Math.floor(Math.random() * 89 + 10)}:${Math.floor(Math.random() * 89 + 10)}:01:1a`,
+      mtu: 2800,
+      broadcastEnabled: true,
+      bridge: false,
+      routes: ['192.168.192.0/24'],
+    };
+
+    db.zerotier.networks.push(newNet);
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'ZEROTIER_JOIN_NETWORK',
+      resource: `network/zerotier/${networkId}`,
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `Servidor Asterisk conectado à rede ZeroTier: ${networkId} (${newNet.name})`,
+    });
+
+    res.json({ success: true, network: newNet });
+  });
+
+  app.post('/api/v1/network/zerotier/leave', (req, res) => {
+    const { networkId } = req.body;
+    const idx = db.zerotier.networks.findIndex(n => n.id === networkId);
+    if (idx === -1) return res.status(404).json({ error: 'Rede não encontrada' });
+
+    const left = db.zerotier.networks.splice(idx, 1)[0];
+    res.json({ success: true, left });
+  });
+
+  // -------------------------------------------------------------------------
+  // Segurança & Monitoramento do Fail2ban
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/security/fail2ban', (req, res) => {
+    res.json(db.fail2ban);
+  });
+
+  app.post('/api/v1/security/fail2ban/reload', (req, res) => {
+    db.fail2ban.daemonStatus = 'reloading';
+    setTimeout(() => {
+      db.fail2ban.daemonStatus = 'active';
+      db.fail2ban.uptime = '4d 18h 33m (Recarregado)';
+    }, 400);
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'FAIL2BAN_RELOAD',
+      resource: 'security/fail2ban',
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: 'Daemon Fail2ban recarregado com sucesso (fail2ban-client reload)',
+    });
+
+    res.json({ success: true, message: 'Fail2ban recarregado com sucesso!' });
+  });
+
+  app.post('/api/v1/security/fail2ban/ban', (req, res) => {
+    const { ip, jail, reason } = req.body;
+    if (!ip) return res.status(400).json({ error: 'Endereço IP é obrigatório' });
+
+    // Check if in whitelist
+    if (db.fail2ban.whitelist.some(w => ip.startsWith(w.replace(/\/.*$/, '')))) {
+      return res.status(400).json({ error: 'Este IP está cadastrado na Whitelist de segurança e não pode ser banido.' });
+    }
+
+    const selectedJail = jail || 'asterisk-pjsip';
+    const newBan = {
+      id: `ban-${Date.now()}`,
+      ip,
+      jail: selectedJail,
+      country: 'IP Manual',
+      countryCode: 'BR',
+      failures: 1,
+      bannedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      reason: reason || 'Bloqueio administrativo manual via Painel Enlace-PBX',
+      reverseDns: 'manual-ban.local',
+    };
+
+    db.fail2ban.bannedIps.unshift(newBan);
+    db.fail2ban.totalBanned = db.fail2ban.bannedIps.length;
+
+    const targetJail = db.fail2ban.jails.find(j => j.name === selectedJail);
+    if (targetJail) {
+      targetJail.currentlyBanned += 1;
+      targetJail.totalBanned += 1;
+    }
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'FAIL2BAN_MANUAL_BAN',
+      resource: `security/fail2ban/${ip}`,
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `IP ${ip} banido na jail ${selectedJail}. Motivo: ${newBan.reason}`,
+    });
+
+    res.json({ success: true, ban: newBan });
+  });
+
+  app.post('/api/v1/security/fail2ban/unban', (req, res) => {
+    const { ip, jail } = req.body;
+    if (!ip) return res.status(400).json({ error: 'Endereço IP é obrigatório' });
+
+    const idx = db.fail2ban.bannedIps.findIndex(b => b.ip === ip);
+    if (idx !== -1) {
+      const removed = db.fail2ban.bannedIps.splice(idx, 1)[0];
+      db.fail2ban.totalBanned = db.fail2ban.bannedIps.length;
+
+      const targetJail = db.fail2ban.jails.find(j => j.name === (jail || removed.jail));
+      if (targetJail && targetJail.currentlyBanned > 0) {
+        targetJail.currentlyBanned -= 1;
+      }
+
+      db.auditLogs.unshift({
+        id: `audit-${Date.now()}`,
+        tenantId: 'tenant-enlace-matriz',
+        userId: 'user-1',
+        userName: 'Carlos Henrique Silva',
+        action: 'FAIL2BAN_UNBAN',
+        resource: `security/fail2ban/${ip}`,
+        ip: req.ip || '127.0.0.1',
+        timestamp: new Date().toISOString(),
+        details: `IP ${ip} desbanido da jail ${removed.jail} com sucesso`,
+      });
+
+      return res.json({ success: true, unbannedIp: ip });
+    }
+
+    res.status(404).json({ error: 'IP não encontrado na lista de banimentos ativos' });
+  });
+
+  app.put('/api/v1/security/fail2ban/rules', (req, res) => {
+    const { globalRules, jails } = req.body;
+    if (globalRules) {
+      db.fail2ban.globalRules = { ...db.fail2ban.globalRules, ...globalRules };
+    }
+    if (jails && Array.isArray(jails)) {
+      jails.forEach((updatedJail: any) => {
+        const existing = db.fail2ban.jails.find(j => j.name === updatedJail.name);
+        if (existing) {
+          Object.assign(existing, updatedJail);
+        }
+      });
+    }
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'FAIL2BAN_RULES_UPDATE',
+      resource: 'security/fail2ban/rules',
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: 'Regras globais e parâmetros de Jails do Fail2ban atualizados',
+    });
+
+    res.json({ success: true, fail2ban: db.fail2ban });
+  });
+
+  app.post('/api/v1/security/fail2ban/whitelist', (req, res) => {
+    const { ipOrSubnet, action } = req.body;
+    if (!ipOrSubnet) return res.status(400).json({ error: 'IP ou Sub-rede é obrigatório' });
+
+    if (action === 'remove') {
+      db.fail2ban.whitelist = db.fail2ban.whitelist.filter(w => w !== ipOrSubnet);
+    } else {
+      if (!db.fail2ban.whitelist.includes(ipOrSubnet)) {
+        db.fail2ban.whitelist.push(ipOrSubnet);
+      }
+    }
+
+    res.json({ success: true, whitelist: db.fail2ban.whitelist });
+  });
+
+  app.post('/api/v1/security/fail2ban/simulate-attack', (req, res) => {
+    // Generates a realistic simulated SIP registration brute-force attack
+    const randomOctet = Math.floor(Math.random() * 250 + 2);
+    const attackerIp = `198.51.100.${randomOctet}`;
+    const countries = [
+      { name: 'Estados Unidos', code: 'US' },
+      { name: 'França', code: 'FR' },
+      { name: 'Rússia', code: 'RU' },
+      { name: 'Brasil', code: 'BR' },
+      { name: 'Turquia', code: 'TR' },
+    ];
+    const c = countries[Math.floor(Math.random() * countries.length)];
+
+    const attackBan = {
+      id: `ban-${Date.now()}`,
+      ip: attackerIp,
+      jail: 'asterisk-pjsip',
+      country: c.name,
+      countryCode: c.code,
+      failures: 6,
+      bannedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      reason: `Simulação de Ataque: Scanner SIP Friendly-Scanner detectado enviando 6 REGISTER inválidos para ramal 100${Math.floor(Math.random()*9)}`,
+      reverseDns: `attack-node-${randomOctet}.test-security.org`,
+    };
+
+    db.fail2ban.bannedIps.unshift(attackBan);
+    db.fail2ban.totalBanned = db.fail2ban.bannedIps.length;
+
+    const pjsipJail = db.fail2ban.jails.find(j => j.name === 'asterisk-pjsip');
+    if (pjsipJail) {
+      pjsipJail.currentlyBanned += 1;
+      pjsipJail.totalBanned += 1;
+      pjsipJail.totalFailed += 6;
+    }
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'FAIL2BAN_ATTACK_SIMULATED',
+      resource: `security/fail2ban/${attackerIp}`,
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `[TESTE DE SEGURANÇA] Ataque SIP detectado pelo filtro Asterisk. IP ${attackerIp} bloqueado pelo Fail2ban na porta 5060/UDP.`,
+    });
+
+    res.json({ success: true, simulatedBan: attackBan });
+  });
+
+
+  // -------------------------------------------------------------------------
   // Quick Setup (FASE 6)
   // -------------------------------------------------------------------------
   app.get('/api/v1/setup/snapshots', (req, res) => {

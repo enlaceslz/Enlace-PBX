@@ -1,6 +1,6 @@
 {
   "name": "Enlace-PBX",
-  "description": "Plataforma brasileira de telefonia IP e agentes de voz com IA baseada em Asterisk puro e Google Gemini.",
+  "description": "Plataforma brasileira de telefonia IP, segurança de rede com WireGuard, ZeroTier e Fail2ban, e agentes de voz com IA baseada em Asterisk puro e Google Gemini.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
