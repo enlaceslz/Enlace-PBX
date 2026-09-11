@@ -17,6 +17,135 @@ function getAiClient(): GoogleGenAI | null {
   return aiClient;
 }
 
+export interface GeminiVoiceProfile {
+  name: string;
+  gender: 'male' | 'female';
+  label: string;
+  timbre: string;
+  recommendedFor: string;
+  pitchMultiplier: number;
+  rateMultiplier: number;
+}
+
+export const GEMINI_VOICE_PROFILES: Record<string, GeminiVoiceProfile> = {
+  Fenrir: {
+    name: 'Fenrir',
+    gender: 'male',
+    label: 'Fenrir (Masculina Encorpada / Grave)',
+    timbre: 'Barítono firme, tom acolhedor, grave e seguro',
+    recommendedFor: 'NOC, Suporte N1/N2 Especializado e Roberto Mendes',
+    pitchMultiplier: 0.88,
+    rateMultiplier: 0.95,
+  },
+  Puck: {
+    name: 'Puck',
+    gender: 'male',
+    label: 'Puck (Masculina Dinâmica)',
+    timbre: 'Tenor ágil, jovem, ritmo moderno e conversacional assertivo',
+    recommendedFor: 'Diagnóstico Ágil, Pré-vendas e SDR Técnico',
+    pitchMultiplier: 0.94,
+    rateMultiplier: 0.97,
+  },
+  Charon: {
+    name: 'Charon',
+    gender: 'male',
+    label: 'Charon (Masculina Sóbria / Institucional)',
+    timbre: 'Maduro, sóbrio, cadência pausada e autoridade serena',
+    recommendedFor: 'Central Corporativa, Compliance e Cobrança Institucional',
+    pitchMultiplier: 0.86,
+    rateMultiplier: 0.93,
+  },
+  Zephyr: {
+    name: 'Zephyr',
+    gender: 'female',
+    label: 'Zephyr (Feminina Equilibrada / Natural)',
+    timbre: 'Soprano suave, fluida, acolhedora e expressiva',
+    recommendedFor: 'MaIA — Atendimento & Triagem Geral 24/7',
+    pitchMultiplier: 1.04,
+    rateMultiplier: 0.98,
+  },
+  Kore: {
+    name: 'Kore',
+    gender: 'female',
+    label: 'Kore (Feminina Calma / Empática)',
+    timbre: 'Mezzo-soprano paciente, articulação cristalina e calorosa',
+    recommendedFor: 'Ouvidoria, SAC e Atendimento Humanizado',
+    pitchMultiplier: 1.02,
+    rateMultiplier: 0.96,
+  },
+  Aoede: {
+    name: 'Aoede',
+    gender: 'female',
+    label: 'Aoede (Feminina Melódica / Comercial)',
+    timbre: 'Luminosa, melódica, calorosa e engajadora',
+    recommendedFor: 'Vendas, Planos Corporativos e Negociações',
+    pitchMultiplier: 1.06,
+    rateMultiplier: 0.99,
+  },
+};
+
+export function resolveAgentVoice(agent: {
+  name?: string;
+  voice?: string;
+  voiceGender?: 'male' | 'female';
+  avatarType?: string;
+}): {
+  voiceName: string;
+  gender: 'male' | 'female';
+  avatarType: string;
+  pitchMultiplier: number;
+  rateMultiplier: number;
+  timbre: string;
+} {
+  let gender: 'male' | 'female' = agent.voiceGender || 'female';
+  if (!agent.voiceGender && agent.name) {
+    const lowerName = agent.name.toLowerCase();
+    if (
+      lowerName.includes('roberto') ||
+      lowerName.includes('carlos') ||
+      lowerName.includes('lucas') ||
+      lowerName.includes('mendes') ||
+      lowerName.includes('masculino')
+    ) {
+      gender = 'male';
+    }
+  }
+
+  const maleVoices = ['Fenrir', 'Puck', 'Charon'];
+  const femaleVoices = ['Zephyr', 'Kore', 'Aoede'];
+
+  let resolvedVoice = agent.voice || (gender === 'male' ? 'Fenrir' : 'Zephyr');
+
+  // Dynamic voice alignment: Ensure voice matches the designated gender
+  if (gender === 'male' && !maleVoices.includes(resolvedVoice)) {
+    resolvedVoice = 'Fenrir';
+  } else if (gender === 'female' && !femaleVoices.includes(resolvedVoice)) {
+    resolvedVoice = 'Zephyr';
+  }
+
+  const profile = GEMINI_VOICE_PROFILES[resolvedVoice] || {
+    name: resolvedVoice,
+    gender,
+    label: resolvedVoice,
+    timbre: gender === 'male' ? 'Barítono encorpado e acolhedor' : 'Soprano suave e expressiva',
+    recommendedFor: 'Atendimento Geral',
+    pitchMultiplier: gender === 'male' ? 0.88 : 1.04,
+    rateMultiplier: gender === 'male' ? 0.95 : 0.98,
+  };
+
+  const avatarType =
+    agent.avatarType || (gender === 'male' ? 'male_tech' : 'female_ai');
+
+  return {
+    voiceName: resolvedVoice,
+    gender,
+    avatarType,
+    pitchMultiplier: profile.pitchMultiplier,
+    rateMultiplier: profile.rateMultiplier,
+    timbre: profile.timbre,
+  };
+}
+
 export interface VoiceTurnRequest {
   agentId: string;
   userMessage: string;
@@ -37,6 +166,14 @@ export interface VoiceTurnResponse {
   audioBase64?: string;
   latencyMs: number;
   tokensUsed: { input: number; output: number };
+  voiceConfig: {
+    voiceName: string;
+    gender: 'male' | 'female';
+    avatarType: string;
+    pitchMultiplier: number;
+    rateMultiplier: number;
+    timbre: string;
+  };
 }
 
 export class GeminiService {
@@ -44,6 +181,7 @@ export class GeminiService {
     const startTime = Date.now();
     const tenantId = req.tenantId || 'tenant-enlace-matriz';
     const agent = db.aiAgents.find((a) => a.id === req.agentId) || db.aiAgents[0];
+    const voiceConfig = resolveAgentVoice(agent);
 
     // Assemble Knowledge grounding
     const knowledgeSnippets = agent.knowledgeSources
@@ -52,7 +190,20 @@ export class GeminiService {
       .map((k) => `[FONTE: ${k!.title} - ${k!.category}]\n${k!.content}`)
       .join('\n\n');
 
+    const voiceGuidance =
+      voiceConfig.gender === 'male'
+        ? `DIRETRIZ DE VOZ MASCULINA HUMANIZADA:
+- Você é um atendente masculino profissional da Enlace Telecom (${agent.name.split('—')[0].trim() || 'Roberto'}).
+- Fale com voz masculina segura, firme, acolhedora e natural (timbre: ${voiceConfig.timbre}).
+- Evite entonação mecânica, tom robótico ou monotonia. Use pausas naturais e vocabulário conversacional em português do Brasil.`
+        : `DIRETRIZ DE VOZ FEMININA HUMANIZADA:
+- Você é uma atendente feminina profissional e acolhedora da Enlace Telecom (${agent.name.split('—')[0].trim() || 'MaIA'}).
+- Fale com voz feminina clara, fluida, empática e expressiva (timbre: ${voiceConfig.timbre}).
+- Evite tom robótico ou frio. Use entonação natural e acolhedora em português do Brasil.`;
+
     const systemPrompt = `${agent.systemInstruction}
+
+${voiceGuidance}
 
 DIRETRIZES DA TELEFONIA ENLACE-PBX:
 1. Você está atendendo uma chamada telefônica em tempo real no Asterisk. Responda em português brasileiro culto, coloquial, amigável e direto.
@@ -67,7 +218,7 @@ ${knowledgeSnippets}`;
 
     if (!ai) {
       // Intelligent fallback when GEMINI_API_KEY is not configured
-      return this.handleFallbackTurn(agent, req, startTime);
+      return this.handleFallbackTurn(agent, req, startTime, voiceConfig);
     }
 
     try {
@@ -105,24 +256,37 @@ ${knowledgeSnippets}`;
         }));
 
       // Customer Memory Retrieval
-      const customerContact = db.crmContacts.find(c => c.phone.replace(/\D/g, '') === (req.callerNumber || '').replace(/\D/g, '') && c.tenantId === tenantId);
-      const customerMem = customerContact ? db.customerMemories.find(m => m.contactId === customerContact.id) : null;
+      const customerContact = db.crmContacts.find(
+        (c) =>
+          c.phone.replace(/\D/g, '') === (req.callerNumber || '').replace(/\D/g, '') &&
+          c.tenantId === tenantId
+      );
+      const customerMem = customerContact
+        ? db.customerMemories.find((m) => m.contactId === customerContact.id)
+        : null;
       let memoryContext = '';
       if (customerMem) {
         memoryContext = `[MEMÓRIA DO CLIENTE - ${customerContact?.name || 'Desconhecido'}]\nResumo: ${customerMem.summary}\nPreferências: ${customerMem.preferences.join(', ')}\nSentimento anterior: ${customerMem.sentimentHistory}\nRisco de Churn: ${customerMem.churnRisk}%\n\n`;
       }
 
-      // Convert history
+      // Convert history with correct persona label
+      const agentSpeakerName = agent.name.split(' ')[0] || (voiceConfig.gender === 'male' ? 'Roberto' : 'MaIA');
       const formattedHistory = req.history
         .filter((h) => h.role === 'user' || h.role === 'model')
         .slice(-6)
-        .map((h) => `${h.role === 'user' ? 'Chamador' : 'MaIA'}: ${h.text}`)
+        .map((h) => `${h.role === 'user' ? 'Chamador' : agentSpeakerName}: ${h.text}`)
         .join('\n');
 
       const userPromptWithContext = `${memoryContext}${formattedHistory ? `Histórico recente:\n${formattedHistory}\n\n` : ''}Chamador (${req.callerNumber || 'Desconhecido'}): "${req.userMessage}"`;
 
+      // Safe model selection avoiding deprecated models
+      let selectedModel = agent.model || 'gemini-flash-latest';
+      if (selectedModel.includes('2.5')) {
+        selectedModel = 'gemini-flash-latest';
+      }
+
       const response = await ai.models.generateContent({
-        model: agent.model || 'gemini-flash-latest',
+        model: selectedModel,
         contents: userPromptWithContext,
         config: {
           systemInstruction: systemPrompt,
@@ -143,8 +307,7 @@ ${knowledgeSnippets}`;
       if (functionCalls && functionCalls.length > 0) {
         const fc = functionCalls[0];
         const toolObj = db.aiTools.find((t) => t.name === fc.name);
-        
-        // AI Policy Engine: Strict validation
+
         if (!toolObj || !agent.tools.includes(toolObj.id)) {
           throw new Error(`Policy Engine Violation: Agent attempted to execute unauthorized tool ${fc.name}`);
         }
@@ -211,26 +374,55 @@ ${knowledgeSnippets}`;
       }
 
       if (!replyText) {
-        replyText = 'Entendido. Em que mais posso te ajudar na Enlace Telecom?';
+        replyText =
+          voiceConfig.gender === 'male'
+            ? 'Entendido. Aqui é o suporte da Enlace Telecom, como posso te ajudar?'
+            : 'Entendido. Em que mais posso te ajudar na Enlace Telecom?';
+      }
+
+      // Try Gemini TTS synthesis for natural human-like voice
+      let audioBase64: string | undefined = undefined;
+      try {
+        const ttsResponse = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-tts-preview',
+          contents: [{ parts: [{ text: replyText }] }],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: voiceConfig.voiceName,
+                },
+              },
+            },
+          },
+        });
+        const inlineAudio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (inlineAudio) {
+          audioBase64 = inlineAudio;
+        }
+      } catch {
+        // Fallback smoothly to browser humanized Web Speech API
       }
 
       const latencyMs = Date.now() - startTime;
 
-      // Log AI turn in session if needed
       return {
         replyText,
         toolCallExecuted,
         action,
         transferDestination,
+        audioBase64,
         latencyMs,
         tokensUsed: {
           input: Math.round(userPromptWithContext.length / 4) + 120,
           output: Math.round(replyText.length / 4) + 20,
         },
+        voiceConfig,
       };
     } catch (err: unknown) {
       console.error('Gemini Voice Turn error:', err);
-      return this.handleFallbackTurn(agent, req, startTime);
+      return this.handleFallbackTurn(agent, req, startTime, voiceConfig);
     }
   }
 
@@ -285,34 +477,44 @@ Retorne uma análise em português no seguinte formato JSON:
   }
 
   private handleFallbackTurn(
-    agent: { name: string; transferExtension?: string },
+    agent: { name: string; transferExtension?: string; voiceGender?: 'male' | 'female'; voice?: string; avatarType?: string },
     req: VoiceTurnRequest,
-    startTime: number
+    startTime: number,
+    providedVoiceConfig?: VoiceTurnResponse['voiceConfig']
   ): VoiceTurnResponse {
+    const voiceConfig = providedVoiceConfig || resolveAgentVoice(agent);
+    const isMale = voiceConfig.gender === 'male';
     const lower = req.userMessage.toLowerCase();
-    let replyText = 'Olá! Sou a MaIA da Enlace Telecom. Como posso te auxiliar com seus serviços de telefonia ou internet?';
+
+    let replyText = isMale
+      ? 'Olá! Aqui é o Roberto do Suporte Técnico da Enlace Telecom. Como posso ajudar com sua conexão, ramal ou chamado hoje?'
+      : 'Olá! Sou a MaIA da Enlace Telecom. Como posso te auxiliar com seus serviços de telefonia ou internet?';
     let action: VoiceTurnResponse['action'] = 'none';
     let transferDestination: string | undefined = undefined;
     let toolCallExecuted: VoiceTurnResponse['toolCallExecuted'] = undefined;
 
     if (lower.includes('humano') || lower.includes('atendente') || lower.includes('transferir') || lower.includes('falar com alguém')) {
       action = 'transfer';
-      transferDestination = agent.transferExtension || '4102';
-      replyText = `Com certeza! Estou transferindo você agora mesmo para nosso ramal ${transferDestination}. Por favor, aguarde na linha.`;
+      transferDestination = agent.transferExtension || (isMale ? '4101' : '4102');
+      replyText = `Com certeza! Estou transferindo você agora mesmo para o ramal ${transferDestination}. Por favor, aguarde na linha.`;
       toolCallExecuted = {
         name: 'transferir_chamada',
         args: { destino: transferDestination, motivo: 'Solicitação de atendente humano' },
         result: { status: 'sucesso', canal_ari: `PJSIP/${transferDestination}-001a` },
       };
     } else if (lower.includes('fatura') || lower.includes('boleto') || lower.includes('pix') || lower.includes('pagar') || lower.includes('segunda via')) {
-      replyText = 'Localizei sua fatura em aberto no valor de R$ 249,00 com vencimento em 15/09. Posso enviar o código Pix para você ou transferir para nosso setor de cobrança.';
+      replyText = isMale
+        ? 'Localizei sua fatura aqui no sistema: valor de R$ 249,00 com vencimento em 15/09. Posso enviar o código Pix por SMS ou transferir para a Renata no Financeiro.'
+        : 'Localizei sua fatura em aberto no valor de R$ 249,00 com vencimento em 15/09. Posso enviar o código Pix para você ou transferir para nosso setor de cobrança.';
       toolCallExecuted = {
         name: 'consultar_fatura',
         args: { cpf_cnpj: 'titular' },
         result: { valor: 'R$ 249,00', status: 'Aberta' },
       };
     } else if (lower.includes('suporte') || lower.includes('sem internet') || lower.includes('ramal') || lower.includes('mudo') || lower.includes('chiado')) {
-      replyText = 'Entendi a dificuldade técnica. Recomendo verificar o cabo de rede ou reiniciar o aparelho por 30 segundos. Deseja que eu abra um chamado de suporte?';
+      replyText = isMale
+        ? 'Entendido perfeitamente. Como especialista de suporte, sugiro verificar se o cabo de rede está firme e reiniciar o aparelho telefônico por 30 segundos. Deseja que eu abra um chamado no NOC agora?'
+        : 'Entendi a dificuldade técnica. Recomendo verificar o cabo de rede ou reiniciar o aparelho por 30 segundos. Deseja que eu abra um chamado de suporte?';
       toolCallExecuted = {
         name: 'abrir_ticket',
         args: { categoria: 'suporte_tecnico', urgencia: 'alta' },
@@ -320,7 +522,9 @@ Retorne uma análise em português no seguinte formato JSON:
       };
     } else if (lower.includes('tchau') || lower.includes('obrigado') || lower.includes('valeu') || lower.includes('desligar') || lower.includes('era isso')) {
       action = 'hangup';
-      replyText = 'Foi um prazer te atender! A Enlace Telecom agradece sua ligação. Até logo!';
+      replyText = isMale
+        ? 'Obrigado pelo contato com o suporte Enlace Telecom! Qualquer dúvida, estamos à disposição no ramal 4102. Tenha um ótimo dia!'
+        : 'Foi um prazer te atender! A Enlace Telecom agradece sua ligação. Até logo!';
       toolCallExecuted = {
         name: 'encerrar_chamada',
         args: { motivo: 'Conclusão pelo usuário' },
@@ -335,6 +539,76 @@ Retorne uma análise em português no seguinte formato JSON:
       transferDestination,
       latencyMs: Date.now() - startTime + 180,
       tokensUsed: { input: 120, output: 45 },
+      voiceConfig,
+    };
+  }
+
+  async generateVoicePreview(params: {
+    voice?: string;
+    voiceGender?: 'male' | 'female';
+    text?: string;
+    agentId?: string;
+  }): Promise<{
+    voiceName: string;
+    gender: 'male' | 'female';
+    avatarType: string;
+    sampleText: string;
+    audioBase64?: string;
+    prosody: {
+      pitchMultiplier: number;
+      rateMultiplier: number;
+      timbre: string;
+    };
+  }> {
+    const agent = params.agentId ? db.aiAgents.find((a) => a.id === params.agentId) : undefined;
+    const voiceConfig = resolveAgentVoice({
+      name: agent?.name,
+      voice: params.voice || agent?.voice,
+      voiceGender: params.voiceGender || agent?.voiceGender,
+      avatarType: agent?.avatarType,
+    });
+
+    const sampleText =
+      params.text ||
+      (voiceConfig.gender === 'male'
+        ? 'Olá! Aqui é o Roberto do Suporte Técnico Enlace. Como posso ajudar com seu chamado ou conexão hoje?'
+        : 'Olá! Sou a MaIA, assistente virtual da Enlace Telecom. Como posso ajudar você hoje?');
+
+    let audioBase64: string | undefined = undefined;
+    const ai = getAiClient();
+    if (ai) {
+      try {
+        const ttsResponse = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-tts-preview',
+          contents: [{ parts: [{ text: sampleText }] }],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: voiceConfig.voiceName,
+                },
+              },
+            },
+          },
+        });
+        audioBase64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      } catch {
+        // Graceful fallback for client Web Speech API
+      }
+    }
+
+    return {
+      voiceName: voiceConfig.voiceName,
+      gender: voiceConfig.gender,
+      avatarType: voiceConfig.avatarType,
+      sampleText,
+      audioBase64,
+      prosody: {
+        pitchMultiplier: voiceConfig.pitchMultiplier,
+        rateMultiplier: voiceConfig.rateMultiplier,
+        timbre: voiceConfig.timbre,
+      },
     };
   }
 

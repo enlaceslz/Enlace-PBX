@@ -525,6 +525,26 @@ async function startServer() {
     }
   });
 
+  // Voice Profile Preview endpoint - test voice and gender dynamically
+  app.post('/api/v1/ai/preview-voice', async (req, res) => {
+    try {
+      const { voice, voiceGender, text, agentId } = req.body;
+      const preview = await geminiService.generateVoicePreview({
+        voice,
+        voiceGender,
+        text,
+        agentId,
+      });
+      res.json(preview);
+    } catch (err: unknown) {
+      console.error('Error in preview-voice endpoint:', err);
+      res.status(500).json({
+        error: 'Erro ao gerar prévia de voz',
+        details: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   // Call summarization with Gemini
   app.post('/api/v1/ai/summarize-call', async (req, res) => {
     try {

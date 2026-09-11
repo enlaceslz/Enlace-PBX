@@ -520,11 +520,18 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     setIsProcessingTurn(true);
 
     try {
+      const isSupportTarget =
+        connectedDestination.includes('4102') ||
+        connectedDestination.toLowerCase().includes('roberto') ||
+        connectedDestination.toLowerCase().includes('suporte');
+
+      const targetAgentId = isSupportTarget ? 'agent-suporte-n1' : 'agent-maia-247';
+
       const res = await fetch('/api/v1/ai/voice-turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agentId: 'agent-maia-247',
+          agentId: targetAgentId,
           userMessage: messageText,
           history: aiHistory,
           callerNumber: '4101',
@@ -555,7 +562,32 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         },
       ]);
 
-      speakText(modelReply);
+      const resolvedGender = (data.voiceConfig?.gender as 'male' | 'female') || (isSupportTarget ? 'male' : 'female');
+      const resolvedPersona = resolvedGender === 'male' ? 'roberto' : 'maia';
+
+      if (data.audioBase64) {
+        try {
+          const audio = new Audio(`data:audio/wav;base64,${data.audioBase64}`);
+          setIsAiSpeaking(true);
+          setCurrentVoiceGender(resolvedGender);
+          setCurrentVoiceSpeaker(
+            resolvedGender === 'male'
+              ? 'Roberto Mendes (Voz Masculina • Gemini TTS)'
+              : 'MaIA (Voz Feminina • Gemini TTS)'
+          );
+          audio.onended = () => setIsAiSpeaking(false);
+          audio.onerror = () => {
+            speakText(modelReply, resolvedGender, resolvedPersona);
+          };
+          audio.play().catch(() => {
+            speakText(modelReply, resolvedGender, resolvedPersona);
+          });
+        } catch {
+          speakText(modelReply, resolvedGender, resolvedPersona);
+        }
+      } else {
+        speakText(modelReply, resolvedGender, resolvedPersona);
+      }
 
       if (data.action === 'transfer') {
         const transferTarget = data.transferDestination || '4102';

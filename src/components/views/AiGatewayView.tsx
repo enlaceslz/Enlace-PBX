@@ -22,6 +22,12 @@ import {
   Settings,
   Volume2,
   VolumeX,
+  User,
+  Headphones,
+  Sliders,
+  Layers,
+  Radio,
+  Mic,
 } from 'lucide-react';
 import {
   AiAgent,
@@ -31,6 +37,111 @@ import {
   AiSession,
 } from '../../types/pbx';
 import { speakHumanized, stopSpeaking } from '../../utils/speechVoiceHelper';
+
+export interface VoiceOptionMetadata {
+  name: string;
+  gender: 'male' | 'female';
+  title: string;
+  tone: string;
+  description: string;
+  pitch: string;
+  rate: string;
+}
+
+export const VOICE_PROFILES_METADATA: VoiceOptionMetadata[] = [
+  {
+    name: 'Fenrir',
+    gender: 'male',
+    title: 'Fenrir (Barítono Encorpado)',
+    tone: 'Barítono Firme & Acolhedor',
+    description: 'Voz masculina encorpada, grave e segura. Entonação técnica recomendada para Roberto Mendes e NOC.',
+    pitch: '0.88x (Grave natural acústico)',
+    rate: '0.95x (Cadência deliberada anti-robótica)',
+  },
+  {
+    name: 'Puck',
+    gender: 'male',
+    title: 'Puck (Tenor Dinâmico)',
+    tone: 'Tenor Ágil & Moderno',
+    description: 'Voz masculina jovem, ágil e assertiva. Ideal para diagnóstico rápido, pré-vendas e SDR.',
+    pitch: '0.94x (Natural conversacional)',
+    rate: '0.97x (Fluido e dinâmico)',
+  },
+  {
+    name: 'Charon',
+    gender: 'male',
+    title: 'Charon (Institucional Sóbrio)',
+    tone: 'Barítono Sóbrio & Maduro',
+    description: 'Voz masculina madura, institucional e serena. Ideal para compliance e finanças.',
+    pitch: '0.86x (Solene e calmo)',
+    rate: '0.93x (Pausado e seguro)',
+  },
+  {
+    name: 'Zephyr',
+    gender: 'female',
+    title: 'Zephyr (Soprano Equilibrado)',
+    tone: 'Soprano Suave & Expressivo',
+    description: 'Voz feminina equilibrada, expressiva e acolhedora. Perfil oficial da MaIA para triagem 24/7.',
+    pitch: '1.04x (Suave e caloroso)',
+    rate: '0.98x (Ritmo humano natural)',
+  },
+  {
+    name: 'Kore',
+    gender: 'female',
+    title: 'Kore (Mezzo-Soprano Empático)',
+    tone: 'Mezzo Paciente & Caloroso',
+    description: 'Voz feminina doce, paciente e atenciosa. Perfil ideal para ouvidoria, SAC e negociação amigável.',
+    pitch: '1.02x (Articulação cristalina)',
+    rate: '0.96x (Escuta ativa atenta)',
+  },
+  {
+    name: 'Aoede',
+    gender: 'female',
+    title: 'Aoede (Melódico Comercial)',
+    tone: 'Soprano Brilhante & Persuasivo',
+    description: 'Voz feminina melódica, calorosa e engajadora. Excelente para vendas e planos de telefonia.',
+    pitch: '1.06x (Entonação convidativa)',
+    rate: '0.99x (Ritmo comercial ativo)',
+  },
+];
+
+export const AVATAR_OPTIONS = [
+  {
+    id: 'male_tech',
+    gender: 'male' as const,
+    label: 'Roberto (Técnico NOC)',
+    role: 'Suporte Técnico N1/N2 Especializado',
+    badge: 'Headset & Diagnóstico',
+  },
+  {
+    id: 'male_attendant',
+    gender: 'male' as const,
+    label: 'Carlos (Atendente Central)',
+    role: 'Operador PBX & Triagem',
+    badge: 'Central Telefônica',
+  },
+  {
+    id: 'female_ai',
+    gender: 'female' as const,
+    label: 'MaIA (Assistente Virtual)',
+    role: 'Inteligência Artificial Receptiva 24/7',
+    badge: 'Atendimento Geral & URA',
+  },
+  {
+    id: 'female_billing',
+    gender: 'female' as const,
+    label: 'Renata (Financeiro)',
+    role: 'Faturamento, Pix & Cobrança',
+    badge: 'Negociação Humanizada',
+  },
+  {
+    id: 'female_sales',
+    gender: 'female' as const,
+    label: 'Mariana (Comercial)',
+    role: 'Vendas Corporativas & Planos',
+    badge: 'SDR & Expansão',
+  },
+];
 
 interface AiGatewayViewProps {
   agents: AiAgent[];
@@ -67,9 +178,12 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
 
   // Edit Selected Agent State
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
+  const [editName, setEditName] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
   const [editGreeting, setEditGreeting] = useState('');
-  const [editVoice, setEditVoice] = useState('');
+  const [editVoice, setEditVoice] = useState('Zephyr');
+  const [editVoiceGender, setEditVoiceGender] = useState<'male' | 'female'>('female');
+  const [editAvatarType, setEditAvatarType] = useState<string>('female_ai');
   const [editModel, setEditModel] = useState('');
   const [editTransferExt, setEditTransferExt] = useState('');
   const [isSavingAgent, setIsSavingAgent] = useState(false);
@@ -78,9 +192,22 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
   // Sync edit states when selectedAgent changes
   useEffect(() => {
     if (selectedAgent) {
+      setEditName(selectedAgent.name);
       setEditPrompt(selectedAgent.systemInstruction);
       setEditGreeting(selectedAgent.initialGreeting);
-      setEditVoice(selectedAgent.voice);
+      const isMale =
+        selectedAgent.voiceGender === 'male' ||
+        selectedAgent.name.toLowerCase().includes('roberto') ||
+        selectedAgent.name.toLowerCase().includes('carlos') ||
+        selectedAgent.voice === 'Fenrir' ||
+        selectedAgent.voice === 'Puck' ||
+        selectedAgent.voice === 'Charon';
+      const resolvedGender = isMale ? 'male' : 'female';
+      setEditVoiceGender(resolvedGender);
+      setEditVoice(selectedAgent.voice || (isMale ? 'Fenrir' : 'Zephyr'));
+      setEditAvatarType(
+        selectedAgent.avatarType || (isMale ? 'male_tech' : 'female_ai')
+      );
       setEditModel(selectedAgent.model);
       setEditTransferExt(selectedAgent.transferExtension);
       setIsEditingPrompt(false);
@@ -89,9 +216,35 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
     }
   }, [selectedAgent]);
 
+  // Handler for dynamically switching voice gender
+  const handleSelectVoiceGender = (gender: 'male' | 'female') => {
+    setEditVoiceGender(gender);
+    if (gender === 'male') {
+      const maleVoices = ['Fenrir', 'Puck', 'Charon'];
+      if (!maleVoices.includes(editVoice)) {
+        setEditVoice('Fenrir');
+      }
+      if (!editAvatarType.startsWith('male')) {
+        setEditAvatarType('male_tech');
+      }
+    } else {
+      const femaleVoices = ['Zephyr', 'Kore', 'Aoede'];
+      if (!femaleVoices.includes(editVoice)) {
+        setEditVoice('Zephyr');
+      }
+      if (!editAvatarType.startsWith('female')) {
+        setEditAvatarType('female_ai');
+      }
+    }
+  };
+
   const [isPlayingVoiceSample, setIsPlayingVoiceSample] = useState(false);
 
-  const handleToggleVoiceSample = (textToSpeak: string, voiceName: string) => {
+  const handleToggleVoiceSample = (
+    textToSpeak: string,
+    voiceName: string,
+    genderOverride?: 'male' | 'female'
+  ) => {
     if (isPlayingVoiceSample) {
       stopSpeaking();
       setIsPlayingVoiceSample(false);
@@ -99,14 +252,17 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
     }
 
     const isMale =
-      voiceName === 'Fenrir' ||
-      voiceName === 'Charon' ||
-      voiceName === 'Puck' ||
-      selectedAgent?.name.toLowerCase().includes('roberto') ||
-      selectedAgent?.name.toLowerCase().includes('carlos');
+      genderOverride !== undefined
+        ? genderOverride === 'male'
+        : editVoiceGender === 'male' ||
+          voiceName === 'Fenrir' ||
+          voiceName === 'Charon' ||
+          voiceName === 'Puck' ||
+          selectedAgent?.name.toLowerCase().includes('roberto') ||
+          selectedAgent?.name.toLowerCase().includes('carlos');
 
     const persona =
-      selectedAgent?.name.toLowerCase().includes('roberto')
+      selectedAgent?.name.toLowerCase().includes('roberto') || editAvatarType === 'male_tech'
         ? 'roberto'
         : isMale
         ? 'carlos'
@@ -127,9 +283,11 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
   const [createFormData, setCreateFormData] = useState({
     name: '',
     description: '',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-flash-latest',
     voice: 'Zephyr',
-    initialGreeting: 'Olá! Sou seu assistente virtual da Enlace Telecom. Como posso ajudar hoje?',
+    voiceGender: 'female' as 'male' | 'female',
+    avatarType: 'female_ai',
+    initialGreeting: 'Olá! Sou a assistente virtual da Enlace Telecom. Como posso ajudar você hoje?',
     systemInstruction: `Você é um assistente virtual telefônico da Enlace Telecom, atendendo chamadas no Asterisk 20.
 Fale em português brasileiro culto, objetivo e empático.
 Suas respostas devem ser curtas (1 a 2 frases) para manter o diálogo natural.
@@ -144,39 +302,47 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
   const agentPresets = [
     {
-      title: 'SAC & Suporte N1',
-      desc: 'Atendimento e triagem de problemas técnicos com transbordo.',
-      greeting: 'Olá! Sou a assistente virtual de Suporte da Enlace. Como posso ajudar com sua conexão ou ramais?',
-      instruction: `Você é a atendente de suporte técnico e SAC N1. Responda em português brasileiro com gentileza e clareza. Use consultar_cliente para identificar a conta e abra ticket ou transfira para o ramal 4102 se não resolver.`,
-      voice: 'Zephyr',
-      model: 'gemini-2.5-flash',
+      title: 'Suporte Especialista N1/N2 (Roberto Mendes)',
+      desc: 'Atendimento técnico com voz masculina firme e barítona, diagnóstico e transbordo para NOC.',
+      greeting: 'Olá! Aqui é o Roberto do Suporte Técnico da Enlace Telecom. Como posso ajudar com sua conexão ou ramal?',
+      instruction: `Você é o Roberto Mendes, especialista de suporte técnico N1/N2 da Enlace Telecom. Responda em português brasileiro com tom seguro, acolhedor, profissional e paciente. Se for falha física ou o cliente solicitar suporte presencial, abra chamado ou transfira para o ramal 4102.`,
+      voice: 'Fenrir',
+      voiceGender: 'male' as const,
+      avatarType: 'male_tech',
+      model: 'gemini-flash-latest',
       transfer: '4102',
     },
     {
-      title: 'Cobrança & Acordo Financeiro',
-      desc: 'Negociação humanizada e envio de 2ª via / Pix.',
-      greeting: 'Olá! Sou da Central Financeira da Enlace Telecom. Gostaria de tratar sobre a regularização de sua fatura.',
-      instruction: `Você é uma especialista em negociação financeira amigável. Identifique o chamador com consultar_cliente, informe o status com consultar_fatura e ofereça pagamento via Pix ou código de barras.`,
-      voice: 'Charon',
-      model: 'gemini-2.5-flash',
+      title: 'MaIA — Atendimento & Triagem Geral 24/7',
+      desc: 'Assistente virtual oficial com voz feminina suave, validação de CPF e roteamento inteligente.',
+      greeting: 'Olá! Sou a MaIA, assistente virtual da Enlace Telecom. Como posso ajudar você com seus serviços de telefonia ou internet?',
+      instruction: `Você é a MaIA, assistente virtual receptiva da Enlace Telecom. Fale com tom amigável, acolhedor e claro. Identifique o cliente via consultar_cliente e encaminhe as solicitações com agilidade.`,
+      voice: 'Zephyr',
+      voiceGender: 'female' as const,
+      avatarType: 'female_ai',
+      model: 'gemini-flash-latest',
       transfer: '4101',
     },
     {
-      title: 'Agendamento & Recepção',
-      desc: 'Confirmação e marcação de visitas e reuniões.',
-      greeting: 'Olá! Estou ligando da Central de Agendamentos da Enlace para confirmar o seu horário.',
-      instruction: `Você é a assistente de agendamentos e recepção corporativa. Confirme dados, tire dúvidas sobre horário de funcionamento e transfira para o ramal 4101 se houver pedidos especiais.`,
-      voice: 'Aoede',
-      model: 'gemini-2.5-flash',
-      transfer: '4101',
+      title: 'Cobrança & Regularização (Renata Lima)',
+      desc: 'Negociação financeira humanizada com voz feminina empática e envio de Pix/código.',
+      greeting: 'Olá! Sou a Renata da Central Financeira da Enlace Telecom. Gostaria de te ajudar a consultar ou regularizar sua fatura de forma simples.',
+      instruction: `Você é uma especialista em negociação financeira amigável. Identifique o chamador com consultar_cliente, informe o status com consultar_fatura e ofereça pagamento via Pix ou código de barras com respeito e presteza.`,
+      voice: 'Kore',
+      voiceGender: 'female' as const,
+      avatarType: 'female_billing',
+      model: 'gemini-flash-latest',
+      transfer: '4201',
     },
     {
-      title: 'Qualificação SDR Comercial',
-      desc: 'Pré-vendas, dimensionamento de troncos/ramais.',
-      greeting: 'Olá! Sou o especialista comercial da Enlace Telecom. Como podemos modernizar sua telefonia IP?',
-      instruction: `Você é um pré-vendedor corporativo. Entenda quantos ramais a empresa do cliente necessita e se já possuem link dedicado. Em seguida, transfira para o executivo de contas no ramal 4103.`,
+      title: 'Qualificação SDR Comercial (Carlos Silva)',
+      desc: 'Pré-vendas com voz masculina dinâmica, dimensionamento de troncos SIP e planos de fibra.',
+      greeting: 'Olá! Aqui é o Carlos do setor de Soluções Corporativas da Enlace Telecom. Como posso ajudar a modernizar a telefonia da sua empresa?',
+      instruction: `Você é um consultor comercial corporativo da Enlace Telecom. Converse com entusiasmo e clareza sobre troncos SIP Asterisk, links dedicados e planos empresariais. Transfira para o executivo de contas no ramal 4103.`,
       voice: 'Puck',
-      model: 'gemini-2.5-flash',
+      voiceGender: 'male' as const,
+      avatarType: 'male_attendant',
+      model: 'gemini-flash-latest',
       transfer: '4103',
     },
   ];
@@ -189,6 +355,8 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       initialGreeting: p.greeting,
       systemInstruction: p.instruction,
       voice: p.voice,
+      voiceGender: p.voiceGender,
+      avatarType: p.avatarType,
       model: p.model,
       transferExtension: p.transfer,
     }));
@@ -200,9 +368,12 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     try {
       const payload = {
         ...selectedAgent,
+        name: editName || selectedAgent.name,
         systemInstruction: editPrompt,
         initialGreeting: editGreeting,
         voice: editVoice,
+        voiceGender: editVoiceGender,
+        avatarType: editAvatarType,
         model: editModel,
         transferExtension: editTransferExt,
       };
@@ -215,8 +386,10 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
         const updated = await res.json();
         setSelectedAgent(updated);
         setIsEditingPrompt(false);
-        setSaveSuccessMsg('Parâmetros e Prompt do Agente atualizados com sucesso no Asterisk Stasis!');
-        setTimeout(() => setSaveSuccessMsg(null), 4000);
+        setSaveSuccessMsg(
+          `Perfil de voz (${editVoiceGender === 'male' ? 'Masculina • ' + editVoice : 'Feminina • ' + editVoice}) e parâmetros salvos com sucesso!`
+        );
+        setTimeout(() => setSaveSuccessMsg(null), 4500);
         onRefresh();
       }
     } catch (err) {
@@ -436,59 +609,150 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 Novo Agente
               </button>
             </div>
-            {agents.map((agent) => (
-              <div
-                key={agent.id}
-                onClick={() => setSelectedAgent(agent)}
-                className={`p-4 rounded-2xl border cursor-pointer transition ${
-                  selectedAgent?.id === agent.id
-                    ? 'bg-white border-blue-500 shadow-md ring-1 ring-blue-500/20'
-                    : 'bg-white border-slate-200 hover:bg-slate-50 shadow-sm'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold">
-                    Ramal / DID: {agent.transferExtension ? `900${agent.id.slice(-1) || '1'}` : '9001'}
-                  </span>
-                  <span className="text-[11px] text-green-600 font-semibold flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Ativo
-                  </span>
-                </div>
+            {agents.map((agent) => {
+              const isMale =
+                agent.voiceGender === 'male' ||
+                agent.name.toLowerCase().includes('roberto') ||
+                agent.name.toLowerCase().includes('carlos') ||
+                agent.voice === 'Fenrir' ||
+                agent.voice === 'Puck' ||
+                agent.voice === 'Charon';
+              const agentGender = isMale ? 'male' : 'female';
+              const voiceMeta = VOICE_PROFILES_METADATA.find((v) => v.name === agent.voice);
 
-                <h3 className="font-bold text-slate-900 text-base">{agent.name}</h3>
-                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{agent.description}</p>
+              return (
+                <div
+                  key={agent.id}
+                  onClick={() => setSelectedAgent(agent)}
+                  className={`p-4 rounded-2xl border cursor-pointer transition ${
+                    selectedAgent?.id === agent.id
+                      ? 'bg-white border-blue-500 shadow-md ring-1 ring-blue-500/20'
+                      : 'bg-white border-slate-200 hover:bg-slate-50 shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold">
+                      Ramal / DID: {agent.transferExtension ? `900${agent.id.slice(-1) || '1'}` : '9001'}
+                    </span>
+                    <span
+                      className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                        agentGender === 'male'
+                          ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                          : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}
+                    >
+                      {agentGender === 'male' ? (
+                        <>
+                          <User className="w-3 h-3 text-indigo-600" />
+                          Voz Masculina
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3 h-3 text-rose-600" />
+                          Voz Feminina
+                        </>
+                      )}
+                    </span>
+                  </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs font-mono text-slate-500">
-                  <span>Modelo: {agent.model}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenWebphone('9001');
-                    }}
-                    className="text-blue-600 font-sans font-bold hover:underline"
-                  >
-                    Testar Voz →
-                  </button>
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white font-bold shadow-sm ${
+                        agentGender === 'male'
+                          ? 'bg-gradient-to-br from-indigo-500 to-blue-700'
+                          : 'bg-gradient-to-br from-purple-500 to-rose-600'
+                      }`}
+                    >
+                      {agentGender === 'male' ? (
+                        <Headphones className="w-5 h-5 text-white" />
+                      ) : (
+                        <Bot className="w-5 h-5 text-white" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-slate-900 text-sm truncate">{agent.name}</h3>
+                      <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{agent.description}</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">
+                          {agent.voice || (agentGender === 'male' ? 'Fenrir' : 'Zephyr')}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {voiceMeta ? voiceMeta.tone : 'Natural'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between text-xs font-mono text-slate-500">
+                    <span className="truncate max-w-[140px] text-[11px]">{agent.model}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenWebphone('9001');
+                      }}
+                      className="text-blue-600 font-sans font-bold hover:underline flex items-center gap-1"
+                    >
+                      Testar Voz →
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Agent Configuration Details Panel */}
           {selectedAgent && (
             <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+              {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                    {selectedAgent.name}
-                    <span className="text-[10px] bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-sans font-semibold">
-                      Operacional
-                    </span>
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Configuração detalhada do fluxo de voz com Asterisk Stasis & Gemini Live
-                  </p>
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 text-white font-bold shadow-md ${
+                      editVoiceGender === 'male'
+                        ? 'bg-gradient-to-br from-indigo-500 to-blue-700'
+                        : 'bg-gradient-to-br from-purple-500 to-rose-600'
+                    }`}
+                  >
+                    {editVoiceGender === 'male' ? (
+                      <Headphones className="w-6 h-6 text-white" />
+                    ) : (
+                      <Bot className="w-6 h-6 text-white" />
+                    )}
+                  </div>
+                  <div>
+                    {!isEditingPrompt ? (
+                      <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                        {selectedAgent.name}
+                        <span className="text-[10px] bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-sans font-semibold">
+                          Operacional
+                        </span>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-sans font-semibold ${
+                            editVoiceGender === 'male'
+                              ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          {editVoiceGender === 'male' ? 'Voz Masculina' : 'Voz Feminina'}
+                        </span>
+                      </h2>
+                    ) : (
+                      <div className="flex items-center gap-2 mb-1">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="text-base font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                          placeholder="Nome do Agente"
+                        />
+                      </div>
+                    )}
+                    <p className="text-xs text-slate-500">
+                      Configuração de voz humanizada, gênero e transbordo Asterisk Stasis
+                    </p>
+                  </div>
                 </div>
+
                 <div className="flex items-center gap-2">
                   {!isEditingPrompt ? (
                     <button
@@ -533,6 +797,242 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 </div>
               )}
 
+              {/* VOICE PROFILE SELECTOR: MASCULINE VS FEMININE */}
+              <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Perfil de Voz & Humanização (Eliminação de Voz Robótica)
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    {editVoiceGender === 'male' ? 'Entonação Masculina' : 'Entonação Feminina'}
+                  </span>
+                </div>
+
+                {!isEditingPrompt ? (
+                  /* Display Mode */
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="p-3 rounded-xl bg-white border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                        Gênero da Voz
+                      </span>
+                      <div className="flex items-center gap-2 font-bold text-slate-800">
+                        {editVoiceGender === 'male' ? (
+                          <>
+                            <User className="w-4 h-4 text-indigo-600" />
+                            <span>Voz Masculina (Roberto / Carlos)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 text-rose-600" />
+                            <span>Voz Feminina (MaIA / Renata)</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-white border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                        Voz Neural Gemini
+                      </span>
+                      <div className="font-bold text-blue-700 flex items-center justify-between">
+                        <span>{editVoice} (pt-BR)</span>
+                        <span className="text-[10px] text-slate-500 font-normal">
+                          {VOICE_PROFILES_METADATA.find((v) => v.name === editVoice)?.tone || 'Humanizada'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-white border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                        Avatar Associado
+                      </span>
+                      <div className="font-bold text-slate-700">
+                        {AVATAR_OPTIONS.find((a) => a.id === editAvatarType)?.label ||
+                          (editVoiceGender === 'male' ? 'Roberto (Técnico NOC)' : 'MaIA (Assistente Virtual)')}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Edit Mode - Interactive Gender & Voice Selector */
+                  <div className="space-y-4">
+                    {/* Gender Selector Cards */}
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 block mb-2">
+                        Selecione o Gênero do Agente de IA:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectVoiceGender('male')}
+                          className={`p-3.5 rounded-xl border text-left transition flex items-start gap-3 ${
+                            editVoiceGender === 'male'
+                              ? 'bg-indigo-50/80 border-indigo-400 shadow-sm ring-2 ring-indigo-500/20'
+                              : 'bg-white border-slate-200 hover:bg-slate-100/60'
+                          }`}
+                        >
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 font-bold ${
+                              editVoiceGender === 'male'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            <User className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-slate-900">
+                                Perfil Masculino (Voz Masculina)
+                              </span>
+                              {editVoiceGender === 'male' && (
+                                <span className="text-[10px] bg-indigo-600 text-white font-bold px-1.5 py-0.5 rounded">
+                                  Ativo
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5 leading-tight">
+                              Timbre barítono encorpado, entonação técnica e segura.
+                            </p>
+                            <span className="text-[10px] text-indigo-700 font-semibold block mt-1">
+                              Indicado para: Roberto Mendes (Suporte N1/N2), NOC e Diagnóstico
+                            </span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSelectVoiceGender('female')}
+                          className={`p-3.5 rounded-xl border text-left transition flex items-start gap-3 ${
+                            editVoiceGender === 'female'
+                              ? 'bg-rose-50/80 border-rose-400 shadow-sm ring-2 ring-rose-500/20'
+                              : 'bg-white border-slate-200 hover:bg-slate-100/60'
+                          }`}
+                        >
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 font-bold ${
+                              editVoiceGender === 'female'
+                                ? 'bg-rose-600 text-white'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            <Sparkles className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-slate-900">
+                                Perfil Feminino (Voz Feminina)
+                              </span>
+                              {editVoiceGender === 'female' && (
+                                <span className="text-[10px] bg-rose-600 text-white font-bold px-1.5 py-0.5 rounded">
+                                  Ativo
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5 leading-tight">
+                              Timbre soprano equilibrado, acolhedora e expressiva.
+                            </p>
+                            <span className="text-[10px] text-rose-700 font-semibold block mt-1">
+                              Indicado para: MaIA (Triagem 24/7), Renata (Cobrança) e Comercial
+                            </span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Voice Selection Matching Chosen Gender */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-700 block mb-1">
+                          Voz Gemini Correspondente ({editVoiceGender === 'male' ? 'Masculina' : 'Feminina'}):
+                        </label>
+                        <select
+                          value={editVoice}
+                          onChange={(e) => setEditVoice(e.target.value)}
+                          className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        >
+                          {VOICE_PROFILES_METADATA.filter((v) => v.gender === editVoiceGender).map((v) => (
+                            <option key={v.name} value={v.name}>
+                              {v.title}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          {VOICE_PROFILES_METADATA.find((v) => v.name === editVoice)?.description}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-semibold text-slate-700 block mb-1">
+                          Avatar do Agente (Identidade Visual):
+                        </label>
+                        <select
+                          value={editAvatarType}
+                          onChange={(e) => setEditAvatarType(e.target.value)}
+                          className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        >
+                          {AVATAR_OPTIONS.filter((a) => a.gender === editVoiceGender).map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.label} — {a.role}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Garante que o avatar na tela corresponda ao gênero da voz em chamadas.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Acoustic modulation badges */}
+                <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between text-[11px] text-slate-600 gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
+                      Pitch:{' '}
+                      <strong className="text-slate-800">
+                        {VOICE_PROFILES_METADATA.find((v) => v.name === editVoice)?.pitch || 'Natural'}
+                      </strong>
+                    </span>
+                    <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
+                      Cadência:{' '}
+                      <strong className="text-slate-800">
+                        {VOICE_PROFILES_METADATA.find((v) => v.name === editVoice)?.rate || '0.98x'}
+                      </strong>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleToggleVoiceSample(
+                        isEditingPrompt ? editGreeting : selectedAgent.initialGreeting,
+                        isEditingPrompt ? editVoice : selectedAgent.voice,
+                        editVoiceGender
+                      )
+                    }
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                      isPlayingVoiceSample
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : 'bg-blue-100 text-blue-800 hover:bg-blue-200 border border-blue-200'
+                    }`}
+                  >
+                    {isPlayingVoiceSample ? (
+                      <>
+                        <VolumeX className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Parar Amostra</span>
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Ouvir Prévia ({editVoiceGender === 'male' ? 'Masculina' : 'Feminina'})</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
               {/* Engine Parameters */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
@@ -545,36 +1045,23 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                       onChange={(e) => setEditModel(e.target.value)}
                       className="mt-1 w-full text-xs font-mono bg-white border border-slate-300 rounded px-1.5 py-1 text-slate-800"
                     >
-                      <option value="gemini-2.5-flash">gemini-2.5-flash (Baixa Latência)</option>
+                      <option value="gemini-flash-latest">gemini-flash-latest (Baixa Latência)</option>
+                      <option value="gemini-2.5-flash">gemini-2.5-flash</option>
                       <option value="gemini-2.5-pro">gemini-2.5-pro (Raciocínio Avançado)</option>
-                      <option value="gemini-3.1-flash-live-preview">gemini-3.1-flash-live-preview</option>
                     </select>
                   )}
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-slate-500 font-mono text-[10px] block">VOZ SINTETIZADA</span>
-                  {!isEditingPrompt ? (
-                    <span className="text-slate-700 font-bold">{selectedAgent.voice} (pt-BR)</span>
-                  ) : (
-                    <select
-                      value={editVoice}
-                      onChange={(e) => setEditVoice(e.target.value)}
-                      className="mt-1 w-full text-xs bg-white border border-slate-300 rounded px-1.5 py-1 text-slate-800"
-                    >
-                      <option value="Zephyr">Zephyr (Equilibrada/Profissional)</option>
-                      <option value="Puck">Puck (Jovem/Dinâmica)</option>
-                      <option value="Charon">Charon (Sóbria/Institucional)</option>
-                      <option value="Aoede">Aoede (Acolhedora/Melódica)</option>
-                      <option value="Kore">Kore (Calma/Empática)</option>
-                      <option value="Fenrir">Fenrir (Firme/Confiante)</option>
-                    </select>
-                  )}
+                  <span className="text-slate-500 font-mono text-[10px] block">PERFIL ACÚSTICO</span>
+                  <span className="text-slate-700 font-bold">
+                    {editVoiceGender === 'male' ? 'Masculino' : 'Feminino'} • {editVoice}
+                  </span>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <span className="text-slate-500 font-mono text-[10px] block">BARGE-IN (INTERRUPÇÃO)</span>
-                  <span className="text-blue-600 font-bold">Habilitado</span>
+                  <span className="text-blue-600 font-bold">Habilitado (Stasis)</span>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
@@ -621,32 +1108,6 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   <label className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
                     Mensagem de Saudação Inicial:
                   </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleToggleVoiceSample(
-                        isEditingPrompt ? editGreeting : selectedAgent.initialGreeting,
-                        isEditingPrompt ? editVoice : selectedAgent.voice
-                      )
-                    }
-                    className={`text-xs px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition ${
-                      isPlayingVoiceSample
-                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
-                    }`}
-                  >
-                    {isPlayingVoiceSample ? (
-                      <>
-                        <VolumeX className="w-3.5 h-3.5 text-rose-600" />
-                        <span>Parar Reprodução</span>
-                      </>
-                    ) : (
-                      <>
-                        <Volume2 className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Ouvir Voz Humanizada</span>
-                      </>
-                    )}
-                  </button>
                 </div>
                 {!isEditingPrompt ? (
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700">
@@ -1008,7 +1469,139 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 />
               </div>
 
-              {/* Model and Voice */}
+              {/* Profile Voice Gender & Humanization Selection */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <label className="text-xs font-semibold text-slate-700 block">
+                  Perfil de Voz do Agente (Gênero & Entonação):
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateFormData({
+                        ...createFormData,
+                        voiceGender: 'male',
+                        voice: 'Fenrir',
+                        avatarType: 'male_tech',
+                      });
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 ${
+                      createFormData.voiceGender === 'male'
+                        ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-500/20 shadow-sm'
+                        : 'bg-white border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold ${
+                        createFormData.voiceGender === 'male'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <User className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-900 flex items-center justify-between">
+                        <span>Voz Masculina</span>
+                        {createFormData.voiceGender === 'male' && (
+                          <span className="text-[9px] bg-indigo-600 text-white px-1.5 py-0.2 rounded font-semibold">
+                            Ativo
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Barítono encorpado (Roberto / NOC)
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateFormData({
+                        ...createFormData,
+                        voiceGender: 'female',
+                        voice: 'Zephyr',
+                        avatarType: 'female_ai',
+                      });
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 ${
+                      createFormData.voiceGender === 'female'
+                        ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-500/20 shadow-sm'
+                        : 'bg-white border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold ${
+                        createFormData.voiceGender === 'female'
+                          ? 'bg-rose-600 text-white'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-900 flex items-center justify-between">
+                        <span>Voz Feminina</span>
+                        {createFormData.voiceGender === 'female' && (
+                          <span className="text-[9px] bg-rose-600 text-white px-1.5 py-0.2 rounded font-semibold">
+                            Ativo
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Soprano acolhedor (MaIA / SAC)
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                      Voz Gemini Neural Correspondente ({createFormData.voiceGender === 'male' ? 'Masculina' : 'Feminina'}):
+                    </label>
+                    <select
+                      value={createFormData.voice}
+                      onChange={(e) =>
+                        setCreateFormData({ ...createFormData, voice: e.target.value })
+                      }
+                      className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      {VOICE_PROFILES_METADATA.filter(
+                        (v) => v.gender === createFormData.voiceGender
+                      ).map((v) => (
+                        <option key={v.name} value={v.name}>
+                          {v.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                      Avatar do Agente (Identidade Visual):
+                    </label>
+                    <select
+                      value={createFormData.avatarType}
+                      onChange={(e) =>
+                        setCreateFormData({ ...createFormData, avatarType: e.target.value })
+                      }
+                      className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      {AVATAR_OPTIONS.filter(
+                        (a) => a.gender === createFormData.voiceGender
+                      ).map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label} — {a.role}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Model and Settings */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-700 block mb-1">
@@ -1021,30 +1614,19 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                     }
                     className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
                   >
-                    <option value="gemini-2.5-flash">gemini-2.5-flash (Recomendado - Ultra Rápido)</option>
+                    <option value="gemini-flash-latest">gemini-flash-latest (Baixa Latência)</option>
+                    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
                     <option value="gemini-2.5-pro">gemini-2.5-pro (Raciocínio Complexo)</option>
-                    <option value="gemini-3.1-flash-live-preview">gemini-3.1-flash-live-preview (Streaming Direto)</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Voz Neural (pt-BR)
+                    Barge-In (Interrupção por Voz)
                   </label>
-                  <select
-                    value={createFormData.voice}
-                    onChange={(e) =>
-                      setCreateFormData({ ...createFormData, voice: e.target.value })
-                    }
-                    className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
-                  >
-                    <option value="Zephyr">Zephyr (Profissional / Equilibrada)</option>
-                    <option value="Puck">Puck (Jovem / Dinâmica)</option>
-                    <option value="Charon">Charon (Sóbria / Institucional)</option>
-                    <option value="Aoede">Aoede (Acolhedora / Empática)</option>
-                    <option value="Kore">Kore (Calma / Cuidadosa)</option>
-                    <option value="Fenrir">Fenrir (Firme / Assertiva)</option>
-                  </select>
+                  <div className="text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-700 flex items-center justify-between">
+                    <span>Habilitado via Asterisk ARI</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  </div>
                 </div>
               </div>
 

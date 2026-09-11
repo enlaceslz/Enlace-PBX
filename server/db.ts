@@ -207,6 +207,8 @@ export interface AiAgent {
   providerId: string;
   model: string;
   voice: string;
+  voiceGender?: 'male' | 'female';
+  avatarType?: string;
   language: string;
   systemInstruction: string;
   initialGreeting: string;
@@ -975,10 +977,12 @@ Políticas de Privacidade (LGPD): Todas as chamadas são gravadas com consentime
       id: 'agent-maia-247',
       tenantId: 'tenant-enlace-matriz',
       name: 'MaIA — Atendimento & Triagem Inteligente 24/7',
-      description: 'Agente de voz principal da Enlace Telecom baseado no Google Gemini, com fluência em português brasileiro, baixa latência e barge-in nativo.',
+      description: 'Agente de voz principal da Enlace Telecom baseada no Google Gemini, com voz feminina fluida, baixa latência e barge-in nativo.',
       providerId: 'provider-gemini-live',
       model: 'gemini-3.8-flash',
       voice: 'Zephyr',
+      voiceGender: 'female',
+      avatarType: 'female_ai',
       language: 'pt-BR',
       systemInstruction: `Você é a MaIA, assistente virtual inteligente e acolhedora da Enlace Telecom, uma empresa brasileira pioneira em telefonia IP e IA.
 Seu tom de voz deve ser profissional, empático, ágil e 100% em português do Brasil.
@@ -1003,15 +1007,18 @@ Suas responsabilidades:
     {
       id: 'agent-suporte-n1',
       tenantId: 'tenant-enlace-matriz',
-      name: 'Enlace Suporte N1 — Diagnóstico de Rede',
-      description: 'Agente especializado em triagem técnica de incidentes de rede, VoIP e telefones IP.',
+      name: 'Roberto Mendes — Suporte N1 & NOC',
+      description: 'Agente técnico especialista em incidentes de rede, VoIP e telefones IP, com voz masculina encorpada, firme e acolhedora.',
       providerId: 'provider-gemini-live',
       model: 'gemini-3.8-flash',
-      voice: 'Kore',
+      voice: 'Fenrir',
+      voiceGender: 'male',
+      avatarType: 'male_tech',
       language: 'pt-BR',
-      systemInstruction: `Você é o especialista técnico automatizado da Enlace Telecom.
-Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, queda de ligação ou ramal desregistrado), orientar os primeiros passos e abrir chamado com prioridade adequada.`,
-      initialGreeting: 'Suporte técnico Enlace Telecom, sou o assistente virtual de rede. Qual instabilidade você está enfrentando no momento?',
+      systemInstruction: `Você é o Roberto Mendes, especialista técnico sênior da Enlace Telecom.
+Seu tom de voz deve ser calmo, confiante, paciente e técnico, com entonação masculina segura.
+Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, queda de ligação ou ramal desregistrado), orientar os primeiros passos de diagnóstico e abrir chamado ou transferir com prioridade adequada.`,
+      initialGreeting: 'Alô! Aqui é o Roberto do Suporte Técnico Enlace. Qual instabilidade ou problema no seu ramal ou link de rede você está enfrentando?',
       temperature: 0.2,
       tools: ['tool-consultar-cliente', 'tool-abrir-ticket', 'tool-transferir-chamada'],
       knowledgeSources: ['kb-suporte-problemas'],

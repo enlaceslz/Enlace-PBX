@@ -166,6 +166,8 @@ export interface AiAgent {
   providerId: string;
   model: string;
   voice: string;
+  voiceGender?: 'male' | 'female';
+  avatarType?: 'female_ai' | 'male_tech' | 'female_sales' | 'male_attendant' | 'female_billing' | string;
   language: string;
   systemInstruction: string;
   initialGreeting: string;
