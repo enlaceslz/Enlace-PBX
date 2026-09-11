@@ -12,8 +12,11 @@ import {
   Trash2,
   X,
   Play,
+  FileCode,
+  Sparkles,
 } from 'lucide-react';
 import { Ivr, IvrOption } from '../../types/pbx';
+import { IvrFlowEditor } from '../ivr/IvrFlowEditor';
 
 interface IvrViewProps {
   ivrs: Ivr[];
@@ -22,8 +25,20 @@ interface IvrViewProps {
 }
 
 export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefresh }) => {
+  const [viewMode, setViewMode] = useState<'flow_editor' | 'list'>('flow_editor');
+  const [selectedIvrForEditor, setSelectedIvrForEditor] = useState<Ivr | null>(ivrs[0] || null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync selected IVR if list changes
+  React.useEffect(() => {
+    if (ivrs.length > 0 && !selectedIvrForEditor) {
+      setSelectedIvrForEditor(ivrs[0]);
+    } else if (selectedIvrForEditor) {
+      const match = ivrs.find((i) => i.id === selectedIvrForEditor.id);
+      if (match) setSelectedIvrForEditor(match);
+    }
+  }, [ivrs]);
 
   const [formData, setFormData] = useState<{
     name: string;
@@ -35,7 +50,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
   }>({
     name: '',
     number: '6002',
-    audioPrompt: 'custom/ura-boas-vindas-ptbr.wav',
+    audioPrompt: 'Olá! Você ligou para a Enlace Telecom. Para Comercial digite 1. Para Suporte digite 2. Ou 9 para falar com a MaIA.',
     timeoutSeconds: 8,
     invalidRetries: 3,
     options: [
@@ -75,17 +90,40 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
     if (!formData.name || !formData.number) return;
     setIsSubmitting(true);
     try {
-      await fetch('/api/v1/ivr', {
+      const res = await fetch('/api/v1/ivr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
+      const created = await res.json();
       setIsModalOpen(false);
       if (onRefresh) onRefresh();
+      if (created) {
+        setSelectedIvrForEditor(created);
+        setViewMode('flow_editor');
+      }
     } catch (err) {
       console.error('Erro ao cadastrar URA:', err);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSaveIvr = async (updatedIvr: Ivr) => {
+    try {
+      const res = await fetch(`/api/v1/ivr/${updatedIvr.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedIvr),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setSelectedIvrForEditor(saved);
+        if (onRefresh) onRefresh();
+      }
+    } catch (err) {
+      console.error('Falha ao atualizar URA:', err);
+      throw err;
     }
   };
 
@@ -99,8 +137,11 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
     }
   };
 
+  const activeIvr = selectedIvrForEditor || ivrs[0];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -112,17 +153,43 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            Menus audíveis automáticos com captura DTMF, transbordo inteligente e roteamento para Agentes de IA.
+            Editor visual de fluxo telefônico com drag-and-drop de áudio, DTMF e encaminhamento para Agentes de IA e Filas.
           </p>
         </div>
 
         <div className="flex items-center gap-2 self-start">
+          {/* Mode Switcher */}
+          <div className="bg-slate-100 p-1 rounded-xl border border-slate-200 flex items-center gap-1">
+            <button
+              onClick={() => setViewMode('flow_editor')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                viewMode === 'flow_editor'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Editor de Fluxo Visual
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                viewMode === 'list'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Split className="w-3.5 h-3.5" />
+              Lista de URAs ({ivrs.length})
+            </button>
+          </div>
+
           <button
-            onClick={() => onOpenWebphone(ivrs[0]?.number || '6001')}
-            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition"
+            onClick={() => onOpenWebphone(activeIvr?.number || '6001')}
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition"
           >
             <Phone className="w-3.5 h-3.5 text-blue-600" />
-            Ouvir e Testar URA ({ivrs[0]?.number || '6001'})
+            Ligar ({activeIvr?.number || '6001'})
           </button>
 
           <button
@@ -135,102 +202,171 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
         </div>
       </div>
 
-      {/* IVR List */}
-      <div className="space-y-6">
-        {ivrs.length === 0 ? (
-          <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
-            Nenhuma URA configurada. Clique em "Nova URA" para criar um menu telefônico.
-          </div>
-        ) : (
-          ivrs.map((ivr) => (
-            <div
-              key={ivr.id}
-              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-5"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 font-bold font-mono text-sm">
-                    {ivr.number}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-base">{ivr.name}</h3>
-                    <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
-                      <span className="flex items-center gap-1">
-                        <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                        Áudio: <code className="text-slate-700 font-mono">{ivr.audioPrompt}</code>
-                      </span>
-                      <span>•</span>
-                      <span>Timeout: {ivr.timeoutSeconds}s</span>
-                      <span>•</span>
-                      <span>Tentativas: {ivr.invalidRetries}x</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 self-start">
-                  <button
-                    onClick={() => onOpenWebphone(ivr.number)}
-                    className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-semibold flex items-center gap-1"
-                  >
-                    <Phone className="w-3 h-3" /> Ligar
-                  </button>
-                  <button
-                    onClick={() => handleDeleteIvr(ivr.id, ivr.name)}
-                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                    title="Excluir URA"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Menu Options Flow */}
-              <div>
-                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                  Mapeamento das Teclas Numéricas (DTMF):
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {ivr.options.map((opt) => (
-                    <div
-                      key={opt.digit}
-                      className={`p-3 rounded-xl border flex items-center justify-between transition ${
-                        opt.destinationType === 'ai_agent'
-                          ? 'bg-cyan-50/80 border-cyan-200 shadow-sm'
-                          : 'bg-slate-50/60 border-slate-200 shadow-sm'
+      {/* 1. VISUAL FLOW EDITOR MODE */}
+      {viewMode === 'flow_editor' && (
+        <div>
+          {activeIvr ? (
+            <div className="space-y-2">
+              {/* If multiple IVRs, allow fast switching bar */}
+              {ivrs.length > 1 && (
+                <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 text-xs overflow-x-auto">
+                  <span className="font-semibold text-slate-500 uppercase tracking-wider text-[10px] shrink-0">
+                    URAs Disponíveis:
+                  </span>
+                  {ivrs.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setSelectedIvrForEditor(item)}
+                      className={`px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1.5 shrink-0 ${
+                        item.id === activeIvr.id
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200 font-bold'
+                          : 'text-slate-600 hover:bg-slate-100'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center font-mono font-black text-slate-900 text-sm border border-slate-200 shadow-xs">
-                          {opt.digit}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-slate-800 text-xs">{opt.label}</div>
-                          <div className="text-[10px] text-slate-500 capitalize">
-                            Destino: {opt.destinationType.replace('_', ' ')}
-                          </div>
-                        </div>
-                      </div>
+                      <span className="font-mono">{item.number}</span>
+                      <span>— {item.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
-                      <div>
-                        {opt.destinationType === 'ai_agent' ? (
-                          <span className="text-[10px] bg-cyan-100 text-cyan-800 border border-cyan-300 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
-                            <Bot className="w-3 h-3 text-cyan-600" /> Gemini
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-mono text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded shadow-xs">
-                            {opt.destinationTarget}
-                          </span>
+              <IvrFlowEditor
+                key={activeIvr.id}
+                initialIvr={activeIvr}
+                allIvrs={ivrs}
+                onSelectIvr={(ivr) => setSelectedIvrForEditor(ivr)}
+                onBackToList={() => setViewMode('list')}
+                onSaveIvr={handleSaveIvr}
+              />
+            </div>
+          ) : (
+            <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
+              Nenhuma URA configurada para abrir no editor. Clique em "Nova URA".
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. CLASSIC LIST VIEW MODE */}
+      {viewMode === 'list' && (
+        <div className="space-y-5">
+          {ivrs.length === 0 ? (
+            <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
+              Nenhuma URA configurada. Clique em "Nova URA" para criar um menu telefônico.
+            </div>
+          ) : (
+            ivrs.map((ivr) => (
+              <div
+                key={ivr.id}
+                className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-5"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 font-bold font-mono text-sm">
+                      {ivr.number}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-base">{ivr.name}</h3>
+                      <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
+                        <span className="flex items-center gap-1">
+                          <Volume2 className="w-3.5 h-3.5 text-slate-400" />
+                          Áudio: <code className="text-slate-700 font-mono">{ivr.audioPrompt}</code>
+                        </span>
+                        <span>•</span>
+                        <span>Timeout: {ivr.timeoutSeconds}s</span>
+                        <span>•</span>
+                        <span>Tentativas: {ivr.invalidRetries}x</span>
+                        {ivr.flow?.nodes && (
+                          <>
+                            <span>•</span>
+                            <span className="text-blue-600 font-medium">
+                              Fluxo Visual ({ivr.flow.nodes.length} nós)
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>
-                  ))}
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start">
+                    <button
+                      onClick={() => {
+                        setSelectedIvrForEditor(ivr);
+                        setViewMode('flow_editor');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      Abrir Editor de Fluxo
+                    </button>
+
+                    <button
+                      onClick={() => onOpenWebphone(ivr.number)}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold flex items-center gap-1 transition"
+                    >
+                      <Phone className="w-3 h-3 text-blue-600" /> Testar
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteIvr(ivr.id, ivr.name)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                      title="Excluir URA"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Menu Options Flow */}
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                    Mapeamento das Teclas Numéricas (DTMF):
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {ivr.options.map((opt) => (
+                      <div
+                        key={opt.digit}
+                        className={`p-3 rounded-xl border flex items-center justify-between transition ${
+                          opt.destinationType === 'ai_agent'
+                            ? 'bg-purple-50/80 border-purple-200 shadow-xs'
+                            : opt.destinationType === 'queue'
+                            ? 'bg-indigo-50/80 border-indigo-200 shadow-xs'
+                            : 'bg-slate-50/60 border-slate-200 shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center font-mono font-black text-slate-900 text-sm border border-slate-200 shadow-xs">
+                            {opt.digit}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-slate-800 text-xs">{opt.label}</div>
+                            <div className="text-[10px] text-slate-500 capitalize">
+                              Destino: {opt.destinationType.replace('_', ' ')}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          {opt.destinationType === 'ai_agent' ? (
+                            <span className="text-[10px] bg-purple-100 text-purple-800 border border-purple-300 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
+                              <Bot className="w-3 h-3 text-purple-600" /> MaIA (Gemini)
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-mono text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded shadow-xs">
+                              {opt.destinationTarget}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* CREATE IVR MODAL */}
       {isModalOpen && (
@@ -246,7 +382,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                     Cadastrar Novo Menu URA (IVR)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Menu audível interativo com opções DTMF integradas
+                    Cria a URA com editor visual de fluxo interativo habilitado
                   </p>
                 </div>
               </div>
@@ -270,7 +406,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    placeholder="Ex: URA Financeiro e Suporte"
+                    placeholder="Ex: URA Atendimento Filial"
                   />
                 </div>
 
@@ -284,28 +420,28 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                     value={formData.number}
                     onChange={(e) => setFormData({ ...formData, number: e.target.value })}
                     className="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    placeholder="Ex: 6002"
+                    placeholder="Ex: 6003"
                   />
                 </div>
               </div>
 
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Arquivo de Áudio / Mensagem Inicial (WAV 8kHz/16kHz)
+                  Mensagem Inicial de Boas-Vindas (Prompt de Áudio ou TTS)
                 </label>
-                <input
-                  type="text"
+                <textarea
+                  rows={3}
                   value={formData.audioPrompt}
                   onChange={(e) => setFormData({ ...formData, audioPrompt: e.target.value })}
-                  className="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  placeholder="Ex: custom/ura-boas-vindas-ptbr.wav"
+                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 leading-relaxed"
+                  placeholder="Olá! Obrigado por ligar para nossa central..."
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Tempo Limite de Resposta (Timeout)
+                    Tempo Limite (Timeout)
                   </label>
                   <div className="flex items-center gap-2">
                     <input
@@ -318,13 +454,13 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                       }
                       className="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
                     />
-                    <span className="text-xs text-slate-500 font-mono">segundos</span>
+                    <span className="text-xs text-slate-500 font-mono">seg</span>
                   </div>
                 </div>
 
                 <div>
                   <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Tentativas Inválidas (Retries)
+                    Tentativas Inválidas
                   </label>
                   <input
                     type="number"
@@ -343,7 +479,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-slate-700 block">
-                    Opções de Teclas DTMF ({formData.options.length}):
+                    Opções Iniciais DTMF ({formData.options.length}):
                   </label>
                   <button
                     type="button"
@@ -354,19 +490,18 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                   {formData.options.map((opt, idx) => (
                     <div
                       key={idx}
-                      className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center gap-2 text-xs"
+                      className="p-2 rounded-xl border border-slate-200 bg-slate-50 flex items-center gap-2 text-xs"
                     >
                       <input
                         type="text"
                         maxLength={2}
                         value={opt.digit}
                         onChange={(e) => handleUpdateOption(idx, 'digit', e.target.value)}
-                        className="w-10 text-center font-bold font-mono bg-white border border-slate-300 rounded-lg py-1 text-slate-900"
-                        title="Dígito DTMF"
+                        className="w-9 text-center font-bold font-mono bg-white border border-slate-300 rounded-lg py-1 text-slate-900"
                       />
 
                       <input
@@ -374,7 +509,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                         value={opt.label}
                         onChange={(e) => handleUpdateOption(idx, 'label', e.target.value)}
                         className="flex-1 bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-800"
-                        placeholder="Rótulo / Descrição"
+                        placeholder="Rótulo"
                       />
 
                       <select
@@ -383,8 +518,8 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                         className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-[11px]"
                       >
                         <option value="ai_agent">Agente IA (MaIA)</option>
-                        <option value="extension">Ramal</option>
                         <option value="queue">Fila ACD</option>
+                        <option value="extension">Ramal</option>
                         <option value="hangup">Desligar</option>
                       </select>
 
@@ -392,8 +527,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                         type="text"
                         value={opt.destinationTarget}
                         onChange={(e) => handleUpdateOption(idx, 'destinationTarget', e.target.value)}
-                        className="w-24 font-mono bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-800"
-                        placeholder="Alvo (4101/agent)"
+                        className="w-20 font-mono bg-white border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-[11px]"
                       />
 
                       <button
@@ -421,8 +555,8 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                   disabled={isSubmitting}
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  <Volume2 className="w-3.5 h-3.5" />
-                  {isSubmitting ? 'Salvando...' : 'Salvar Menu URA'}
+                  <Layers className="w-3.5 h-3.5" />
+                  {isSubmitting ? 'Criando...' : 'Criar e Abrir Fluxo Visual'}
                 </button>
               </div>
             </form>
@@ -432,4 +566,5 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
     </div>
   );
 };
+
 

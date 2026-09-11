@@ -1079,9 +1079,79 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     db.ivrs.push(ivr);
     res.status(201).json(ivr);
   });
+  app.put('/api/v1/ivr/:id', (req, res) => {
+    const index = db.ivrs.findIndex((i) => i.id === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ error: 'URA não encontrada' });
+    }
+    db.ivrs[index] = { ...db.ivrs[index], ...req.body, id: req.params.id };
+    res.json(db.ivrs[index]);
+  });
   app.delete('/api/v1/ivr/:id', (req, res) => {
     db.ivrs = db.ivrs.filter((i) => i.id !== req.params.id);
     res.json({ success: true });
+  });
+
+  // Exportador de Dialplan Asterisk (extensions.conf) para a URA
+  app.get('/api/v1/ivr/:id/dialplan', (req, res) => {
+    const ivr = db.ivrs.find((i) => i.id === req.params.id);
+    if (!ivr) {
+      return res.status(404).json({ error: 'URA não encontrada' });
+    }
+
+    const contextName = `ivr-${ivr.number}`;
+    let dialplan = `; ==========================================================================\n`;
+    dialplan += `; Asterisk 20 PBX - Gerado Automaticamente pelo Editor Visual de URA\n`;
+    dialplan += `; URA: ${ivr.name} (${ivr.number})\n`;
+    dialplan += `; Contexto: [${contextName}]\n`;
+    dialplan += `; ==========================================================================\n\n`;
+    dialplan += `[${contextName}]\n`;
+    dialplan += `exten => s,1,NoOp(==> URA [${ivr.name}] iniciada por \${CALLERID(all)} <==)\n`;
+    dialplan += ` same => n,Answer()\n`;
+    dialplan += ` same => n,Wait(1)\n`;
+    dialplan += ` same => n,Set(TIMEOUT(digit)=3)\n`;
+    dialplan += ` same => n,Set(TIMEOUT(response)=${ivr.timeoutSeconds || 8})\n`;
+    dialplan += ` same => n(menu),Background(${ivr.audioPrompt ? (ivr.audioPrompt.endsWith('.wav') ? ivr.audioPrompt.replace('.wav', '') : 'custom/ura-prompt') : 'custom/ura-prompt'})\n`;
+    dialplan += ` same => n,WaitExten(${ivr.timeoutSeconds || 8})\n\n`;
+
+    if (ivr.options && ivr.options.length > 0) {
+      ivr.options.forEach((opt) => {
+        dialplan += `; Opção ${opt.digit}: ${opt.label}\n`;
+        dialplan += `exten => ${opt.digit},1,NoOp(==> URA [${ivr.name}]: Digitado [${opt.digit}] - ${opt.label} <==)\n`;
+        if (opt.destinationType === 'ai_agent') {
+          dialplan += ` same => n,Set(AI_AGENT_ID=${opt.destinationTarget})\n`;
+          dialplan += ` same => n,Stasis(MaiaVoiceApp,${opt.destinationTarget})\n`;
+          dialplan += ` same => n,Hangup()\n\n`;
+        } else if (opt.destinationType === 'queue') {
+          dialplan += ` same => n,Queue(${opt.destinationTarget},tT,,,120)\n`;
+          dialplan += ` same => n,Hangup()\n\n`;
+        } else if (opt.destinationType === 'extension') {
+          dialplan += ` same => n,Dial(PJSIP/${opt.destinationTarget},30,tT)\n`;
+          dialplan += ` same => n,Hangup()\n\n`;
+        } else if (opt.destinationType === 'hangup') {
+          dialplan += ` same => n,Playback(vm-goodbye)\n`;
+          dialplan += ` same => n,Hangup()\n\n`;
+        } else {
+          dialplan += ` same => n,Goto(from-internal,${opt.destinationTarget},1)\n\n`;
+        }
+      });
+    }
+
+    dialplan += `; Tratamento de Timeout e Entrada Invalida\n`;
+    dialplan += `exten => t,1,NoOp(==> URA [${ivr.name}]: Tempo limite esgotado <==)\n`;
+    dialplan += ` same => n,Playback(pbx-invalid)\n`;
+    dialplan += ` same => n,Goto(s,menu)\n\n`;
+    dialplan += `exten => i,1,NoOp(==> URA [${ivr.name}]: Opção invalida digitada <==)\n`;
+    dialplan += ` same => n,Playback(pbx-invalid)\n`;
+    dialplan += ` same => n,Goto(s,menu)\n`;
+
+    res.json({
+      ivrId: ivr.id,
+      name: ivr.name,
+      number: ivr.number,
+      context: contextName,
+      dialplan,
+    });
   });
 
   // -------------------------------------------------------------------------

@@ -379,87 +379,89 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
         </button>
       </div>
 
-      {/* AI Insights Dashboard */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        
-        {/* KPI: Resolution Rate */}
-        <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 relative overflow-hidden flex flex-col justify-between">
-          <div className="absolute right-0 top-0 w-32 h-32 bg-blue-50 rounded-bl-full -mr-4 -mt-4 z-0" />
-          <div className="relative z-10 flex flex-col h-full justify-between">
+      {/* AI Insights Dashboard - Only visible in Transcriptions tab as requested */}
+      {activeTab === 'transcriptions' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          
+          {/* KPI: Resolution Rate */}
+          <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 relative overflow-hidden flex flex-col justify-between">
+            <div className="absolute right-0 top-0 w-32 h-32 bg-blue-50 rounded-bl-full -mr-4 -mt-4 z-0" />
+            <div className="relative z-10 flex flex-col h-full justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+                  <Sparkles className="w-4 h-4 text-blue-500" /> Containment (IA)
+                </span>
+                <p className="text-[10px] text-slate-400 font-medium">Resoluções sem transbordo humano</p>
+              </div>
+              <div className="mt-4 flex items-baseline gap-2">
+                <span className="text-5xl font-black text-slate-800 tracking-tighter">{stats.aiContainmentRate}%</span>
+              </div>
+            </div>
+          </div>
+  
+          {/* KPI: Call Volume */}
+          <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
             <div>
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-                <Sparkles className="w-4 h-4 text-blue-500" /> Containment (IA)
+                <FileText className="w-4 h-4 text-emerald-500" /> Volume CDR
               </span>
-              <p className="text-[10px] text-slate-400 font-medium">Resoluções sem transbordo humano</p>
+              <p className="text-[10px] text-slate-400 font-medium">Bilhetes e logs na base de dados</p>
             </div>
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-5xl font-black text-slate-800 tracking-tighter">{stats.aiContainmentRate}%</span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI: Call Volume */}
-        <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
-          <div>
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-              <FileText className="w-4 h-4 text-emerald-500" /> Volume CDR
-            </span>
-            <p className="text-[10px] text-slate-400 font-medium">Bilhetes e logs na base de dados</p>
-          </div>
-          <div className="mt-4 flex flex-col">
-            <span className="text-4xl font-black text-slate-800">{stats.total}</span>
-            <span className="text-xs text-emerald-600 font-bold mt-1 bg-emerald-50 self-start px-2 py-0.5 rounded">
-              {stats.answerRate}% taxa de atendimento
-            </span>
-          </div>
-        </div>
-
-        {/* Chart: Sentiment */}
-        <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-6">
-          <div className="flex-1">
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <PieChartIcon className="w-4 h-4 text-purple-500" /> Análise Semântica
-            </div>
-            <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-xs mb-4">
-              Mapeamento de humor e tom de voz gerado pelo LLM ao analisar a transcrição das chamadas (Voz e WABA).
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-               {sentimentData.map((s, i) => (
-                 <div key={i} className="text-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                   <div className="text-lg font-black" style={{ color: s.color }}>{s.value}</div>
-                   <div className="text-[9px] uppercase tracking-wider font-bold text-slate-500">{s.name}</div>
-                 </div>
-               ))}
+            <div className="mt-4 flex flex-col">
+              <span className="text-4xl font-black text-slate-800">{stats.total}</span>
+              <span className="text-xs text-emerald-600 font-bold mt-1 bg-emerald-50 self-start px-2 py-0.5 rounded">
+                {stats.answerRate}% taxa de atendimento
+              </span>
             </div>
           </div>
-          <div className="w-36 h-36 relative">
-            {sentimentData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={sentimentData}
-                    cx="50%" cy="50%" innerRadius={40} outerRadius={65}
-                    paddingAngle={3} dataKey="value" stroke="none"
-                  >
-                    {sentimentData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip 
-                    contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', padding: '8px 12px' }}
-                    itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center w-full h-full bg-slate-50 rounded-full border border-slate-100">
-                <span className="text-[10px] text-slate-400 font-bold uppercase">Sem Dados</span>
+  
+          {/* Chart: Sentiment */}
+          <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-6">
+            <div className="flex-1">
+              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <PieChartIcon className="w-4 h-4 text-purple-500" /> Análise Semântica
               </div>
-            )}
+              <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-xs mb-4">
+                Distribuição de sentimentos analisados pelo Gemini em tempo real durante as conversas (Voz e WABA).
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                 {sentimentData.map((s, i) => (
+                   <div key={i} className="text-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                     <div className="text-lg font-black" style={{ color: s.color }}>{s.value}</div>
+                     <div className="text-[9px] uppercase tracking-wider font-bold text-slate-500">{s.name}</div>
+                   </div>
+                 ))}
+              </div>
+            </div>
+            <div className="w-36 h-36 relative">
+              {sentimentData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={sentimentData}
+                      cx="50%" cy="50%" innerRadius={40} outerRadius={65}
+                      paddingAngle={3} dataKey="value" stroke="none"
+                    >
+                      {sentimentData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip 
+                      contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', padding: '8px 12px' }}
+                      itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center w-full h-full bg-slate-50 rounded-full border border-slate-100">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">Sem Dados</span>
+                </div>
+              )}
+            </div>
           </div>
+  
         </div>
-
-      </div>
+      )}
 
       {/* Enhanced Filters Bar */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">

@@ -110,6 +110,75 @@ export interface IvrOption {
   destinationTarget: string;
 }
 
+export type IvrFlowNodeType =
+  | 'start'
+  | 'audio'
+  | 'dtmf'
+  | 'ai_agent'
+  | 'queue'
+  | 'extension'
+  | 'time_condition'
+  | 'hangup';
+
+export interface IvrFlowNode {
+  id: string;
+  type: IvrFlowNodeType;
+  title: string;
+  position: { x: number; y: number };
+  data: {
+    // Audio / TTS
+    audioSource?: 'tts' | 'file' | 'library';
+    audioText?: string;
+    audioFile?: string;
+    voiceName?: string;
+    allowInterrupt?: boolean; // Barge-in
+
+    // DTMF Input
+    digits?: Array<{ digit: string; label: string }>;
+    timeoutSeconds?: number;
+    invalidRetries?: number;
+    repeatAudioOnInvalid?: boolean;
+
+    // AI Agent Destination
+    aiAgentId?: string;
+    aiAgentName?: string;
+    aiPromptContext?: string;
+    aiVoiceModel?: string;
+
+    // Queue Destination
+    queueId?: string;
+    queueName?: string;
+    queueStrategy?: string;
+
+    // Extension Destination
+    extensionNumber?: string;
+    extensionName?: string;
+
+    // Time Condition
+    timeCondition?: {
+      openTime: string;
+      closeTime: string;
+      daysOfWeek: number[]; // 1 = Seg, 5 = Sex
+    };
+
+    // Hangup
+    hangupCause?: 'normal' | 'busy' | 'rejected' | 'timeout';
+    farewellAudio?: string;
+  };
+}
+
+export interface IvrFlowConnection {
+  id: string;
+  fromNodeId: string;
+  fromPort: string; // 'out' | '1' | '2' | '3' | '9' | '0' | 'timeout' | 'invalid' | 'open' | 'closed'
+  toNodeId: string;
+}
+
+export interface IvrVisualFlow {
+  nodes: IvrFlowNode[];
+  connections: IvrFlowConnection[];
+}
+
 export interface Ivr {
   id: string;
   tenantId: string;
@@ -119,6 +188,7 @@ export interface Ivr {
   timeoutSeconds: number;
   invalidRetries: number;
   options: IvrOption[];
+  flow?: IvrVisualFlow;
 }
 
 export interface AiProvider {

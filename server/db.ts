@@ -151,6 +151,62 @@ export interface IvrOption {
   destinationTarget: string;
 }
 
+export type IvrFlowNodeType =
+  | 'start'
+  | 'audio'
+  | 'dtmf'
+  | 'ai_agent'
+  | 'queue'
+  | 'extension'
+  | 'time_condition'
+  | 'hangup';
+
+export interface IvrFlowNode {
+  id: string;
+  type: IvrFlowNodeType;
+  title: string;
+  position: { x: number; y: number };
+  data: {
+    audioSource?: 'tts' | 'file' | 'library';
+    audioText?: string;
+    audioFile?: string;
+    voiceName?: string;
+    allowInterrupt?: boolean;
+    digits?: Array<{ digit: string; label: string }>;
+    timeoutSeconds?: number;
+    invalidRetries?: number;
+    repeatAudioOnInvalid?: boolean;
+    aiAgentId?: string;
+    aiAgentName?: string;
+    aiPromptContext?: string;
+    aiVoiceModel?: string;
+    queueId?: string;
+    queueName?: string;
+    queueStrategy?: string;
+    extensionNumber?: string;
+    extensionName?: string;
+    timeCondition?: {
+      openTime: string;
+      closeTime: string;
+      daysOfWeek: number[];
+    };
+    hangupCause?: 'normal' | 'busy' | 'rejected' | 'timeout';
+    farewellAudio?: string;
+  };
+}
+
+export interface IvrFlowConnection {
+  id: string;
+  fromNodeId: string;
+  fromPort: string;
+  toNodeId: string;
+}
+
+export interface IvrVisualFlow {
+  nodes: IvrFlowNode[];
+  connections: IvrFlowConnection[];
+}
+
 export interface Ivr {
   id: string;
   tenantId: string;
@@ -160,6 +216,7 @@ export interface Ivr {
   timeoutSeconds: number;
   invalidRetries: number;
   options: IvrOption[];
+  flow?: IvrVisualFlow;
 }
 
 export interface AiProvider {
@@ -850,6 +907,147 @@ export class Database {
         { digit: '9', label: 'Falar com Agente IA MaIA', destinationType: 'ai_agent', destinationTarget: 'agent-maia-247' },
         { digit: '0', label: 'Operador Humano (Carlos)', destinationType: 'extension', destinationTarget: '4101' },
       ],
+      flow: {
+        nodes: [
+          {
+            id: 'node-start',
+            type: 'start',
+            title: 'Entrada da Chamada (DID 6001)',
+            position: { x: 40, y: 160 },
+            data: {},
+          },
+          {
+            id: 'node-time',
+            type: 'time_condition',
+            title: 'Expediente (08:00 - 18:00)',
+            position: { x: 300, y: 160 },
+            data: {
+              timeCondition: {
+                openTime: '08:00',
+                closeTime: '18:00',
+                daysOfWeek: [1, 2, 3, 4, 5],
+              },
+            },
+          },
+          {
+            id: 'node-audio-welcome',
+            type: 'audio',
+            title: 'Mensagem de Boas-Vindas',
+            position: { x: 580, y: 110 },
+            data: {
+              audioSource: 'tts',
+              audioText: 'Olá! Bem-vindo à Enlace Telecom. Para Comercial digite 1, Suporte 2, Financeiro 3, ou digite 9 para falar com nossa IA MaIA.',
+              voiceName: 'pt-BR-FranciscaNeural',
+              allowInterrupt: true,
+            },
+          },
+          {
+            id: 'node-dtmf-menu',
+            type: 'dtmf',
+            title: 'Menu de Dígitos DTMF',
+            position: { x: 890, y: 110 },
+            data: {
+              digits: [
+                { digit: '1', label: 'Comercial' },
+                { digit: '2', label: 'Suporte Técnico' },
+                { digit: '3', label: 'Financeiro' },
+                { digit: '9', label: 'Atendente IA MaIA' },
+                { digit: '0', label: 'Operador Humano' },
+              ],
+              timeoutSeconds: 8,
+              invalidRetries: 3,
+              repeatAudioOnInvalid: true,
+            },
+          },
+          {
+            id: 'node-ext-comercial',
+            type: 'extension',
+            title: 'Ramal 4103 (Comercial)',
+            position: { x: 1240, y: 20 },
+            data: {
+              extensionNumber: '4103',
+              extensionName: 'Mariana Costa (Comercial)',
+            },
+          },
+          {
+            id: 'node-queue-suporte',
+            type: 'queue',
+            title: 'Fila 5001 (Suporte N1)',
+            position: { x: 1240, y: 120 },
+            data: {
+              queueId: 'queue-suporte-n1',
+              queueName: 'Fila Suporte N1 (Asterisk ACD)',
+              queueStrategy: 'rrmemory',
+            },
+          },
+          {
+            id: 'node-queue-financeiro',
+            type: 'queue',
+            title: 'Fila 5002 (Financeiro)',
+            position: { x: 1240, y: 220 },
+            data: {
+              queueId: 'queue-financeiro',
+              queueName: 'Fila Financeiro & Faturamento',
+              queueStrategy: 'leastrecent',
+            },
+          },
+          {
+            id: 'node-ai-maia',
+            type: 'ai_agent',
+            title: 'MaIA (Atendente Virtual IA)',
+            position: { x: 1240, y: 320 },
+            data: {
+              aiAgentId: 'agent-maia-247',
+              aiAgentName: 'MaIA — Atendimento & Triagem 24/7',
+              aiVoiceModel: 'gemini-flash-latest / Zephyr',
+              aiPromptContext: 'Atendimento inicial de clientes, consulta de planos e status de conexão fibra óptica.',
+            },
+          },
+          {
+            id: 'node-ext-operador',
+            type: 'extension',
+            title: 'Ramal 4101 (Operador Carlos)',
+            position: { x: 1240, y: 420 },
+            data: {
+              extensionNumber: '4101',
+              extensionName: 'Carlos Silva (Operador Central)',
+            },
+          },
+          {
+            id: 'node-audio-closed',
+            type: 'audio',
+            title: 'Aviso Fora do Expediente',
+            position: { x: 580, y: 370 },
+            data: {
+              audioSource: 'tts',
+              audioText: 'Nosso horário de atendimento é de segunda a sexta, das 8h às 18h. Para urgências, utilize nosso aplicativo ou WhatsApp.',
+              voiceName: 'pt-BR-FranciscaNeural',
+              allowInterrupt: false,
+            },
+          },
+          {
+            id: 'node-hangup-closed',
+            type: 'hangup',
+            title: 'Desligar Chamada',
+            position: { x: 890, y: 370 },
+            data: {
+              hangupCause: 'normal',
+            },
+          },
+        ],
+        connections: [
+          { id: 'conn-1', fromNodeId: 'node-start', fromPort: 'out', toNodeId: 'node-time' },
+          { id: 'conn-2', fromNodeId: 'node-time', fromPort: 'open', toNodeId: 'node-audio-welcome' },
+          { id: 'conn-3', fromNodeId: 'node-time', fromPort: 'closed', toNodeId: 'node-audio-closed' },
+          { id: 'conn-4', fromNodeId: 'node-audio-welcome', fromPort: 'out', toNodeId: 'node-dtmf-menu' },
+          { id: 'conn-5', fromNodeId: 'node-dtmf-menu', fromPort: '1', toNodeId: 'node-ext-comercial' },
+          { id: 'conn-6', fromNodeId: 'node-dtmf-menu', fromPort: '2', toNodeId: 'node-queue-suporte' },
+          { id: 'conn-7', fromNodeId: 'node-dtmf-menu', fromPort: '3', toNodeId: 'node-queue-financeiro' },
+          { id: 'conn-8', fromNodeId: 'node-dtmf-menu', fromPort: '9', toNodeId: 'node-ai-maia' },
+          { id: 'conn-9', fromNodeId: 'node-dtmf-menu', fromPort: '0', toNodeId: 'node-ext-operador' },
+          { id: 'conn-10', fromNodeId: 'node-audio-closed', fromPort: 'out', toNodeId: 'node-hangup-closed' },
+        ],
+      },
     },
   ];
 
