@@ -14,6 +14,7 @@ interface HelpManualViewProps {
 
 type ChapterId = 
   | 'intro'
+  | 'deploy_guide'
   | 'infra_ssl'
   | 'pjsip_webrtc'
   | 'routing_trunks'
@@ -39,6 +40,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
 
   const topics: DocTopic[] = [
     { id: 'intro', label: 'Introdução & Arquitetura', icon: BookOpen, description: 'Visão geral do Enlace-PBX e fluxo Asterisk 20 + IA' },
+    { id: 'deploy_guide', label: 'Procedimentos de Deploy & Linux', badge: 'Produção', icon: Server, description: 'Script deploy.sh, Asterisk 20, NGINX SSL, PM2 e Firewall UFW' },
     { id: 'infra_ssl', label: 'Host, Domínio, Rede & SSL', badge: 'Novo', icon: Globe, description: 'Configuração de IP WAN/LAN, NAT Traversal e Certificados HTTPS' },
     { id: 'pjsip_webrtc', label: 'Ramais PJSIP & Webphone', icon: Phone, description: 'Endpoints, transportes TLS/WSS, WebRTC e softphones' },
     { id: 'routing_trunks', label: 'Rotas, Troncos SIP & DIDs', icon: Network, description: 'Planos de discagem, operadoras VoIP e rotas de entrada/saída' },
@@ -264,7 +266,213 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
             </div>
           )}
 
-          {/* 2. INFRAESTRUTURA, REDE & SSL */}
+          {/* 2. DEPLOY & PRODUÇÃO LINUX */}
+          {activeTopic === 'deploy_guide' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                  <div>
+                    <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-[10px] font-black uppercase tracking-wider mb-2 inline-block">
+                      Guia Oficial de Instalação Linux
+                    </span>
+                    <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                      <Server className="w-6 h-6 text-blue-600" /> Procedimentos de Deploy & Instalação em Produção
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('asterisk_installer')}
+                        className="text-xs font-bold text-slate-700 hover:text-blue-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1.5 transition"
+                      >
+                        <Terminal className="w-3.5 h-3.5" /> Instalador Asterisk
+                      </button>
+                    )}
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('infra_settings')}
+                        className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 flex items-center gap-1.5 transition"
+                      >
+                        Host, Rede & SSL <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-xs font-medium text-slate-500 mb-6 leading-relaxed">
+                  O Enlace-PBX Enterprise foi concebido para rodar como uma pilha de telecomunicações corporativa de alta disponibilidade sobre distribuições Linux <strong>Debian 12 (Bookworm)</strong> ou <strong>Ubuntu Server 22.04/24.04 LTS</strong>.
+                </p>
+
+                {/* Bloco de Execução Rápida do Script de Deploy */}
+                <div className="p-6 bg-slate-900 text-white rounded-2xl mb-8 border border-slate-800 shadow-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-5 h-5 text-emerald-400" />
+                      <span className="text-sm font-bold font-mono">Deploy Automatizado Tudo-em-Um (deploy.sh)</span>
+                    </div>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30 font-bold">
+                      Recomendado
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mb-4 leading-relaxed">
+                    O script <code className="text-emerald-300 font-mono">deploy.sh</code> instala o Node.js 20, compila o frontend e backend, provisiona opcionalmente o Asterisk 20 com Opus e WebRTC DTLS-SRTP, configura o NGINX com proxy WebSocket, emite o certificado SSL Let's Encrypt e sobe o serviço no PM2:
+                  </p>
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-between font-mono text-xs text-emerald-400">
+                    <code>git clone https://github.com/enlace-telecom/enlace-pbx.git /opt/enlace-pbx && cd /opt/enlace-pbx && chmod +x deploy.sh && sudo ./deploy.sh</code>
+                    <button
+                      onClick={() => handleCopy('git clone https://github.com/enlace-telecom/enlace-pbx.git /opt/enlace-pbx && cd /opt/enlace-pbx && chmod +x deploy.sh && sudo ./deploy.sh', 'deploy_cmd')}
+                      className="ml-4 p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition shrink-0"
+                      title="Copiar comando"
+                    >
+                      {copiedKey === 'deploy_cmd' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Requisitos de Hardware & Rede */}
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-blue-600" /> Requisitos de Servidor & Topologia de Rede
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">PROCESSADOR (CPU)</span>
+                    <span className="text-sm font-bold text-slate-900 block mt-1">2 a 4 vCPUs</span>
+                    <p className="text-[10px] text-slate-500 mt-1">Essencial para codecs Opus 48kHz e compilação em paralelo.</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">MEMÓRIA RAM</span>
+                    <span className="text-sm font-bold text-slate-900 block mt-1">4 GB RAM</span>
+                    <p className="text-[10px] text-slate-500 mt-1">Garante buffer de áudio do AudioSocket e instâncias do Node/PM2.</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">DISCO (ARMAZENAMENTO)</span>
+                    <span className="text-sm font-bold text-slate-900 block mt-1">25 GB+ SSD NVMe</span>
+                    <p className="text-[10px] text-slate-500 mt-1">Gravações WAV em <code>/var/spool/asterisk/recording</code>.</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">ENDEREÇO IP & DNS</span>
+                    <span className="text-sm font-bold text-slate-900 block mt-1">1 IPv4 Público Fixo</span>
+                    <p className="text-[10px] text-slate-500 mt-1">Apontamento <code>A</code> no DNS para emissão automática do SSL.</p>
+                  </div>
+                </div>
+
+                {/* Matriz de Portas do Firewall */}
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" /> Matriz de Portas Obrigatórias no Firewall (UFW / Edge)
+                </h3>
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl mb-8">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase text-[10px]">
+                      <tr>
+                        <th className="py-2.5 px-4">Porta</th>
+                        <th className="py-2.5 px-4">Protocolo</th>
+                        <th className="py-2.5 px-4">Serviço / Aplicação</th>
+                        <th className="py-2.5 px-4">Finalidade Técnica</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      <tr>
+                        <td className="py-2 px-4 font-mono font-bold text-slate-800">22</td>
+                        <td className="py-2 px-4 font-mono text-blue-600">TCP</td>
+                        <td className="py-2 px-4 font-bold text-slate-700">SSH</td>
+                        <td className="py-2 px-4 text-slate-500">Acesso administrativo remoto ao servidor Linux</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-4 font-mono font-bold text-slate-800">80</td>
+                        <td className="py-2 px-4 font-mono text-blue-600">TCP</td>
+                        <td className="py-2 px-4 font-bold text-slate-700">HTTP / ACME</td>
+                        <td className="py-2 px-4 text-slate-500">Validação de desafios Let's Encrypt (Certbot HTTP-01)</td>
+                      </tr>
+                      <tr className="bg-emerald-50/50">
+                        <td className="py-2 px-4 font-mono font-bold text-emerald-700">443</td>
+                        <td className="py-2 px-4 font-mono text-blue-600">TCP</td>
+                        <td className="py-2 px-4 font-bold text-emerald-800">HTTPS (NGINX)</td>
+                        <td className="py-2 px-4 text-slate-600 font-medium">Dashboard Web, PWA, Webphone e Webhooks WhatsApp Cloud</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-4 font-mono font-bold text-slate-800">5060</td>
+                        <td className="py-2 px-4 font-mono text-purple-600">UDP</td>
+                        <td className="py-2 px-4 font-bold text-slate-700">PJSIP SIP</td>
+                        <td className="py-2 px-4 text-slate-500">Sinalização padrão para Softphones e Troncos de Operadoras VoIP</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-4 font-mono font-bold text-slate-800">5061</td>
+                        <td className="py-2 px-4 font-mono text-blue-600">TCP</td>
+                        <td className="py-2 px-4 font-bold text-slate-700">PJSIP TLS</td>
+                        <td className="py-2 px-4 text-slate-500">Sinalização SIP criptografada com certificado TLS</td>
+                      </tr>
+                      <tr className="bg-blue-50/50">
+                        <td className="py-2 px-4 font-mono font-bold text-blue-700">8089</td>
+                        <td className="py-2 px-4 font-mono text-blue-600">TCP</td>
+                        <td className="py-2 px-4 font-bold text-blue-800">WebRTC WSS</td>
+                        <td className="py-2 px-4 text-slate-600 font-medium">WebSocket seguro direto do Asterisk para o Webphone WebRTC</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-4 font-mono font-bold text-slate-800">10000-20000</td>
+                        <td className="py-2 px-4 font-mono text-purple-600">UDP</td>
+                        <td className="py-2 px-4 font-bold text-slate-700">RTP Pool</td>
+                        <td className="py-2 px-4 text-slate-500">Fluxos bidirecionais de áudio de voz (G.711u/a, Opus)</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-4 font-mono font-bold text-slate-800">51820</td>
+                        <td className="py-2 px-4 font-mono text-purple-600">UDP</td>
+                        <td className="py-2 px-4 font-bold text-slate-700">WireGuard</td>
+                        <td className="py-2 px-4 text-slate-500">Túneis seguros de VPN para conectar filiais sem expor portas SIP</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Comandos de Gestão Operacional */}
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-blue-600" /> Guia de Comandos Operacionais Pós-Deploy
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                    <span className="text-xs font-bold text-slate-800 block">Aplicação Web & Backend (PM2)</span>
+                    <div className="bg-slate-900 text-slate-200 p-3 rounded-xl font-mono text-xs space-y-1">
+                      <div>pm2 status</div>
+                      <div>pm2 logs enlace-pbx</div>
+                      <div>pm2 restart enlace-pbx</div>
+                      <div>pm2 stop enlace-pbx</div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                    <span className="text-xs font-bold text-slate-800 block">Núcleo Asterisk 20 LTS (CLI)</span>
+                    <div className="bg-slate-900 text-slate-200 p-3 rounded-xl font-mono text-xs space-y-1">
+                      <div>asterisk -rvvvv</div>
+                      <div>asterisk -rx "core show channels"</div>
+                      <div>asterisk -rx "pjsip show endpoints"</div>
+                      <div>asterisk -rx "core reload"</div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                    <span className="text-xs font-bold text-slate-800 block">Servidor Web NGINX & SSL</span>
+                    <div className="bg-slate-900 text-slate-200 p-3 rounded-xl font-mono text-xs space-y-1">
+                      <div>nginx -t</div>
+                      <div>systemctl reload nginx</div>
+                      <div>certbot renew --dry-run</div>
+                      <div>systemctl status nginx</div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                    <span className="text-xs font-bold text-slate-800 block">Segurança & Firewall UFW</span>
+                    <div className="bg-slate-900 text-slate-200 p-3 rounded-xl font-mono text-xs space-y-1">
+                      <div>ufw status verbose</div>
+                      <div>fail2ban-client status</div>
+                      <div>fail2ban-client status asterisk</div>
+                      <div>wg show</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 3. INFRAESTRUTURA, REDE & SSL */}
           {activeTopic === 'infra_ssl' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">

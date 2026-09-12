@@ -498,7 +498,7 @@ apt-get install -y \\
     build-essential wget curl git subversion pkg-config \\
     libxml2-dev libncurses5-dev uuid-dev libjansson-dev libssl-dev \\
     libsqlite3-dev libedit-dev libcurl4-openssl-dev libspeexdsp-dev \\
-    libogg-dev libvorbis-dev libopus-dev libsndfile1-dev libneon27-dev \\
+    libogg-dev libvorbis-dev libopus-dev libsrtp2-dev libsndfile1-dev libneon27-dev \\
     libnewt-dev libtool autoconf automake postgresql-client ca-certificates
 
 echo "[2/7] Baixando código-fonte oficial do Asterisk \${ASTERISK_VERSION}..."
@@ -512,14 +512,16 @@ cd "asterisk-\${ASTERISK_VERSION}"
 echo "[3/7] Instalando pré-requisitos adicionais..."
 contrib/scripts/install_prereq install
 
-echo "[4/7] Configurando compilação com suporte a PJSIP, ARI, WebRTC e AudioSocket..."
-./configure --with-jansson --with-ssl --with-opus --with-pjproject-bundled
+echo "[4/7] Configurando compilação com suporte a PJSIP, ARI, WebRTC DTLS-SRTP e AudioSocket..."
+./configure --with-jansson --with-ssl --with-opus --with-srtp --with-pjproject-bundled
 
 make menuselect.makeopts
 menuselect/menuselect \\
     --enable res_pjsip \\
     --enable res_pjsip_transport_websocket \\
     --enable res_http_websocket \\
+    --enable res_srtp \\
+    --enable res_crypto \\
     --enable res_ari \\
     --enable res_ari_channels \\
     --enable res_ari_bridges \\
