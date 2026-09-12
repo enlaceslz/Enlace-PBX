@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "Enlace-PBX Enterprise",
+  "short_name": "Enlace-PBX",
+  "description": "Plataforma corporativa brasileira de telefonia Asterisk 20 PJSIP, Webphone WebRTC, Agente de Voz Gemini e WhatsApp Cloud API.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#2563eb",
+  "background_color": "#0f172a",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/logo-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

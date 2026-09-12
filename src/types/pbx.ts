@@ -627,5 +627,81 @@ export interface SystemLogStats {
   lastTimestamp: string;
 }
 
+// ---------------------------------------------------------------------------
+// Infraestrutura, Domínio, IP LAN/WAN & Certificado SSL
+// ---------------------------------------------------------------------------
+
+export interface InfraConfig {
+  hostname: string;
+  publicIp: string;
+  domain: string;
+  lanIp: string;
+  lanSubnet: string;
+  lanGateway: string;
+  lanInterface: string;
+  natMode: 'auto' | 'force_rport' | 'static_ip' | 'stun';
+  stunServer: string;
+  ports: {
+    sipUdp: number;
+    sipTls: number;
+    webrtcWss: number;
+    http: number;
+    https: number;
+    rtpRange: string;
+    ariPort: number;
+    amiPort: number;
+  };
+  sslCertificate: {
+    provider: 'letsencrypt' | 'zerossl' | 'custom';
+    status: 'valid' | 'expiring_soon' | 'expired' | 'invalid' | 'not_configured';
+    issuedTo: string;
+    issuer: string;
+    validFrom: string;
+    validTo: string;
+    daysRemaining: number;
+    autoRenew: boolean;
+    renewBeforeDays: number;
+    san: string[];
+    keyType: string;
+    fingerprintSha256: string;
+    certPath: string;
+    keyPath: string;
+    challengeType: 'http-01' | 'dns-01';
+    adminEmail: string;
+  };
+  validationWebphone: {
+    status: 'passed' | 'warning' | 'failed' | 'untested';
+    httpsEnabled: boolean;
+    wssPortAccessible: boolean;
+    webrtcDtlsSrtp: boolean;
+    mediaMicrophonePermission: 'granted' | 'prompt' | 'denied';
+    stunConfigured: boolean;
+    lastTested: string;
+    details: string;
+  };
+  validationPwa: {
+    status: 'passed' | 'warning' | 'failed' | 'untested';
+    httpsSecured: boolean;
+    serviceWorkerRegistered: boolean;
+    manifestValid: boolean;
+    pushVapidConfigured: boolean;
+    vapidPublicKey: string;
+    vapidSubject: string;
+    lastTested: string;
+    details: string;
+  };
+  validationWhatsapp: {
+    status: 'passed' | 'warning' | 'failed' | 'untested';
+    httpsVerified: boolean;
+    publicCertTrusted: boolean;
+    webhookEndpoint: string;
+    verifyToken: string;
+    port443Standard: boolean;
+    lastTested: string;
+    details: string;
+  };
+  updatedAt: string;
+}
+
 
 

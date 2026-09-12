@@ -2123,6 +2123,151 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       autoSyncIptables: true,
     },
   };
+
+  // -------------------------------------------------------------------------
+  // Configuração de Infraestrutura, Domínio, IP LAN/WAN e Certificados SSL/TLS
+  // -------------------------------------------------------------------------
+  infraConfig: {
+    hostname: string;
+    publicIp: string;
+    domain: string;
+    lanIp: string;
+    lanSubnet: string;
+    lanGateway: string;
+    lanInterface: string;
+    natMode: 'auto' | 'force_rport' | 'static_ip' | 'stun';
+    stunServer: string;
+    ports: {
+      sipUdp: number;
+      sipTls: number;
+      webrtcWss: number;
+      http: number;
+      https: number;
+      rtpRange: string;
+      ariPort: number;
+      amiPort: number;
+    };
+    sslCertificate: {
+      provider: 'letsencrypt' | 'zerossl' | 'custom';
+      status: 'valid' | 'expiring_soon' | 'expired' | 'invalid' | 'not_configured';
+      issuedTo: string;
+      issuer: string;
+      validFrom: string;
+      validTo: string;
+      daysRemaining: number;
+      autoRenew: boolean;
+      renewBeforeDays: number;
+      san: string[];
+      keyType: string;
+      fingerprintSha256: string;
+      certPath: string;
+      keyPath: string;
+      challengeType: 'http-01' | 'dns-01';
+      adminEmail: string;
+    };
+    validationWebphone: {
+      status: 'passed' | 'warning' | 'failed' | 'untested';
+      httpsEnabled: boolean;
+      wssPortAccessible: boolean;
+      webrtcDtlsSrtp: boolean;
+      mediaMicrophonePermission: 'granted' | 'prompt' | 'denied';
+      stunConfigured: boolean;
+      lastTested: string;
+      details: string;
+    };
+    validationPwa: {
+      status: 'passed' | 'warning' | 'failed' | 'untested';
+      httpsSecured: boolean;
+      serviceWorkerRegistered: boolean;
+      manifestValid: boolean;
+      pushVapidConfigured: boolean;
+      vapidPublicKey: string;
+      vapidSubject: string;
+      lastTested: string;
+      details: string;
+    };
+    validationWhatsapp: {
+      status: 'passed' | 'warning' | 'failed' | 'untested';
+      httpsVerified: boolean;
+      publicCertTrusted: boolean;
+      webhookEndpoint: string;
+      verifyToken: string;
+      port443Standard: boolean;
+      lastTested: string;
+      details: string;
+    };
+    updatedAt: string;
+  } = {
+    hostname: 'pbx-sp-datacenter.enlace.internal',
+    publicIp: '177.136.210.12',
+    domain: 'pbx.enlacetelecom.com.br',
+    lanIp: '192.168.1.100',
+    lanSubnet: '192.168.1.0/24',
+    lanGateway: '192.168.1.1',
+    lanInterface: 'eth0 (10 Gbps Intel X520)',
+    natMode: 'force_rport',
+    stunServer: 'stun.l.google.com:19302',
+    ports: {
+      sipUdp: 5060,
+      sipTls: 5061,
+      webrtcWss: 8089,
+      http: 80,
+      https: 443,
+      rtpRange: '10000-20000',
+      ariPort: 8088,
+      amiPort: 5038,
+    },
+    sslCertificate: {
+      provider: 'letsencrypt',
+      status: 'valid',
+      issuedTo: 'pbx.enlacetelecom.com.br',
+      issuer: "Let's Encrypt Authority R3",
+      validFrom: '2026-08-15T00:00:00Z',
+      validTo: '2026-11-15T23:59:59Z',
+      daysRemaining: 64,
+      autoRenew: true,
+      renewBeforeDays: 30,
+      san: ['pbx.enlacetelecom.com.br', 'sip.enlacetelecom.com.br', 'webrtc.enlacetelecom.com.br'],
+      keyType: 'ECDSA (prime256v1) / TLS 1.3',
+      fingerprintSha256: 'E4:91:2B:6F:09:A1:77:8C:3D:5F:92:4E:01:8A:BC:33:41:99:FF:70',
+      certPath: '/etc/letsencrypt/live/pbx.enlacetelecom.com.br/fullchain.pem',
+      keyPath: '/etc/letsencrypt/live/pbx.enlacetelecom.com.br/privkey.pem',
+      challengeType: 'http-01',
+      adminEmail: 'noc@enlacetelecom.com.br',
+    },
+    validationWebphone: {
+      status: 'passed',
+      httpsEnabled: true,
+      wssPortAccessible: true,
+      webrtcDtlsSrtp: true,
+      mediaMicrophonePermission: 'granted',
+      stunConfigured: true,
+      lastTested: '2026-09-12T16:50:00Z',
+      details: 'Certificado HTTPS ativo. Handshake WSS (wss://pbx.enlacetelecom.com.br:8089/ws) respondendo 101 Switching Protocols. Codec Opus 48kHz ativo.',
+    },
+    validationPwa: {
+      status: 'passed',
+      httpsSecured: true,
+      serviceWorkerRegistered: true,
+      manifestValid: true,
+      pushVapidConfigured: true,
+      vapidPublicKey: 'BOrnQ_VzHh6lUoP-XkGzGz56H1Wf2YJ3A4vG7Q-x9u2w4gE-X5f3K1lP8qW_7tY',
+      vapidSubject: 'mailto:noc@enlacetelecom.com.br',
+      lastTested: '2026-09-12T16:51:00Z',
+      details: 'Web App Manifest e Service Worker em conformidade. Chaves VAPID configuradas e aptas para disparos de Push em segundo plano.',
+    },
+    validationWhatsapp: {
+      status: 'passed',
+      httpsVerified: true,
+      publicCertTrusted: true,
+      webhookEndpoint: 'https://pbx.enlacetelecom.com.br/api/v1/webhooks/whatsapp',
+      verifyToken: 'enlace_meta_webhook_token_2026',
+      port443Standard: true,
+      lastTested: '2026-09-12T16:52:00Z',
+      details: 'Endpoint público HTTPS verificado pela Meta. Certificado reconhecido por AC pública. Resposta do webhook com status 200 OK para o desafio hub.challenge.',
+    },
+    updatedAt: '2026-09-12T16:52:00Z',
+  };
 }
 
 export const db = new Database();

@@ -147,9 +147,13 @@ export class AsteriskService {
     const extensions = db.extensions.filter((e) => e.tenantId === tenantId);
     const trunks = db.trunks.filter((t) => t.tenantId === tenantId);
 
+    const infra = db.infraConfig;
     let output = `; ====================================================================
 ; Enlace-PBX — Configuração Automática PJSIP (pjsip.conf)
 ; Asterisk 20 LTS Puro — Enlace Telecom (Brasil)
+; Hostname: ${infra.hostname} | Domínio: ${infra.domain}
+; IP Público (WAN): ${infra.publicIp} | Rede Local (LAN): ${infra.lanSubnet}
+; Certificado SSL: ${infra.sslCertificate.certPath}
 ; Data de geração: ${new Date().toISOString()}
 ; ====================================================================
 
@@ -158,17 +162,37 @@ type=global
 user_agent=Enlace-PBX 20.17 / Asterisk Pure Brazilian Stack
 default_outbound_endpoint=default
 
-; --- Transporte UDP Geral ---
+; --- Transporte UDP Geral (PJSIP Nat Traversal) ---
 [transport-udp]
 type=transport
 protocol=udp
-bind=0.0.0.0:5060
+bind=0.0.0.0:${infra.ports.sipUdp}
+local_net=${infra.lanSubnet}
+external_media_address=${infra.publicIp}
+external_signaling_address=${infra.publicIp}
 
-; --- Transporte WebRTC WebSocket Seguro (WSS) ---
+; --- Transporte TLS Seguro (SIP Seguro) ---
+[transport-tls]
+type=transport
+protocol=tls
+bind=0.0.0.0:${infra.ports.sipTls}
+cert_file=${infra.sslCertificate.certPath}
+priv_key_file=${infra.sslCertificate.keyPath}
+method=tlsv1_2
+local_net=${infra.lanSubnet}
+external_media_address=${infra.publicIp}
+external_signaling_address=${infra.publicIp}
+
+; --- Transporte WebRTC WebSocket Seguro (WSS / Webphone) ---
 [transport-wss]
 type=transport
 protocol=wss
-bind=0.0.0.0:8089
+bind=0.0.0.0:${infra.ports.webrtcWss}
+cert_file=${infra.sslCertificate.certPath}
+priv_key_file=${infra.sslCertificate.keyPath}
+local_net=${infra.lanSubnet}
+external_media_address=${infra.publicIp}
+external_signaling_address=${infra.publicIp}
 
 `;
 

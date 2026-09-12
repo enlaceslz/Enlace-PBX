@@ -19,6 +19,7 @@ import { CdrAndRecordingsView } from './components/views/CdrAndRecordingsView';
 import { AiGatewayView } from './components/views/AiGatewayView';
 import { AsteriskCoreView } from './components/views/AsteriskCoreView';
 import { NetworkSecurityView } from './components/views/NetworkSecurityView';
+import { InfraSettingsView } from './components/views/InfraSettingsView';
 import { SystemLogsView } from './components/views/SystemLogsView';
 import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
 import { HealthCheckView } from './components/views/HealthCheckView';
@@ -365,6 +366,14 @@ export default function App() {
         );
       case 'network_security':
         return <NetworkSecurityView key="network_security" />;
+      case 'infra_settings':
+        return (
+          <InfraSettingsView
+            key="infra_settings"
+            onOpenWebphone={() => handleOpenWebphone()}
+            onNavigate={(v) => setActiveView(v)}
+          />
+        );
       case 'system_logs':
         return <SystemLogsView key="system_logs" />;
       case 'asterisk_monitor':

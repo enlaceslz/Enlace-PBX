@@ -35,7 +35,8 @@ import {
   Menu,
   ChevronDown,
   ChevronRight,
-  Phone
+  Phone,
+  Globe
 } from 'lucide-react';
 
 export type ActiveView =
@@ -61,6 +62,7 @@ export type ActiveView =
   | 'ai_knowledge'
   | 'ai_sessions'
   | 'network_security'
+  | 'infra_settings'
   | 'system_logs'
   | 'asterisk_monitor'
   | 'asterisk_configs'
@@ -134,6 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       title: 'ASTERISK & INFRAESTRUTURA',
       items: [
         { id: 'network_security' as ActiveView, label: 'Redes, VPN & Fail2ban', icon: ShieldCheck },
+        { id: 'infra_settings' as ActiveView, label: 'Infraestrutura, Domínio & SSL', icon: Globe },
         { id: 'system_logs' as ActiveView, label: 'Logs do Sistema em Tempo Real', icon: ScrollText },
         { id: 'asterisk_monitor' as ActiveView, label: 'Monitor ARI & Canais', icon: Terminal },
         { id: 'asterisk_configs' as ActiveView, label: 'Configurações PJSIP/Dialplan', icon: FileCode },

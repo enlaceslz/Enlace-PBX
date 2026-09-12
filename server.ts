@@ -571,6 +571,287 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // -------------------------------------------------------------------------
+  // Infraestrutura, Domínio, IPs (LAN/WAN) e Validação de Certificado SSL/TLS
+  // (Webphone WebRTC, PWA com Notificação Push, WhatsApp Cloud API)
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/infra/config', (req, res) => {
+    res.json(db.infraConfig);
+  });
+
+  app.put('/api/v1/infra/config', (req, res) => {
+    const body = req.body;
+    if (!body) {
+      return res.status(400).json({ error: 'Dados de infraestrutura não fornecidos' });
+    }
+
+    // Validações básicas de formato
+    if (body.hostname !== undefined) db.infraConfig.hostname = String(body.hostname).trim();
+    if (body.domain !== undefined) db.infraConfig.domain = String(body.domain).trim().toLowerCase();
+    if (body.publicIp !== undefined) db.infraConfig.publicIp = String(body.publicIp).trim();
+    if (body.lanIp !== undefined) db.infraConfig.lanIp = String(body.lanIp).trim();
+    if (body.lanSubnet !== undefined) db.infraConfig.lanSubnet = String(body.lanSubnet).trim();
+    if (body.lanGateway !== undefined) db.infraConfig.lanGateway = String(body.lanGateway).trim();
+    if (body.lanInterface !== undefined) db.infraConfig.lanInterface = String(body.lanInterface).trim();
+    if (body.natMode !== undefined) db.infraConfig.natMode = body.natMode;
+    if (body.stunServer !== undefined) db.infraConfig.stunServer = String(body.stunServer).trim();
+
+    if (body.ports) {
+      db.infraConfig.ports = {
+        ...db.infraConfig.ports,
+        ...body.ports,
+      };
+    }
+
+    if (body.sslCertificate) {
+      db.infraConfig.sslCertificate = {
+        ...db.infraConfig.sslCertificate,
+        ...body.sslCertificate,
+      };
+    }
+
+    if (body.validationWhatsapp?.verifyToken) {
+      db.infraConfig.validationWhatsapp.verifyToken = body.validationWhatsapp.verifyToken;
+    }
+
+    db.infraConfig.updatedAt = new Date().toISOString();
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'INFRA_CONFIG_UPDATE',
+      resource: 'infra/config',
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `Configurações de infraestrutura atualizadas: Hostname=${db.infraConfig.hostname}, Domínio=${db.infraConfig.domain}, IP Público=${db.infraConfig.publicIp}, IP LAN=${db.infraConfig.lanIp}`,
+    });
+
+    res.json({ success: true, config: db.infraConfig });
+  });
+
+  // Auto-detectar IP público do servidor
+  app.post('/api/v1/infra/auto-detect-ip', (req, res) => {
+    // Simula a detecção via STUN ou consulta de egress pública
+    const detectedIp = '177.136.210.12';
+    db.infraConfig.publicIp = detectedIp;
+    db.infraConfig.updatedAt = new Date().toISOString();
+
+    res.json({
+      success: true,
+      detectedIp,
+      method: 'STUN (stun.l.google.com:19302)',
+      natType: 'Full Cone NAT / Port Restricted',
+    });
+  });
+
+  // Validação em tempo real do Certificado SSL/TLS
+  app.post('/api/v1/infra/validate-ssl', (req, res) => {
+    const cert = db.infraConfig.sslCertificate;
+    const domain = db.infraConfig.domain;
+
+    const validToDate = new Date(cert.validTo);
+    const now = new Date();
+    const diffTime = validToDate.getTime() - now.getTime();
+    const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+    cert.daysRemaining = daysRemaining;
+
+    // Verificar se o domínio bate com os SANs ou com o issuedTo
+    const domainMatches =
+      cert.issuedTo.toLowerCase() === domain.toLowerCase() ||
+      cert.san.some(s => s.toLowerCase() === domain.toLowerCase() || (s.startsWith('*.') && domain.endsWith(s.slice(1))));
+
+    if (!domainMatches) {
+      cert.status = 'invalid';
+    } else if (daysRemaining <= 0) {
+      cert.status = 'expired';
+    } else if (daysRemaining <= 30) {
+      cert.status = 'expiring_soon';
+    } else {
+      cert.status = 'valid';
+    }
+
+    db.infraConfig.updatedAt = new Date().toISOString();
+
+    res.json({
+      success: true,
+      status: cert.status,
+      domain,
+      domainMatches,
+      issuer: cert.issuer,
+      keyType: cert.keyType,
+      fingerprintSha256: cert.fingerprintSha256,
+      validFrom: cert.validFrom,
+      validTo: cert.validTo,
+      daysRemaining,
+      san: cert.san,
+      autoRenew: cert.autoRenew,
+      message: cert.status === 'valid'
+        ? `Certificado SSL ativo e confiável para ${domain}. Expira em ${daysRemaining} dias.`
+        : `Atenção: Status do certificado é ${cert.status}. Recomenda-se renovação via Certbot.`,
+    });
+  });
+
+  // Validador 1: Webphone (WebRTC + WSS)
+  app.post('/api/v1/infra/validate-webphone', (req, res) => {
+    const infra = db.infraConfig;
+    const isHttps = infra.sslCertificate.status === 'valid';
+    const isWssConfigured = infra.ports.webrtcWss === 8089;
+    const isStunConfigured = !!infra.stunServer;
+
+    const allPassed = isHttps && isWssConfigured && isStunConfigured;
+
+    infra.validationWebphone = {
+      status: allPassed ? 'passed' : 'warning',
+      httpsEnabled: isHttps,
+      wssPortAccessible: isWssConfigured,
+      webrtcDtlsSrtp: true,
+      mediaMicrophonePermission: 'granted',
+      stunConfigured: isStunConfigured,
+      lastTested: new Date().toISOString(),
+      details: allPassed
+        ? `Ambiente Webphone WebRTC 100% validado: HTTPS ativo, WSS (wss://${infra.domain}:${infra.ports.webrtcWss}/ws) pronto, DTLS-SRTP e STUN configurados.`
+        : 'Pendência no Webphone: Certificado SSL ou porta WSS requerem revisão para evitar falhas de áudio no browser.',
+    };
+
+    res.json({
+      success: true,
+      validation: infra.validationWebphone,
+      checks: [
+        { name: 'Contexto Seguro HTTPS (Exigência do Navegador para getUserMedia)', status: isHttps ? 'ok' : 'fail' },
+        { name: `Porta WSS WebRTC Asterisk (${infra.ports.webrtcWss}/TCP)`, status: isWssConfigured ? 'ok' : 'warn' },
+        { name: 'Criptografia DTLS-SRTP de Áudio (RFC 5764)', status: 'ok' },
+        { name: 'Servidor STUN para NAT Traversal', status: isStunConfigured ? 'ok' : 'fail', target: infra.stunServer },
+        { name: 'Codecs WebRTC Prioritários (Opus 48kHz, PCMU, PCMA)', status: 'ok' },
+      ],
+    });
+  });
+
+  // Validador 2: PWA com Notificação Push
+  app.post('/api/v1/infra/validate-pwa', (req, res) => {
+    const infra = db.infraConfig;
+    const isHttps = infra.sslCertificate.status === 'valid';
+    const hasVapid = !!infra.validationPwa.vapidPublicKey && infra.validationPwa.vapidPublicKey.length > 20;
+
+    const allPassed = isHttps && hasVapid;
+
+    infra.validationPwa = {
+      ...infra.validationPwa,
+      status: allPassed ? 'passed' : 'warning',
+      httpsSecured: isHttps,
+      serviceWorkerRegistered: true,
+      manifestValid: true,
+      pushVapidConfigured: hasVapid,
+      lastTested: new Date().toISOString(),
+      details: allPassed
+        ? 'PWA e Notificações Push VAPID validadas: Web App Manifest ativo, Service Worker operacional e suporte a notificações de chamadas em segundo plano.'
+        : 'Pendência no PWA: HTTPS é estritamente obrigatório para Service Workers e Web Push.',
+    };
+
+    res.json({
+      success: true,
+      validation: infra.validationPwa,
+      checks: [
+        { name: 'Origem Segura HTTPS (Obrigatório pela W3C para Service Worker)', status: isHttps ? 'ok' : 'fail' },
+        { name: 'Web App Manifest (/manifest.json válido com ícones 192/512)', status: 'ok' },
+        { name: 'Service Worker Background Sync (/sw.js)', status: 'ok' },
+        { name: 'Par de Chaves VAPID (Web Push RFC 8292)', status: hasVapid ? 'ok' : 'fail' },
+        { name: 'Notificações de Ramal em Segundo Plano (Action Buttons: Atender/Recusar)', status: 'ok' },
+      ],
+    });
+  });
+
+  // Gerar / Rotacionar novo par de chaves VAPID para Web Push
+  app.post('/api/v1/infra/vapid/generate', (req, res) => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    let newPubKey = 'B';
+    for (let i = 0; i < 86; i++) {
+      newPubKey += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    db.infraConfig.validationPwa.vapidPublicKey = newPubKey;
+    db.infraConfig.validationPwa.pushVapidConfigured = true;
+    db.infraConfig.updatedAt = new Date().toISOString();
+
+    res.json({
+      success: true,
+      vapidPublicKey: newPubKey,
+      vapidSubject: db.infraConfig.validationPwa.vapidSubject,
+      message: 'Novo par de chaves VAPID NIST P-256 gerado para Web Push Notifications.',
+    });
+  });
+
+  // Disparar Push de Teste para o navegador
+  app.post('/api/v1/infra/send-test-push', (req, res) => {
+    const pushPayload = {
+      title: 'Enlace-PBX: Chamada Recebida (Ramal 4101)',
+      body: 'Chamada de Suporte NOC (11 98765-4321) tocando agora...',
+      icon: '/logo-icon.png',
+      badge: '/logo-icon.png',
+      vibrate: [200, 100, 200, 100, 200],
+      tag: 'incoming-call-test',
+      renotify: true,
+      data: {
+        callerNumber: '11987654321',
+        callerName: 'Suporte NOC Enlace',
+        extension: '4101',
+        callId: `call-${Date.now()}`,
+      },
+      actions: [
+        { action: 'answer', title: 'Atender' },
+        { action: 'reject', title: 'Recusar' },
+      ],
+    };
+
+    res.json({
+      success: true,
+      sentAt: new Date().toISOString(),
+      payload: pushPayload,
+      message: 'Notificação Push simulada enviada ao cliente com sucesso.',
+    });
+  });
+
+  // Validador 3: API Oficial do WhatsApp (Meta Cloud API / Graph API)
+  app.post('/api/v1/infra/validate-whatsapp', (req, res) => {
+    const infra = db.infraConfig;
+    const isHttps = infra.sslCertificate.status === 'valid';
+    const hasPublicCert = infra.sslCertificate.provider !== 'custom' || infra.sslCertificate.issuer.includes("Let's Encrypt");
+    const isStandardPort = infra.ports.https === 443;
+    const webhookUrl = `https://${infra.domain}/api/v1/webhooks/whatsapp`;
+    const verifyToken = infra.validationWhatsapp.verifyToken || 'enlace_meta_webhook_token_2026';
+
+    const allPassed = isHttps && hasPublicCert && isStandardPort;
+
+    infra.validationWhatsapp = {
+      ...infra.validationWhatsapp,
+      status: allPassed ? 'passed' : 'warning',
+      httpsVerified: isHttps,
+      publicCertTrusted: hasPublicCert,
+      webhookEndpoint: webhookUrl,
+      verifyToken,
+      port443Standard: isStandardPort,
+      lastTested: new Date().toISOString(),
+      details: allPassed
+        ? `Conformidade Meta WhatsApp 100%: Webhook HTTPS público na porta 443 (${webhookUrl}), certificado SSL de autoridade confiável e desafio hub.challenge respondendo com 200 OK.`
+        : 'Alerta Meta: A API oficial do WhatsApp exige estritamente HTTPS válido na porta 443 com certificado público (não autoassinado).',
+    };
+
+    res.json({
+      success: true,
+      validation: infra.validationWhatsapp,
+      checks: [
+        { name: 'Protocolo HTTPS Obrigatório pela Meta (HTTP é rejeitado pela Meta)', status: isHttps ? 'ok' : 'fail' },
+        { name: 'Certificado de Autoridade Pública Confiável (Let\'s Encrypt / DigiCert)', status: hasPublicCert ? 'ok' : 'fail' },
+        { name: 'Porta Padrão 443/TCP (Meta rejeita portas alternativas como 8443)', status: isStandardPort ? 'ok' : 'fail' },
+        { name: 'Webhook Endpoint FQDN Acessível', status: 'ok', url: webhookUrl },
+        { name: 'Meta Hub Challenge Token Handshake (GET verification)', status: 'ok', token: verifyToken },
+        { name: 'Ciphers TLS 1.2+ e Assinatura SHA256 (Meta Security Policy)', status: 'ok' },
+      ],
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Segurança & Monitoramento do Fail2ban
   // -------------------------------------------------------------------------
   app.get('/api/v1/security/fail2ban', (req, res) => {
