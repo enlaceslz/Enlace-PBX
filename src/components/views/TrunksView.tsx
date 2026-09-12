@@ -19,6 +19,7 @@ interface TrunksViewProps {
 
 export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     providerName: 'Vivo Empresas',
@@ -52,8 +53,15 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+
+    if (!formData.name || !formData.host) {
+      setFormError('Nome do tronco e Host SIP são obrigatórios.');
+      return;
+    }
+
     try {
-      await fetch('/api/v1/trunks', {
+      const res = await fetch('/api/v1/trunks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -62,10 +70,18 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
           context: 'from-trunk',
         }),
       });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setFormError(data.error || 'Erro ao registrar tronco SIP.');
+        return;
+      }
+
       setIsModalOpen(false);
       onRefresh();
     } catch (err) {
       console.error('Error adding trunk:', err);
+      setFormError('Falha na comunicação com o servidor.');
     }
   };
 
@@ -97,7 +113,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => { setFormError(null); setIsModalOpen(true); }}
           className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-blue-600/20 transition active:scale-95"
         >
           <Plus className="w-4 h-4" />
@@ -190,6 +206,12 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh }) => 
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+              {formError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{formError}</span>
+                </div>
+              )}
               {/* Presets */}
               <div>
                 <label className="block text-slate-500 font-semibold mb-1.5 uppercase text-[10px] tracking-wider">

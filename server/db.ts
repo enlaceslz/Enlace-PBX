@@ -135,7 +135,7 @@ export interface Route {
   pattern: string; // e.g. "9XXXXXXXX", "0[1-9][1-9]9XXXXXXXX", "0800XXXXXXX"
   prefixRemove?: string;
   trunkId?: string;
-  destinationType: 'trunk' | 'extension' | 'queue' | 'ivr' | 'ai_agent';
+  destinationType: 'trunk' | 'extension' | 'queue' | 'ivr' | 'ai_agent' | 'ring_group';
   destinationId: string;
   priority: number;
   timeSchedule?: string;

@@ -10,7 +10,7 @@ import {
   Shield,
   Radio,
   FileCode,
-  Trash2,
+  Trash2, AlertCircle,
   Edit2,
   X,
   Search,
@@ -52,14 +52,17 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
     videoEnabled: true,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.number || !formData.name) return;
-
     setIsSubmitting(true);
+    setFormError(null);
+
     try {
-      await fetch('/api/v1/extensions', {
+      const res = await fetch('/api/v1/extensions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -77,6 +80,14 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
           videoEnabled: formData.videoEnabled,
         }),
       });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setFormError(data.error || 'Erro ao criar ramal no Asterisk PJSIP.');
+        setIsSubmitting(false);
+        return;
+      }
+
       setIsModalOpen(false);
       setFormData({
         number: '',
@@ -95,6 +106,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
       onRefresh();
     } catch (err) {
       console.error('Error creating extension:', err);
+      setFormError('Falha na comunicação com o servidor.');
     } finally {
       setIsSubmitting(false);
     }
@@ -104,8 +116,10 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
     e.preventDefault();
     if (!editingExt) return;
     setIsSubmitting(true);
+    setEditError(null);
+
     try {
-      await fetch(`/api/v1/extensions/${editingExt.id}`, {
+      const res = await fetch(`/api/v1/extensions/${editingExt.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -117,10 +131,19 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
           context: editingExt.context,
         }),
       });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setEditError(data.error || 'Erro ao atualizar configurações do ramal.');
+        setIsSubmitting(false);
+        return;
+      }
+
       setEditingExt(null);
       onRefresh();
     } catch (err) {
       console.error('Error updating extension:', err);
+      setEditError('Falha ao atualizar ramal.');
     } finally {
       setIsSubmitting(false);
     }
@@ -168,7 +191,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
               res_pjsip
             </span>
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => { setFormError(null); setIsModalOpen(true); }}
               className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-md shadow-blue-600/20"
             >
               <Plus className="w-4 h-4" /> Provisionar Ramal
@@ -352,6 +375,12 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+              {formError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{formError}</span>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">
@@ -622,6 +651,12 @@ qualify_frequency=30`}
             </div>
 
             <form onSubmit={handleUpdate} className="p-6 space-y-4 text-xs">
+              {editError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{editError}</span>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">

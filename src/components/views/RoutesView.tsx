@@ -9,7 +9,7 @@ import {
   Radio,
   Clock,
   CheckCircle2,
-  Trash2,
+  Trash2, Edit2, AlertCircle,
   X,
   Layers,
 } from 'lucide-react';
@@ -25,6 +25,9 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
   const [activeTab, setActiveTab] = useState<'inbound' | 'outbound'>('outbound');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [editingRoute, setEditingRoute] = useState<Route | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -102,10 +105,15 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
 
   const handleCreateRoute = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.pattern) return;
+    setFormError(null);
+    if (!formData.name || !formData.pattern) {
+      setFormError('Nome da rota e padrão de discagem são obrigatórios.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await fetch('/api/v1/routes', {
+      const res = await fetch('/api/v1/routes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -121,10 +129,49 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
           fallbackTarget: formData.fallbackTarget,
         }),
       });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setFormError(data.error || 'Erro ao cadastrar rota no Dialplan.');
+        setIsSubmitting(false);
+        return;
+      }
+
       setIsModalOpen(false);
       onRefresh();
     } catch (err) {
       console.error('Erro ao cadastrar rota:', err);
+      setFormError('Falha na comunicação com o servidor.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateRoute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRoute) return;
+    setEditError(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch(`/api/v1/routes/${editingRoute.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingRoute),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setEditError(data.error || 'Erro ao atualizar rota.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      setEditingRoute(null);
+      onRefresh();
+    } catch (err) {
+      console.error('Erro ao atualizar rota:', err);
+      setEditError('Falha na comunicação com o servidor.');
     } finally {
       setIsSubmitting(false);
     }
@@ -282,6 +329,13 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
                   )}
                 </div>
 
+                <button
+                  onClick={() => { setEditError(null); setEditingRoute({ ...route }); }}
+                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                  title="Editar Rota"
+                >
+                  <Edit2 className="w-4 h-4" />
+                </button>
                 <button
                   onClick={() => handleDeleteRoute(route.id, route.name)}
                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
@@ -502,6 +556,149 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
                 >
                   <GitFork className="w-3.5 h-3.5" />
                   {isSubmitting ? 'Salvando...' : 'Salvar Rota'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ROUTE MODAL */}
+      {editingRoute && (
+        <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+            <div className="px-6 py-4 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Editar Rota</h3>
+                <p className="text-xs text-slate-500 font-mono">{editingRoute.pattern}</p>
+              </div>
+              <button
+                onClick={() => setEditingRoute(null)}
+                className="p-1 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateRoute} className="p-6 space-y-4 text-xs">
+              {editError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">Nome da Rota *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingRoute.name}
+                  onChange={(e) => setEditingRoute({ ...editingRoute, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">Padrão (Pattern Asterisk) *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingRoute.pattern}
+                    onChange={(e) => setEditingRoute({ ...editingRoute, pattern: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">Prioridade</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={editingRoute.priority}
+                    onChange={(e) => setEditingRoute({ ...editingRoute, priority: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {editingRoute.type === "outbound" && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">Tronco de Saída</label>
+                    <select
+                      value={editingRoute.trunkId || ""}
+                      onChange={(e) => setEditingRoute({ ...editingRoute, trunkId: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-500"
+                    >
+                      {trunks.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.providerName})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">Remover Prefixo (Dígitos)</label>
+                    <input
+                      type="text"
+                      value={editingRoute.prefixRemove || ""}
+                      onChange={(e) => setEditingRoute({ ...editingRoute, prefixRemove: e.target.value })}
+                      placeholder="Ex: 0"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {editingRoute.type === "inbound" && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">Tipo de Destino</label>
+                    <select
+                      value={editingRoute.destinationType}
+                      onChange={(e) =>
+                        setEditingRoute({
+                          ...editingRoute,
+                          destinationType: e.target.value as any,
+                        })
+                      }
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="ai_agent">Agente IA Gemini (MaIA)</option>
+                      <option value="ivr">URA / Menu Interativo</option>
+                      <option value="queue">Fila de Atendimento</option>
+                      <option value="extension">Ramal Direto</option>
+                      <option value="ring_group">Grupo de Toque</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">ID / Ramal Destino</label>
+                    <input
+                      type="text"
+                      value={editingRoute.destinationId}
+                      onChange={(e) => setEditingRoute({ ...editingRoute, destinationId: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingRoute(null)}
+                  className="px-4 py-2 text-slate-600 hover:text-slate-900"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition disabled:opacity-50"
+                >
+                  {isSubmitting ? "Salvando..." : "Salvar Alterações"}
                 </button>
               </div>
             </form>

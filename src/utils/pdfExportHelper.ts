@@ -442,7 +442,12 @@ export function exportCdrReportPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(15, 23, 42);
-  doc.text(title, pageWidth - 14, 13, { align: 'right' });
+  // Split title if it's too long
+  if (title.length > 50) {
+    doc.text(title.substring(0, 50) + '...', pageWidth - 14, 13, { align: 'right' });
+  } else {
+    doc.text(title, pageWidth - 14, 13, { align: 'right' });
+  }
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);

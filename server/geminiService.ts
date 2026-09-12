@@ -205,10 +205,10 @@ export class GeminiService {
 
     const systemPrompt = `
 Você é "${agent.name}", um assistente virtual operando pelo WhatsApp da Enlace Telecom.
-SUA MISSÃO: ${agent.role}
+SUA MISSÃO: ${agent.description}
 
 REGRAS ESTABELECIDAS:
-${agent.systemPrompt}
+${agent.systemInstruction}
 
 DIRETRIZES PARA WHATSAPP:
 - Seja conciso e direto, mensagens curtas são melhores para chat.
@@ -232,7 +232,7 @@ ${historyContext}
           topP: 0.95,
         }
       });
-      return response.text() || "Desculpe, não consegui formular uma resposta.";
+      return response.text || "Desculpe, não consegui formular uma resposta.";
     } catch (e) {
       console.error('Gemini API error during WhatsApp turn:', e);
       return 'Desculpe, ocorreu um erro interno ao processar sua mensagem.';

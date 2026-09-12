@@ -914,6 +914,137 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     };
   };
 
+  // -------------------------------------------------------------------------
+  // Omnichannel Status Transition & Human Transfer
+  // -------------------------------------------------------------------------
+  app.patch('/api/v1/omnichannel/conversations/:id/status', (req, res) => {
+    const conv = db.omnichannelConversations.find((c) => c.id === req.params.id);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    const { status } = req.body;
+    const allowed = ['active', 'closed', 'queued', 'bot_handling'];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ error: `Status inválido. Permitidos: ${allowed.join(', ')}` });
+    }
+
+    const previousStatus = conv.status;
+    conv.status = status;
+
+    let sysText = 'Atendimento assumido por operador humano.';
+    if (status === 'closed') sysText = 'Atendimento finalizado pelo operador.';
+    else if (status === 'queued') sysText = 'Conversa transferida para a fila de espera humana.';
+    else if (status === 'bot_handling') sysText = 'Atendimento devolvido para a IA MaIA.';
+
+    conv.messages.push({
+      id: `msg-sys-${Date.now()}`,
+      sender: 'agent',
+      text: `[Sistema]: ${sysText}`,
+      timestamp: new Date().toISOString(),
+    });
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: conv.tenantId || 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'OMNICHANNEL_STATUS_CHANGE',
+      resource: `omnichannel/${conv.id}`,
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `Conversa com ${conv.contactId} alterada de ${previousStatus} para ${status}.`,
+    });
+
+    res.json(conv);
+  });
+
+  app.post('/api/v1/omnichannel/conversations/:id/transfer', (req, res) => {
+    const conv = db.omnichannelConversations.find((c) => c.id === req.params.id);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    const { targetType, targetId, note } = req.body;
+    conv.status = targetType === 'extension' ? 'active' : 'queued';
+
+    const label = targetType === 'queue' ? `Fila de Atendimento ${targetId}` : `Ramal ${targetId}`;
+    conv.messages.push({
+      id: `msg-trans-${Date.now()}`,
+      sender: 'agent',
+      text: `[Transferência]: Encaminhado para ${label}.${note ? ` Obs: ${note}` : ''}`,
+      timestamp: new Date().toISOString(),
+    });
+
+    res.json(conv);
+  });
+
+  // -------------------------------------------------------------------------
+  // Disaster Recovery & System Backup / Restore
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/system/backup', (req, res) => {
+    const snapshot = {
+      timestamp: new Date().toISOString(),
+      version: '20.17.0-LTS',
+      system: 'Enlace-PBX Enterprise Asterisk 20 Stack',
+      data: {
+        tenants: db.tenants,
+        users: db.users,
+        extensions: db.extensions,
+        trunks: db.trunks,
+        routes: db.routes,
+        ringGroups: db.ringGroups,
+        queues: db.queues,
+        ivrs: db.ivrs,
+        cdrs: db.cdrs,
+        aiAgents: db.aiAgents,
+        aiKnowledge: db.aiKnowledge,
+        aiTools: db.aiTools,
+        aiProviders: db.aiProviders,
+        whatsappConfigs: db.whatsappConfigs,
+        omnichannelConversations: db.omnichannelConversations,
+      },
+    };
+
+    res.setHeader('Content-Disposition', `attachment; filename=enlace-pbx-backup-${Date.now()}.json`);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.json(snapshot);
+  });
+
+  app.post('/api/v1/system/restore', (req, res) => {
+    const backup = req.body;
+    if (!backup || !backup.data || typeof backup.data !== 'object') {
+      return res.status(400).json({ error: 'Arquivo de backup corrompido ou em formato inválido.' });
+    }
+
+    const d = backup.data;
+    if (Array.isArray(d.tenants) && d.tenants.length > 0) db.tenants = d.tenants;
+    if (Array.isArray(d.users) && d.users.length > 0) db.users = d.users;
+    if (Array.isArray(d.extensions)) db.extensions = d.extensions;
+    if (Array.isArray(d.trunks)) db.trunks = d.trunks;
+    if (Array.isArray(d.routes)) db.routes = d.routes;
+    if (Array.isArray(d.ringGroups)) db.ringGroups = d.ringGroups;
+    if (Array.isArray(d.queues)) db.queues = d.queues;
+    if (Array.isArray(d.ivrs)) db.ivrs = d.ivrs;
+    if (Array.isArray(d.cdrs)) db.cdrs = d.cdrs;
+    if (Array.isArray(d.aiAgents)) db.aiAgents = d.aiAgents;
+    if (Array.isArray(d.aiKnowledge)) db.aiKnowledge = d.aiKnowledge;
+    if (Array.isArray(d.aiTools)) db.aiTools = d.aiTools;
+    if (Array.isArray(d.aiProviders)) db.aiProviders = d.aiProviders;
+    if (Array.isArray(d.whatsappConfigs)) db.whatsappConfigs = d.whatsappConfigs;
+    if (Array.isArray(d.omnichannelConversations)) db.omnichannelConversations = d.omnichannelConversations;
+
+    db.auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'SYSTEM_RESTORE',
+      resource: 'system/restore',
+      ip: req.ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      details: `Restauração completa do sistema aplicada com sucesso a partir de snapshot JSON.`,
+    });
+
+    res.json({ success: true, message: 'Restauração concluída com sucesso!' });
+  });
+
   app.get('/api/v1/dashboard/metrics', (req, res) => {
     res.json(getDashboardMetrics());
   });
@@ -942,21 +1073,39 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // -------------------------------------------------------------------------
-  // Extensions (Ramais PJSIP)
+  // Extensions (Ramais PJSIP) com Validações de Regra de Negócio
   // -------------------------------------------------------------------------
   app.get('/api/v1/extensions', (req, res) => {
-    res.json(db.extensions);
+    const { tenantId } = req.query;
+    const list = tenantId ? db.extensions.filter((e) => e.tenantId === tenantId) : db.extensions;
+    res.json(list);
   });
 
   app.post('/api/v1/extensions', (req, res) => {
+    const tenantId = req.body.tenantId || 'tenant-enlace-matriz';
+    const number = String(req.body.number || '').trim();
+    const name = String(req.body.name || '').trim();
+
+    if (!number || !/^[0-9]{2,6}$/.test(number)) {
+      return res.status(400).json({ error: 'Número de ramal inválido. Deve conter entre 2 e 6 dígitos numéricos.' });
+    }
+    if (!name || name.length < 2) {
+      return res.status(400).json({ error: 'Nome do ramal é obrigatório (mínimo 2 caracteres).' });
+    }
+
+    const exists = db.extensions.some((e) => e.number === number && e.tenantId === tenantId);
+    if (exists) {
+      return res.status(409).json({ error: `O ramal ${number} já está cadastrado para este tenant.` });
+    }
+
     const ext: (typeof db.extensions)[0] = {
-      id: `ext-${req.body.number}`,
-      tenantId: req.body.tenantId || 'tenant-enlace-matriz',
-      number: req.body.number,
-      name: req.body.name,
-      sipSecret: req.body.sipSecret || 'Enlace@' + req.body.number,
+      id: `ext-${number}`,
+      tenantId,
+      number,
+      name,
+      sipSecret: req.body.sipSecret || `Enlace@${number}#Sec`,
       context: req.body.context || 'from-internal',
-      callerId: req.body.callerId || `"${req.body.name}" <${req.body.number}>`,
+      callerId: req.body.callerId || `"${name}" <${number}>`,
       codecs: req.body.codecs || ['opus', 'pcma', 'pcmu', 'g722'],
       nat: req.body.nat !== false,
       webrtc: req.body.webrtc !== false,
@@ -967,6 +1116,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       allowAiTransfer: req.body.allowAiTransfer !== false,
     };
     db.extensions.push(ext);
+
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: ext.tenantId,
@@ -976,15 +1126,30 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       resource: `extensions/${ext.number}`,
       ip: req.ip || '127.0.0.1',
       timestamp: new Date().toISOString(),
-      details: `Ramal ${ext.number} (${ext.name}) cadastrado no PJSIP Realtime.`,
+      details: `Ramal ${ext.number} (${ext.name}) cadastrado com validação PJSIP.`,
     });
+
     res.status(201).json(ext);
   });
 
   app.put('/api/v1/extensions/:id', (req, res) => {
     const idx = db.extensions.findIndex((e) => e.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: 'Ramal não encontrado' });
-    db.extensions[idx] = { ...db.extensions[idx], ...req.body };
+
+    const currentExt = db.extensions[idx];
+    const newNumber = req.body.number ? String(req.body.number).trim() : currentExt.number;
+
+    if (newNumber !== currentExt.number) {
+      if (!/^[0-9]{2,6}$/.test(newNumber)) {
+        return res.status(400).json({ error: 'Número de ramal deve ter entre 2 e 6 dígitos numéricos.' });
+      }
+      const collision = db.extensions.some((e) => e.id !== req.params.id && e.number === newNumber && e.tenantId === currentExt.tenantId);
+      if (collision) {
+        return res.status(409).json({ error: `O ramal ${newNumber} já está em uso por outro usuário.` });
+      }
+    }
+
+    db.extensions[idx] = { ...currentExt, ...req.body, number: newNumber };
     res.json(db.extensions[idx]);
   });
 
@@ -994,23 +1159,47 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // -------------------------------------------------------------------------
-  // Trunks (Troncos SIP)
+  // Trunks (Troncos SIP) com Validações
   // -------------------------------------------------------------------------
   app.get('/api/v1/trunks', (req, res) => {
-    res.json(db.trunks);
+    const { tenantId } = req.query;
+    const list = tenantId ? db.trunks.filter((t) => t.tenantId === tenantId) : db.trunks;
+    res.json(list);
   });
 
   app.post('/api/v1/trunks', (req, res) => {
+    const tenantId = req.body.tenantId || 'tenant-enlace-matriz';
+    const name = String(req.body.name || '').trim();
+    const host = String(req.body.host || '').trim();
+
+    if (!name || !host) {
+      return res.status(400).json({ error: 'Nome do tronco e Host SIP (IP/FQDN) são campos obrigatórios.' });
+    }
+
+    const exists = db.trunks.some((t) => t.name.toLowerCase() === name.toLowerCase() && t.tenantId === tenantId);
+    if (exists) {
+      return res.status(409).json({ error: `Já existe um tronco SIP com o nome "${name}".` });
+    }
+
     const trunk = {
       id: `trunk-${Date.now()}`,
-      tenantId: 'tenant-enlace-matriz',
+      tenantId,
       channelsInUse: 0,
       status: 'registered' as const,
       secretMasked: '••••••••••••',
       ...req.body,
+      name,
+      host,
     };
     db.trunks.push(trunk);
     res.status(201).json(trunk);
+  });
+
+  app.put('/api/v1/trunks/:id', (req, res) => {
+    const idx = db.trunks.findIndex((t) => t.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Tronco não encontrado' });
+    db.trunks[idx] = { ...db.trunks[idx], ...req.body };
+    res.json(db.trunks[idx]);
   });
 
   app.delete('/api/v1/trunks/:id', (req, res) => {
@@ -1022,17 +1211,39 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Routes (Rotas de Entrada e Saída)
   // -------------------------------------------------------------------------
   app.get('/api/v1/routes', (req, res) => {
-    res.json(db.routes);
+    const { tenantId } = req.query;
+    const list = tenantId ? db.routes.filter((r) => r.tenantId === tenantId) : db.routes;
+    res.json(list);
   });
 
   app.post('/api/v1/routes', (req, res) => {
+    const tenantId = req.body.tenantId || 'tenant-enlace-matriz';
+    const name = String(req.body.name || '').trim();
+    const pattern = String(req.body.pattern || '').trim();
+    const type = req.body.type || 'outbound';
+
+    if (!name || !pattern) {
+      return res.status(400).json({ error: 'Nome da rota e padrão de discagem (pattern) são obrigatórios.' });
+    }
+
     const route = {
       id: `route-${Date.now()}`,
-      tenantId: 'tenant-enlace-matriz',
+      tenantId,
+      priority: req.body.priority || 1,
       ...req.body,
+      name,
+      pattern,
+      type,
     };
     db.routes.push(route);
     res.status(201).json(route);
+  });
+
+  app.put('/api/v1/routes/:id', (req, res) => {
+    const idx = db.routes.findIndex((r) => r.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Rota não encontrada' });
+    db.routes[idx] = { ...db.routes[idx], ...req.body };
+    res.json(db.routes[idx]);
   });
 
   app.delete('/api/v1/routes/:id', (req, res) => {
@@ -1041,24 +1252,44 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // -------------------------------------------------------------------------
-  // Ring Groups & Queues & IVR
+  // Ring Groups & Queues
   // -------------------------------------------------------------------------
-  app.get('/api/v1/ring-groups', (req, res) => res.json(db.ringGroups));
+  app.get('/api/v1/ring-groups', (req, res) => {
+    const { tenantId } = req.query;
+    const list = tenantId ? db.ringGroups.filter((g) => g.tenantId === tenantId) : db.ringGroups;
+    res.json(list);
+  });
+
   app.post('/api/v1/ring-groups', (req, res) => {
-    const group = { id: `group-${Date.now()}`, tenantId: 'tenant-enlace-matriz', ...req.body };
+    const tenantId = req.body.tenantId || 'tenant-enlace-matriz';
+    const group = { id: `group-${Date.now()}`, tenantId, ...req.body };
     db.ringGroups.push(group);
     res.status(201).json(group);
   });
+
+  app.put('/api/v1/ring-groups/:id', (req, res) => {
+    const idx = db.ringGroups.findIndex((g) => g.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Grupo de toque não encontrado' });
+    db.ringGroups[idx] = { ...db.ringGroups[idx], ...req.body };
+    res.json(db.ringGroups[idx]);
+  });
+
   app.delete('/api/v1/ring-groups/:id', (req, res) => {
     db.ringGroups = db.ringGroups.filter((g) => g.id !== req.params.id);
     res.json({ success: true });
   });
 
-  app.get('/api/v1/queues', (req, res) => res.json(db.queues));
+  app.get('/api/v1/queues', (req, res) => {
+    const { tenantId } = req.query;
+    const list = tenantId ? db.queues.filter((q) => q.tenantId === tenantId) : db.queues;
+    res.json(list);
+  });
+
   app.post('/api/v1/queues', (req, res) => {
+    const tenantId = req.body.tenantId || 'tenant-enlace-matriz';
     const queue = {
       id: `queue-${Date.now()}`,
-      tenantId: 'tenant-enlace-matriz',
+      tenantId,
       callsWaiting: 0,
       avgWaitTimeSeconds: 0,
       abandonedToday: 0,
@@ -1068,12 +1299,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     db.queues.push(queue);
     res.status(201).json(queue);
   });
+
+  app.put('/api/v1/queues/:id', (req, res) => {
+    const idx = db.queues.findIndex((q) => q.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Fila não encontrada' });
+    db.queues[idx] = { ...db.queues[idx], ...req.body };
+    res.json(db.queues[idx]);
+  });
+
   app.delete('/api/v1/queues/:id', (req, res) => {
     db.queues = db.queues.filter((q) => q.id !== req.params.id);
     res.json({ success: true });
   });
 
-  app.get('/api/v1/ivr', (req, res) => res.json(db.ivrs));
+    app.get('/api/v1/ivr', (req, res) => res.json(db.ivrs));
   app.post('/api/v1/ivr', (req, res) => {
     const ivr = { id: `ivr-${Date.now()}`, tenantId: 'tenant-enlace-matriz', ...req.body };
     db.ivrs.push(ivr);

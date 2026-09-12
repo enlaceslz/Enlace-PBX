@@ -46,34 +46,45 @@ Nascida para democratizar o acesso à telefonia IP inteligente no Brasil, a plat
 └── install-enlace-pbx.sh   # Script gerado de compilação pura para o servidor Linux
 ```
 
-## ⚙️ Como Executar
 
-### 1. Requisitos
-- Node.js (v18+)
-- Npm ou Yarn
-- (Opcional) Chave da API do Google Gemini (`GEMINI_API_KEY`) para habilitar o módulo de Voz IA via Backend.
+## ⚙️ Instalação e Deploy (Produção)
 
-### 2. Instalação e Execução
+Preparamos um script automatizado de deploy, desenhado para rodar em modo `root` em qualquer VPS ou Máquina Virtual rodando **Debian** (ou Ubuntu). 
+
+O script age de forma prudente e autônoma: ele instala o Node.js (caso não exista), compila o projeto, configura variáveis de ambiente (via prompt interativo), libera as portas no firewall (UFW) e sobe a aplicação utilizando o **PM2** (garantindo que o sistema reinicie automaticamente com a máquina).
+
+### Passo a Passo
+
+1. Conecte-se via SSH em seu servidor Debian.
+2. Certifique-se de estar como root (use `sudo su`).
+3. Clone ou faça o download deste repositório na pasta desejada (ex: `/opt/enlace-pbx`).
+4. Dê permissão e execute o script de deploy:
 
 ```bash
-# Instale as dependências
+chmod +x deploy.sh
+./deploy.sh
+```
+
+5. Durante a execução, o script pode solicitar a sua chave de API do Gemini (opcional) para ativar os recursos de IA.
+6. **Pronto!** O script entregará um link `http://<IP_DO_SERVIDOR>:3000` com a plataforma 100% no ar.
+
+**Comandos Úteis Pós-Deploy:**
+- Ver logs em tempo real: `pm2 logs enlace-pbx`
+- Reiniciar o sistema: `pm2 restart enlace-pbx`
+- Parar o sistema: `pm2 stop enlace-pbx`
+
+## 🛠️ Ambiente de Desenvolvimento (Local)
+
+Se você deseja rodar o projeto localmente para testes ou edições:
+
+```bash
+# 1. Instale as dependências
 npm install
 
-# Inicie o servidor de desenvolvimento (Frontend + Backend)
+# 2. Inicie o servidor de desenvolvimento com Hot-Reload (Frontend + Backend)
 npm run dev
 ```
 O projeto estará disponível em `http://localhost:3000`.
-
-### 3. Deploy de Produção
-
-```bash
-# Compile a aplicação e o servidor
-npm run build
-
-# Inicie o servidor em modo de produção
-npm start
-```
-
 ## 🔒 Segurança e API Keys
 O Enlace-PBX opera com arquitetura Server-Side (BFF). As chaves de API, segredos do banco de dados e senhas ARI do Asterisk devem permanecer **exclusivamente no servidor backend**. O frontend consome apenas rotas seguras `/api/v1/`.
 

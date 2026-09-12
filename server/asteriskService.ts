@@ -259,6 +259,7 @@ max_retries=10
 
   // Pure Asterisk 20+ Dialplan generator (extensions.conf)
   generateExtensionsConf(tenantId: string = 'tenant-enlace-matriz'): string {
+    const extensions = db.extensions.filter((e) => e.tenantId === tenantId);
     const routes = db.routes.filter((r) => r.tenantId === tenantId);
     const groups = db.ringGroups.filter((g) => g.tenantId === tenantId);
     const queues = db.queues.filter((q) => q.tenantId === tenantId);
@@ -292,17 +293,36 @@ include => ivr-menus
 include => ai-agents-direct
 include => outbound-routes
 
-; Discagem direta para ramais de 4 dígitos (ex: 4101 a 4999)
+; Discagem direta para ramais cadastrados no PBX
 [internal-extensions]
-exten => _4XXX,1,NoOp(Enlace-PBX: Chamada Interna para Ramal \${EXTEN})
+${extensions
+  .map(
+    (ext) => `exten => ${ext.number},1,NoOp(Enlace-PBX: Chamada Interna para Ramal ${ext.number} - ${ext.name})
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CALLFILENAME=rec-\${EPOCH}-\${CALLERID(num)}-\${EXTEN})
- same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)
+ ${ext.recording === 'always' ? `same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)` : ''}
  same => n,Dial(PJSIP/\${EXTEN},30,tT)
  same => n,GotoIf($["\${DIALSTATUS}" = "BUSY"]?busy:unavail)
- same => n(busy),VoiceMail(\${EXTEN}@default,b)
+ ${
+   ext.voicemail
+     ? `same => n(busy),VoiceMail(\${EXTEN}@default,b)
  same => n,Hangup()
  same => n(unavail),VoiceMail(\${EXTEN}@default,u)
+ same => n,Hangup()`
+     : `same => n(busy),Busy(10)
+ same => n,Hangup()
+ same => n(unavail),Congestion(10)
+ same => n,Hangup()`
+ }`
+  )
+  .join('\n\n')}
+
+; Padrão fallback para ramais de 3 a 5 dígitos
+exten => _[1-9]XX,1,Dial(PJSIP/\${EXTEN},30,tT)
+ same => n,Hangup()
+exten => _[1-9]XXX,1,Dial(PJSIP/\${EXTEN},30,tT)
+ same => n,Hangup()
+exten => _[1-9]XXXX,1,Dial(PJSIP/\${EXTEN},30,tT)
  same => n,Hangup()
 
 ; Grupos de Toque
@@ -310,6 +330,7 @@ exten => _4XXX,1,NoOp(Enlace-PBX: Chamada Interna para Ramal \${EXTEN})
 ${groups
   .map(
     (g) => `exten => ${g.number},1,NoOp(Grupo de Toque: ${g.name})
+ same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Dial(${g.members.map((m) => `PJSIP/${m}`).join('&')},${g.timeoutSeconds},tT)
  same => n,Hangup()`
   )
@@ -320,6 +341,7 @@ ${groups
 ${queues
   .map(
     (q) => `exten => ${q.number},1,NoOp(Fila: ${q.name})
+ same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Answer()
  same => n,Queue(${q.id},t,,,${q.timeoutSeconds})
  same => n,Hangup()`
@@ -331,6 +353,7 @@ ${queues
 ${ivrs
   .map(
     (ivr) => `exten => ${ivr.number},1,NoOp(URA: ${ivr.name})
+ same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Answer()
  same => n,Wait(1)
  same => n(menu),Background(enlace/prompts/${ivr.id})
@@ -357,7 +380,6 @@ exten => i,1,Playback(pbx-invalid)
 
 ; ====================================================================
 ; Contexto do Agente de Voz Google Gemini (ARI / AudioSocket / Stasis)
-; Conforme PRD Seção 43:
 ; ====================================================================
 [from-gemini]
 exten => s,1,NoOp(Enlace-PBX Gemini Agent Voice Gateway)
@@ -375,31 +397,50 @@ exten => 9001,1,Goto(from-gemini,s,1) ; Discagem direta interna para MaIA
 [outbound-routes]
 ${routes
   .filter((r) => r.type === 'outbound')
-  .map(
-    (r) => `exten => _${r.pattern},1,NoOp(Rota de Saida: ${r.name})
+  .map((r) => {
+    const pat = r.pattern.startsWith('_') ? r.pattern : `_${r.pattern}`;
+    const stripDigits = r.prefixRemove ? r.prefixRemove.length : 0;
+    const targetTrunk = r.trunkId ? `PJSIP/${r.trunkId}` : `\${TRUNK_VIVO}`;
+    return `exten => ${pat},1,NoOp(Rota de Saida: ${r.name})
+ same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CALLFILENAME=rec-out-\${EPOCH}-\${EXTEN})
  same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)
- same => n,Dial(\${TRUNK_VIVO}/\${EXTEN:${r.prefixRemove ? r.prefixRemove.length : 0}},60,tT)
- same => n,Hangup()`
-  )
+ same => n,Dial(${targetTrunk}/\${EXTEN:${stripDigits}},60,tT)
+ same => n,Hangup()`;
+  })
   .join('\n\n')}
 
 ; ====================================================================
-; Rotas de Entrada (Operadoras Brasileiras)
+; Rotas de Entrada (DIDs das Operadoras Brasileiras)
 ; ====================================================================
 [from-trunk]
-exten => 08007702020,1,NoOp(Entrada Claro 0800 -> Agente Gemini MaIA)
- same => n,Goto(from-gemini,s,1)
+${routes
+  .filter((r) => r.type === 'inbound')
+  .map((r) => {
+    const pat = r.pattern.startsWith('_')
+      ? r.pattern
+      : (r.pattern.includes('X') || r.pattern.includes('N') || r.pattern.includes('.') ? `_${r.pattern}` : r.pattern);
+    let dest = 'Goto(from-internal,4101,1)';
+    if (r.destinationType === 'extension') dest = `Goto(from-internal,${r.destinationId},1)`;
+    else if (r.destinationType === 'queue') dest = `Goto(call-queues,${r.destinationId},1)`;
+    else if (r.destinationType === 'ivr') dest = `Goto(ivr-menus,${r.destinationId},1)`;
+    else if (r.destinationType === 'ai_agent') dest = `Goto(from-gemini,s,1)`;
+    else if (r.destinationType === 'ring_group') dest = `Goto(ring-groups,${r.destinationId},1)`;
 
-exten => 1130900100,1,NoOp(Entrada Vivo SP -> URA Principal)
- same => n,Goto(ivr-menus,6001,1)
+    return `exten => ${pat},1,NoOp(Rota de Entrada: ${r.name})
+ same => n,Set(CDR(tenant_id)=${tenantId})
+ same => n,Set(CALLFILENAME=rec-in-\${EPOCH}-\${CALLERID(num)}-\${EXTEN})
+ same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)
+ same => n,${dest}`;
+  })
+  .join('\n\n')}
 
 exten => _X.,1,NoOp(Chamada de tronco sem rota definida: \${EXTEN})
  same => n,Goto(from-internal,4101,1)
 `;
   }
 
-  // Official Linux Installer Script as specified in PRD Section 40
+    // Official Linux Installer Script as specified in PRD Section 40
   generateInstallScript(): string {
     return `#!/usr/bin/env bash
 # ====================================================================

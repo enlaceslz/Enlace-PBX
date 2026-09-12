@@ -6,28 +6,83 @@ import {
 
 export const BackupRestoreView: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
+
   const [backups, setBackups] = useState([
     { id: 'bkp-1', name: 'Auto-Backup (Daily)', date: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), size: '24.5 MB', type: 'auto', status: 'success' },
-    { id: 'bkp-2', name: 'Before Update v20.17', date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(), size: '22.1 MB', type: 'manual', status: 'success' },
-    { id: 'bkp-3', name: 'Auto-Backup (Daily)', date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(), size: '24.0 MB', type: 'auto', status: 'success' },
   ]);
 
-  const handleCreateBackup = () => {
+  const handleCreateBackup = async () => {
     setIsCreating(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/v1/system/backup');
+      if (!res.ok) throw new Error('Erro ao gerar snapshot');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `enlace-pbx-backup-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      const sizeMb = (blob.size / (1024 * 1024)).toFixed(2);
       setBackups([
         {
           id: `bkp-${Date.now()}`,
-          name: 'Manual Backup (Snapshot)',
+          name: 'Backup Manual (Snapshot JSON Completo)',
           date: new Date().toISOString(),
-          size: '25.2 MB',
+          size: `${sizeMb} MB`,
           type: 'manual',
-          status: 'success'
+          status: 'success',
         },
-        ...backups
+        ...backups,
       ]);
+      setRestoreMessage('Snapshot baixado com sucesso no formato JSON padrão!');
+      setTimeout(() => setRestoreMessage(null), 4000);
+    } catch (err) {
+      console.error('Backup error:', err);
+      setRestoreMessage('Erro ao gerar backup do sistema.');
+    } finally {
       setIsCreating(false);
-    }, 2500);
+    }
+  };
+
+  const handleUploadRestore = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = async (e: any) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setIsRestoring(true);
+      setRestoreMessage(null);
+      
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const json = JSON.parse(event.target?.result as string);
+          const res = await fetch('/api/v1/system/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(json)
+          });
+          if (res.ok) {
+            setRestoreMessage('Backup restaurado com sucesso! Recarregue a página para aplicar.');
+            setTimeout(() => window.location.reload(), 3000);
+          } else {
+            setRestoreMessage('Falha ao restaurar: Formato inválido.');
+          }
+        } catch(err) {
+          setRestoreMessage('Falha ao ler o arquivo JSON.');
+        }
+        setIsRestoring(false);
+      };
+      reader.readAsText(file);
+    };
+    input.click();
   };
 
   return (
@@ -45,6 +100,14 @@ export const BackupRestoreView: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-3">
+          <button 
+            onClick={handleUploadRestore}
+            disabled={isRestoring}
+            className="px-5 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 font-bold rounded-xl text-sm transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+          >
+            {isRestoring ? <div className="w-4 h-4 border-2 border-slate-700 border-t-transparent rounded-full animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+            Restaurar de Arquivo
+          </button>
           <button 
             onClick={handleCreateBackup}
             disabled={isCreating}
