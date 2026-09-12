@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -32,6 +32,10 @@ import {
   Megaphone,
   BarChart3,
   ScrollText,
+  Menu,
+  ChevronDown,
+  ChevronRight,
+  Phone
 } from 'lucide-react';
 
 export type ActiveView =
@@ -77,6 +81,9 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOpenWebphone }) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [openSections, setOpenSections] = useState<string[]>([]);
+
   const sections = [
     {
       title: 'GERAL',
@@ -154,92 +161,167 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
     },
   ];
 
+  // Auto-expand section containing the active view, keeping others collapsed by default
+  useEffect(() => {
+    const activeSection = sections.find(sec => sec.items.some(item => item.id === activeView));
+    if (activeSection && !openSections.includes(activeSection.title)) {
+      setOpenSections([activeSection.title]);
+    }
+  }, [activeView]); // Intentionally leaving out sections from dependency array to avoid loops
+
+  const toggleSection = (title: string) => {
+    if (isCollapsed) setIsCollapsed(false); // Auto-expand sidebar if trying to open an accordion
+    setOpenSections(prev => 
+      prev.includes(title) ? prev.filter(t => t !== title) : [...prev, title]
+    );
+  };
+
   return (
-    <aside className="w-64 bg-white/95 backdrop-blur-sm border-r border-slate-200 flex flex-col h-[calc(100vh-4rem)] select-none relative overflow-hidden">
+    <aside className={`bg-white/95 backdrop-blur-sm border-r border-slate-200 flex flex-col h-[calc(100vh-4rem)] select-none relative transition-all duration-300 ease-in-out ${isCollapsed ? 'w-20' : 'w-64'}`}>
       {/* Subtle tech background glow */}
       <div className="absolute top-0 left-0 w-full h-48 bg-blue-50/50 blur-[80px] pointer-events-none" />
 
       {/* Brand & Logo Header Card */}
-      <div className="p-3 pb-0 relative z-10">
-        <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-blue-50/60 hover:border-blue-200 transition group">
+      <div className="p-3 pb-0 relative z-10 flex items-center justify-between">
+        <div className={`flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-blue-50/60 hover:border-blue-200 transition group flex-1 ${isCollapsed ? 'justify-center' : ''}`}>
           <img 
             src="/logo-icon.png" 
             alt="Enlace Telecom Logo" 
-            className="w-9 h-9 rounded-lg object-contain shadow-sm border border-white"
+            className="w-8 h-8 rounded-lg object-contain shadow-sm border border-white shrink-0"
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
             }}
           />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-black text-slate-900 tracking-tight truncate">Enlace Telecom</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Sistema Online" />
+          {!isCollapsed && (
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-black text-slate-900 tracking-tight truncate">Enlace Telecom</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" title="Sistema Online" />
+              </div>
+              <p className="text-[9px] font-medium text-slate-500 truncate">Telecom &amp; IA</p>
             </div>
-            <p className="text-[10px] font-medium text-slate-500 truncate">Telecom &amp; IA Asterisk 20</p>
-          </div>
+          )}
         </div>
+        <button 
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className={`p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition shrink-0 ${isCollapsed ? 'mt-2 mb-1 hidden' : 'ml-1'}`}
+          title="Recolher Menu"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-4 px-4 space-y-7 relative z-10 custom-scrollbar">
-        {sections.map((section, idx) => (
-          <div key={idx} className="relative">
-            <div className="px-1 mb-2.5 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />
-              <span className="text-[10px] font-bold tracking-[0.15em] text-slate-500 uppercase">
-                {section.title}
-              </span>
+      {isCollapsed && (
+        <div className="flex justify-center mt-2 relative z-10">
+          <button 
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+            title="Expandir Menu"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      <div className={`flex-1 overflow-y-auto py-4 ${isCollapsed ? 'px-2' : 'px-4'} space-y-2 relative z-10 custom-scrollbar`}>
+        {sections.map((section, idx) => {
+          const isOpen = openSections.includes(section.title);
+          const hasActiveChild = section.items.some(item => item.id === activeView);
+
+          return (
+            <div key={idx} className="relative">
+              {/* Section Header */}
+              <button 
+                onClick={() => toggleSection(section.title)}
+                className={`w-full flex items-center justify-between group rounded-lg py-1.5 ${isCollapsed ? 'px-0 justify-center' : 'px-1'} hover:bg-slate-50 transition`}
+                title={isCollapsed ? section.title : undefined}
+              >
+                {!isCollapsed ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-1.5 h-1.5 rounded-full ${hasActiveChild ? 'bg-blue-500' : 'bg-slate-200 group-hover:bg-slate-300'}`} />
+                      <span className={`text-[10px] font-bold tracking-[0.1em] uppercase truncate ${hasActiveChild ? 'text-blue-600' : 'text-slate-500 group-hover:text-slate-700'}`}>
+                        {section.title}
+                      </span>
+                    </div>
+                    {isOpen ? <ChevronDown className="w-3 h-3 text-slate-400" /> : <ChevronRight className="w-3 h-3 text-slate-400" />}
+                  </>
+                ) : (
+                   <span className={`w-1.5 h-1.5 rounded-full ${hasActiveChild ? 'bg-blue-500' : 'bg-slate-300'} mx-auto`} />
+                )}
+              </button>
+
+              {/* Section Items */}
+              {(!isCollapsed && isOpen) || isCollapsed ? (
+                <div className={`space-y-0.5 mt-1 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+                  {section.items.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeView === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => onSelectView(item.id)}
+                        title={isCollapsed ? item.label : undefined}
+                        className={`flex items-center gap-3 rounded-lg text-xs font-medium transition-all duration-200 group ${
+                          isCollapsed ? 'w-10 h-10 justify-center p-0' : 'w-full px-3 py-2.5'
+                        } ${
+                          isActive
+                            ? isCollapsed 
+                               ? 'bg-blue-50 text-blue-700 shadow-sm border border-blue-200' 
+                               : 'bg-blue-50 text-blue-700 font-semibold shadow-[inset_2px_0_0_0_rgba(37,99,235,1)]'
+                            : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Icon
+                          className={`shrink-0 transition-colors ${
+                            isCollapsed ? 'w-5 h-5' : 'w-4 h-4'
+                          } ${
+                            isActive ? 'text-blue-600' : 'text-slate-500 group-hover:text-slate-600'
+                          }`}
+                        />
+                        {!isCollapsed && <span className="truncate">{item.label}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
-            <div className="space-y-1">
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeView === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onSelectView(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 group ${
-                      isActive
-                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-[inset_2px_0_0_0_rgba(37,99,235,1)]'
-                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Icon
-                      className={`w-4 h-4 transition-colors ${
-                        isActive ? 'text-blue-600' : 'text-slate-500 group-hover:text-slate-500'
-                      }`}
-                    />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Open Source Contribution */}
-      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 text-center">
-        <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
-          O Enlace-PBX é uma contribuição open-source da <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Enlace Telecom</a> e <strong>André LJP</strong>.
-          <br />
-          <a href="mailto:slzenlace@gmail.com" className="hover:text-slate-600 transition-colors">slzenlace@gmail.com</a>
-        </p>
-      </div>
+      {/* Open Source Contribution (Hidden when collapsed) */}
+      {!isCollapsed && (
+        <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 text-center shrink-0">
+          <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
+            O Enlace-PBX é uma contribuição open-source da <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Enlace Telecom</a> e <strong>André LJP</strong>.
+            <br />
+            <a href="mailto:slzenlace@gmail.com" className="hover:text-slate-600 transition-colors">slzenlace@gmail.com</a>
+          </p>
+        </div>
+      )}
 
       {/* Webphone Quick Drawer Footer */}
-      <div className="p-4 border-t border-slate-200 bg-white/90 backdrop-blur-md relative z-10">
+      <div className={`p-3 border-t border-slate-200 bg-white/90 backdrop-blur-md relative z-10 shrink-0 ${isCollapsed ? 'flex justify-center' : ''}`}>
         <button
           onClick={onOpenWebphone}
-          className="w-full py-3 px-4 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 border border-blue-400 shadow-lg shadow-blue-600/20 flex items-center justify-between text-xs text-white group transition-all duration-300"
+          title={isCollapsed ? 'Abrir Webphone' : undefined}
+          className={`${
+            isCollapsed 
+              ? 'w-10 h-10 justify-center p-0 rounded-xl' 
+              : 'w-full py-2.5 px-3 rounded-xl justify-between'
+          } bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 border border-blue-400 shadow-lg shadow-blue-600/20 flex items-center text-xs text-white group transition-all duration-300`}
         >
-          <div className="flex items-center gap-2.5">
-            <div className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-200 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-            </div>
-            <span className="font-semibold tracking-wide">Webphone</span>
+          <div className="flex items-center justify-center gap-2">
+            {!isCollapsed && (
+              <div className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-200 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+              </div>
+            )}
+            {isCollapsed ? <Phone className="w-5 h-5" /> : <span className="font-semibold tracking-wide truncate">Webphone</span>}
           </div>
-          <span className="text-[10px] font-mono font-bold text-blue-100 transition-colors">ABRIR</span>
+          {!isCollapsed && <span className="text-[10px] font-mono font-bold text-blue-100 transition-colors shrink-0">ABRIR</span>}
         </button>
       </div>
     </aside>
