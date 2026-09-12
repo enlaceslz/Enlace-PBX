@@ -447,7 +447,7 @@ export default function App() {
       case 'settings':
         return <SettingsView onNavigate={setActiveView} />;
       case 'help_manual':
-        return <HelpManualView />;
+        return <HelpManualView onNavigate={setActiveView} />;
       case 'backup_restore':
         return <BackupRestoreView />;
       default:
