@@ -1817,6 +1817,178 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   app.get('/api/v1/omnichannel/conversations', (req, res) => res.json(db.omnichannelConversations));
 
+  // --- WhatsApp & Omnichannel API ---
+
+  app.get('/api/v1/whatsapp/config', (req, res) => {
+    // Return first config or default empty
+    const config = db.whatsappConfigs[0] || { tenantId: 'tenant-enlace-matriz', phoneNumberId: '', accessToken: '', verifyToken: '', isActive: false };
+    res.json(config);
+  });
+
+  app.post('/api/v1/whatsapp/config', (req, res) => {
+    let config = db.whatsappConfigs[0];
+    if (config) {
+      config.phoneNumberId = req.body.phoneNumberId;
+      config.accessToken = req.body.accessToken;
+      config.verifyToken = req.body.verifyToken;
+      config.isActive = req.body.isActive;
+    } else {
+      config = { ...req.body, tenantId: 'tenant-enlace-matriz' };
+      db.whatsappConfigs.push(config);
+    }
+    res.json(config);
+  });
+
+  app.post('/api/v1/whatsapp/conversations/:id/reply', async (req, res) => {
+    const conv = db.omnichannelConversations.find(c => c.id === req.params.id);
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    
+    const { text } = req.body;
+    
+    // Add to DB
+    const newMessage = {
+      id: `msg-${Date.now()}`,
+      sender: 'agent' as const,
+      text,
+      timestamp: new Date().toISOString()
+    };
+    conv.messages.push(newMessage);
+
+    // If config exists and is active, send to Meta API (Simulation in dev, actual fetch in production if token is valid)
+    const config = db.whatsappConfigs[0];
+    if (config && config.isActive && config.accessToken) {
+      try {
+        const metaRes = await fetch(`https://graph.facebook.com/v17.0/${config.phoneNumberId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: conv.contactId.replace(/\D/g, ''), // Send to numeric phone
+            type: 'text',
+            text: { body: text }
+          })
+        });
+        
+        if (!metaRes.ok) {
+          const errData = await metaRes.json();
+          console.error('Meta API Error:', errData);
+          // Just logging it, we still save the message locally for the UI
+        }
+      } catch (err) {
+        console.error('Failed to send to Meta Graph API:', err);
+      }
+    }
+
+    res.json(conv);
+  });
+
+  // Meta Webhook Verification
+  app.get('/api/v1/webhooks/whatsapp', (req, res) => {
+    const config = db.whatsappConfigs[0];
+    const verifyToken = config ? config.verifyToken : 'enlace_whatsapp_token_default';
+
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    if (mode && token) {
+      if (mode === 'subscribe' && token === verifyToken) {
+        console.log('WEBHOOK_VERIFIED');
+        res.status(200).send(challenge);
+      } else {
+        res.sendStatus(403);
+      }
+    } else {
+      res.sendStatus(400);
+    }
+  });
+
+  // Meta Webhook Receiving Messages
+  app.post('/api/v1/webhooks/whatsapp', async (req, res) => {
+    const body = req.body;
+    
+    if (body.object) {
+      if (body.entry && body.entry[0].changes && body.entry[0].changes[0] && body.entry[0].changes[0].value.messages && body.entry[0].changes[0].value.messages[0]) {
+        const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
+        const from = body.entry[0].changes[0].value.messages[0].from; // sender number
+        const msg_body = body.entry[0].changes[0].value.messages[0].text?.body; 
+
+        if (!msg_body) {
+           return res.sendStatus(200); // Ignore non-text for now
+        }
+
+        // Find or create conversation
+        let conv = db.omnichannelConversations.find(c => c.contactId === from && c.channel === 'whatsapp');
+        if (!conv) {
+          conv = {
+            id: `conv-wa-${Date.now()}`,
+            tenantId: 'tenant-enlace-matriz',
+            contactId: from,
+            channel: 'whatsapp',
+            status: 'bot_handling', // Default to bot handling for new conversations
+            createdAt: new Date().toISOString(),
+            messages: []
+          };
+          db.omnichannelConversations.push(conv);
+        }
+
+        conv.messages.push({
+          id: body.entry[0].changes[0].value.messages[0].id,
+          sender: 'user',
+          text: msg_body,
+          timestamp: new Date().toISOString()
+        });
+
+        // Trigger AI response if in bot_handling status
+        if (conv.status === 'bot_handling') {
+           const { geminiService } = await import('./server/geminiService.js');
+           const aiResponseText = await geminiService.processWhatsAppTurn(conv.id, msg_body);
+           
+           // Check if AI decided to transfer (simple keyword matching for demo purposes)
+           if (aiResponseText.toLowerCase().includes('transferir') || aiResponseText.toLowerCase().includes('atendente')) {
+              conv.status = 'queued'; // Transfer to human
+           }
+           
+           const aiMsg = {
+             id: `msg-ai-${Date.now()}`,
+             sender: 'bot' as const,
+             text: aiResponseText,
+             timestamp: new Date().toISOString()
+           };
+           conv.messages.push(aiMsg);
+
+           // Actually send it via Meta API
+           const config = db.whatsappConfigs[0];
+           if (config && config.isActive && config.accessToken) {
+             try {
+               await fetch(`https://graph.facebook.com/v17.0/${config.phoneNumberId}/messages`, {
+                 method: 'POST',
+                 headers: {
+                   'Authorization': `Bearer ${config.accessToken}`,
+                   'Content-Type': 'application/json'
+                 },
+                 body: JSON.stringify({
+                   messaging_product: 'whatsapp',
+                   to: from,
+                   type: 'text',
+                   text: { body: aiResponseText }
+                 })
+               });
+             } catch(e) {
+               console.error('Failed to send AI reply via Meta', e);
+             }
+           }
+        }
+      }
+      res.sendStatus(200);
+    } else {
+      res.sendStatus(404);
+    }
+  });
+
   app.get('/api/v1/dashboard/metrics', (req, res) => {
     // Generate some dynamic metrics for the dashboard
     const now = new Date();

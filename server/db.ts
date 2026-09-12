@@ -31,13 +31,29 @@ export interface CustomerMemory {
   churnRisk: number;
 }
 
+export interface OmnichannelMessage {
+  id: string;
+  sender: 'user' | 'bot' | 'agent';
+  text: string;
+  timestamp: string;
+}
+
 export interface OmnichannelConversation {
   id: string;
   tenantId: string;
   contactId: string;
-  channel: 'whatsapp' | 'voice' | 'webrtc';
-  status: 'active' | 'closed' | 'queued';
+  channel: 'whatsapp' | 'voice' | 'webrtc' | 'sms';
+  status: 'active' | 'closed' | 'queued' | 'bot_handling';
   createdAt: string;
+  messages: OmnichannelMessage[];
+}
+
+export interface WhatsappConfig {
+  tenantId: string;
+  phoneNumberId: string;
+  accessToken: string;
+  verifyToken: string;
+  isActive: boolean;
 }
 
 export interface TenantAntiFraud {
@@ -1672,8 +1688,14 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       channel: 'whatsapp',
       status: 'active',
       createdAt: '2026-09-10T12:00:00Z',
+      messages: [
+        { id: 'msg-1', sender: 'user', text: 'Olá, preciso de ajuda com o PBX.', timestamp: '2026-09-10T12:00:00Z' },
+        { id: 'msg-2', sender: 'bot', text: 'Olá! Um momento, vou transferir para um agente.', timestamp: '2026-09-10T12:00:05Z' }
+      ]
     },
   ];
+
+  whatsappConfigs: WhatsappConfig[] = [];
 
   // -------------------------------------------------------------------------
   // Redes, VPN & Segurança (WireGuard, ZeroTier, Fail2ban)

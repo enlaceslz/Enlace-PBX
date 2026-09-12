@@ -22,69 +22,81 @@ export const OmnichannelView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [replyText, setReplyText] = useState('');
 
+
+  const [showConfig, setShowConfig] = useState(false);
+  const [whatsappConfig, setWhatsappConfig] = useState({ phoneNumberId: '', accessToken: '', verifyToken: '', isActive: false });
+
+  const fetchConversations = async () => {
+    try {
+      const res = await fetch('/api/v1/omnichannel/conversations');
+      const data = await res.json();
+      setConversations(data);
+      // Update selected conv seamlessly
+      setSelectedConv(prev => {
+        if (!prev && data.length > 0) return data[0];
+        const match = data.find((c: any) => c.id === prev?.id);
+        return match || prev;
+      });
+    } catch (e) {
+      console.error('Failed to fetch conversations', e);
+    }
+  };
+
+  const fetchConfig = async () => {
+    try {
+      const res = await fetch('/api/v1/whatsapp/config');
+      const data = await res.json();
+      setWhatsappConfig(data);
+    } catch (e) {
+      console.error('Failed to fetch config', e);
+    }
+  };
+
   useEffect(() => {
-    // Simulando o carregamento com dados ricos
-    setTimeout(() => {
-      setConversations([
-        {
-          id: 'conv-101',
-          tenantId: 'tenant-enlace-matriz',
-          contactId: '+55 11 98888-7777',
-          channel: 'whatsapp',
-          status: 'bot_handling',
-          createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 mins atrás
-          messages: [
-            { id: 'm1', sender: 'user', text: 'Olá, gostaria de saber o horário de funcionamento.', timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString() },
-            { id: 'm2', sender: 'bot', text: 'Olá! Nosso horário de funcionamento é de Segunda a Sexta, das 08:00 às 18:00.', timestamp: new Date(Date.now() - 1000 * 60 * 4).toISOString() },
-            { id: 'm3', sender: 'user', text: 'E vocês atendem finais de semana?', timestamp: new Date(Date.now() - 1000 * 60 * 1).toISOString() }
-          ]
-        },
-        {
-          id: 'conv-102',
-          tenantId: 'tenant-enlace-matriz',
-          contactId: 'João Guilherme',
-          channel: 'voice',
-          status: 'active',
-          createdAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-          messages: [
-            { id: 'm1', sender: 'bot', text: '[Transcrição Ao Vivo]: "Olá, preciso falar com o suporte."', timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString() },
-            { id: 'm2', sender: 'bot', text: 'Entendido. Transferindo para o Nível 1.', timestamp: new Date(Date.now() - 1000 * 60 * 11).toISOString() },
-            { id: 'm3', sender: 'agent', text: '[Agente Assumiu a Ligação via WebRTC]', timestamp: new Date(Date.now() - 1000 * 60 * 10).toISOString() }
-          ]
-        },
-        {
-          id: 'conv-103',
-          tenantId: 'tenant-enlace-matriz',
-          contactId: '+55 21 99999-5555',
-          channel: 'whatsapp',
-          status: 'queued',
-          createdAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-          messages: [
-            { id: 'm1', sender: 'user', text: 'Preciso da segunda via do meu boleto urgente.', timestamp: new Date(Date.now() - 1000 * 60 * 20).toISOString() },
-            { id: 'm2', sender: 'bot', text: 'Um momento, vou transferir para nosso departamento financeiro.', timestamp: new Date(Date.now() - 1000 * 60 * 19).toISOString() }
-          ]
-        }
-      ]);
-      setIsLoading(false);
-    }, 800);
+    fetchConversations();
+    fetchConfig();
+    setIsLoading(false);
+    
+    // Poll every 3s for new WhatsApp messages
+    const interval = setInterval(fetchConversations, 3000);
+    return () => clearInterval(interval);
   }, []);
 
-  const handleSend = () => {
+  const handleSaveConfig = async () => {
+    try {
+      await fetch('/api/v1/whatsapp/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(whatsappConfig)
+      });
+      setShowConfig(false);
+      alert('Configurações salvas com sucesso!');
+    } catch (e) {
+      alert('Erro ao salvar as configurações.');
+    }
+  };
+
+  const handleSend = async () => {
     if (!replyText.trim() || !selectedConv) return;
     
-    const updatedConv = { ...selectedConv };
-    updatedConv.messages.push({
-      id: `m-new-${Date.now()}`,
-      sender: 'agent',
-      text: replyText,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Atualiza o estado
-    const newConvs = conversations.map(c => c.id === updatedConv.id ? updatedConv : c);
-    setConversations(newConvs);
-    setSelectedConv(updatedConv);
-    setReplyText('');
+    try {
+      const res = await fetch(`/api/v1/whatsapp/conversations/${selectedConv.id}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: replyText })
+      });
+      
+      if (res.ok) {
+        const updatedConv = await res.json();
+        const newConvs = conversations.map(c => c.id === updatedConv.id ? updatedConv : c);
+        setConversations(newConvs);
+        setSelectedConv(updatedConv);
+        setReplyText('');
+      }
+    } catch (e) {
+      console.error('Failed to send reply', e);
+      alert('Erro ao enviar mensagem.');
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -131,6 +143,9 @@ export const OmnichannelView: React.FC = () => {
         <div className="flex items-center gap-3">
           <button className="px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs uppercase tracking-wider transition flex items-center gap-2 shadow-sm">
             <Filter className="w-4 h-4" /> Configurar Filtros
+          </button>
+          <button onClick={() => setShowConfig(true)} className="px-4 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 font-bold rounded-xl text-xs uppercase tracking-wider transition flex items-center gap-2 shadow-sm">
+            <Smartphone className="w-4 h-4" /> Configurar WhatsApp API
           </button>
         </div>
       </div>
@@ -361,6 +376,71 @@ export const OmnichannelView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {showConfig && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-emerald-600" />
+                Configurar WhatsApp Cloud API
+              </h3>
+              <button onClick={() => setShowConfig(false)} className="text-slate-400 hover:text-slate-600">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Phone Number ID</label>
+                <input 
+                  type="text" 
+                  value={whatsappConfig.phoneNumberId} 
+                  onChange={e => setWhatsappConfig({...whatsappConfig, phoneNumberId: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Ex: 104593848573..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Access Token (Permanente)</label>
+                <input 
+                  type="password" 
+                  value={whatsappConfig.accessToken} 
+                  onChange={e => setWhatsappConfig({...whatsappConfig, accessToken: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="EAAGX..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Verify Token (Para Webhook)</label>
+                <input 
+                  type="text" 
+                  value={whatsappConfig.verifyToken} 
+                  onChange={e => setWhatsappConfig({...whatsappConfig, verifyToken: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Seu token secreto para validar o Webhook"
+                />
+              </div>
+              <div className="flex items-center gap-2 mt-4">
+                <input 
+                  type="checkbox" 
+                  id="waActive"
+                  checked={whatsappConfig.isActive} 
+                  onChange={e => setWhatsappConfig({...whatsappConfig, isActive: e.target.checked})}
+                  className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                />
+                <label htmlFor="waActive" className="text-sm font-medium text-slate-700">Ativar Integração Oficial</label>
+              </div>
+
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
+                <span className="font-bold block mb-1">Webhook URL:</span>
+                <code>https://{'<'}seu-dominio{'>'}/api/v1/webhooks/whatsapp</code>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <button onClick={() => setShowConfig(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition">Cancelar</button>
+              <button onClick={handleSaveConfig} className="px-4 py-2 text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg transition">Salvar Credenciais</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
