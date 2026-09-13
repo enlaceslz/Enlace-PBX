@@ -1,111 +1,158 @@
-# Enlace-PBX 📞 🇧🇷
+<p align="center">
+  <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer">
+    <img src="./public/logo.png" alt="Enlace-PBX Enterprise Logo" width="520" />
+  </a>
+</p>
 
-**A Plataforma Omnichannel & AI Gateway Definitiva. Simples, aberta e brasileira.**
+<p align="center">
+  <strong>Plataforma Omnichannel, Telefonia IP Asterisk 20 LTS & AI Gateway Cognitivo</strong><br>
+  <em>Simples, Aberta, Segura e Desenvolvida com Orgulho no Brasil 🇧🇷</em>
+</p>
 
-O Enlace-PBX evoluiu de um núcleo **Asterisk 20 LTS** (Pure Open Source Core) para se tornar uma plataforma completa de comunicações unificadas, CRM Hub e orquestração de Inteligência Artificial de Voz. 
-
-Nascida para democratizar o acesso à telefonia IP inteligente no Brasil, a plataforma unifica roteamento avançado, WebRTC, PJSIP, Omnichannel e agentes conversacionais (LLMs) em tempo real em uma interface moderna e segura.
-
-## 🚀 Principais Recursos
-
-- **Contact Center Omnichannel & CRM Hub:** Visão 360 do cliente unindo voz, WhatsApp e chat. Integração direta (OAuth) com HubSpot, Pipedrive e RDStation.
-- **AI Gateway & Policy Engine:** Orquestre agentes de atendimento virtuais (Gemini, 9Router, Vertex). O motor RAG acopla-se ao *Customer Memory* (memória do CRM), prevendo as necessidades do chamador, tudo protegido por uma validação estrita de funções (RBAC no *function calling*).
-- **QA Automático (LLM-as-a-Judge):** Supervisor IA invisível que lê as transcrições das chamadas e calcula risco de churn, pontuação de atendimento e intenção (intent).
-- **Motor Multi-Tenant & Snapshots:** Separação estrita de dados (`tenant_id`) por clientes empresariais. O Quick Setup Wizard permite o provisionamento em massa de ramais/troncos com proteção de *rollback* via instantâneos de memória (Snapshots).
-- **Webphone Softphone Integrado:** Cliente WebRTC moderno (Opus codec) com discador, suporte a tons DTMF brasileiros (Web Audio API), e chamadas diretas pelo navegador.
-- **Discagem Inteligente e Dialplan BR:** Suporte nativo ao plano de numeração nacional (Nono dígito, DDD `_0XX9XXXXXXXX`, rotas 0800, etc.).
-- **Auditoria e Conformidade LGPD:** Trilha de auditoria imutável (RBAC) com logs detalhados de acessos e acionamento de inteligências.
-- **NOC / Operation Dashboard:** Monitoramento em tempo real do tráfego telefônico e consumo de agentes, visualizando canais ativos simultâneos e infraestrutura.
-
-## 🛠️ Tecnologias Utilizadas
-
-- **Frontend:** React 18, TypeScript, Tailwind CSS, Lucide Icons, Vite.
-- **Backend:** Node.js, Express, WebSockets, Google GenAI SDK (`@google/genai`).
-- **Telefonia:** Asterisk 20 LTS, SIP/PJSIP, WebRTC, ARI (Asterisk REST Interface).
-- **Tema Visual e Design System:** Interface *Clean Light Canvas* focada em operações de NOC (Network Operations Center). Tema claro de alto contraste (slate-50/blue-600) para máxima legibilidade técnica.
-- **Console Asterisk CLI Interativo:** Terminal web conectado ao núcleo do Asterisk (via `asterisk -rvvv`).
-
-## 📦 Estrutura do Projeto
-
-```text
-├── src/
-│   ├── components/
-│   │   ├── views/          # Módulos (Omnichannel, CRM Hub, Setup, Ramais, IA, NOC)
-│   │   ├── Navbar.tsx      # Barra de navegação e seletor de tenants
-│   │   ├── Sidebar.tsx     # Menu lateral categorizado (NOC, CRM, Telefonia, IA)
-│   │   └── WebphoneModal.tsx # Softphone WebRTC embutido
-│   ├── types/
-│   │   └── pbx.ts          # Definições de tipos do domínio
-│   ├── App.tsx             # Orquestrador de visualizações e roteamento
-│   └── main.tsx            # Ponto de entrada do React
-├── server.ts               # Servidor Express Full-stack (APIs REST) + Vite
-├── server/
-│   ├── db.ts               # Motor de estado multi-tenant e simulador DB (PostgreSQL)
-│   ├── geminiService.ts    # Conector do Gemini, Policy Engine e Memória de Cliente
-│   └── asteriskService.ts  # Adaptador e simulador do Asterisk ARI/AMI
-└── install-enlace-pbx.sh   # Script gerado de compilação pura para o servidor Linux
-```
-
-
-## ⚙️ Procedimentos de Instalação e Deploy (Produção)
-
-O **Enlace-PBX Enterprise** pode ser instalado em qualquer servidor dedicado ou VPS rodando **Debian 12 (Bookworm)** ou **Ubuntu 22.04/24.04 LTS**.
-
-### 🖥️ Requisitos Recomendados de Infraestrutura
-- **CPU:** 2 vCPUs ou mais (para compilação rápida do Asterisk e processamento de áudio DSP).
-- **Memória RAM:** 4 GB (mínimo de 2 GB com Swap ativado).
-- **Armazenamento:** 25 GB SSD (espaço para gravações de áudio WAV e logs rotacionados).
-- **Rede:** 1 Endereço IPv4 Público estático (para sinalização SIP/PJSIP e NAT Traversal).
-- **Domínio FQDN:** Ex: `pbx.suaempresa.com.br` com apontamento DNS tipo `A` direcionado ao IP público.
+<p align="center">
+  <img src="https://img.shields.io/badge/Asterisk-20.17_LTS-blue?style=for-the-badge&logo=asterisk&logoColor=white" alt="Asterisk 20 LTS" />
+  <img src="https://img.shields.io/badge/Node.js-20_LTS-green?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js 20" />
+  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Google_Gemini-Flash_&_Live-8E75B2?style=for-the-badge&logo=google&logoColor=white" alt="Google Gemini" />
+  <img src="https://img.shields.io/badge/WebRTC-DTLS--SRTP-333333?style=for-the-badge&logo=webrtc&logoColor=white" alt="WebRTC" />
+  <img src="https://img.shields.io/badge/Conformidade-LGPD_Audit-0ea5e9?style=for-the-badge" alt="LGPD Compliant" />
+</p>
 
 ---
 
-### 🛡️ Matriz de Portas e Firewall (UFW / Edge Router)
+## 📖 Visão Geral
 
-| Porta / Protocolo | Serviço / Função | Observações |
+O **Enlace-PBX Enterprise** é uma central telefônica IP de nova geração concebida para superar os limites dos PABX legados. Construída sobre um núcleo puro **Asterisk 20 LTS (PJSIP)**, a plataforma integra nativamente:
+
+1. **Inteligência Artificial Cognitiva (Google Gemini):** Agentes de voz autônomos (MaIA), transcrição fonética em tempo real, detecção de sentimentos e avaliação automática de qualidade de atendimento (LLM-as-a-Judge).
+2. **Contact Center Omnichannel:** Hub unificado combinando chamadas de voz com atendimento via WhatsApp (Meta Cloud API oficial), Webchat e integração bidirecional com os principais CRMs do mercado (HubSpot, Pipedrive e RD Station).
+3. **Webphone WebRTC Embutido:** Softphone no navegador baseado em padrões WSS e codecs de alta definição (Opus 48kHz, G.722 e G.711) com discador interativo DTMF e teclado telefônico.
+4. **Editor Visual de URA (IVR Flow Builder):** Desenhe menus de atendimento multinível diretamente pelo navegador, com simulador interativo de passos e geração automática de Dialplan Asterisk (`extensions.conf`).
+5. **NOC & Monitoramento em Tempo Real:** Painel de operações com métricas de canais ativos, latência de rede, console interativo Asterisk CLI e trilha de auditoria LGPD imutável.
+
+---
+
+## 🐙 Identidade Visual & Mascote Oficial
+
+<p align="center">
+  <img src="./public/logo-icon.png" alt="Símbolo Oficial Enlace-PBX" width="160" />
+</p>
+
+A marca do **Enlace-PBX** traz como símbolo oficial o **Polvo Tecnológico com Headset e IA**:
+- **O Mascote:** Um simpático polvo em tons de azul elétrico e celeste, usando headset de atendimento profissional de call center e um circuito neural brilhante na testa com a inscrição **IA**. Ele representa a versatilidade de múltiplos canais simultâneos (tentáculos operacionais) com a precisão de um cérebro cognitivo centralizado.
+- **Tipografia:** Tipografia geométrica em degradê azul royal com um delta/seta ciano estilizado no centro da letra **A** de "ENLACE".
+- **Arquivos de Mídia Disponíveis:**
+  - `public/logo.png` — Logo oficial horizontal de alta resolução (1000 × 480 px).
+  - `public/logo.svg` — Vetor SVG escalável do logotipo horizontal.
+  - `public/logo-icon.png` — Emblema circular/quadrado do mascote (512 × 512 px) para ícones de sistema e PWA.
+  - `public/logo-icon.svg` — Vetor SVG do emblema circular do mascote.
+
+---
+
+## 🏛️ Arquitetura de Módulos
+
+```text
+                                  ┌─────────────────────────────┐
+                                  │      Navegador Web / PWA    │
+                                  │ (React 18 + Tailwind + WSS) │
+                                  └──────────────┬──────────────┘
+                                                 │ HTTPS (443) / WSS
+                                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             NGINX Reverse Proxy                             │
+│       (Certificados Let's Encrypt SSL + Proxy HTTP/3000 + Proxy WSS/8089)   │
+└──────────────────────┬──────────────────────────────────────┬───────────────┘
+                       │ HTTP / API REST                      │ WSS (8089)
+                       ▼                                      ▼
+┌──────────────────────────────────────────────┐ ┌────────────────────────────┐
+│      Enlace-PBX BFF (Node.js 20 Express)     │ │ Asterisk 20 LTS Core (SIP) │
+│  ├─ Multi-Tenant Policy Engine (RBAC)        │ │  ├─ res_pjsip (Endpoints) │
+│  ├─ Google Gemini 2.5 SDK (AI Gateway)       │ │  ├─ res_http_websocket     │
+│  ├─ Webhooks Oficiais WhatsApp (Meta Cloud)  │ │  ├─ res_srtp / res_crypto  │
+│  ├─ Orquestrador de Dialplan & IVR           │ │  ├─ app_audiosocket (ARI)  │
+│  ├─ Faturamento / Tarifador Pré e Pós        │ │  └─ res_ari_channels       │
+│  └─ Snapshots & Motor de Backup              │ └──────────────┬─────────────┘
+└──────────────────────┬───────────────────────┘                │
+                       │ ARI WebSocket (8088)                   │ Audio RTP (10000-20000)
+                       └────────────────────────────────────────┘
+```
+
+### 🧩 Detalhamento dos Módulos Principais
+
+| Módulo | Finalidade | Tecnologias Utilizadas |
 | :--- | :--- | :--- |
-| `22/tcp` | SSH (Administração) | Acesso seguro remoto ao servidor |
-| `80/tcp` | HTTP (Let's Encrypt ACME) | Necessário para emissão e renovação automática SSL |
-| `443/tcp` | HTTPS (Web UI, PWA & Meta Webhook) | **Obrigatório** para PWA, Webphone e API Oficial do WhatsApp |
-| `5060/udp` | Asterisk SIP PJSIP | Sinalização VoIP padrão (telefones IP e operadoras) |
-| `5061/tcp` | Asterisk SIP TLS Seguro | Sinalização PJSIP criptografada com TLS |
-| `8089/tcp` | Asterisk WebRTC WSS | WebSocket seguro para o Webphone integrado |
-| `10000-20000/udp` | Asterisk RTP Media Pool | Fluxos de áudio de voz bidirecionais (G.711, Opus) |
-| `51820/udp` | WireGuard VPN | Túneis ponto-a-ponto para interconexão de filiais |
+| **PJSIP Core** | Gestão de ramais SIP, telefones IP físicos e softphones | Asterisk 20, Teluu PJSIP, TLS |
+| **Troncos & Rotas** | Interconexão com operadoras VoIP nacionais e plano de discagem BR | Dialplan `extensions.conf`, E.164, 0800 |
+| **URA Visual (IVR)** | Criação visual de árvores de atendimento com simulador | Canvas interativo, DTMF, Áudios MoH |
+| **Filas ACD** | Distribuição automática de chamadas (ringall, roundrobin, linear) | `queues.conf`, SLA em tempo real, Agentes |
+| **AI Gateway (MaIA)** | Agentes virtuais de voz autônomos com memória de cliente e RAG | Google Gemini Flash/Live, ARI Stasis |
+| **WhatsApp Hub** | Canal oficial de mensagens integrado ao histórico do cliente | Meta Cloud API v20.0, Webhooks na 443 |
+| **CRM Hub 360** | Gestão de clientes, negócios, funil e histórico unificado | Sincronização REST, Webhooks |
+| **Billing & Faturamento** | Tarifação por minuto, saldo pré-pago e relatórios em PDF com logo | Tarifador multinível, exportador PDF |
+| **Snapshots & Backup** | Backup instantâneo de toda a configuração com rollback seguro | Snapshots JSON/SQL, restauração 1-clique |
+| **NOC & CLI Terminal** | Console Asterisk interativo no navegador e métricas em tempo real | `asterisk -rvvvv`, WebSocket terminal |
+
+---
+
+## ⚙️ Procedimentos de Instalação e Deploy (Produção)
+
+O **Enlace-PBX Enterprise** foi desenvolvido e homologado para servidores físicos dedicados ou VPS rodando **Debian 12 (Bookworm)** ou **Ubuntu 22.04 / 24.04 LTS**.
+
+### 🖥️ Requisitos Mínimos e Recomendados
+
+| Recurso | Mínimo | Recomendado (Call Center / IA) |
+| :--- | :--- | :--- |
+| **Processador** | 2 vCPUs | 4 vCPUs ou mais (compilação rápida e codecs Opus) |
+| **Memória RAM** | 2 GB (com 2 GB Swap) | 4 GB a 8 GB RAM |
+| **Armazenamento** | 20 GB SSD | 50 GB SSD NVMe (armazenamento de gravações WAV) |
+| **Rede** | 1 Endereço IPv4 Fixo | 1 Endereço IPv4 Fixo + FQDN DNS apontado |
+
+---
+
+### 🛡️ Matriz de Portas do Firewall (UFW / Edge Router)
+
+| Porta / Protocolo | Serviço | Descrição |
+| :--- | :--- | :--- |
+| `22/tcp` | SSH | Acesso administrativo remoto |
+| `80/tcp` | HTTP ACME | Validação de desafios SSL Let's Encrypt |
+| `443/tcp` | HTTPS | Dashboard Web, PWA, Webphone e Webhooks WhatsApp Cloud |
+| `5060/udp` | SIP UDP | Sinalização PJSIP padrão de telefones IP e troncos |
+| `5061/tcp` | SIP TLS | Sinalização PJSIP criptografada |
+| `8089/tcp` | WebRTC WSS | WebSocket seguro do Asterisk para o Webphone |
+| `10000-20000/udp` | RTP Media | Fluxos bidirecionais de áudio de voz |
+| `51820/udp` | WireGuard | VPN segura entre filiais |
 
 ---
 
 ### 🚀 Método 1: Deploy Automatizado com `deploy.sh` (Recomendado)
 
-O script `deploy.sh` realiza todo o processo de forma interativa, segura e idempotente:
-1. Instala pacotes do sistema, NGINX, Certbot e Node.js 20 LTS.
-2. Detecta automaticamente o IP público e solicita o domínio FQDN.
-3. Compila e otimiza os assets do Frontend e Backend (`npm run build`).
-4. Compila opcionalmente o Asterisk 20 LTS com módulos PJSIP, Opus, WebRTC e AudioSocket.
-5. Configura o NGINX Reverse Proxy com cabeçalhos de WebSocket e emite o certificado SSL Let's Encrypt.
-6. Aplica regras estritas no Firewall UFW (preservando o SSH).
-7. Inicializa a aplicação com **PM2** garantindo reinicialização automática com o sistema operacional.
+O instalador interativo realiza toda a preparação da máquina do zero:
+1. Instala utilitários, NGINX, Certbot e Node.js 20 LTS.
+2. Detecta automaticamente o endereço IPv4 público e solicita o domínio FQDN.
+3. Compila a aplicação frontend e backend (`npm run build`).
+4. Compila opcionalmente o Asterisk 20 LTS puro com PJSIP, Opus, WebRTC e AudioSocket.
+5. Configura o proxy reverso NGINX com cabeçalhos WebSocket e gera o certificado SSL Let's Encrypt.
+6. Habilita as regras estritas no Firewall UFW sem bloquear a sessão SSH ativa.
+7. Registra o serviço no PM2 garantindo inicialização automática no boot do sistema.
 
 ```bash
-# 1. Acesse seu servidor via SSH como root
+# 1. Acesse o servidor Linux via SSH como root
 ssh root@seu-servidor-ip
 
-# 2. Clone ou transfira o repositório para /opt/enlace-pbx
+# 2. Clone o repositório para o diretório padrão
 git clone https://github.com/enlace-telecom/enlace-pbx.git /opt/enlace-pbx
 cd /opt/enlace-pbx
 
-# 3. Dê permissão e execute o instalador
+# 3. Conceda permissão e execute o instalador
 chmod +x deploy.sh install-enlace-pbx.sh
-./deploy.sh
+sudo ./deploy.sh
 ```
 
 ---
 
 ### 🛠️ Método 2: Deploy Passo a Passo Manual
 
-Se você preferir executar cada etapa manualmente:
-
-#### 1. Instalar Dependências do Sistema e Node.js 20
+#### 1. Instalar Pacotes Base e Node.js 20
 ```bash
 apt-get update -y && apt-get install -y curl git build-essential ufw nginx certbot python3-certbot-nginx
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -113,22 +160,22 @@ apt-get install -y nodejs
 npm install -g pm2
 ```
 
-#### 2. Compilar o Asterisk 20 LTS Puro
+#### 2. Compilar o Asterisk 20 LTS
 ```bash
 chmod +x install-enlace-pbx.sh
 ./install-enlace-pbx.sh
 ```
 
-#### 3. Configurar e Compilar o Enlace-PBX
+#### 3. Configurar Variáveis de Ambiente e Compilar o Enlace-PBX
 ```bash
 cp .env.example .env
-nano .env # Configure GEMINI_API_KEY, DOMAIN e IP público
+nano .env # Preencha GEMINI_API_KEY, PBX_DOMAIN e PBX_PUBLIC_IP
 npm install --legacy-peer-deps
 npm run build
 ```
 
-#### 4. Configurar o NGINX com Proxy WebSocket
-Crie o arquivo `/etc/nginx/sites-available/enlace-pbx`:
+#### 4. Configurar o NGINX
+Crie `/etc/nginx/sites-available/enlace-pbx`:
 ```nginx
 server {
     listen 80;
@@ -155,7 +202,7 @@ server {
     }
 }
 ```
-Ative o site e emita o certificado HTTPS:
+Ative o site e emita o certificado SSL:
 ```bash
 ln -sf /etc/nginx/sites-available/enlace-pbx /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
@@ -163,7 +210,7 @@ nginx -t && systemctl reload nginx
 certbot --nginx -d pbx.suaempresa.com.br --redirect
 ```
 
-#### 5. Inicializar o Processo com PM2
+#### 5. Inicializar o Serviço com PM2
 ```bash
 pm2 start dist/server.cjs --name "enlace-pbx"
 pm2 save
@@ -172,41 +219,40 @@ pm2 startup
 
 ---
 
-### 📋 Checklist de Validação Pós-Deploy
+## 📋 Comandos Operacionais Frequentes
 
-Após o deploy, acesse o painel em `https://pbx.suaempresa.com.br` e verifique:
-1. **Infraestrutura e SSL:** Menu *Configurações > Host, Rede & SSL* -> Certifique-se de que o certificado está marcado como **Válido** e que os testes de Webphone, PWA e WhatsApp exibem status **OK**.
-2. **Webphone WebRTC:** Clique no ícone de telefone no topo direito e confirme a permissão de microfone. Faça uma chamada de teste para o ramal de teste `9001`.
-3. **Agentes de IA (MaIA):** Certifique-se de que `GEMINI_API_KEY` está configurada no `.env` para habilitar a transcrição e o atendimento inteligente em tempo real.
-4. **WhatsApp Cloud API:** Cadastre a URL `https://pbx.suaempresa.com.br/api/v1/webhooks/whatsapp` e o Token de Verificação no Meta for Developers.
-
-**Comandos Úteis de Operação:**
-- Ver logs em tempo real: `pm2 logs enlace-pbx`
-- Reiniciar a aplicação: `pm2 restart enlace-pbx`
-- Acessar o console do Asterisk: `asterisk -rvvvv`
-- Recarregar módulos do Asterisk: `asterisk -rx "core reload"`
-- Verificar status do firewall: `ufw status verbose`
+| Ação | Comando |
+| :--- | :--- |
+| **Ver logs da aplicação** | `pm2 logs enlace-pbx` |
+| **Reiniciar o PBX Web** | `pm2 restart enlace-pbx` |
+| **Acessar o terminal do Asterisk** | `asterisk -rvvvv` |
+| **Recarregar Dialplan** | `asterisk -rx "dialplan reload"` |
+| **Recarregar PJSIP** | `asterisk -rx "pjsip reload"` |
+| **Ver status do Firewall** | `ufw status verbose` |
+| **Testar renovação do SSL** | `certbot renew --dry-run` |
 
 ---
 
-## 🛠️ Ambiente de Desenvolvimento (Local)
-
-Se você deseja rodar o projeto localmente para testes ou edições:
+## 🛠️ Ambiente de Desenvolvimento Local
 
 ```bash
-# 1. Instale as dependências
+# Instalar dependências
 npm install
 
-# 2. Inicie o servidor de desenvolvimento com Hot-Reload (Frontend + Backend)
+# Iniciar servidor unificado (Express + Vite HMR)
 npm run dev
 ```
-O projeto estará disponível em `http://localhost:3000`.
-
-## 🔒 Segurança e API Keys
-O Enlace-PBX opera com arquitetura Server-Side (BFF). As chaves de API, segredos do banco de dados e senhas ARI do Asterisk devem permanecer **exclusivamente no servidor backend**. O frontend consome apenas rotas seguras `/api/v1/`.
-
-## 📜 Licença
-Projeto Open Source / Comercial sob a gestão corporativa Enlace Telecom.
+O aplicativo estará disponível em `http://localhost:3000`.
 
 ---
-Feito com 💚 no Brasil.
+
+## 🔒 Segurança & Conformidade com LGPD
+- **Arquitetura Backend-for-Frontend (BFF):** Todas as credenciais de operadoras, chaves secretas do Google Gemini e tokens Meta ficam protegidas no backend.
+- **Trilha de Auditoria Imutável:** Todas as alterações em ramais, rotas e acessos a gravações telefônicas são registradas no log de auditoria com IP, timestamp e autor.
+
+---
+
+## 🇧🇷 Créditos & Licença
+Desenvolvido por **André LJP** e equipe **Enlace Telecom** sob licença comercial / código aberto.  
+Dúvidas e suporte técnico: [slzenlace@gmail.com](mailto:slzenlace@gmail.com) | [enlace.slz.br](https://enlace.slz.br)
+

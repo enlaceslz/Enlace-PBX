@@ -4,7 +4,9 @@ import {
   HelpCircle, ChevronRight, Zap, ArrowRight, Play, Terminal, Layers,
   Globe, Lock, Cpu, Server, FileText, CheckCircle2, AlertTriangle,
   Copy, Check, Search, Download, ExternalLink, Wrench, Sparkles,
-  Smartphone, Share2, Bell, ShieldCheck, Database, Sliders, RefreshCw
+  Smartphone, Share2, Bell, ShieldCheck, Database, Sliders, RefreshCw,
+  Palette, CreditCard, GitFork, Split, Mic, Activity, Plug, Megaphone,
+  PhoneCall
 } from 'lucide-react';
 import { ActiveView } from '../Sidebar';
 
@@ -14,6 +16,8 @@ interface HelpManualViewProps {
 
 type ChapterId = 
   | 'intro'
+  | 'brand_assets'
+  | 'modules_guide'
   | 'deploy_guide'
   | 'infra_ssl'
   | 'pjsip_webrtc'
@@ -40,11 +44,13 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
 
   const topics: DocTopic[] = [
     { id: 'intro', label: 'Introdução & Arquitetura', icon: BookOpen, description: 'Visão geral do Enlace-PBX e fluxo Asterisk 20 + IA' },
+    { id: 'brand_assets', label: 'Identidade Visual & Logos', badge: 'Oficial', icon: Palette, description: 'Mascote Polvo com IA, tipografia Enlace-PBX e download de ativos' },
+    { id: 'modules_guide', label: 'Módulos, URA & Recursos', badge: 'Completo', icon: Layers, description: 'Guia de ponta a ponta: URA Visual, CRM Hub, Billing, Snapshots' },
     { id: 'deploy_guide', label: 'Procedimentos de Deploy & Linux', badge: 'Produção', icon: Server, description: 'Script deploy.sh, Asterisk 20, NGINX SSL, PM2 e Firewall UFW' },
     { id: 'infra_ssl', label: 'Host, Domínio, Rede & SSL', badge: 'Novo', icon: Globe, description: 'Configuração de IP WAN/LAN, NAT Traversal e Certificados HTTPS' },
     { id: 'pjsip_webrtc', label: 'Ramais PJSIP & Webphone', icon: Phone, description: 'Endpoints, transportes TLS/WSS, WebRTC e softphones' },
     { id: 'routing_trunks', label: 'Rotas, Troncos SIP & DIDs', icon: Network, description: 'Planos de discagem, operadoras VoIP e rotas de entrada/saída' },
-    { id: 'acd_queues', label: 'Filas (ACD), URAs & SLA', icon: Layers, description: 'Estratégias de atendimento, IVR multinível e regras de transbordo' },
+    { id: 'acd_queues', label: 'Filas (ACD), URAs & SLA', icon: Split, description: 'Estratégias de atendimento, IVR multinível e regras de transbordo' },
     { id: 'ai_maia', label: 'Agentes MaIA (Google Gemini)', badge: 'IA Realtime', icon: Bot, description: 'Arquitetura ARI Stasis, RAG semântico e Function Calling' },
     { id: 'whatsapp_pwa', label: 'WhatsApp Meta & PWA Push', badge: 'Omnichannel', icon: MessageSquare, description: 'Webhooks na porta 443, PWA desktop/mobile e notificações VAPID' },
     { id: 'security_lgpd', label: 'Segurança, Firewall & LGPD', icon: ShieldCheck, description: 'Fail2ban, WireGuard, RBAC e trilha de auditoria criptográfica' },
@@ -70,24 +76,35 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-16">
-      {/* Header com Busca e Status */}
+      {/* Header com Logo Oficial, Busca e Status */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-[10px] font-black uppercase tracking-wider">
-              Documentação Oficial v20.17 LTS
-            </span>
-            <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" /> Sistema Verificado
-            </span>
+        <div className="flex items-center gap-4">
+          <div className="p-2 bg-white rounded-2xl border border-slate-200 shadow-sm shrink-0">
+            <img
+              src="/logo.png"
+              alt="Enlace-PBX Enterprise Logo"
+              className="h-10 w-auto object-contain"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = '/logo.svg';
+              }}
+            />
           </div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
-            <BookOpen className="w-8 h-8 text-blue-600 fill-blue-600" />
-            Centro de Ajuda, Manuais & Documentação
-          </h1>
-          <p className="text-sm font-medium text-slate-500 mt-1">
-            Guias práticos, arquitetura de rede, procedimentos operacionais e resolução rápida de problemas.
-          </p>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-[10px] font-black uppercase tracking-wider">
+                Documentação Oficial v20.17 LTS
+              </span>
+              <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" /> Sistema Verificado
+              </span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              Centro de Ajuda, Manuais & Documentação
+            </h1>
+            <p className="text-sm font-medium text-slate-500 mt-1">
+              Guias práticos, arquitetura de rede, procedimentos operacionais e resolução rápida de problemas.
+            </p>
+          </div>
         </div>
         
         {/* Quick Search Bar */}
@@ -234,6 +251,48 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                 </div>
               </div>
 
+              {/* Brand Mascot Banner */}
+              <div className="bg-gradient-to-r from-slate-950 via-blue-950 to-slate-900 rounded-3xl p-6 sm:p-8 text-white border border-slate-800 relative overflow-hidden shadow-xl">
+                <div className="absolute -right-12 -bottom-12 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl pointer-events-none" />
+                <div className="flex flex-col md:flex-row items-center gap-6 relative z-10">
+                  <div className="w-24 h-24 sm:w-28 sm:h-28 shrink-0 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-2 flex items-center justify-center shadow-inner">
+                    <img
+                      src="/logo-icon.png"
+                      alt="Mascote Oficial Enlace-PBX"
+                      className="w-full h-full object-contain filter drop-shadow-md"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
+                      }}
+                    />
+                  </div>
+                  <div className="flex-1 text-center md:text-left">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-[10px] font-black uppercase tracking-wider mb-2 border border-blue-400/30">
+                      <Sparkles className="w-3 h-3 text-cyan-300" /> Mascote Oficial Enlace-PBX
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                      O Polvo Tecnológico de Voz & Inteligência Artificial
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed max-w-2xl">
+                      Simboliza a capacidade multicanal de atender dezenas de chamadas simultâneas (tentáculos operacionais) com precisão neural centralizada (emblema IA e headset profissional de call center).
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-4">
+                      <button
+                        onClick={() => setActiveTopic('brand_assets')}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md"
+                      >
+                        <Palette className="w-3.5 h-3.5" /> Ver Kit de Marca & Logos
+                      </button>
+                      <button
+                        onClick={() => setActiveTopic('modules_guide')}
+                        className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-white/20"
+                      >
+                        <Layers className="w-3.5 h-3.5" /> Explorar Módulos & URA
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Fluxo de Chamada */}
               <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
                 <h3 className="text-base font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -247,7 +306,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                              [NGINX / Firewall / Fail2ban]
                                          │
                                          ▼ (NAT Traversal / local_net)
-                               [Asterisk 20 Core - PJSIP]
+                                [Asterisk 20 Core - PJSIP]
                                          │
           ┌──────────────────────────────┴──────────────────────────────┐
           │                                                             │
@@ -266,7 +325,397 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
             </div>
           )}
 
-          {/* 2. DEPLOY & PRODUÇÃO LINUX */}
+          {/* CAPÍTULO: IDENTIDADE VISUAL & KIT DE MARCA */}
+          {activeTopic === 'brand_assets' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div>
+                    <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-[10px] font-black uppercase tracking-wider mb-2 inline-block">
+                      Manual de Marca & Design System
+                    </span>
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                      <Palette className="w-6 h-6 text-blue-600" /> Identidade Visual Oficial Enlace-PBX
+                    </h2>
+                    <p className="text-xs font-medium text-slate-500 mt-1">
+                      Conceito, ativos em alta definição, diretrizes cromáticas e downloads para parceiros e apresentações.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Showcase dos Logos */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                  {/* Logo Horizontal */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Logotipo Principal Horizontal</span>
+                        <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded">1000 × 480 px</span>
+                      </div>
+                      <div className="bg-white p-6 rounded-xl border border-slate-200 flex items-center justify-center min-h-[160px] shadow-sm">
+                        <img
+                          src="/logo.png"
+                          alt="Enlace-PBX Logo Principal"
+                          className="max-h-24 w-auto object-contain"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = '/logo.svg';
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+                        Utilizado em cabeçalhos do painel, faturas em PDF, apresentações comerciais e documentos oficiais.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-200">
+                      <a
+                        href="/logo.png"
+                        download="enlace-pbx-logo-principal.png"
+                        className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Baixar PNG HD
+                      </a>
+                      <a
+                        href="/logo.svg"
+                        download="enlace-pbx-logo.svg"
+                        className="flex-1 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Baixar Vetor SVG
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Mascote Redondo / Quadrado */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Ícone & Mascote Oficial</span>
+                        <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded">512 × 512 px</span>
+                      </div>
+                      <div className="bg-white p-6 rounded-xl border border-slate-200 flex items-center justify-center min-h-[160px] shadow-sm">
+                        <img
+                          src="/logo-icon.png"
+                          alt="Mascote Enlace-PBX"
+                          className="max-h-28 w-auto object-contain"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+                        Utilizado no favicon, ícone PWA em dispositivos móveis, avatares de bot e menus compactados.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-200">
+                      <a
+                        href="/logo-icon.png"
+                        download="enlace-pbx-mascote-icon.png"
+                        className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Baixar PNG HD
+                      </a>
+                      <a
+                        href="/logo-icon.svg"
+                        download="enlace-pbx-mascote.svg"
+                        className="flex-1 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Baixar Vetor SVG
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Conceito da Marca e Cores */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                  <div className="p-6 bg-white border border-slate-200 rounded-2xl">
+                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-blue-600" /> A Simbologia do Mascote Polvo
+                    </h4>
+                    <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                      O polvo foi escolhido por representar com perfeição o coração de uma central de telecomunicações de nova geração:
+                    </p>
+                    <ul className="space-y-2 text-xs text-slate-600">
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>Múltiplos Canais Simultâneos:</strong> Cada tentáculo simboliza um fluxo de atendimento em paralelo (Voz, WhatsApp, Chat, CRM, IA).</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>Núcleo Cognitivo IA:</strong> O nó neural luminoso na cabeça indica o processamento em tempo real com Google Gemini.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>Headset Profissional:</strong> Representa o compromisso com a telefonia profissional e acústica de alta fidelidade (Opus 48kHz).</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="p-6 bg-white border border-slate-200 rounded-2xl">
+                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <Palette className="w-4 h-4 text-blue-600" /> Paleta Cromática Corporativa
+                    </h4>
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-6 h-6 rounded-lg bg-[#0066ff] shadow-sm shrink-0" />
+                          <div>
+                            <span className="text-xs font-bold text-slate-800">Azul Enlace Royal</span>
+                            <span className="text-[10px] text-slate-400 block font-mono">#0066ff — Cor primária da marca e botões de ação</span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">Primária</span>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-6 h-6 rounded-lg bg-[#38bdf8] shadow-sm shrink-0" />
+                          <div>
+                            <span className="text-xs font-bold text-slate-800">Ciano Elétrico</span>
+                            <span className="text-[10px] text-slate-400 block font-mono">#38bdf8 — Destaques, headset e nó neural IA</span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">Destaque</span>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-6 h-6 rounded-lg bg-[#0f172a] shadow-sm shrink-0" />
+                          <div>
+                            <span className="text-xs font-bold text-slate-800">Slate 900 (Noturno)</span>
+                            <span className="text-[10px] text-slate-400 block font-mono">#0f172a — Textos, terminais CLI e barras de navegação</span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">Contraste</span>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-6 h-6 rounded-lg bg-[#10b981] shadow-sm shrink-0" />
+                          <div>
+                            <span className="text-xs font-bold text-slate-800">Verde Esmeralda Operacional</span>
+                            <span className="text-[10px] text-slate-400 block font-mono">#10b981 — Status online, chamadas ativas e sucesso</span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">Status</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CAPÍTULO: GUIA DE MÓDULOS & RECURSOS INTEGRADOS */}
+          {activeTopic === 'modules_guide' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
+                <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full text-[10px] font-black uppercase tracking-wider mb-2 inline-block">
+                  Visão de Ponta a Ponta
+                </span>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2 mb-2">
+                  <Layers className="w-6 h-6 text-blue-600" /> Guia Completo dos Módulos do Sistema
+                </h2>
+                <p className="text-xs font-medium text-slate-500 mb-8 leading-relaxed">
+                  O Enlace-PBX opera como um ecossistema integrado unindo voz, inteligência artificial, mensageria e gestão financeira.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Módulo 1: URA Visual & IVR */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <PhoneCall className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">1. URA Interativa Visual (IVR Flow)</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Crie fluxos de atendimento em árvore arrastando nós interativos. Defina mensagens gravadas, opções DTMF (1 a 9), transbordo por timeout e rotas para filas ACD ou agentes cognitivos MaIA.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Simulador de chamadas passo a passo no navegador
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Geração automática de Dialplan <code className="font-mono text-slate-700">extensions.conf</code>
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Gravações de áudio e música em espera (MoH)
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('ivr')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                      >
+                        Acessar Módulo de URA Visual →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Módulo 2: AI Gateway & MaIA */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <Bot className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">2. Agentes de Voz Cognitivos (MaIA)</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Conectados diretamente ao Asterisk via ARI Stasis WebSocket e Google Gemini Flash / Live. Atendem chamadas de forma natural, consultam a base RAG semântica e acionam ferramentas do sistema via function calling.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Latência inferior a 400ms para fala bidirecional
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Memória de cliente (Customer Memory) persistente
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> LLM-as-a-Judge para nota de atendimento e risco de churn
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('ai_agents')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1"
+                      >
+                        Acessar Agentes de Voz (MaIA) →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Módulo 3: WhatsApp & Omnichannel */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <MessageSquare className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">3. Contact Center Omnichannel</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Caixa de entrada unificada de atendimento combinando chamadas de voz com mensagens oficiais do WhatsApp (Meta Cloud API v20.0), Webchat embutido e PWA móvel com notificações Push VAPID.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Webhook nativo na porta 443 sem ngrok
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Histórico compartilhado com o CRM Hub
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Distribuição inteligente de mensagens para operadores
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('omnichannel')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                      >
+                        Acessar Webchat & WhatsApp →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Módulo 4: Billing, Tarifador & PDF */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <CreditCard className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">4. Faturamento, Tarifador & Invoices</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Sistema financeiro completo para controle de custos de telefonia. Tarifação por minuto com arredondamento configurável, recarga pré-paga via PIX e exportação de faturas em PDF estilizadas com a logo oficial.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Débito de saldo em tempo real por chamada completada
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Tabela de tarifas por prefixo (Móvel, Fixo, 0800, DDI)
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Geração de relatórios gerenciais e extratos analíticos
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('billing')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1"
+                      >
+                        Acessar Módulo Financeiro & Billing →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Módulo 5: Snapshots & Backup */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <Database className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">5. Snapshots & Proteção Rollback</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Gere instantâneos de todo o estado operacional do PABX com 1 clique antes de grandes alterações. Restaure a qualquer momento sem interrupção de chamadas ativas ou perda de gravações.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Backup automático diário em arquivo JSON/SQL
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Histórico com data, autor e número de registros
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Rollback instantâneo em caso de erro humano
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('backup_restore')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                      >
+                        Acessar Backup & Snapshots →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Módulo 6: NOC & Logs de Sistema */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <Terminal className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">6. NOC & Terminal Asterisk CLI</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Monitoramento contínuo de infraestrutura telefônica. Acompanhe canais PJSIP registrados, latência do pool RTP, utilização de memória e execute comandos no console nativo do Asterisk sem abrir SSH.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Terminal interativo web conectado via WebSocket
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Streaming de logs com filtros por serviço e severidade
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Alertas proativos de falha de tronco e SIP rejection
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('system_logs')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-slate-700 hover:text-slate-900 flex items-center gap-1"
+                      >
+                        Acessar NOC & Logs em Tempo Real →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 3. DEPLOY & PRODUÇÃO LINUX */}
           {activeTopic === 'deploy_guide' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">

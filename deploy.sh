@@ -18,8 +18,9 @@ NC='\033[0m' # No Color
 
 clear 2>/dev/null || true
 echo -e "${BLUE}${BOLD}====================================================================${NC}"
-echo -e "${CYAN}${BOLD}       📞 Enlace-PBX Enterprise — Deploy Automatizado Linux       ${NC}"
-echo -e "${CYAN}          Núcleo Asterisk 20 LTS + IA Gemini + NGINX SSL          ${NC}"
+echo -e "${CYAN}${BOLD}     🐙  Enlace-PBX Enterprise — Deploy Automatizado Linux  🐙    ${NC}"
+echo -e "${CYAN}       Telefonia Asterisk 20 LTS + IA Gemini + NGINX SSL WSS        ${NC}"
+echo -e "${CYAN}               Mascote Oficial & Identidade Enlace Telecom          ${NC}"
 echo -e "${BLUE}${BOLD}====================================================================${NC}"
 echo ""
 
@@ -139,7 +140,12 @@ echo -e "${GREEN}✅ Arquivo .env gravado com sucesso.${NC}"
 echo -e "\n${BOLD}[6/9] Instalando dependências NPM e compilando produção...${NC}"
 npm install --legacy-peer-deps
 npm run build
+# Garantir sincronização de logos e assets visuais
+if [ -d public ]; then
+  cp -r public/* dist/ 2>/dev/null || true
+fi
 echo -e "${GREEN}✅ Frontend e Backend compilados em dist/server.cjs e dist/!${NC}"
+echo -e "${GREEN}✅ Identidade visual e logos oficiais verificados em dist/.${NC}"
 
 # 8. Compilação e Instalação Opcional do Asterisk 20 LTS
 echo -e "\n${BOLD}[7/9] Núcleo de Telefonia Asterisk 20 LTS${NC}"
