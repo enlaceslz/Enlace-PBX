@@ -186,22 +186,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
 
       {/* Brand & Logo Header Card */}
       <div className="p-3 pb-0 relative z-10 flex items-center justify-between">
-        <div className={`flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-blue-50/60 hover:border-blue-200 transition group flex-1 ${isCollapsed ? 'justify-center' : ''}`}>
-          <img 
-            src="/logo-icon.png" 
-            alt="Enlace Telecom Logo" 
-            className="w-8 h-8 rounded-lg object-contain shadow-sm border border-white shrink-0"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
-            }}
-          />
-          {!isCollapsed && (
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-black text-slate-900 tracking-tight truncate">Enlace Telecom</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" title="Sistema Online" />
-              </div>
-              <p className="text-[9px] font-medium text-slate-500 truncate">Telecom &amp; IA</p>
+        <div className={`flex items-center gap-2 p-1.5 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-blue-50/60 hover:border-blue-200 transition group flex-1 ${isCollapsed ? 'justify-center' : ''}`}>
+          {isCollapsed ? (
+            <img 
+              src="/logo-icon.png" 
+              alt="Enlace PBX Logo" 
+              className="w-9 h-9 rounded-full object-contain shadow-sm border border-blue-100 shrink-0"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
+              }}
+            />
+          ) : (
+            <div className="flex items-center w-full justify-center py-0.5">
+              <img 
+                src="/logo.png" 
+                alt="Enlace PBX" 
+                className="h-9 w-auto max-w-[195px] object-contain shrink-0"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/logo.svg';
+                }}
+              />
             </div>
           )}
         </div>

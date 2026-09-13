@@ -1,43 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 480" width="1000" height="480">
-  <defs>
-    <!-- Outer Ring Gradient -->
-    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00a0ff" />
-      <stop offset="50%" stop-color="#0066ff" />
-      <stop offset="100%" stop-color="#0044cc" />
-    </linearGradient>
+import fs from 'fs';
+import path from 'path';
+import { Resvg } from '@resvg/resvg-js';
 
-    <!-- Typo Blue Gradient -->
-    <linearGradient id="typoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0099ff" />
-      <stop offset="60%" stop-color="#0062ff" />
-      <stop offset="100%" stop-color="#0048d6" />
-    </linearGradient>
+const publicDir = path.resolve('public');
+const distDir = path.resolve('dist');
 
-    <!-- Cyan Accent for A Delta -->
-    <linearGradient id="cyanDelta" x1="0%" y1="100%" x2="0%" y2="0%">
-      <stop offset="0%" stop-color="#00d8ff" />
-      <stop offset="100%" stop-color="#38bdf8" />
-    </linearGradient>
-
-    <!-- Drop Shadow Filter for Mascot Circle -->
-    <filter id="badgeShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#0055ff" flood-opacity="0.25" />
-    </filter>
-  </defs>
-
-  <!-- Left: Mascot Badge (Center at 240, 240, radius 195) -->
-  <g filter="url(#badgeShadow)">
-    <!-- White Base Disc -->
-    <circle cx="240" cy="240" r="195" fill="#ffffff" />
-    <!-- Outer Blue Circular Border -->
-    <circle cx="240" cy="240" r="195" fill="none" stroke="url(#ringGrad)" stroke-width="18" />
-  </g>
-
-  <!-- Mascot Inside Badge -->
-  
-  <!-- Octopus Mascot Group centered at (240, 240) with scale 0.95 -->
-  <g transform="translate(240, 240) scale(0.95) translate(-250, -230)">
+// Helper to create the Octopus Mascot SVG group
+function getOctopusMascotSvg(cx = 250, cy = 230, scale = 1) {
+  return `
+  <!-- Octopus Mascot Group centered at (${cx}, ${cy}) with scale ${scale} -->
+  <g transform="translate(${cx}, ${cy}) scale(${scale}) translate(-250, -230)">
     <!-- Definitions for Octopus -->
     <defs>
       <!-- Octopus Body Gradient -->
@@ -288,7 +260,50 @@
       <ellipse cx="0" cy="14" rx="8" ry="4" fill="#fb7185" />
     </g>
   </g>
-  
+  `;
+}
+
+// 1. HORIZONTAL OFFICIAL LOGO (1000 x 480)
+// Mascot inside blue circular badge on the left + ENLACE -PBX- on the right
+function generateHorizontalLogoSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 480" width="1000" height="480">
+  <defs>
+    <!-- Outer Ring Gradient -->
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00a0ff" />
+      <stop offset="50%" stop-color="#0066ff" />
+      <stop offset="100%" stop-color="#0044cc" />
+    </linearGradient>
+
+    <!-- Typo Blue Gradient -->
+    <linearGradient id="typoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0099ff" />
+      <stop offset="60%" stop-color="#0062ff" />
+      <stop offset="100%" stop-color="#0048d6" />
+    </linearGradient>
+
+    <!-- Cyan Accent for A Delta -->
+    <linearGradient id="cyanDelta" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#00d8ff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+
+    <!-- Drop Shadow Filter for Mascot Circle -->
+    <filter id="badgeShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#0055ff" flood-opacity="0.25" />
+    </filter>
+  </defs>
+
+  <!-- Left: Mascot Badge (Center at 240, 240, radius 195) -->
+  <g filter="url(#badgeShadow)">
+    <!-- White Base Disc -->
+    <circle cx="240" cy="240" r="195" fill="#ffffff" />
+    <!-- Outer Blue Circular Border -->
+    <circle cx="240" cy="240" r="195" fill="none" stroke="url(#ringGrad)" stroke-width="18" />
+  </g>
+
+  <!-- Mascot Inside Badge -->
+  ${getOctopusMascotSvg(240, 240, 0.95)}
 
   <!-- Right: Official Typography "ENLACE -PBX-" -->
   <g transform="translate(480, 235)">
@@ -340,4 +355,132 @@
       <rect x="296" y="-8" width="46" height="16" rx="8" fill="url(#typoGrad)" />
     </g>
   </g>
-</svg>
+</svg>`;
+}
+
+// 2. CIRCULAR EMBLEM LOGO (512 x 512, 1:1)
+// Mascot on top + ENLACE -PBX- inside the circle at the bottom
+function generateCircularLogoSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="circRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00a0ff" />
+      <stop offset="50%" stop-color="#0066ff" />
+      <stop offset="100%" stop-color="#0044cc" />
+    </linearGradient>
+
+    <linearGradient id="circTypoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0099ff" />
+      <stop offset="60%" stop-color="#0062ff" />
+      <stop offset="100%" stop-color="#0048d6" />
+    </linearGradient>
+
+    <linearGradient id="circCyanDelta" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#00d8ff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+
+    <filter id="circShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#0055ff" flood-opacity="0.3" />
+    </filter>
+  </defs>
+
+  <!-- Circular Base Badge -->
+  <circle cx="256" cy="256" r="240" fill="#ffffff" filter="url(#circShadow)" />
+  <circle cx="256" cy="256" r="240" fill="none" stroke="url(#circRingGrad)" stroke-width="22" />
+
+  <!-- Mascot at Center Top -->
+  ${getOctopusMascotSvg(256, 215, 0.88)}
+
+  <!-- Typography at Bottom Inside Circle -->
+  <g transform="translate(256, 395)">
+    <!-- ENLACE -->
+    <g transform="translate(-142, -10) scale(0.56)">
+      <!-- E -->
+      <path d="M 0,-60 L 52,-60 C 58,-60 62,-56 62,-50 C 62,-44 58,-40 52,-40 L 22,-40 L 22,-14 L 46,-14 C 52,-14 56,-10 56,-4 C 56,2 52,6 46,6 L 22,6 L 22,34 L 54,34 C 60,34 64,38 64,44 C 64,50 60,54 54,54 L 0,54 Z" fill="url(#circTypoGrad)" />
+
+      <!-- N -->
+      <path d="M 80,-60 L 102,-60 L 138,12 L 138,-50 C 138,-56 142,-60 148,-60 C 154,-60 158,-56 158,-50 L 158,54 L 136,54 L 100,-18 L 100,44 C 100,50 96,54 90,54 C 84,54 80,50 80,44 Z" fill="url(#circTypoGrad)" />
+
+      <!-- L -->
+      <path d="M 178,-50 C 178,-56 182,-60 188,-60 C 194,-60 198,-56 198,-50 L 198,34 L 234,34 C 240,34 244,38 244,44 C 244,50 240,54 234,54 L 178,54 Z" fill="url(#circTypoGrad)" />
+
+      <!-- A -->
+      <path d="M 276,54 L 306,-54 C 308,-58 312,-60 316,-60 C 320,-60 324,-58 326,-54 L 356,54 L 334,54 L 327,24 L 305,24 L 298,54 Z" fill="url(#circTypoGrad)" />
+      <polygon points="316,-12 327,14 305,14" fill="url(#circCyanDelta)" />
+
+      <!-- C -->
+      <path d="M 426,-36 C 422,-48 408,-60 388,-60 C 362,-60 342,-40 342,-3 C 342,34 362,54 388,54 C 408,54 422,42 426,30 C 428,24 424,18 418,18 C 412,18 408,22 406,26 C 402,32 396,36 388,36 C 374,36 364,22 364,-3 C 364,-28 374,-42 388,-42 C 396,-42 402,-38 406,-32 C 408,-28 412,-24 418,-24 C 424,-24 428,-30 426,-36 Z" fill="url(#circTypoGrad)" />
+
+      <!-- E -->
+      <path d="M 444,-60 L 496,-60 C 502,-60 506,-56 506,-50 C 506,-44 502,-40 496,-40 L 466,-40 L 466,-14 L 490,-14 C 496,-14 500,-10 500,-4 C 500,2 496,6 490,6 L 466,6 L 466,34 L 498,34 C 504,34 508,38 508,44 C 508,50 504,54 498,54 L 444,54 Z" fill="url(#circTypoGrad)" />
+    </g>
+
+    <!-- - PBX - -->
+    <g transform="translate(-104, 38) scale(0.6)">
+      <!-- Left Dash -->
+      <rect x="0" y="-8" width="46" height="16" rx="8" fill="url(#circTypoGrad)" />
+
+      <!-- P -->
+      <g transform="translate(68, 0)">
+        <path d="M 0,-36 L 28,-36 C 42,-36 52,-26 52,-12 C 52,2 42,12 28,12 L 18,12 L 18,30 C 18,34 14,38 10,38 C 6,38 0,34 0,30 Z M 18,-4 L 28,-4 C 34,-4 38,-8 38,-12 C 38,-16 34,-20 28,-20 L 18,-20 Z" fill="url(#circTypoGrad)" />
+      </g>
+
+      <!-- B -->
+      <g transform="translate(142, 0)">
+        <path d="M 0,-36 L 26,-36 C 38,-36 46,-28 46,-18 C 46,-10 42,-4 34,-2 C 44,0 50,7 50,16 C 50,27 40,36 28,36 L 0,36 Z M 18,-8 L 25,-8 C 30,-8 33,-12 33,-17 C 33,-22 30,-24 25,-24 L 18,-24 Z M 18,22 L 26,22 C 32,22 35,18 35,14 C 35,9 32,6 26,6 L 18,6 Z" fill="url(#circTypoGrad)" />
+      </g>
+
+      <!-- X -->
+      <g transform="translate(216, 0)">
+        <path d="M 4,-34 C 8,-38 14,-38 18,-34 L 32,-14 L 46,-34 C 50,-38 56,-38 60,-34 C 64,-30 64,-24 60,-20 L 44,0 L 60,20 C 64,24 64,30 60,34 C 56,38 50,38 46,34 L 32,14 L 18,34 C 14,38 8,38 4,34 C 0,30 0,24 4,20 L 20,0 L 4,-20 C 0,-24 0,-30 4,-34 Z" fill="url(#circTypoGrad)" />
+      </g>
+
+      <!-- Right Dash -->
+      <rect x="296" y="-8" width="46" height="16" rx="8" fill="url(#circTypoGrad)" />
+    </g>
+  </g>
+</svg>`;
+}
+
+async function renderAndSaveAssets() {
+  console.log('Generating Enlace-PBX Octopus Mascot Vectors (SVG)...');
+
+  const horizontalSvg = generateHorizontalLogoSvg();
+  const circularSvg = generateCircularLogoSvg();
+
+  // Save SVGs in public
+  fs.writeFileSync(path.join(publicDir, 'logo.svg'), horizontalSvg, 'utf8');
+  fs.writeFileSync(path.join(publicDir, 'logo-enlace.svg'), horizontalSvg, 'utf8');
+  fs.writeFileSync(path.join(publicDir, 'logo-icon.svg'), circularSvg, 'utf8');
+  fs.writeFileSync(path.join(publicDir, 'favicon.svg'), circularSvg, 'utf8');
+
+  console.log('Rendering High-Resolution PNGs with Resvg...');
+
+  // 1. logo.png (Horizontal banner: 1000 x 480)
+  const resvgH = new Resvg(horizontalSvg, { fitTo: { mode: 'width', value: 1000 } });
+  const pngH = resvgH.render().asPng();
+  fs.writeFileSync(path.join(publicDir, 'logo.png'), pngH);
+  console.log('Generated public/logo.png:', pngH.length, 'bytes');
+
+  // 2. logo-enlace.png
+  fs.writeFileSync(path.join(publicDir, 'logo-enlace.png'), pngH);
+
+  // 3. logo-icon.png (Square / Circular emblem: 512 x 512)
+  const resvgSq = new Resvg(circularSvg, { fitTo: { mode: 'width', value: 512 } });
+  const pngSq = resvgSq.render().asPng();
+  fs.writeFileSync(path.join(publicDir, 'logo-icon.png'), pngSq);
+  console.log('Generated public/logo-icon.png:', pngSq.length, 'bytes');
+
+  // Sync to dist folder if it exists
+  if (fs.existsSync(distDir)) {
+    ['logo.svg', 'logo-enlace.svg', 'logo-icon.svg', 'favicon.svg', 'logo.png', 'logo-enlace.png', 'logo-icon.png'].forEach(f => {
+      fs.copyFileSync(path.join(publicDir, f), path.join(distDir, f));
+    });
+    console.log('Synchronized new assets to dist/');
+  }
+
+  console.log('🎉 Enlace-PBX Mascot Logo Assets Successfully Installed & Set as Default!');
+}
+
+renderAndSaveAssets().catch(console.error);
