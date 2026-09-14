@@ -24,3 +24,6 @@ You are assisting with **Enlace PBX**, an Enterprise-grade telephony, CRM, and A
 1. **Never mock data unless strictly requested.** The application has evolved to use real backend Express routes and JWT auth. Maintain this integrity.
 2. **Respect the BFF architecture.** All API calls to Gemini or WhatsApp MUST go through the Express backend, never directly from the React frontend.
 3. **Always ensure `npm run build` passes.** Our build process uses `esbuild` for the backend (`dist/server.cjs`) and `vite build` for the frontend.
+4. **Webphone & Omnichannel Hub Integration.** The Webphone modal (`WebphoneModal.tsx`) contains both the SIP/WebRTC softphone and an expanding right-side panel for Omnichannel (WhatsApp/Webchat) conversations. State is managed locally.
+5. **No direct 3rd-party API calls from Frontend.** The React frontend must always use the local Express BFF endpoints (e.g., `/api/v1/omnichannel`).
+

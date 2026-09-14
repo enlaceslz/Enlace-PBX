@@ -54,7 +54,7 @@ A marca do **Enlace-PBX** traz como símbolo oficial o **Polvo Tecnológico com 
 ```text
                                   ┌─────────────────────────────┐
                                   │      Navegador Web / PWA    │
-                                  │ (React 18 + Tailwind + WSS) │
+                                  │ (Webphone Modal + Omnichannel Hub) │
                                   └──────────────┬──────────────┘
                                                  │ HTTPS (443) / WSS
                                                  ▼
@@ -78,6 +78,9 @@ A marca do **Enlace-PBX** traz como símbolo oficial o **Polvo Tecnológico com 
 ```
 
 ### 🧩 Detalhamento dos Módulos Principais
+
+**1. Webphone & Hub Omnichannel Lado-a-Lado**
+Aplica um modal unificado flutuante na interface. O operador pode manter uma chamada de áudio (WebRTC via PJSIP) simultaneamente a conversas de chat ativo (WhatsApp Cloud API e Webchat), sem a necessidade de abrir novas janelas ou trocar de abas.
 
 | Módulo | Finalidade | Tecnologias Utilizadas |
 | :--- | :--- | :--- |

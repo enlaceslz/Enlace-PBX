@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { VUMeter } from "./VUMeter";
 import {
+  MessageSquare,
   Phone,
   PhoneOff,
   Mic,
@@ -59,6 +60,10 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const [isVideoCamOn, setIsVideoCamOn] = useState(true);
   const [activeTab, setActiveTab] = useState<'keypad' | 'ai_live' | 'ivr' | 'queue' | 'extension'>('keypad');
   const [isMinimized, setIsMinimized] = useState(false);
+  const [showOmnichannel, setShowOmnichannel] = useState(false);
+  const [omniConversations, setOmniConversations] = useState<any[]>([]);
+  const [selectedOmniConv, setSelectedOmniConv] = useState<any | null>(null);
+  const [omniReply, setOmniReply] = useState('');
 
   // Call classification & target states
   const [callType, setCallType] = useState<'idle' | 'ai' | 'ivr' | 'queue' | 'extension' | 'external'>('idle');
@@ -88,6 +93,36 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const stopRingbackRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (showOmnichannel) {
+      fetch("/api/v1/omnichannel/conversations")
+        .then(r => r.json())
+        .then(data => setOmniConversations(data))
+        .catch(console.error);
+    }
+  }, [showOmnichannel]);
+
+  const handleSendOmni = async () => {
+    if (!omniReply.trim() || !selectedOmniConv) return;
+    const textToSend = omniReply;
+    setOmniReply("");
+    try {
+      const res = await fetch(`/api/v1/whatsapp/conversations/${selectedOmniConv.id}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: textToSend }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setOmniConversations(prev => prev.map(c => c.id === updated.id ? updated : c));
+        setSelectedOmniConv(updated);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
 
   useEffect(() => {
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -688,8 +723,8 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       id="enlace-webphone-modal"
       className={`fixed z-50 transition-all duration-200 shadow-2xl rounded-2xl border border-slate-200 bg-white text-slate-900 flex flex-col overflow-hidden ${
         isMinimized
-          ? 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 sm:w-80 h-14 sm:h-16 cursor-pointer'
-          : 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 sm:w-96 h-[580px] sm:h-[640px] max-h-[calc(100dvh-1rem)] sm:max-h-[90vh]'
+          ? 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 ' + (showOmnichannel && isMinimized ? 'sm:w-[760px]' : 'sm:w-80') + ' h-14 sm:h-16 cursor-pointer'
+          : 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 ' + (showOmnichannel && !isMinimized ? 'sm:w-[760px]' : 'sm:w-96') + ' h-[580px] sm:h-[640px] max-h-[calc(100dvh-1rem)] sm:max-h-[90vh]'
       }`}
     >
       {/* Softphone Header */}
@@ -708,6 +743,15 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         </div>
 
         <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowOmnichannel(!showOmnichannel)}
+            className={`p-1.5 rounded-lg transition flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${showOmnichannel ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`}
+            title="Hub Omnichannel (WhatsApp/Webchat)"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{showOmnichannel ? 'Chat Ativo' : 'Chats'}</span>
+          </button>
+
           <button
             onClick={() => setIsMinimized(!isMinimized)}
             className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"

@@ -591,7 +591,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                       </div>
                       <h3 className="text-base font-bold text-slate-900 mb-2">3. Contact Center Omnichannel</h3>
                       <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                        Caixa de entrada unificada de atendimento combinando chamadas de voz com mensagens oficiais do WhatsApp (Meta Cloud API v20.0), Webchat embutido e PWA móvel com notificações Push VAPID.
+                        Caixa de entrada unificada (BFF Express) combinando chamadas de voz com mensagens oficiais do WhatsApp. O Webphone conta com a aba lateral flutuante "Hub Omnichannel", permitindo gerenciar o softphone (chamada ativa, mudo, espera, AMI/ARI) e o chat no mesmo modal de forma lado a lado, sem recarregar a página (React Context State).
                       </p>
                       <ul className="space-y-1.5 text-xs text-slate-600">
                         <li className="flex items-center gap-2">
