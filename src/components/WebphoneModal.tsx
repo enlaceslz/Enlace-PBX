@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { VUMeter } from "./VUMeter";
 import {
   Phone,
   PhoneOff,
@@ -942,9 +943,12 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                   </div>
 
                   {isListening && (
-                    <div className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl flex items-center gap-2 mb-2 animate-pulse font-medium">
-                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                      <span>Ouvindo sua voz... Fale agora em português (pt-BR).</span>
+                    <div className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl flex items-center justify-between mb-2 font-medium">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                        <span>Ouvindo sua voz... Fale agora.</span>
+                      </div>
+                      <VUMeter isActive={isListening} color="rose" />
                     </div>
                   )}
 
@@ -1092,8 +1096,11 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     </span>
                   </div>
                 ) : (
-                  <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mb-3 shadow-inner">
-                    <Headphones className="w-8 h-8" />
+                  <div className="flex flex-col items-center mb-3">
+                    <div className={`w-16 h-16 rounded-2xl border flex items-center justify-center mb-2 shadow-inner transition-colors duration-300 ${isMuted || isOnHold ? 'bg-slate-100 border-slate-200 text-slate-400' : 'bg-emerald-50 border-emerald-200 text-emerald-600'}`}>
+                      {isMuted ? <MicOff className="w-8 h-8" /> : isOnHold ? <Pause className="w-8 h-8" /> : <Headphones className="w-8 h-8" />}
+                    </div>
+                    <VUMeter isActive={callState === 'connected' && !isMuted && !isOnHold} color={isMuted || isOnHold ? 'slate' : 'emerald'} />
                   </div>
                 )}
                 

@@ -189,9 +189,19 @@ export class GeminiService {
     // Get the conversation history for context
     const conv = db.omnichannelConversations.find(c => c.id === conversationId);
     let historyContext = '';
+    let memoryContext = '';
+
     if (conv) {
       // Get last 5 messages for context
       historyContext = conv.messages.slice(-5).map(m => `${m.sender === 'user' ? 'Cliente' : 'IA'}: ${m.text}`).join('\n');
+      
+      // Customer Memory Retrieval
+      const customerContact = db.crmContacts.find(c => c.id === conv.contactId || c.phone.replace(/\D/g, '') === conv.contactId.replace(/\D/g, ''));
+      const customerMem = customerContact ? db.customerMemories.find(m => m.contactId === customerContact.id) : null;
+      
+      if (customerMem) {
+        memoryContext = `\n[MEMÓRIA DO CLIENTE - ${customerContact?.name || 'Desconhecido'}]\nResumo: ${customerMem.summary}\nPreferências: ${customerMem.preferences.join(', ')}\nSentimento anterior: ${customerMem.sentimentHistory}\nRisco de Churn: ${customerMem.churnRisk}%\n`;
+      }
     }
 
     const agent = agentId ? (db.aiAgents.find((a) => a.id === agentId) || db.aiAgents[0]) : db.aiAgents[0];
@@ -217,6 +227,7 @@ DIRETRIZES PARA WHATSAPP:
 
 BASE DE CONHECIMENTO (Use para responder dúvidas, se aplicável):
 ${knowledgeSnippets}
+${memoryContext}
 
 HISTÓRICO RECENTE DA CONVERSA:
 ${historyContext}
@@ -230,7 +241,7 @@ ${historyContext}
           systemInstruction: systemPrompt,
           temperature: agent.temperature,
           topP: 0.95,
-        }
+        },
       });
       return response.text || "Desculpe, não consegui formular uma resposta.";
     } catch (e) {
@@ -343,9 +354,6 @@ ${knowledgeSnippets}`;
 
       // Safe model selection avoiding deprecated models
       let selectedModel = agent.model || 'gemini-flash-latest';
-      if (selectedModel.includes('2.5')) {
-        selectedModel = 'gemini-flash-latest';
-      }
 
       const response = await ai.models.generateContent({
         model: selectedModel,
@@ -463,7 +471,8 @@ ${knowledgeSnippets}`;
         if (inlineAudio) {
           audioBase64 = inlineAudio;
         }
-      } catch {
+        // Fallback smoothly to browser humanized Web Speech API
+      } catch (e) {
         // Fallback smoothly to browser humanized Web Speech API
       }
 
@@ -655,7 +664,8 @@ Retorne uma análise em português no seguinte formato JSON:
           },
         });
         audioBase64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      } catch {
+        // Graceful fallback for client Web Speech API
+      } catch (e) {
         // Graceful fallback for client Web Speech API
       }
     }
@@ -700,7 +710,7 @@ Retorne uma análise em português no seguinte formato JSON:
         config: {
           responseMimeType: 'application/json',
           temperature: 0.1,
-        }
+        },
       });
       const text = response.text;
       return JSON.parse(text || '{}');

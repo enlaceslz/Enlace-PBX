@@ -37,13 +37,14 @@ import {
   ChevronRight,
   Phone,
   Globe
-} from 'lucide-react';
+, User } from 'lucide-react';
+import { UserRole } from '../types/pbx';
 
 export type ActiveView =
   | 'dashboard'
   | 'operation_dashboard'
   | 'quick_setup'
-  | 'crm_hub'
+  | 'crm_contacts' | 'crm_hub'
   | 'omnichannel'
   | 'campaigns'
   | 'extensions'
@@ -76,38 +77,54 @@ export type ActiveView =
   | 'help_manual'
   | 'backup_restore';
 
+interface SidebarItem {
+  id: ActiveView;
+  label: string;
+  icon: any;
+  allowedRoles?: UserRole[];
+}
+
+interface SidebarSection {
+  title: string;
+  items: SidebarItem[];
+  allowedRoles?: UserRole[];
+}
+
 interface SidebarProps {
   activeView: ActiveView;
   onSelectView: (view: ActiveView) => void;
   onOpenWebphone: () => void;
+  userRole: UserRole;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOpenWebphone }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOpenWebphone, userRole }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [openSections, setOpenSections] = useState<string[]>([]);
 
-  const sections = [
+  const sections: SidebarSection[] = [
     {
       title: 'GERAL',
       items: [
         { id: 'dashboard' as ActiveView, label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'operation_dashboard' as ActiveView, label: 'NOC / Tempo Real', icon: MonitorPlay },
+        { id: 'operation_dashboard' as ActiveView, label: 'NOC / Tempo Real', icon: MonitorPlay, allowedRoles: ['super_admin', 'admin', 'supervisor'] },
       ],
     },
     {
       title: 'CONTACT CENTER OMNICHANNEL',
       items: [
         { id: 'omnichannel' as ActiveView, label: 'Webchat & WhatsApp', icon: MessageSquare },
-        { id: 'crm_hub' as ActiveView, label: 'Integrações (CRM)', icon: Plug },
-        { id: 'campaigns' as ActiveView, label: 'Campanhas & Ativo', icon: Megaphone },
+        { id: 'crm_contacts' as ActiveView, label: 'Clientes & Memória IA', icon: User },
+        { id: 'crm_hub' as ActiveView, label: 'Integrações (CRM)', icon: Plug, allowedRoles: ['super_admin', 'admin'] },
+        { id: 'campaigns' as ActiveView, label: 'Campanhas & Ativo', icon: Megaphone, allowedRoles: ['super_admin', 'admin', 'supervisor'] },
       ],
     },
     {
       title: 'TELEFONIA (ASTERISK 20)',
+      allowedRoles: ['super_admin', 'admin', 'supervisor'],
       items: [
         { id: 'extensions' as ActiveView, label: 'Ramais PJSIP', icon: Users },
-        { id: 'trunks' as ActiveView, label: 'Troncos SIP', icon: Radio },
-        { id: 'routes' as ActiveView, label: 'Rotas de Entrada/Saída', icon: GitFork },
+        { id: 'trunks' as ActiveView, label: 'Troncos SIP', icon: Radio, allowedRoles: ['super_admin'] },
+        { id: 'routes' as ActiveView, label: 'Rotas de Entrada/Saída', icon: GitFork, allowedRoles: ['super_admin', 'admin'] },
         { id: 'ring_groups' as ActiveView, label: 'Grupos de Toque', icon: Layers },
         { id: 'queues' as ActiveView, label: 'Filas de Atendimento', icon: Split },
         { id: 'ivr' as ActiveView, label: 'URAs / IVR', icon: PhoneCall },
@@ -117,23 +134,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       title: 'CHAMADAS & ÁUDIO',
       items: [
         { id: 'cdr' as ActiveView, label: 'Histórico CDR', icon: FileText },
-        { id: 'recordings' as ActiveView, label: 'Gravações & Player', icon: Mic },
-        { id: 'transcriptions' as ActiveView, label: 'Transcrições & IA', icon: Sparkles },
-        { id: 'reports' as ActiveView, label: 'Relatórios & SLA (PDF)', icon: BarChart3 },
+        { id: 'recordings' as ActiveView, label: 'Gravações & Player', icon: Mic, allowedRoles: ['super_admin', 'admin', 'supervisor', 'auditor'] },
+        { id: 'transcriptions' as ActiveView, label: 'Transcrições & IA', icon: Sparkles, allowedRoles: ['super_admin', 'admin', 'supervisor', 'auditor'] },
+        { id: 'reports' as ActiveView, label: 'Relatórios & SLA (PDF)', icon: BarChart3, allowedRoles: ['super_admin', 'admin', 'supervisor'] },
       ],
     },
     {
       title: 'INTELIGÊNCIA ARTIFICIAL',
+      allowedRoles: ['super_admin', 'admin', 'supervisor'],
       items: [
         { id: 'ai_agents' as ActiveView, label: 'Agentes de Voz (MaIA)', icon: Bot },
-        { id: 'ai_providers' as ActiveView, label: 'Provedores (Gemini)', icon: Sparkles },
-        { id: 'ai_tools' as ActiveView, label: 'Tools (Function Calling)', icon: Wrench },
+        { id: 'ai_providers' as ActiveView, label: 'Provedores (Gemini)', icon: Sparkles, allowedRoles: ['super_admin', 'admin'] },
+        { id: 'ai_tools' as ActiveView, label: 'Tools (Function Calling)', icon: Wrench, allowedRoles: ['super_admin', 'admin'] },
         { id: 'ai_knowledge' as ActiveView, label: 'Conhecimento (RAG)', icon: BookOpen },
         { id: 'ai_sessions' as ActiveView, label: 'Sessões em Tempo Real', icon: Activity },
       ],
     },
     {
       title: 'ASTERISK & INFRAESTRUTURA',
+      allowedRoles: ['super_admin'],
       items: [
         { id: 'network_security' as ActiveView, label: 'Redes, VPN & Fail2ban', icon: ShieldCheck },
         { id: 'infra_settings' as ActiveView, label: 'Infraestrutura, Domínio & SSL', icon: Globe },
@@ -146,14 +165,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
     },
     {
       title: 'ADMINISTRAÇÃO & LGPD',
+      allowedRoles: ['super_admin', 'admin'],
       items: [
-        { id: 'quick_setup' as ActiveView, label: 'Quick Setup Wizard', icon: Zap },
+        { id: 'quick_setup' as ActiveView, label: 'Quick Setup Wizard', icon: Zap, allowedRoles: ['super_admin'] },
         { id: 'users' as ActiveView, label: 'Usuários & RBAC', icon: Users },
-        { id: 'tenants' as ActiveView, label: 'Empresas (Multi-Tenant)', icon: Building },
-        { id: 'billing' as ActiveView, label: 'Faturamento & Custos', icon: FileText },
-        { id: 'audit_logs' as ActiveView, label: 'Auditoria LGPD', icon: ShieldAlert },
-        { id: 'health_check' as ActiveView, label: 'Health Check do PBX', icon: HeartPulse },
-        { id: 'settings' as ActiveView, label: 'Configurações Globais', icon: Settings },
+        { id: 'tenants' as ActiveView, label: 'Empresas (Multi-Tenant)', icon: Building, allowedRoles: ['super_admin'] },
+        { id: 'billing' as ActiveView, label: 'Faturamento & Custos', icon: FileText, allowedRoles: ['super_admin'] },
+        { id: 'audit_logs' as ActiveView, label: 'Auditoria LGPD', icon: ShieldAlert, allowedRoles: ['super_admin', 'auditor'] },
+        { id: 'health_check' as ActiveView, label: 'Health Check do PBX', icon: HeartPulse, allowedRoles: ['super_admin'] },
+        { id: 'settings' as ActiveView, label: 'Configurações Globais', icon: Settings, allowedRoles: ['super_admin', 'admin'] },
       ],
     },
     {
@@ -164,16 +184,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
     },
   ];
 
+  const visibleSections = sections.filter(sec => !sec.allowedRoles || sec.allowedRoles.includes(userRole))
+    .map(sec => ({
+      ...sec,
+      items: sec.items.filter(item => !item.allowedRoles || item.allowedRoles.includes(userRole))
+    })).filter(sec => sec.items.length > 0);
+
   // Auto-expand section containing the active view, keeping others collapsed by default
   useEffect(() => {
-    const activeSection = sections.find(sec => sec.items.some(item => item.id === activeView));
+    const activeSection = visibleSections.find(sec => sec.items.some(item => item.id === activeView));
     if (activeSection && !openSections.includes(activeSection.title)) {
       setOpenSections([activeSection.title]);
     }
   }, [activeView]); // Intentionally leaving out sections from dependency array to avoid loops
 
   const toggleSection = (title: string) => {
-    if (isCollapsed) setIsCollapsed(false); // Auto-expand sidebar if trying to open an accordion
+    if (isCollapsed) setIsCollapsed(false); const visibleSections = sections.filter(sec => !sec.allowedRoles || sec.allowedRoles.includes(userRole))
+    .map(sec => ({
+      ...sec,
+      items: sec.items.filter(item => !item.allowedRoles || item.allowedRoles.includes(userRole))
+    })).filter(sec => sec.items.length > 0);
+
+  // Auto-expand sidebar if trying to open an accordion
     setOpenSections(prev => 
       prev.includes(title) ? prev.filter(t => t !== title) : [...prev, title]
     );
@@ -231,7 +263,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       )}
 
       <div className={`flex-1 overflow-y-auto py-4 ${isCollapsed ? 'px-2' : 'px-4'} space-y-2 relative z-10 custom-scrollbar`}>
-        {sections.map((section, idx) => {
+        {visibleSections.map((section, idx) => {
           const isOpen = openSections.includes(section.title);
           const hasActiveChild = section.items.some(item => item.id === activeView);
 
@@ -333,4 +365,51 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       </div>
     </aside>
   );
+};
+
+export const checkAccess = (view: ActiveView, role: UserRole): boolean => {
+  if (role === 'super_admin') return true;
+  
+  const roleMap: Record<ActiveView, UserRole[]> = {
+    dashboard: ['admin', 'supervisor', 'operador', 'auditor'],
+    operation_dashboard: ['admin', 'supervisor'],
+    quick_setup: [],
+    crm_contacts: ['admin', 'supervisor', 'operador'],
+    crm_hub: ['admin'],
+    omnichannel: ['admin', 'supervisor', 'operador'],
+    campaigns: ['admin', 'supervisor'],
+    extensions: ['admin', 'supervisor'],
+    trunks: [],
+    routes: ['admin'],
+    ring_groups: ['admin', 'supervisor'],
+    queues: ['admin', 'supervisor'],
+    ivr: ['admin', 'supervisor'],
+    cdr: ['admin', 'supervisor', 'auditor'],
+    recordings: ['admin', 'supervisor', 'auditor'],
+    transcriptions: ['admin', 'supervisor', 'auditor'],
+    reports: ['admin', 'supervisor'],
+    ai_providers: ['admin'],
+    ai_agents: ['admin', 'supervisor'],
+    ai_tools: ['admin'],
+    ai_knowledge: ['admin', 'supervisor'],
+    ai_sessions: ['admin', 'supervisor'],
+    network_security: [],
+    infra_settings: [],
+    system_logs: [],
+    asterisk_monitor: [],
+    asterisk_configs: [],
+    asterisk_installer: [],
+    users: ['admin'],
+    tenants: [],
+    billing: [],
+    audit_logs: ['auditor'],
+    health_check: [],
+    settings: ['admin'],
+    help_manual: ['admin', 'supervisor', 'operador', 'auditor'],
+    backup_restore: [],
+  };
+
+  const allowedRoles = roleMap[view];
+  if (!allowedRoles) return false;
+  return allowedRoles.includes(role);
 };

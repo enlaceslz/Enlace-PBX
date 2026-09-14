@@ -24,7 +24,9 @@ import {
   Radio,
   FileSpreadsheet,
   ShieldOff,
-  Crosshair
+  Crosshair,
+  Database,
+  Zap
 } from 'lucide-react';
 import { User, Tenant, AuditLog, HealthStatus, Extension } from '../../types/pbx';
 
@@ -488,96 +490,141 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
 
       {/* 3. AUDIT LOGS LGPD */}
       {currentTab === 'audit_logs' && (
-        <div className="space-y-4">
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3 shadow-sm">
-            <ShieldAlert className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <strong className="font-bold block mb-0.5 text-amber-800">
-                Conformidade com a Lei Geral de Proteção de Dados (LGPD - Lei 13.709/2018):
-              </strong>
-              Todos os acessos a gravações de áudio, downloads de transcrições, exclusões e alterações de prompts dos agentes de IA são registrados com endereço IP e timestamp imutável para prestação de contas aos encarregados de dados (DPO).
-            </div>
-          </div>
-
-          {/* Search, Filter & Export Toolbar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="flex flex-1 items-center gap-3 w-full sm:w-auto">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Filtrar por usuário, IP ou recurso..."
-                  value={auditSearch}
-                  onChange={(e) => setAuditSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-sans"
-                />
+        <div className="space-y-6">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-sm text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+            <div className="flex items-start gap-4 relative z-10">
+              <div className="p-2.5 bg-amber-100 rounded-xl text-amber-600 flex-shrink-0">
+                <ShieldAlert className="w-6 h-6" />
               </div>
-
-              <select
-                value={auditActionFilter}
-                onChange={(e) => setAuditActionFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500 font-mono"
-              >
-                <option value="ALL">Todas as Ações ({auditLogs.length})</option>
-                {uniqueActions.map((act) => (
-                  <option key={act} value={act}>
-                    {act}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <strong className="font-bold text-base block mb-1 text-amber-900">
+                  Conformidade Estrita com LGPD (Lei 13.709/2018)
+                </strong>
+                <p className="text-amber-800/80 leading-relaxed max-w-3xl">
+                  Acessos a gravações (CDR), extrações de relatórios, downloads de transcrições da MaIA e exclusões de recursos são registrados com carimbo de tempo imutável e rastreabilidade de IP. Logs retidos por 5 anos (resolução Anatel).
+                </p>
+              </div>
             </div>
-
             <button
               id="export-lgpd-btn"
               onClick={handleExportLgpdCsv}
-              className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-2 transition active:scale-95 whitespace-nowrap border border-slate-200"
+              className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition shadow-md shadow-amber-600/20 whitespace-nowrap relative z-10"
             >
-              <Download className="w-3.5 h-3.5 text-slate-600" />
-              Exportar Relatório LGPD (.CSV)
+              <Download className="w-4 h-4" />
+              Exportar SIEM / CSV
             </button>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                   <Activity className="w-4 h-4 text-blue-500" />
+                   <span className="text-[11px] font-bold uppercase tracking-wider">Eventos Hoje</span>
+                </div>
+                <div className="text-2xl font-black text-slate-900">1,204</div>
+             </div>
+             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                   <Download className="w-4 h-4 text-purple-500" />
+                   <span className="text-[11px] font-bold uppercase tracking-wider">Downloads (Áudio/CDR)</span>
+                </div>
+                <div className="text-2xl font-black text-slate-900">42</div>
+             </div>
+             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                   <Lock className="w-4 h-4 text-emerald-500" />
+                   <span className="text-[11px] font-bold uppercase tracking-wider">Acessos Seguros</span>
+                </div>
+                <div className="text-2xl font-black text-slate-900">99.8%</div>
+             </div>
+             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                   <AlertCircle className="w-4 h-4 text-rose-500" />
+                   <span className="text-[11px] font-bold uppercase tracking-wider">Falhas de Login (24h)</span>
+                </div>
+                <div className="text-2xl font-black text-slate-900">3</div>
+             </div>
+          </div>
+
+          {/* Search, Filter & Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50">
+              <div className="flex flex-1 items-center gap-3 w-full sm:w-auto">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Filtrar logs por usuário, recurso, IP..."
+                    value={auditSearch}
+                    onChange={(e) => setAuditSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-sans shadow-sm"
+                  />
+                </div>
+                <select
+                  value={auditActionFilter}
+                  onChange={(e) => setAuditActionFilter(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm text-slate-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono shadow-sm cursor-pointer"
+                >
+                  <option value="ALL">Todas as Ações ({auditLogs.length})</option>
+                  {uniqueActions.map((act) => (
+                    <option key={act} value={act}>
+                      {act}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/50 text-slate-500 font-mono text-[11px] uppercase">
-                    <th className="py-3 px-4">Data / Hora</th>
-                    <th className="py-3 px-4">Usuário</th>
-                    <th className="py-3 px-4">Ação</th>
-                    <th className="py-3 px-4">Recurso</th>
-                    <th className="py-3 px-4">Endereço IP</th>
-                    <th className="py-3 px-4">Detalhes</th>
+                  <tr className="border-b border-slate-100 bg-white text-slate-400 font-mono text-[10px] uppercase tracking-wider">
+                    <th className="py-4 px-6 font-bold">Data / Hora</th>
+                    <th className="py-4 px-6 font-bold">Usuário / Agente</th>
+                    <th className="py-4 px-6 font-bold">Ação</th>
+                    <th className="py-4 px-6 font-bold">Recurso Afetado</th>
+                    <th className="py-4 px-6 font-bold">Endereço IP / Origem</th>
+                    <th className="py-4 px-6 font-bold">Detalhes Técnicos</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-sans">
+                <tbody className="divide-y divide-slate-50 font-sans">
                   {filteredLogs.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
-                        Nenhum registro de auditoria corresponde aos filtros selecionados.
+                      <td colSpan={6} className="py-12 text-center">
+                        <div className="flex flex-col items-center justify-center text-slate-400">
+                          <Search className="w-8 h-8 mb-3 opacity-20" />
+                          <p className="text-sm font-medium">Nenhum registro de auditoria encontrado.</p>
+                          <p className="text-xs mt-1">Tente ajustar seus filtros de busca.</p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
                     filteredLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-slate-50 transition">
-                        <td className="py-3.5 px-4 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                      <tr key={log.id} className="hover:bg-slate-50/80 transition-colors group">
+                        <td className="py-4 px-6 font-mono text-slate-500 text-xs whitespace-nowrap">
                           {new Date(log.timestamp).toLocaleString('pt-BR')}
                         </td>
-                        <td className="py-3.5 px-4 font-semibold text-slate-800">
+                        <td className="py-4 px-6 font-bold text-slate-800 text-sm">
                           {log.userName}
                         </td>
-                        <td className="py-3.5 px-4">
-                          <span className="font-mono text-[10px] uppercase font-bold bg-slate-100 px-2 py-0.5 rounded text-slate-700 border border-slate-200">
+                        <td className="py-4 px-6">
+                          <span className={`font-mono text-[10px] uppercase font-bold px-2.5 py-1 rounded-md border ${
+                            log.action.includes('DELETE') ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                            log.action.includes('DOWNLOAD') ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                            log.action.includes('UPDATE') ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            'bg-slate-100 text-slate-700 border-slate-200'
+                          }`}>
                             {log.action}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-slate-700 font-mono text-[11px]">
+                        <td className="py-4 px-6 text-slate-600 font-mono text-xs">
                           {log.resource}
                         </td>
-                        <td className="py-3.5 px-4 font-mono text-blue-600 text-[11px]">
+                        <td className="py-4 px-6 font-mono text-blue-600/80 text-xs font-medium">
                           {log.ip}
                         </td>
-                        <td className="py-3.5 px-4 text-slate-600 text-xs max-w-md truncate" title={log.details}>
+                        <td className="py-4 px-6 text-slate-500 text-xs max-w-sm truncate group-hover:text-slate-800 transition-colors" title={log.details}>
                           {log.details}
                         </td>
                       </tr>
@@ -592,73 +639,156 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
 
       {currentTab === 'anti_fraud' && (
         <div className="flex-1 space-y-6">
-          <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
-            <div className="w-12 h-12 bg-purple-100 text-purple-600 flex items-center justify-center rounded-2xl shadow-inner">
-              <ShieldOff className="w-6 h-6" />
+          <div className="bg-purple-900 border border-purple-800 rounded-2xl p-5 text-sm text-purple-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-purple-900/20 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-500/20 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+            <div className="absolute bottom-0 left-20 w-48 h-48 bg-blue-500/20 rounded-full blur-3xl -ml-20 -mb-20 pointer-events-none" />
+            
+            <div className="flex items-start gap-4 relative z-10">
+              <div className="p-3 bg-purple-800/50 rounded-xl text-fuchsia-400 flex-shrink-0 border border-purple-700/50 shadow-inner">
+                <ShieldOff className="w-6 h-6" />
+              </div>
+              <div>
+                <strong className="font-bold text-base block mb-1 text-white">
+                  Motor Anti-Fraude & Prevenção de Toll Fraud
+                </strong>
+                <p className="text-purple-200/80 leading-relaxed max-w-3xl text-xs">
+                  O PBX utiliza heurística comportamental para bloquear picos anômalos de chamadas internacionais (DDI), números premium (0900/0300) e ataques de força bruta no registro SIP (Fail2Ban).
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-xl font-black text-slate-800">Motor Anti-Fraude (Toll Fraud)</h2>
-              <p className="text-sm text-slate-500 font-medium mt-1">Configuração de limites e bloqueios de tráfego por tenant.</p>
+            <button className="px-5 py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition shadow-md shadow-fuchsia-600/30 whitespace-nowrap relative z-10">
+              <Crosshair className="w-4 h-4" />
+              Auditoria de Ameaças
+            </button>
+          </div>
+
+          {/* Quick Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Ameaças Bloqueadas (24h)</div>
+              <div className="flex items-end gap-2">
+                <span className="text-2xl font-black text-slate-800">12</span>
+                <span className="text-xs font-bold text-emerald-500 mb-1">seguro</span>
+              </div>
             </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">IPs em Quarentena</div>
+              <div className="flex items-end gap-2">
+                <span className="text-2xl font-black text-slate-800">145</span>
+                <span className="text-xs font-bold text-rose-500 mb-1">Fail2Ban</span>
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tentativas SIP Inválidas</div>
+              <div className="flex items-end gap-2">
+                <span className="text-2xl font-black text-slate-800">3,490</span>
+                <span className="text-xs font-bold text-slate-400 mb-1">requests</span>
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status da Heurística</div>
+              <div className="flex items-end gap-2">
+                <span className="text-2xl font-black text-emerald-600">Ativo</span>
+                <span className="text-xs font-bold text-emerald-500 mb-1 flex items-center"><CheckCircle2 className="w-3 h-3 ml-1" /></span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between mt-8 mb-4">
+            <h3 className="text-lg font-bold text-slate-800">Regras por Empresa (Tenant)</h3>
+            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{tenants.length} tenants</span>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {tenants.map(tenant => (
-              <div key={tenant.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-bl-[100px] -z-10 group-hover:bg-purple-500/10 transition-colors"></div>
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="font-bold text-slate-800 text-lg">{tenant.name}</h3>
-                    <p className="text-xs text-slate-400 font-mono mt-1">ID: {tenant.id}</p>
+              <div key={tenant.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group flex flex-col h-full">
+                {/* Visual Header */}
+                <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
+                  <div className="flex gap-3">
+                     <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
+                        <Building className="w-5 h-5" />
+                     </div>
+                     <div>
+                        <h3 className="font-bold text-slate-900 text-base leading-tight">{tenant.name}</h3>
+                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">TENANT_ID: {tenant.id}</p>
+                     </div>
                   </div>
-                  <span className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${tenant.antiFraud?.autoSuspendOnAnomaly ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                    {tenant.antiFraud?.autoSuspendOnAnomaly ? 'Auto-Suspend Ativo' : 'Apenas Alertas'}
+                  <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border uppercase tracking-wider flex items-center gap-1.5 ${tenant.antiFraud?.autoSuspendOnAnomaly ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm shadow-emerald-500/10' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                    {tenant.antiFraud?.autoSuspendOnAnomaly && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                    {tenant.antiFraud?.autoSuspendOnAnomaly ? 'Auto-Bloqueio Ativo' : 'Somente Alertas'}
                   </span>
                 </div>
 
-                {tenant.antiFraud ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Chamadas Simultâneas (Max)</span>
-                        <span className="font-mono font-bold text-slate-700 text-lg">{tenant.antiFraud.maxConcurrentCalls}</span>
+                {/* Body Content */}
+                <div className="p-6 flex-1 flex flex-col gap-6">
+                  {tenant.antiFraud ? (
+                    <>
+                      {/* Operational Limits */}
+                      <div>
+                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Limites Operacionais</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
+                            <span className="text-xs font-bold text-slate-600">Max Chamadas Simul.</span>
+                            <span className="font-mono font-black text-slate-800 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-200">{tenant.antiFraud.maxConcurrentCalls}</span>
+                          </div>
+                          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
+                            <span className="text-xs font-bold text-slate-600">Duração Max (Min)</span>
+                            <span className="font-mono font-black text-slate-800 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-200">{tenant.antiFraud.maxCallDurationMinutes}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Duração Máxima (Min)</span>
-                        <span className="font-mono font-bold text-slate-700 text-lg">{tenant.antiFraud.maxCallDurationMinutes}</span>
-                      </div>
-                    </div>
 
-                    <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl">
-                      <h4 className="text-[11px] font-bold text-rose-800 uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Crosshair className="w-3.5 h-3.5" /> Destinos Sensíveis
-                      </h4>
-                      <div className="flex flex-col gap-2 text-xs">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-rose-700">Bloquear DDI (Internacional)</span>
-                          <span className="font-mono font-bold text-rose-900">{tenant.antiFraud.blockInternational ? 'SIM' : 'NÃO'}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-rose-700">Max DDI / Dia</span>
-                          <span className="font-mono font-bold text-rose-900">{tenant.antiFraud.maxInternationalPerDay}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-rose-700">Bloquear Premium (0900/0300)</span>
-                          <span className="font-mono font-bold text-rose-900">{tenant.antiFraud.blockExpensiveDestinations ? 'SIM' : 'NÃO'}</span>
+                      {/* International & Premium */}
+                      <div>
+                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Destinos Sensíveis & DDI</h4>
+                        <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-1 divide-y divide-rose-100/50">
+                          <div className="flex items-center justify-between p-3">
+                            <span className="text-xs font-bold text-rose-900 flex items-center gap-2">
+                              <Crosshair className="w-3.5 h-3.5 text-rose-500" />
+                              Bloquear Ligações DDI
+                            </span>
+                            {tenant.antiFraud.blockInternational ? (
+                              <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase shadow-sm">Ativo</span>
+                            ) : (
+                              <span className="bg-slate-200 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Inativo</span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between p-3">
+                            <span className="text-xs font-bold text-rose-900 flex items-center gap-2">
+                              <Crosshair className="w-3.5 h-3.5 text-rose-500" />
+                              Bloquear Premium (0900)
+                            </span>
+                            {tenant.antiFraud.blockExpensiveDestinations ? (
+                              <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase shadow-sm">Ativo</span>
+                            ) : (
+                              <span className="bg-slate-200 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Inativo</span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between p-3">
+                            <span className="text-xs font-bold text-rose-900 ml-5">
+                              Teto de DDI / Dia
+                            </span>
+                            <span className="font-mono font-black text-rose-700 bg-white px-2 py-0.5 rounded shadow-sm border border-rose-200 text-xs">
+                              {tenant.antiFraud.maxInternationalPerDay} reqs
+                            </span>
+                          </div>
                         </div>
                       </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 rounded-xl border border-dashed border-slate-200 p-6 text-center">
+                      <ShieldOff className="w-8 h-8 text-slate-300 mb-2" />
+                      <p className="text-sm font-bold text-slate-700">Sem regras anti-fraude</p>
+                      <p className="text-xs text-slate-500 mt-1">Este tenant está utilizando o limite padrão do sistema.</p>
                     </div>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-center">
-                    <span className="text-xs font-semibold text-slate-500">Anti-Fraude não configurado para este Tenant.</span>
-                  </div>
-                )}
+                  )}
+                </div>
                 
-                <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
-                  <button className="px-4 py-2 bg-white border-2 border-slate-200 hover:border-purple-600 hover:text-purple-600 text-slate-600 rounded-xl text-xs font-bold transition-all flex items-center gap-2">
+                {/* Footer Action */}
+                <div className="p-4 bg-slate-50/50 border-t border-slate-100 flex justify-end mt-auto">
+                  <button className="px-4 py-2 bg-white border border-slate-200 hover:border-purple-600 hover:text-purple-700 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm">
                     <Edit3 className="w-3.5 h-3.5" />
-                    Editar Regras
+                    Ajustar Parâmetros
                   </button>
                 </div>
               </div>
@@ -669,57 +799,73 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
 
       {/* 4. HEALTH CHECK TAB */}
       {currentTab === 'health_check' && (
-        <div className="space-y-6">
-          {/* Header with Run Diagnostic Button */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h2 className="text-base font-bold text-slate-900">Monitor de Telemetria e Diagnóstico Ativo</h2>
-                <span className="text-[10px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-bold">
-                  SLA 99.98%
-                </span>
+        <div className="flex-1 space-y-6">
+          {/* Premium Header */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-slate-900/20 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+            <div className="absolute bottom-0 left-20 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl -ml-20 -mb-20 pointer-events-none" />
+            
+            <div className="flex items-start gap-4 relative z-10">
+              <div className="p-3 bg-slate-800/80 rounded-xl text-emerald-400 flex-shrink-0 border border-slate-700/50 shadow-inner">
+                <Activity className="w-6 h-6" />
               </div>
-              <p className="text-xs text-slate-500">
-                Verifique o estado de comunicação entre o motor Asterisk 20, canais AudioSocket, banco de dados e APIs do Google Gemini.
-              </p>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <strong className="font-bold text-base block text-white">
+                    Monitor de Telemetria e Diagnóstico Ativo
+                  </strong>
+                  <span className="text-[9px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded shadow-sm font-bold uppercase tracking-wider">
+                    SLA 99.99%
+                  </span>
+                </div>
+                <p className="text-slate-400 leading-relaxed max-w-3xl text-xs">
+                  Acompanhe a saúde operacional do cluster em tempo real. Monitore o motor Asterisk 20, pontes de mídia AudioSocket e as rotas de inferência do Google Gemini.
+                </p>
+              </div>
             </div>
-
+            
             <button
               id="run-diagnostic-btn"
               onClick={handleRunDiagnostic}
               disabled={isRunningDiagnostic}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-sm transition active:scale-95 disabled:opacity-50 whitespace-nowrap"
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition shadow-md shadow-emerald-600/30 whitespace-nowrap relative z-10 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isRunningDiagnostic ? 'animate-spin' : ''}`} />
-              {isRunningDiagnostic ? 'Testando Conexões...' : 'Executar Diagnóstico do Núcleo'}
+              {isRunningDiagnostic ? 'Testando Malha...' : 'Executar Diagnóstico do Núcleo'}
             </button>
           </div>
 
           {/* Diagnostic results modal/card if available */}
           {diagnosticData && (
-            <div className="bg-white rounded-2xl border border-blue-200 shadow-sm p-5 space-y-4">
+            <div className="bg-white rounded-2xl border border-emerald-200 shadow-sm p-5 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <span className="text-sm font-bold text-slate-900">
-                    Resultado do Teste de Conectividade ({diagnosticData.overallHealth})
-                  </span>
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-slate-900 block">
+                      Relatório de Conectividade ({diagnosticData.overallHealth})
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Latência End-to-End validada
+                    </span>
+                  </div>
                 </div>
-                <span className="text-xs font-mono text-slate-400">
-                  Executado em: {new Date(diagnosticData.timestamp).toLocaleTimeString('pt-BR')}
+                <span className="text-xs font-mono font-bold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                  {new Date(diagnosticData.timestamp).toLocaleTimeString('pt-BR')}
                 </span>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {diagnosticData.diagnostics.map((d, i) => (
-                  <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between">
+                  <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-between">
                     <div>
                       <div className="text-xs font-bold text-slate-800">{d.name}</div>
-                      <div className="text-[11px] text-slate-500">{d.details}</div>
+                      <div className="text-[10px] text-slate-500 truncate max-w-[120px]">{d.details}</div>
                     </div>
                     <div className="text-right flex-shrink-0 ml-3">
-                      <span className="text-xs font-mono font-bold text-blue-600">{d.pingMs} ms</span>
-                      <span className="block text-[10px] font-bold text-emerald-600">{d.status}</span>
+                      <span className="text-xs font-mono font-black text-slate-700 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-200 block mb-1">{d.pingMs} ms</span>
+                      <span className="block text-[10px] font-bold text-emerald-600 uppercase tracking-wider">{d.status}</span>
                     </div>
                   </div>
                 ))}
@@ -730,66 +876,87 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
           {/* Components Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {health?.components &&
-              Object.entries(health.components).map(([key, val]: [string, any]) => (
+              Object.entries(health.components).map(([key, val]: [string, any]) => {
+                // Determine icons based on service name
+                let Icon = Server;
+                let bgClass = "bg-blue-100 text-blue-600";
+                
+                if (key === 'geminiApi' || key.includes('ai')) { Icon = Sparkles; bgClass = "bg-indigo-100 text-indigo-600"; }
+                if (key === 'asterisk' || key.includes('sip')) { Icon = Radio; bgClass = "bg-orange-100 text-orange-600"; }
+                if (key === 'database' || key.includes('db')) { Icon = Database; bgClass = "bg-emerald-100 text-emerald-600"; }
+                if (key === 'audioSocket') { Icon = Zap; bgClass = "bg-fuchsia-100 text-fuchsia-600"; }
+
+                return (
                 <div
                   key={key}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 flex flex-col justify-between"
+                  className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex flex-col h-full overflow-hidden group"
                 >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">
-                        {key}
-                      </span>
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    </div>
-
-                    <div className="text-base font-bold text-slate-900 capitalize">
-                      {key === 'geminiApi'
-                        ? 'Google Gemini AI'
-                        : key === 'audioSocket'
-                        ? 'AudioSocket 24kHz'
-                        : key}
-                    </div>
+                  <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-start">
+                     <div className="flex gap-3 items-center">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-inner ${bgClass}`}>
+                           <Icon className="w-5 h-5" />
+                        </div>
+                        <div>
+                           <div className="text-sm font-bold text-slate-900 capitalize leading-tight">
+                              {key === 'geminiApi'
+                                ? 'Google Gemini AI'
+                                : key === 'audioSocket'
+                                ? 'AudioSocket 24kHz'
+                                : key}
+                           </div>
+                           <span className="text-[10px] font-mono text-slate-400 uppercase font-bold mt-0.5 block">
+                              Service Worker
+                           </span>
+                        </div>
+                     </div>
+                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mt-1 shadow-sm shadow-emerald-500/50" />
                   </div>
-
-                  <div className="pt-3 border-t border-slate-100 text-xs font-mono text-slate-600 space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Status:</span>
-                      <span className="text-blue-600 font-bold">{val.status}</span>
+                  
+                  <div className="p-5 flex-1 flex flex-col justify-end bg-white">
+                    <div className="space-y-2.5">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Status</span>
+                        <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{val.status}</span>
+                      </div>
+                      
+                      {val.version && (
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Version</span>
+                          <span className="font-mono text-slate-700 font-bold">{val.version}</span>
+                        </div>
+                      )}
+                      
+                      {val.model && (
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Model</span>
+                          <span className="font-mono text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] border border-indigo-100">{val.model}</span>
+                        </div>
+                      )}
+                      
+                      {val.latencyMs !== undefined && (
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Latência</span>
+                          <span className="font-mono text-slate-700 font-bold">{val.latencyMs} ms</span>
+                        </div>
+                      )}
+                      
+                      {val.port && (
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Porta</span>
+                          <span className="font-mono text-slate-700 font-bold">{val.port}</span>
+                        </div>
+                      )}
+                      
+                      {val.uptime && (
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Uptime</span>
+                          <span className="font-mono text-slate-700 font-bold">{val.uptime}</span>
+                        </div>
+                      )}
                     </div>
-                    {val.version && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Versão:</span>
-                        <span className="text-slate-700">{val.version}</span>
-                      </div>
-                    )}
-                    {val.model && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Modelo:</span>
-                        <span className="text-indigo-600 font-bold">{val.model}</span>
-                      </div>
-                    )}
-                    {val.latencyMs && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Latência:</span>
-                        <span className="text-slate-700 font-bold">{val.latencyMs} ms</span>
-                      </div>
-                    )}
-                    {val.port && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Porta:</span>
-                        <span className="text-slate-700">{val.port}</span>
-                      </div>
-                    )}
-                    {val.uptime && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Uptime:</span>
-                        <span className="text-slate-700">{val.uptime}</span>
-                      </div>
-                    )}
                   </div>
                 </div>
-              ))}
+              )})}
           </div>
         </div>
       )}

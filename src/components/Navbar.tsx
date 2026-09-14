@@ -9,10 +9,13 @@ import {
   Building2,
   Radio,
   Menu,
+  ShieldCheck
 } from 'lucide-react';
-import { Tenant, User } from '../types/pbx';
+import { Tenant, User, UserRole } from '../types/pbx';
 
 interface NavbarProps {
+  userRole?: UserRole;
+  onChangeUserRole?: (role: UserRole) => void;
   tenants: Tenant[];
   currentTenant: Tenant | null;
   onSelectTenant: (tenant: Tenant) => void;
@@ -24,6 +27,8 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
+  userRole,
+  onChangeUserRole,
   tenants,
   currentTenant,
   onSelectTenant,
@@ -105,6 +110,32 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Right Controls */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Multi-Tenant Switcher */}
+        {/* Role Switcher (Development Mock) */}
+        {onChangeUserRole && (
+          <div className="relative group hidden sm:block">
+            <button className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 transition">
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+              <span className="capitalize">{userRole?.replace('_', ' ') || 'Admin'}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+            </button>
+            <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 hidden group-hover:block z-50">
+              <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                Simular Perfil (RBAC)
+              </div>
+              {(['super_admin', 'admin', 'supervisor', 'operador', 'auditor'] as UserRole[]).map((role) => (
+                <button
+                  key={role}
+                  onClick={() => onChangeUserRole(role)}
+                  className={`w-full text-left px-3 py-2 text-xs transition ${
+                    role === userRole ? 'bg-purple-50 text-purple-700 font-bold' : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {role.replace('_', ' ').toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {tenants.length > 0 && (
           <div className="relative group hidden sm:block">
             <button className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 transition">

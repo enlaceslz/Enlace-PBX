@@ -2320,6 +2320,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/crm/contacts', (req, res) => res.json(db.crmContacts));
+  app.get('/api/v1/crm/memories', (req, res) => res.json(db.customerMemories));
   
   app.post('/api/v1/crm/contacts', (req, res) => {
     const newContact = {

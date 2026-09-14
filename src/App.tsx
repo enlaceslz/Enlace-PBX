@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ShieldAlert } from 'lucide-react';
 import { Navbar } from './components/Navbar';
-import { Sidebar, ActiveView } from './components/Sidebar';
+import { Sidebar, ActiveView, checkAccess } from './components/Sidebar';
+import { UserRole } from './types/pbx';
 import { WebphoneModal } from './components/WebphoneModal';
 import { DashboardView } from './components/views/DashboardView';
 import { OperationDashboardView } from './components/views/OperationDashboardView';
 import { OmnichannelView } from './components/views/OmnichannelView';
+import { CrmContactsView } from "./components/views/CrmContactsView";
 import { CrmHubView } from './components/views/CrmHubView';
 import { CampaignsView } from './components/views/CampaignsView';
 import { QuickSetupView } from './components/views/QuickSetupView';
@@ -49,6 +52,7 @@ import {
 
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
+  const [userRole, setUserRole] = useState<UserRole>('super_admin');
   const [isWebphoneOpen, setIsWebphoneOpen] = useState(false);
   const [webphoneTarget, setWebphoneTarget] = useState<string>('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -182,8 +186,24 @@ export default function App() {
     if (number) setWebphoneTarget(number);
     setIsWebphoneOpen(true);
   };
-
   const renderActiveView = () => {
+
+    if (!checkAccess(activeView, userRole)) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 p-6">
+          <div className="w-24 h-24 mb-6 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
+            <ShieldAlert className="w-10 h-10 text-slate-400" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-700 mb-2">Acesso Negado</h2>
+          <p className="text-slate-500 text-center max-w-md">
+            Seu perfil atual ({userRole.replace('_', ' ').toUpperCase()}) não tem permissão para acessar esta área do sistema.
+          </p>
+          <button onClick={() => setActiveView('dashboard')} className="mt-6 px-4 py-2 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 transition">
+            Voltar ao Início
+          </button>
+        </div>
+      );
+    }
     switch (activeView) {
       case 'dashboard':
         return (
@@ -199,6 +219,8 @@ export default function App() {
         return <OperationDashboardView channels={channels} metrics={metrics} onOpenWebphone={handleOpenWebphone} />;
       case 'omnichannel':
         return <OmnichannelView />;
+      case 'crm_contacts':
+        return <CrmContactsView />;
       case 'crm_hub':
         return <CrmHubView />;
       case 'campaigns':
@@ -474,6 +496,8 @@ export default function App() {
         activeCallsCount={channels.length}
         onOpenWebphone={() => handleOpenWebphone()}
         isWebphoneOpen={isWebphoneOpen}
+        userRole={userRole}
+        onChangeUserRole={setUserRole}
         onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
       />
 
@@ -489,6 +513,7 @@ export default function App() {
         {/* Sidebar */}
         <div className={`fixed lg:static inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
           <Sidebar
+            userRole={userRole}
             activeView={activeView}
             onSelectView={(v) => { setActiveView(v); setIsMobileMenuOpen(false); }}
             onOpenWebphone={() => handleOpenWebphone()}

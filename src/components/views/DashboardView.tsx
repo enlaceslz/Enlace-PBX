@@ -39,14 +39,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
       {/* Premium Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
-        <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
-            <Radio className="w-8 h-8 text-blue-600 fill-blue-600" />
-            Central de Operações Enlace-PBX
-          </h1>
-          <p className="text-sm font-medium text-slate-500 mt-1">
-            Plataforma de Telefonia IP baseada no núcleo Asterisk 20.17 LTS e integração nativa ao Google Gemini Live.
-          </p>
+        <div className="flex items-center gap-4">
+          <div className="p-2 bg-white rounded-2xl border border-slate-200 shadow-sm shrink-0 hidden sm:block">
+            <img 
+              src="/logo-icon.png" 
+              alt="Enlace-PBX Mascote" 
+              className="w-12 h-12 object-contain"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
+              }}
+            />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+              <Radio className="w-8 h-8 text-blue-600 fill-blue-600 sm:hidden" />
+              Central de Operações Enlace-PBX
+            </h1>
+            <p className="text-sm font-medium text-slate-500 mt-1">
+              Plataforma de Telefonia IP baseada no núcleo Asterisk 20.17 LTS e integração nativa ao Google Gemini Live.
+            </p>
+          </div>
         </div>
         
         <div className="flex items-center gap-3">

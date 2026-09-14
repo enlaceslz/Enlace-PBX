@@ -20,12 +20,14 @@ export interface Tenant {
   antiFraud?: TenantAntiFraud;
 }
 
+export type UserRole = 'super_admin' | 'admin' | 'supervisor' | 'operador' | 'usuario' | 'auditor';
 export interface User {
+  role: UserRole;
   id: string;
   tenantId: string;
   name: string;
   email: string;
-  role: 'super_admin' | 'admin' | 'supervisor' | 'operador' | 'usuario' | 'auditor';
+
   extension?: string;
   isActive: boolean;
   lastLogin: string;
@@ -705,3 +707,24 @@ export interface InfraConfig {
 
 
 
+
+export interface CrmContact {
+  id: string;
+  tenantId: string;
+  name: string;
+  phone: string;
+  email: string;
+  crmId?: string;
+  lastInteraction?: string;
+}
+
+export interface CustomerMemory {
+  id: string;
+  tenantId: string;
+  contactId: string;
+  phone: string;
+  summary: string;
+  preferences: string[];
+  sentimentHistory: 'positive' | 'neutral' | 'negative';
+  churnRisk: number;
+}
