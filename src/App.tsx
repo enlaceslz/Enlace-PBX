@@ -18,6 +18,7 @@ import { TrunksView } from './components/views/TrunksView';
 import { RoutesView } from './components/views/RoutesView';
 import { QueuesAndGroupsView } from './components/views/QueuesAndGroupsView';
 import { IvrView } from './components/views/IvrView';
+import { MediaManagerView } from './components/views/MediaManagerView';
 import { CdrAndRecordingsView } from './components/views/CdrAndRecordingsView';
 import { AiGatewayView } from './components/views/AiGatewayView';
 import { AsteriskCoreView } from './components/views/AsteriskCoreView';
@@ -29,6 +30,7 @@ import { HealthCheckView } from './components/views/HealthCheckView';
 import { SettingsView } from './components/views/SettingsView';
 import { HelpManualView } from './components/views/HelpManualView';
 import { BackupRestoreView } from './components/views/BackupRestoreView';
+import { LoginView } from './components/views/LoginView';
 import {
   Tenant,
   User,
@@ -51,6 +53,9 @@ import {
 } from './types/pbx';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('enlace_jwt'));
+  const [authToken, setAuthToken] = useState<string | null>(localStorage.getItem('enlace_jwt'));
+
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [userRole, setUserRole] = useState<UserRole>('super_admin');
   const [isWebphoneOpen, setIsWebphoneOpen] = useState(false);
@@ -83,6 +88,12 @@ export default function App() {
 
   const loadAllData = useCallback(async () => {
     try {
+      const fetchWithAuth = (url: string) => fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`
+        }
+      }).then(r => r.json());
+
       const [
         metricsRes,
         tenantsRes,
@@ -103,24 +114,24 @@ export default function App() {
         auditRes,
         healthRes,
       ] = await Promise.all([
-        fetch('/api/v1/dashboard/metrics').then((r) => r.json()),
-        fetch('/api/v1/tenants').then((r) => r.json()),
-        fetch('/api/v1/users').then((r) => r.json()),
-        fetch('/api/v1/asterisk/channels').then((r) => r.json()),
-        fetch('/api/v1/extensions').then((r) => r.json()),
-        fetch('/api/v1/trunks').then((r) => r.json()),
-        fetch('/api/v1/routes').then((r) => r.json()),
-        fetch('/api/v1/queues').then((r) => r.json()),
-        fetch('/api/v1/ring-groups').then((r) => r.json()),
-        fetch('/api/v1/ivr').then((r) => r.json()),
-        fetch('/api/v1/cdr').then((r) => r.json()),
-        fetch('/api/v1/ai/agents').then((r) => r.json()),
-        fetch('/api/v1/ai/providers').then((r) => r.json()),
-        fetch('/api/v1/ai/tools').then((r) => r.json()),
-        fetch('/api/v1/ai/knowledge').then((r) => r.json()),
-        fetch('/api/v1/ai/sessions').then((r) => r.json()),
-        fetch('/api/v1/audit-logs').then((r) => r.json()),
-        fetch('/api/v1/health').then((r) => r.json()),
+        fetchWithAuth('/api/v1/dashboard/metrics'),
+        fetchWithAuth('/api/v1/tenants'),
+        fetchWithAuth('/api/v1/users'),
+        fetchWithAuth('/api/v1/asterisk/channels'),
+        fetchWithAuth('/api/v1/extensions'),
+        fetchWithAuth('/api/v1/trunks'),
+        fetchWithAuth('/api/v1/routes'),
+        fetchWithAuth('/api/v1/queues'),
+        fetchWithAuth('/api/v1/ring-groups'),
+        fetchWithAuth('/api/v1/ivr'),
+        fetchWithAuth('/api/v1/cdr'),
+        fetchWithAuth('/api/v1/ai/agents'),
+        fetchWithAuth('/api/v1/ai/providers'),
+        fetchWithAuth('/api/v1/ai/tools'),
+        fetchWithAuth('/api/v1/ai/knowledge'),
+        fetchWithAuth('/api/v1/ai/sessions'),
+        fetchWithAuth('/api/v1/audit-logs'),
+        fetchWithAuth('/api/v1/health'),
       ]);
 
       setMetrics(metricsRes);
@@ -155,11 +166,14 @@ export default function App() {
   }, [currentTenant, currentUser]);
 
   useEffect(() => {
-    loadAllData();
-  }, [loadAllData]);
+    if (isAuthenticated) {
+      loadAllData();
+    }
+  }, [loadAllData, isAuthenticated]);
 
   // Real-time SSE for channels and metrics
   useEffect(() => {
+    if (!isAuthenticated) return;
     const eventSource = new EventSource('/api/v1/events/asterisk');
     
     eventSource.onmessage = (event) => {
@@ -186,6 +200,27 @@ export default function App() {
     if (number) setWebphoneTarget(number);
     setIsWebphoneOpen(true);
   };
+
+  const handleLogout = () => {
+    localStorage.removeItem('enlace_jwt');
+    setAuthToken(null);
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <LoginView 
+        onLoginSuccess={(user, token) => {
+          setAuthToken(token);
+          setIsAuthenticated(true);
+          setCurrentUser(user);
+          setUserRole(user.role);
+        }} 
+      />
+    );
+  }
+
   const renderActiveView = () => {
 
     if (!checkAccess(activeView, userRole)) {
@@ -263,6 +298,8 @@ export default function App() {
             onRefresh={loadAllData}
           />
         );
+      case 'media_manager':
+        return <MediaManagerView key="media_manager" />;
       case 'ivr':
         return (
           <IvrView
@@ -499,6 +536,7 @@ export default function App() {
         userRole={userRole}
         onChangeUserRole={setUserRole}
         onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        onLogout={handleLogout}
       />
 
       {/* Sidebar Mobile Overlay */}

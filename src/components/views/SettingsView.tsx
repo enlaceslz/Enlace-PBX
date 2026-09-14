@@ -317,7 +317,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onNavigate }) => {
                   </div>
                   <div>
                     <h3 className="font-bold text-lg text-slate-900">Administrador Enlace</h3>
-                    <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Super Admin • admin@enlace.pbx</p>
+                    <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Super Admin • pbx@enlace.slz.br</p>
                   </div>
                 </div>
 

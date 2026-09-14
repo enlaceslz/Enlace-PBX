@@ -9,7 +9,8 @@ import {
   Building2,
   Radio,
   Menu,
-  ShieldCheck
+  ShieldCheck,
+  LogOut,
 } from 'lucide-react';
 import { Tenant, User, UserRole } from '../types/pbx';
 
@@ -24,6 +25,7 @@ interface NavbarProps {
   onOpenWebphone: () => void;
   isWebphoneOpen: boolean;
   onToggleMobileMenu?: () => void;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -37,6 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenWebphone,
   isWebphoneOpen,
   onToggleMobileMenu,
+  onLogout,
 }) => {
   const [logoError, setLogoError] = useState(false);
 
@@ -181,7 +184,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span>Webphone</span>
         </button>
 
-        {/* User Identity */}
+        {/* User Identity & Logout */}
         <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-slate-200">
           <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-blue-600">
             {currentUser?.name?.slice(0, 2).toUpperCase() || 'CH'}
@@ -192,6 +195,15 @@ export const Navbar: React.FC<NavbarProps> = ({
               {currentUser?.role?.replace('_', ' ') || 'Super Admin'}
             </div>
           </div>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              title="Encerrar sessão (Logout)"
+              className="ml-1 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </header>

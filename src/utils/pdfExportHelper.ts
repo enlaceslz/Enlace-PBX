@@ -220,7 +220,7 @@ export function exportInvoicePdf(
   doc.text('CNPJ: 12.345.678/0001-90 | IE: 110.245.980.115', 18, boxTop + 20);
   doc.text('Av. Paulista, 1000 - Bela Vista - São Paulo / SP', 18, boxTop + 26);
   doc.text('Licença Anatel SCM/STFC nº 4892/2022', 18, boxTop + 32);
-  doc.text('E-mail: financeiro@enlacepbx.com.br | Suporte: 0800 770 2020', 18, boxTop + 38);
+  doc.text('E-mail: pbx@enlace.slz.br | Portal: enlace.slz.br | Suporte: 0800 770 2020', 18, boxTop + 38);
 
   // Right: Tomador (Cliente / Tenant)
   doc.roundedRect(14 + colWidth + 8, boxTop, colWidth, 44, 3, 3, 'FD');
@@ -385,7 +385,7 @@ export function exportInvoicePdf(
   doc.text('Favorecido: Enlace Telecomunicações Ltda. — Banco Santander (033)', 20, finalY + 19);
   doc.text('Linha Digitável: 03399.82103 45678.901234 56789.012345 8 98760000085000', 20, finalY + 24);
   doc.text('Autenticação Digital: SHA256:' + Math.random().toString(36).substring(2, 12).toUpperCase() + '-ENLACE-VALID', 20, finalY + 29);
-  doc.text('* O comprovante pode ser enviado diretamente para financeiro@enlacepbx.com.br', 20, finalY + 34);
+  doc.text('* O comprovante pode ser enviado diretamente para pbx@enlace.slz.br', 20, finalY + 34);
 
   // 5. Legal & Footer
   const footerY = pageHeight - 18;

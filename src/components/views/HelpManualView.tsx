@@ -187,10 +187,10 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
             </p>
             <div className="space-y-2">
               <a
-                href="mailto:slzenlace@gmail.com"
+                href="mailto:pbx@enlace.slz.br"
                 className="block text-center text-xs font-bold bg-blue-600 hover:bg-blue-500 py-2 rounded-lg transition"
               >
-                Abrir Chamado Técnico
+                Abrir Chamado Técnico (pbx@enlace.slz.br)
               </a>
               {onNavigate && (
                 <button
@@ -983,7 +983,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                       <Terminal className="w-4 h-4 text-emerald-400" /> Geração de Certificado Oficial no Linux (Certbot Let's Encrypt)
                     </span>
                     <button
-                      onClick={() => handleCopy("certbot certonly --standalone -d pbx.seudominio.com.br --agree-tos -m contato@seudominio.com.br", "certbot_cmd")}
+                      onClick={() => handleCopy("certbot certonly --standalone -d pbx.enlace.slz.br -d enlace.slz.br --agree-tos -m pbx@enlace.slz.br", "certbot_cmd")}
                       className="text-[11px] font-mono bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-lg border border-slate-700 flex items-center gap-1.5 transition"
                     >
                       {copiedKey === 'certbot_cmd' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -991,7 +991,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                     </button>
                   </div>
                   <pre className="text-xs font-mono text-emerald-400 bg-black/40 p-3.5 rounded-xl overflow-x-auto">
-certbot certonly --standalone -d pbx.seudominio.com.br --agree-tos -m contato@seudominio.com.br
+certbot certonly --standalone -d pbx.enlace.slz.br -d enlace.slz.br --agree-tos -m pbx@enlace.slz.br
                   </pre>
                   <p className="text-[11px] text-slate-400 mt-3">
                     Após gerar, o script automatizado sincroniza os certificados em <code>/etc/asterisk/keys/</code> e reinicia o transporte PJSIP seguro.
@@ -1299,43 +1299,40 @@ exten => 1140049999,1,NoOp(Chamada direcionada ao Agente MaIA)
                   )}
                 </div>
                 <p className="text-xs font-medium text-slate-500 mb-6 leading-relaxed">
-                  A telefonia IP exposta à internet sem controle pode ser vítima de fraudes de terminação telefônica internacional (toll fraud). O Enlace aplica 4 camadas de defesa ativa para proteger a empresa.
+                  A telefonia IP exposta à internet sem controle pode ser vítima de fraudes (Toll Fraud) e ataques. O Enlace aplica múltiplas camadas de defesa ativa Enterprise para proteger o perímetro de rede, a API e os dados sensíveis.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                   <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
                     <h4 className="font-bold text-xs text-slate-900 mb-1 flex items-center gap-1.5">
-                      <Shield className="w-4 h-4 text-blue-600" /> Fail2ban Ativo (Jail Asterisk)
+                      <Lock className="w-4 h-4 text-blue-600" /> Autenticação JWT e Headers de Segurança
                     </h4>
                     <p className="text-xs text-slate-600 leading-relaxed">
-                      Se um IP externo errar a senha de um ramal ou tentar conexões SIP não autorizadas 3 vezes em 60 segundos, o IP é imediatamente banido no <code>iptables</code> por 24 horas.
+                      Todas as requisições API são assinadas via tokens JWT (JSON Web Tokens). O backend utiliza Middlewares como Helmet e CORS restritivo para blindar o sistema contra injeções.
                     </p>
                   </div>
-
                   <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
                     <h4 className="font-bold text-xs text-slate-900 mb-1 flex items-center gap-1.5">
-                      <Lock className="w-4 h-4 text-indigo-600" /> Túneis WireGuard VPN
+                      <Shield className="w-4 h-4 text-rose-600" /> Rate Limiting Dinâmico e Brute Force
                     </h4>
                     <p className="text-xs text-slate-600 leading-relaxed">
-                      Para filiais ou home-office de alto sigilo, os ramais e troncos conectam-se via VPN criptografada moderna, fechando as portas SIP para a internet pública.
+                      Bloqueio automático temporário em rotas sensíveis: limite rígido de 10 tentativas por hora em rotas de Login/Autenticação, prevenindo ataques sistemáticos de força bruta.
                     </p>
                   </div>
-
                   <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
                     <h4 className="font-bold text-xs text-slate-900 mb-1 flex items-center gap-1.5">
-                      <FileText className="w-4 h-4 text-purple-600" /> Conformidade LGPD & Trilha de Auditoria
+                      <Zap className="w-4 h-4 text-emerald-600" /> Motor Anti-Fraude e Fail2Ban
                     </h4>
                     <p className="text-xs text-slate-600 leading-relaxed">
-                      Gravações de chamadas contêm dados sensíveis. O sistema grava os registros de acesso (quem ouviu o áudio, quando e de qual IP) em logs imutáveis com retenção parametrizável.
+                      Se um IP tentar conexões SIP inválidas, ele vai para a quarentena (iptables). Limites rigorosos de chamadas DDI (Internacional) são aplicados por Tenant para evitar Toll Fraud.
                     </p>
                   </div>
-
                   <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
                     <h4 className="font-bold text-xs text-slate-900 mb-1 flex items-center gap-1.5">
-                      <Sliders className="w-4 h-4 text-emerald-600" /> Controle de Acesso Baseado em Papéis (RBAC)
+                      <FileText className="w-4 h-4 text-purple-600" /> Trilha de Auditoria (Conformidade LGPD)
                     </h4>
                     <p className="text-xs text-slate-600 leading-relaxed">
-                      Perfis de acesso granulares (Superadmin, Administrador de Empresa, Supervisor de Call Center e Agente de Atendimento) com restrição de visualização.
+                      Acessos a recursos críticos ou cópias de backup (Snapshots JSON) geram trilhas registradas imutáveis de SIEM. Controle de acesso total baseado em RBAC de Privilégio Mínimo.
                     </p>
                   </div>
                 </div>
@@ -1481,7 +1478,9 @@ exten => 1140049999,1,NoOp(Chamada direcionada ao Agente MaIA)
         <p className="text-[11px] text-slate-400 mt-2 flex items-center justify-center gap-2 flex-wrap">
           <span>Criado por <strong>André LJP</strong></span>
           <span className="w-1 h-1 rounded-full bg-slate-300" />
-          <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 hover:underline transition">Enlace Telecom</a>
+          <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 hover:underline transition">Enlace Telecom (enlace.slz.br)</a>
+          <span className="w-1 h-1 rounded-full bg-slate-300" />
+          <a href="mailto:pbx@enlace.slz.br" className="hover:text-slate-600 transition">pbx@enlace.slz.br</a>
           <span className="w-1 h-1 rounded-full bg-slate-300" />
           <a href="mailto:slzenlace@gmail.com" className="hover:text-slate-600 transition">slzenlace@gmail.com</a>
         </p>

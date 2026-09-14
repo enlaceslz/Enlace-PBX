@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, Modality } from '@google/genai';
 import zlib from 'zlib';
 import { db } from './db.js';
 
@@ -16,6 +16,219 @@ function getAiClient(): GoogleGenAI | null {
     });
   }
   return aiClient;
+}
+
+/**
+ * Converte ou encapsula áudio PCM bruto (24kHz, 16-bit, mono) em contêiner padrão RIFF/WAVE.
+ * Se já contiver cabeçalho RIFF/WAVE, retorna intacto.
+ */
+export function ensureWavAudio(
+  base64Data: string,
+  sampleRate = 24000,
+  numChannels = 1,
+  bitsPerSample = 16
+): string {
+  try {
+    const rawBuffer = Buffer.from(base64Data, 'base64');
+    if (
+      rawBuffer.length >= 12 &&
+      rawBuffer.toString('ascii', 0, 4) === 'RIFF' &&
+      rawBuffer.toString('ascii', 8, 12) === 'WAVE'
+    ) {
+      return base64Data;
+    }
+
+    const pcmLength = rawBuffer.length;
+    const header = Buffer.alloc(44);
+
+    header.write('RIFF', 0);
+    header.writeUInt32LE(36 + pcmLength, 4);
+    header.write('WAVE', 8);
+
+    header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20); // 1 = PCM
+    header.writeUInt16LE(numChannels, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+    header.writeUInt32LE(byteRate, 28);
+    const blockAlign = numChannels * (bitsPerSample / 8);
+    header.writeUInt16LE(blockAlign, 32);
+    header.writeUInt16LE(bitsPerSample, 34);
+
+    header.write('data', 36);
+    header.writeUInt32LE(pcmLength, 40);
+
+    const wavBuffer = Buffer.concat([header, rawBuffer]);
+    return wavBuffer.toString('base64');
+  } catch (err) {
+    console.warn('Erro ao normalizar WAV:', err);
+    return base64Data;
+  }
+}
+
+/**
+ * Limpa e prepara texto para síntese de fala TTS humanizada:
+ * Remove formatações de markdown e símbolos que geram pausas robóticas;
+ * Expande siglas telefônicas para pronúncia natural em português brasileiro.
+ */
+export function cleanTextForTTS(rawText: string): string {
+  if (!rawText) return '';
+  return rawText
+    .replace(/[*_#`~[\]()]/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ')
+    .replace(/\bURA\b/gi, 'U R A')
+    .replace(/\bPJSIP\b/gi, 'P J SIP')
+    .replace(/\bSIP\b/gi, 'SIP')
+    .replace(/\bVoIP\b/gi, 'Vóip')
+    .replace(/\bARI\b/gi, 'A R I')
+    .replace(/\bPBX\b/gi, 'P B X')
+    .replace(/\bNOC\b/gi, 'N O C')
+    .replace(/\bSAC\b/gi, 'S A C')
+    .replace(/\bLGPD\b/gi, 'L G P D')
+    .replace(/\bN1\b/gi, 'N um')
+    .replace(/\bN2\b/gi, 'N dois')
+    .replace(/\b24\/7\b/gi, 'vinte e quatro horas por dia')
+    .replace(/\bRamal\s*4101\b/gi, 'Ramal quarenta e um zero um')
+    .replace(/\bRamal\s*4102\b/gi, 'Ramal quarenta e um zero dois')
+    .replace(/\bRamal\s*4103\b/gi, 'Ramal quarenta e um zero três')
+    .replace(/\bRamal\s*4201\b/gi, 'Ramal quarenta e dois zero um')
+    .replace(/\bFila\s*7001\b/gi, 'Fila sete zero zero um')
+    .replace(/\bFila\s*7002\b/gi, 'Fila sete zero zero dois')
+    .replace(/\bRamal\s*9001\b/gi, 'Ramal nove zero zero um')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Detecta inteligentemente o gênero e identidade do locutor baseado no texto gerado e contexto de telefonia.
+ * Exemplo: Se for Roberto falando, retorna gênero masculino e perfil humanizado.
+ */
+export function detectVoiceGenderFromText(
+  text: string,
+  context?: {
+    callerNumber?: string;
+    destination?: string;
+    speakerName?: string;
+    agentName?: string;
+  },
+  fallback: 'male' | 'female' = 'female'
+): {
+  gender: 'male' | 'female';
+  detectedSpeaker: string;
+  confidence: number;
+} {
+  const lower = (text || '').toLowerCase();
+  const dest = (context?.destination || '').toLowerCase();
+  const speaker = (context?.speakerName || '').toLowerCase();
+  const agent = (context?.agentName || '').toLowerCase();
+
+  // Pistas prioritárias de locutor masculino: Roberto Mendes (Suporte N1/NOC, Ramal 4102)
+  if (
+    lower.includes('roberto falando') ||
+    lower.includes('roberto mendes') ||
+    lower.includes('aqui é o roberto') ||
+    lower.includes('sou o roberto') ||
+    lower.includes('roberto do suporte') ||
+    lower.includes('com o roberto') ||
+    dest.includes('4102') ||
+    dest.includes('roberto') ||
+    speaker.includes('roberto') ||
+    agent.includes('roberto')
+  ) {
+    return {
+      gender: 'male',
+      detectedSpeaker: 'Roberto Mendes (Suporte Técnico N1 • Voz Masculina)',
+      confidence: 0.99,
+    };
+  }
+
+  // Pistas de locutor masculino: Carlos Silva (Central/Recepção, Ramal 4101)
+  if (
+    lower.includes('carlos falando') ||
+    lower.includes('carlos silva') ||
+    lower.includes('aqui é o carlos') ||
+    lower.includes('sou o carlos') ||
+    dest.includes('4101') ||
+    speaker.includes('carlos') ||
+    agent.includes('carlos')
+  ) {
+    return {
+      gender: 'male',
+      detectedSpeaker: 'Carlos Silva (Central Telefônica • Voz Masculina)',
+      confidence: 0.95,
+    };
+  }
+
+  // Outros padrões masculinos gerais
+  const maleKeywords = [
+    'lucas falando',
+    'sou o especialista',
+    'atendente masculino',
+    'atencioso e prestativo',
+    'obrigado pelo contato',
+  ];
+  if (maleKeywords.some((k) => lower.includes(k))) {
+    return {
+      gender: 'male',
+      detectedSpeaker: 'Atendente Masculino (Suporte)',
+      confidence: 0.85,
+    };
+  }
+
+  // Pistas prioritárias de locutora feminina: MaIA (Assistente Virtual 24/7)
+  if (
+    lower.includes('maia falando') ||
+    lower.includes('sou a maia') ||
+    lower.includes('assistente virtual da enlace') ||
+    lower.includes('assistente virtual') ||
+    speaker.includes('maia') ||
+    agent.includes('maia')
+  ) {
+    return {
+      gender: 'female',
+      detectedSpeaker: 'MaIA (Assistente Virtual 24/7 • Voz Feminina)',
+      confidence: 0.99,
+    };
+  }
+
+  // Pistas de locutora feminina: Mariana Costa (Comercial, Ramal 4103)
+  if (
+    lower.includes('mariana falando') ||
+    lower.includes('mariana costa') ||
+    dest.includes('4103') ||
+    speaker.includes('mariana')
+  ) {
+    return {
+      gender: 'female',
+      detectedSpeaker: 'Mariana Costa (Comercial • Voz Feminina)',
+      confidence: 0.95,
+    };
+  }
+
+  // Pistas de locutora feminina: Renata Lima (Financeiro, Ramal 4201)
+  if (
+    lower.includes('renata falando') ||
+    lower.includes('renata lima') ||
+    dest.includes('4201') ||
+    speaker.includes('renata')
+  ) {
+    return {
+      gender: 'female',
+      detectedSpeaker: 'Renata Lima (Financeiro • Voz Feminina)',
+      confidence: 0.95,
+    };
+  }
+
+  return {
+    gender: fallback,
+    detectedSpeaker:
+      fallback === 'male'
+        ? 'Roberto Mendes (Voz Masculina)'
+        : 'MaIA (Voz Feminina)',
+    confidence: 0.5,
+  };
 }
 
 export interface GeminiVoiceProfile {
@@ -85,21 +298,45 @@ export const GEMINI_VOICE_PROFILES: Record<string, GeminiVoiceProfile> = {
   },
 };
 
-export function resolveAgentVoice(agent: {
-  name?: string;
-  voice?: string;
-  voiceGender?: 'male' | 'female';
-  avatarType?: string;
-}): {
+export function resolveAgentVoice(
+  agent?: {
+    name?: string;
+    voice?: string;
+    voiceGender?: 'male' | 'female';
+    avatarType?: string;
+  },
+  context?: {
+    userMessage?: string;
+    replyText?: string;
+    destination?: string;
+    callerNumber?: string;
+    speakerName?: string;
+    forcedGender?: 'male' | 'female';
+  }
+): {
   voiceName: string;
   gender: 'male' | 'female';
   avatarType: string;
   pitchMultiplier: number;
   rateMultiplier: number;
   timbre: string;
+  detectedSpeaker: string;
 } {
-  let gender: 'male' | 'female' = agent.voiceGender || 'female';
-  if (!agent.voiceGender && agent.name) {
+  // Se houver texto gerado na resposta, verifica prioritariamente quem está falando
+  let detected = detectVoiceGenderFromText(
+    context?.replyText || context?.userMessage || '',
+    {
+      destination: context?.destination,
+      speakerName: context?.speakerName,
+      agentName: agent?.name,
+    },
+    agent?.voiceGender || 'female'
+  );
+
+  let gender: 'male' | 'female' = context?.forcedGender || detected.gender;
+
+  // Verificação adicional por nome do agente caso não tenha detectado explicitamente
+  if (!context?.forcedGender && !context?.replyText && agent?.name) {
     const lowerName = agent.name.toLowerCase();
     if (
       lowerName.includes('roberto') ||
@@ -109,15 +346,16 @@ export function resolveAgentVoice(agent: {
       lowerName.includes('masculino')
     ) {
       gender = 'male';
+      detected.detectedSpeaker = 'Roberto Mendes (Suporte Técnico N1 • Voz Masculina)';
     }
   }
 
   const maleVoices = ['Fenrir', 'Puck', 'Charon'];
   const femaleVoices = ['Zephyr', 'Kore', 'Aoede'];
 
-  let resolvedVoice = agent.voice || (gender === 'male' ? 'Fenrir' : 'Zephyr');
+  let resolvedVoice = agent?.voice || (gender === 'male' ? 'Fenrir' : 'Zephyr');
 
-  // Dynamic voice alignment: Ensure voice matches the designated gender
+  // Dynamic voice alignment: Garante que a voz do Gemini corresponda estritamente ao gênero do locutor
   if (gender === 'male' && !maleVoices.includes(resolvedVoice)) {
     resolvedVoice = 'Fenrir';
   } else if (gender === 'female' && !femaleVoices.includes(resolvedVoice)) {
@@ -128,14 +366,19 @@ export function resolveAgentVoice(agent: {
     name: resolvedVoice,
     gender,
     label: resolvedVoice,
-    timbre: gender === 'male' ? 'Barítono encorpado e acolhedor' : 'Soprano suave e expressiva',
+    timbre:
+      gender === 'male'
+        ? 'Barítono encorpado, tom acolhedor, grave e seguro'
+        : 'Soprano suave, fluida, acolhedora e expressiva',
     recommendedFor: 'Atendimento Geral',
     pitchMultiplier: gender === 'male' ? 0.88 : 1.04,
     rateMultiplier: gender === 'male' ? 0.95 : 0.98,
   };
 
   const avatarType =
-    agent.avatarType || (gender === 'male' ? 'male_tech' : 'female_ai');
+    gender === 'male'
+      ? (agent?.avatarType?.startsWith('male') ? agent.avatarType : 'male_tech')
+      : (agent?.avatarType?.startsWith('female') ? agent.avatarType : 'female_ai');
 
   return {
     voiceName: resolvedVoice,
@@ -144,6 +387,7 @@ export function resolveAgentVoice(agent: {
     pitchMultiplier: profile.pitchMultiplier,
     rateMultiplier: profile.rateMultiplier,
     timbre: profile.timbre,
+    detectedSpeaker: detected.detectedSpeaker,
   };
 }
 
@@ -174,6 +418,7 @@ export interface VoiceTurnResponse {
     pitchMultiplier: number;
     rateMultiplier: number;
     timbre: string;
+    detectedSpeaker?: string;
   };
 }
 
@@ -254,7 +499,10 @@ ${historyContext}
     const startTime = Date.now();
     const tenantId = req.tenantId || 'tenant-enlace-matriz';
     const agent = db.aiAgents.find((a) => a.id === req.agentId) || db.aiAgents[0];
-    const voiceConfig = resolveAgentVoice(agent);
+    let voiceConfig = resolveAgentVoice(agent, {
+      userMessage: req.userMessage,
+      destination: req.callerNumber,
+    });
 
     // Assemble Knowledge grounding
     const knowledgeSnippets = agent.knowledgeSources
@@ -266,12 +514,14 @@ ${historyContext}
     const voiceGuidance =
       voiceConfig.gender === 'male'
         ? `DIRETRIZ DE VOZ MASCULINA HUMANIZADA:
-- Você é um atendente masculino profissional da Enlace Telecom (${agent.name.split('—')[0].trim() || 'Roberto'}).
-- Fale com voz masculina segura, firme, acolhedora e natural (timbre: ${voiceConfig.timbre}).
-- Evite entonação mecânica, tom robótico ou monotonia. Use pausas naturais e vocabulário conversacional em português do Brasil.`
+- Você é Roberto Mendes, especialista sênior de suporte técnico N1/N2 da Enlace Telecom (Ramal 4102).
+- Ao se identificar ou iniciar diálogo, declare com naturalidade: "Alô! Suporte Técnico Enlace, Roberto falando." ou "Aqui é o Roberto do suporte técnico."
+- Fale com voz masculina segura, firme, acolhedora, humana e resolutiva (timbre: ${voiceConfig.timbre}).
+- NUNCA use tom mecânico ou robótico. Use pausas naturais e vocabulário conversacional em português do Brasil.`
         : `DIRETRIZ DE VOZ FEMININA HUMANIZADA:
-- Você é uma atendente feminina profissional e acolhedora da Enlace Telecom (${agent.name.split('—')[0].trim() || 'MaIA'}).
-- Fale com voz feminina clara, fluida, empática e expressiva (timbre: ${voiceConfig.timbre}).
+- Você é MaIA, assistente virtual receptiva 24/7 da Enlace Telecom (Ramal 9001).
+- Ao se identificar ou iniciar diálogo, fale: "Olá! Sou a MaIA da Enlace Telecom."
+- Fale com voz feminina clara, fluida, empática, acolhedora e expressiva (timbre: ${voiceConfig.timbre}).
 - Evite tom robótico ou frio. Use entonação natural e acolhedora em português do Brasil.`;
 
     const systemPrompt = `${agent.systemInstruction}
@@ -446,18 +696,33 @@ ${knowledgeSnippets}`;
       if (!replyText) {
         replyText =
           voiceConfig.gender === 'male'
-            ? 'Entendido. Aqui é o suporte da Enlace Telecom, como posso te ajudar?'
-            : 'Entendido. Em que mais posso te ajudar na Enlace Telecom?';
+            ? 'Alô! Suporte Técnico Enlace, Roberto falando. Como posso te ajudar hoje?'
+            : 'Olá! Sou a MaIA da Enlace Telecom. Em que posso te ajudar hoje?';
       }
 
-      // Try Gemini TTS synthesis for natural human-like voice
+      // Reavalia dinamicamente o locutor e a voz após a formulação do texto
+      // Exemplo: se a IA começou com "Roberto falando", detecta masculino e ajusta para Fenrir
+      voiceConfig = resolveAgentVoice(agent, {
+        userMessage: req.userMessage,
+        replyText,
+        destination: req.callerNumber,
+        forcedGender: voiceConfig.gender === 'male' ? 'male' : undefined,
+      });
+
+      // Síntese de voz com Gemini TTS de alta fidelidade
       let audioBase64: string | undefined = undefined;
       try {
+        const cleanedSpeechText = cleanTextForTTS(replyText);
+        const speechPrompt =
+          voiceConfig.gender === 'male'
+            ? `Fale em português do Brasil com voz masculina firme, humana, acolhedora e natural de especialista de suporte técnico:\n\n${cleanedSpeechText}`
+            : `Fale em português do Brasil com voz feminina suave, clara, empática e acolhedora de assistente virtual:\n\n${cleanedSpeechText}`;
+
         const ttsResponse = await ai.models.generateContent({
           model: 'gemini-3.1-flash-tts-preview',
-          contents: [{ parts: [{ text: replyText }] }],
+          contents: [{ parts: [{ text: speechPrompt }] }],
           config: {
-            responseModalities: ['AUDIO'],
+            responseModalities: [Modality.AUDIO],
             speechConfig: {
               voiceConfig: {
                 prebuiltVoiceConfig: {
@@ -469,11 +734,10 @@ ${knowledgeSnippets}`;
         });
         const inlineAudio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (inlineAudio) {
-          audioBase64 = inlineAudio;
+          audioBase64 = ensureWavAudio(inlineAudio, 24000, 1, 16);
         }
-        // Fallback smoothly to browser humanized Web Speech API
       } catch (e) {
-        // Fallback smoothly to browser humanized Web Speech API
+        console.warn('Gemini TTS offline, delegando reprodução para Web Speech API:', e);
       }
 
       const latencyMs = Date.now() - startTime;
@@ -553,12 +817,23 @@ Retorne uma análise em português no seguinte formato JSON:
     startTime: number,
     providedVoiceConfig?: VoiceTurnResponse['voiceConfig']
   ): VoiceTurnResponse {
-    const voiceConfig = providedVoiceConfig || resolveAgentVoice(agent);
-    const isMale = voiceConfig.gender === 'male';
     const lower = req.userMessage.toLowerCase();
+    const isExplicitRoberto =
+      lower.includes('roberto') ||
+      lower.includes('suporte') ||
+      req.callerNumber?.includes('4102') ||
+      agent.name.toLowerCase().includes('roberto');
+
+    const voiceConfig =
+      providedVoiceConfig ||
+      resolveAgentVoice(agent, {
+        userMessage: req.userMessage,
+        forcedGender: isExplicitRoberto ? 'male' : undefined,
+      });
+    const isMale = voiceConfig.gender === 'male';
 
     let replyText = isMale
-      ? 'Olá! Aqui é o Roberto do Suporte Técnico da Enlace Telecom. Como posso ajudar com sua conexão, ramal ou chamado hoje?'
+      ? 'Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar com sua conexão, ramal ou chamado hoje?'
       : 'Olá! Sou a MaIA da Enlace Telecom. Como posso te auxiliar com seus serviços de telefonia ou internet?';
     let action: VoiceTurnResponse['action'] = 'none';
     let transferDestination: string | undefined = undefined;
@@ -584,7 +859,7 @@ Retorne uma análise em português no seguinte formato JSON:
       };
     } else if (lower.includes('suporte') || lower.includes('sem internet') || lower.includes('ramal') || lower.includes('mudo') || lower.includes('chiado')) {
       replyText = isMale
-        ? 'Entendido perfeitamente. Como especialista de suporte, sugiro verificar se o cabo de rede está firme e reiniciar o aparelho telefônico por 30 segundos. Deseja que eu abra um chamado no NOC agora?'
+        ? 'Alô! Suporte Técnico Enlace, Roberto falando. Entendi perfeitamente a dificuldade. Recomendo reiniciar o aparelho telefônico e checar o cabo de rede. Deseja que eu abra um chamado no NOC agora?'
         : 'Entendi a dificuldade técnica. Recomendo verificar o cabo de rede ou reiniciar o aparelho por 30 segundos. Deseja que eu abra um chamado de suporte?';
       toolCallExecuted = {
         name: 'abrir_ticket',
@@ -632,28 +907,40 @@ Retorne uma análise em português no seguinte formato JSON:
     };
   }> {
     const agent = params.agentId ? db.aiAgents.find((a) => a.id === params.agentId) : undefined;
-    const voiceConfig = resolveAgentVoice({
-      name: agent?.name,
-      voice: params.voice || agent?.voice,
-      voiceGender: params.voiceGender || agent?.voiceGender,
-      avatarType: agent?.avatarType,
-    });
+    const voiceConfig = resolveAgentVoice(
+      {
+        name: agent?.name,
+        voice: params.voice || agent?.voice,
+        voiceGender: params.voiceGender || agent?.voiceGender,
+        avatarType: agent?.avatarType,
+      },
+      {
+        replyText: params.text,
+        forcedGender: params.voiceGender,
+      }
+    );
 
     const sampleText =
       params.text ||
       (voiceConfig.gender === 'male'
-        ? 'Olá! Aqui é o Roberto do Suporte Técnico Enlace. Como posso ajudar com seu chamado ou conexão hoje?'
+        ? 'Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar com seu chamado ou conexão hoje?'
         : 'Olá! Sou a MaIA, assistente virtual da Enlace Telecom. Como posso ajudar você hoje?');
 
     let audioBase64: string | undefined = undefined;
     const ai = getAiClient();
     if (ai) {
       try {
+        const cleanedSpeechText = cleanTextForTTS(sampleText);
+        const speechPrompt =
+          voiceConfig.gender === 'male'
+            ? `Fale em português do Brasil com voz masculina firme, humana, empática e acolhedora de especialista de suporte técnico:\n\n${cleanedSpeechText}`
+            : `Fale em português do Brasil com voz feminina suave, clara, empática e acolhedora de assistente virtual:\n\n${cleanedSpeechText}`;
+
         const ttsResponse = await ai.models.generateContent({
           model: 'gemini-3.1-flash-tts-preview',
-          contents: [{ parts: [{ text: sampleText }] }],
+          contents: [{ parts: [{ text: speechPrompt }] }],
           config: {
-            responseModalities: ['AUDIO'],
+            responseModalities: [Modality.AUDIO],
             speechConfig: {
               voiceConfig: {
                 prebuiltVoiceConfig: {
@@ -663,10 +950,12 @@ Retorne uma análise em português no seguinte formato JSON:
             },
           },
         });
-        audioBase64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        // Graceful fallback for client Web Speech API
+        const inlineAudio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (inlineAudio) {
+          audioBase64 = ensureWavAudio(inlineAudio, 24000, 1, 16);
+        }
       } catch (e) {
-        // Graceful fallback for client Web Speech API
+        console.warn('Gemini TTS preview fallback to client audio:', e);
       }
     }
 
@@ -734,7 +1023,7 @@ Retorne uma análise em português no seguinte formato JSON:
       if (ai) {
         try {
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.8-flash',
             contents: [
               {
                 inlineData: {

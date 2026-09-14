@@ -882,7 +882,7 @@ export const InfraSettingsView: React.FC<InfraSettingsViewProps> = ({ onOpenWebp
                     value={form.hostname}
                     onChange={(e) => setForm({ ...form, hostname: e.target.value })}
                     className="w-full px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 bg-white"
-                    placeholder="pbx-sp-datacenter.enlace.internal"
+                    placeholder="pbx.enlace.slz.br"
                   />
                   <span className="text-[10px] text-slate-400 mt-0.5 block">Identificador do nó Asterisk no cluster</span>
                 </div>
@@ -897,7 +897,7 @@ export const InfraSettingsView: React.FC<InfraSettingsViewProps> = ({ onOpenWebp
                     value={form.domain}
                     onChange={(e) => setForm({ ...form, domain: e.target.value })}
                     className="w-full px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 bg-white text-blue-600 font-bold"
-                    placeholder="pbx.enlacetelecom.com.br"
+                    placeholder="enlace.slz.br"
                   />
                   <span className="text-[10px] text-slate-400 mt-0.5 block">Nome DNS apontado para este servidor (exigido para SSL)</span>
                 </div>

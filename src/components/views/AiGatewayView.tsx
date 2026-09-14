@@ -44,7 +44,13 @@ import {
   AiKnowledgeSource,
   AiSession,
 } from '../../types/pbx';
-import { speakHumanized, stopSpeaking } from '../../utils/speechVoiceHelper';
+import {
+  speakHumanized,
+  stopSpeaking,
+  playStudioOrWebVoice,
+  stopAnyVoice,
+  detectSpeakerPersona,
+} from '../../utils/speechVoiceHelper';
 
 export interface VoiceOptionMetadata {
   name: string;
@@ -248,16 +254,18 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
 
   const [isPlayingVoiceSample, setIsPlayingVoiceSample] = useState(false);
 
-  const handleToggleVoiceSample = (
+  const handleToggleVoiceSample = async (
     textToSpeak: string,
     voiceName: string,
     genderOverride?: 'male' | 'female'
   ) => {
     if (isPlayingVoiceSample) {
-      stopSpeaking();
+      stopAnyVoice();
       setIsPlayingVoiceSample(false);
       return;
     }
+
+    const speakerInfo = detectSpeakerPersona(textToSpeak);
 
     const isMale =
       genderOverride !== undefined
@@ -266,19 +274,25 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
           voiceName === 'Fenrir' ||
           voiceName === 'Charon' ||
           voiceName === 'Puck' ||
+          speakerInfo.gender === 'male' ||
           selectedAgent?.name.toLowerCase().includes('roberto') ||
           selectedAgent?.name.toLowerCase().includes('carlos');
 
     const persona =
-      selectedAgent?.name.toLowerCase().includes('roberto') || editAvatarType === 'male_tech'
+      selectedAgent?.name.toLowerCase().includes('roberto') ||
+      speakerInfo.persona === 'roberto' ||
+      editAvatarType === 'male_tech'
         ? 'roberto'
         : isMale
         ? 'carlos'
         : 'maia';
 
-    speakHumanized(textToSpeak, {
+    setIsPlayingVoiceSample(true);
+
+    await playStudioOrWebVoice(textToSpeak, {
       gender: isMale ? 'male' : 'female',
       persona,
+      voiceName,
       onStart: () => setIsPlayingVoiceSample(true),
       onEnd: () => setIsPlayingVoiceSample(false),
       onError: () => setIsPlayingVoiceSample(false),

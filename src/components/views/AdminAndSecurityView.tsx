@@ -1000,7 +1000,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                 <input
                   type="email"
                   required
-                  placeholder="Ex: ana.ribeiro@empresa.com.br"
+                  placeholder="Ex: pbx@enlace.slz.br ou operador@enlace.slz.br"
                   value={userFormData.email}
                   onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-600"

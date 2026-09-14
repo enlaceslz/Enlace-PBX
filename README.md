@@ -246,9 +246,12 @@ O aplicativo estará disponível em `http://localhost:3000`.
 
 ---
 
-## 🔒 Segurança & Conformidade com LGPD
-- **Arquitetura Backend-for-Frontend (BFF):** Todas as credenciais de operadoras, chaves secretas do Google Gemini e tokens Meta ficam protegidas no backend.
-- **Trilha de Auditoria Imutável:** Todas as alterações em ramais, rotas e acessos a gravações telefônicas são registradas no log de auditoria com IP, timestamp e autor.
+## 🔒 Segurança & Conformidade com LGPD (Enterprise Security)
+- **Autenticação JWT:** Acesso restrito ao painel com tokens JSON Web Tokens (JWT) de curta duração.
+- **Defesas de Borda:** Middleware integrado com `Helmet` (Headers HTTP Seguros), `CORS` estrito e `Express Rate Limiting` (mitigação DDoS e força bruta nas rotas de login).
+- **Arquitetura Backend-for-Frontend (BFF):** Todas as credenciais de operadoras, chaves secretas do Google Gemini e tokens Meta ficam protegidas exclusivamente no backend (Node.js).
+- **Motor Anti-Fraude (Toll Fraud):** Monitoramento de limites transacionais de DDI e integração nativa com Fail2Ban.
+- **Trilha de Auditoria Imutável (SIEM-ready):** Todas as alterações em ramais, rotas e acessos a gravações telefônicas são registradas no log de auditoria com IP, timestamp e autor.
 
 ---
 

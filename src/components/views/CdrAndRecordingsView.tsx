@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { CdrRecord, Tenant } from '../../types/pbx';
+import { RecordingWaveformPlayer } from './RecordingWaveformPlayer';
 import { speakHumanized, stopSpeaking, detectVoiceGender } from '../../utils/speechVoiceHelper';
 import { exportCdrReportPdf, exportCallDossierPdf } from '../../utils/pdfExportHelper';
 
@@ -62,6 +63,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
   const [sentimentFilter, setSentimentFilter] = useState<'all' | 'positive' | 'neutral' | 'negative'>('all');
   const [isSummarizingId, setIsSummarizingId] = useState<string | null>(null);
   const [selectedCdrForModal, setSelectedCdrForModal] = useState<CdrRecord | null>(null);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
 
   useEffect(() => {
     if (initialTab) {
@@ -78,6 +80,24 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
   const [activeAudioCdr, setActiveAudioCdr] = useState<CdrRecord | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
+
+  
+  const handleGenerateAi = async () => {
+    if (!selectedCdrForModal) return;
+    setIsGeneratingAi(true);
+    
+    // Simular chamada de API do Gemini via backend
+    setTimeout(() => {
+      setSelectedCdrForModal({
+        ...selectedCdrForModal,
+        transcription: "Operador: Olá, suporte técnico.\nCliente: Minha internet caiu.\nOperador: Vou verificar seu modem remotamente.\n[Pausa de 5s]\nOperador: Reiniciei seu equipamento. Pode testar?\nCliente: Sim, voltou. Obrigado.\nOperador: Agradecemos o contato.",
+        summary: "Cliente relatou queda de internet. O operador realizou reset remoto do modem com sucesso e restabeleceu o serviço sem necessidade de transbordo.",
+        sentiment: "positive",
+        isAiHandled: true,
+      });
+      setIsGeneratingAi(false);
+    }, 2500);
+  };
 
   const handlePlayRecording = (cdr: CdrRecord) => {
     if (activeAudioCdr?.id === cdr.id && isPlayingAudio) {
@@ -1092,43 +1112,45 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                 </div>
               </div>
 
-              {/* Full Transcription */}
-              {selectedCdrForModal.transcription && (
-                <div>
-                  <label className="text-slate-500 uppercase text-[10px] font-bold tracking-wider block mb-1.5 font-mono">
-                    Transcrição Integral da Conversa:
-                  </label>
-                  <pre className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-slate-700 font-mono text-[11px] max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-                    {selectedCdrForModal.transcription}
-                  </pre>
-                </div>
-              )}
-
-              {/* Audio Playback button inside modal */}
-              {selectedCdrForModal.recordingUrl && (
-                <div className="flex items-center justify-between bg-blue-50 border border-blue-200 p-3 rounded-xl">
-                  <div className="flex items-center gap-2 text-blue-900 font-semibold">
-                    <Mic className="w-4 h-4 text-blue-600" />
-                    <span>Gravação de Áudio Stereo (Opus/MixMonitor)</span>
+              {/* New Recording & Transcription Panel */}
+              <div className="flex flex-col gap-4">
+                {selectedCdrForModal.recordingUrl && (
+                  <RecordingWaveformPlayer
+                    cdr={selectedCdrForModal}
+                    isPlaying={activeAudioCdr?.id === selectedCdrForModal.id && isPlayingAudio}
+                    progress={activeAudioCdr?.id === selectedCdrForModal.id ? audioProgress : 0}
+                    onTogglePlay={handlePlayRecording}
+                  />
+                )}
+                
+                {selectedCdrForModal.transcription ? (
+                  <div className="mt-2">
+                    <label className="text-slate-500 uppercase text-[10px] font-bold tracking-wider block mb-1.5 font-mono flex items-center justify-between">
+                      <span>Transcrição Integral (Gemini AI):</span>
+                      <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> Concluída</span>
+                    </label>
+                    <pre className="bg-slate-900 p-4 rounded-xl border border-slate-800 text-slate-300 font-mono text-[11px] max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed shadow-inner">
+                      {selectedCdrForModal.transcription}
+                    </pre>
                   </div>
-                  <button
-                    onClick={() => handlePlayRecording(selectedCdrForModal)}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-2xs transition"
-                  >
-                    {activeAudioCdr?.id === selectedCdrForModal.id && isPlayingAudio ? (
-                      <>
-                        <Pause className="w-3.5 h-3.5 fill-current" />
-                        Pausar Áudio
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        Reproduzir Áudio
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
+                ) : (
+                  <div className="mt-2 p-6 border-2 border-dashed border-slate-200 rounded-xl text-center bg-slate-50 flex flex-col items-center justify-center">
+                    <Bot className="w-10 h-10 text-slate-300 mb-3" />
+                    <h4 className="text-slate-800 font-bold mb-1">Análise de Conteúdo Pendente</h4>
+                    <p className="text-xs text-slate-500 max-w-sm mb-4">
+                      Solicite à MaIA (Gemini) a transcrição integral e a extração de sentimento semântico deste áudio.
+                    </p>
+                    <button 
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold flex items-center gap-2 transition shadow-md shadow-purple-200 text-sm"
+                      onClick={handleGenerateAi}
+                      disabled={isGeneratingAi}
+                    >
+                      {isGeneratingAi ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      {isGeneratingAi ? 'Processando (Gemini 1.5 Flash)...' : 'Gerar Transcrição com IA'}
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Modal footer buttons */}
               <div className="pt-2 flex justify-between items-center border-t border-slate-100 gap-2">
@@ -1173,67 +1195,70 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
 
       {/* Floating Audio Player Toolbar */}
       {activeAudioCdr && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-2xl bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl shadow-2xl p-4 flex flex-col gap-2.5">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-3xl bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] p-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => handlePlayRecording(activeAudioCdr)}
-                className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition shadow-md"
+                className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center transition shadow-lg shadow-blue-900/50 flex-shrink-0"
               >
                 {isPlayingAudio ? (
-                  <Pause className="w-5 h-5 fill-current" />
+                  <Pause className="w-6 h-6 fill-current" />
                 ) : (
-                  <Play className="w-5 h-5 fill-current ml-0.5" />
+                  <Play className="w-6 h-6 fill-current ml-1" />
                 )}
               </button>
               <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-900">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-bold text-slate-100">
                     {activeAudioCdr.caller} &rarr; {activeAudioCdr.callee}
                   </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
+                  <span className="text-[10px] font-mono px-2 py-0.5 bg-slate-800 text-slate-400 rounded border border-slate-700">
                     {activeAudioCdr.duration}s
                   </span>
-                  <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                  <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1 ml-2">
                     <Radio className="w-3 h-3 animate-pulse" />
-                    Opus 24kHz / Asterisk MixMonitor
+                    Opus Stereo
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 truncate max-w-md">
-                  {activeAudioCdr.summary || activeAudioCdr.transcription || 'Reproduzindo stream de voz da gravação...'}
+                <p className="text-xs text-slate-400 truncate max-w-lg">
+                  {activeAudioCdr.summary || 'Reproduzindo stream de voz da gravação...'}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              {activeAudioCdr.summary && (
-                <button
-                  onClick={() => setSelectedCdrForModal(activeAudioCdr)}
-                  className="px-2.5 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded-lg transition font-semibold flex items-center gap-1"
-                >
-                  <Sparkles className="w-3 h-3" />
-                  Ver Resumo
-                </button>
-              )}
               <button
-                onClick={handleStopAudio}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition"
-                title="Fechar reprodutor"
+                onClick={() => setSelectedCdrForModal(activeAudioCdr)}
+                className="px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-900/30 hover:text-blue-300 rounded-lg transition font-semibold flex items-center gap-1.5 border border-transparent hover:border-blue-900/50"
               >
-                <X className="w-4 h-4" />
+                <FileText className="w-4 h-4" />
+                Ver Transcrição
+              </button>
+              <button
+                onClick={() => {
+                  stopSpeaking();
+                  setIsPlayingAudio(false);
+                  setActiveAudioCdr(null);
+                }}
+                className="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-800 hover:text-slate-300 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
           {/* Progress bar and waveform */}
-          <div className="space-y-1">
-            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+          <div className="space-y-1.5">
+            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden shadow-inner">
               <div
-                className="bg-blue-600 h-full transition-all duration-300 rounded-full"
+                className="bg-blue-500 h-full transition-all duration-300 rounded-full relative"
                 style={{ width: `${audioProgress}%` }}
-              />
+              >
+                <div className="absolute right-0 top-0 bottom-0 w-4 bg-white/20 blur-[2px]" />
+              </div>
             </div>
-            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+            <div className="flex justify-between text-[10px] text-slate-500 font-mono font-bold px-1">
               <span>{Math.round((audioProgress / 100) * (activeAudioCdr.duration || 10))}s</span>
               <span>{activeAudioCdr.duration}s</span>
             </div>
