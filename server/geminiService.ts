@@ -424,26 +424,21 @@ export interface VoiceTurnResponse {
 
 export class GeminiService {
 
-  async processWhatsAppTurn(conversationId: string, userMessage: string, agentId?: string): Promise<string> {
+  async processWhatsAppTurn(conversationId: string, userMessage: string, agentId?: string): Promise<{ text: string; transfer: boolean } | string> {
     const ai = getAiClient();
     if (!ai) {
       console.warn('Gemini API key missing, returning fallback for WhatsApp.');
       return 'Desculpe, o sistema de IA está temporariamente indisponível.';
     }
 
-    // Get the conversation history for context
     const conv = db.omnichannelConversations.find(c => c.id === conversationId);
     let historyContext = '';
     let memoryContext = '';
 
     if (conv) {
-      // Get last 5 messages for context
       historyContext = conv.messages.slice(-5).map(m => `${m.sender === 'user' ? 'Cliente' : 'IA'}: ${m.text}`).join('\n');
-      
-      // Customer Memory Retrieval
       const customerContact = db.crmContacts.find(c => c.id === conv.contactId || c.phone.replace(/\D/g, '') === conv.contactId.replace(/\D/g, ''));
       const customerMem = customerContact ? db.customerMemories.find(m => m.contactId === customerContact.id) : null;
-      
       if (customerMem) {
         memoryContext = `\n[MEMÓRIA DO CLIENTE - ${customerContact?.name || 'Desconhecido'}]\nResumo: ${customerMem.summary}\nPreferências: ${customerMem.preferences.join(', ')}\nSentimento anterior: ${customerMem.sentimentHistory}\nRisco de Churn: ${customerMem.churnRisk}%\n`;
       }
@@ -451,15 +446,13 @@ export class GeminiService {
 
     const agent = agentId ? (db.aiAgents.find((a) => a.id === agentId) || db.aiAgents[0]) : db.aiAgents[0];
 
-    // Assemble Knowledge grounding
     const knowledgeSnippets = agent.knowledgeSources
       .map((kId) => db.aiKnowledge.find((k) => k.id === kId))
       .filter(Boolean)
       .map((k) => `[FONTE: ${k!.title} - ${k!.category}]\n${k!.content}`)
       .join('\n\n');
 
-    const systemPrompt = `
-Você é "${agent.name}", um assistente virtual operando pelo WhatsApp da Enlace Telecom.
+    const systemPrompt = `Você é "${agent.name}", um assistente virtual operando pelo WhatsApp da Enlace Telecom.
 SUA MISSÃO: ${agent.description}
 
 REGRAS ESTABELECIDAS:
@@ -467,16 +460,15 @@ ${agent.systemInstruction}
 
 DIRETRIZES PARA WHATSAPP:
 - Seja conciso e direto, mensagens curtas são melhores para chat.
-- Use emojis moderadamente para tornar a conversa amigável.
-- Se o cliente pedir para falar com um humano, diga que está transferindo.
+- Use emojis moderadamente.
+- Se o cliente solicitar atendimento humano/falar com atendente, você DEVE retornar a intent de transbordo chamando a function apropriada ou respondendo no formato estruturado.
 
-BASE DE CONHECIMENTO (Use para responder dúvidas, se aplicável):
+BASE DE CONHECIMENTO:
 ${knowledgeSnippets}
 ${memoryContext}
 
-HISTÓRICO RECENTE DA CONVERSA:
-${historyContext}
-`;
+HISTÓRICO RECENTE:
+${historyContext}`;
 
     try {
       const response = await ai.models.generateContent({
@@ -485,11 +477,36 @@ ${historyContext}
         config: {
           systemInstruction: systemPrompt,
           temperature: agent.temperature,
-          topP: 0.95,
+          tools: [{
+            functionDeclarations: [
+              {
+                name: "transfer_to_human",
+                description: "Transfere o atendimento para um operador humano na fila. Chame esta função se o usuário solicitar falar com um humano, suporte humano, ou atendente.",
+                parameters: {
+                  type: "object" as any,
+                  properties: {
+                    reason: {
+                      type: "string" as any,
+                      description: "Motivo da transferência"
+                    }
+                  },
+                  required: ["reason"]
+                }
+              }
+            ]
+          }]
         },
       });
-      return response.text || "Desculpe, não consegui formular uma resposta.";
-    } catch (e) {
+
+      const functionCall = response.functionCalls?.[0];
+      if (functionCall && functionCall.name === "transfer_to_human") {
+         return {
+           text: "Um momento, por favor. Estou transferindo você para um dos nossos operadores humanos...",
+           transfer: true
+         };
+      }
+
+      return response.text || "Desculpe, não consegui formular uma resposta."; } catch (e) {
       console.error('Gemini API error during WhatsApp turn:', e);
       return 'Desculpe, ocorreu um erro interno ao processar sua mensagem.';
     }

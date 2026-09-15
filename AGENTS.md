@@ -27,3 +27,11 @@ You are assisting with **Enlace PBX**, an Enterprise-grade telephony, CRM, and A
 4. **Webphone & Omnichannel Hub Integration.** The Webphone modal (`WebphoneModal.tsx`) contains both the SIP/WebRTC softphone and an expanding right-side panel for Omnichannel (WhatsApp/Webchat) conversations. State is managed locally.
 5. **No direct 3rd-party API calls from Frontend.** The React frontend must always use the local Express BFF endpoints (e.g., `/api/v1/omnichannel`).
 
+
+6. **BFF Single Fetch Hydration.** Avoid parallel fetch storms in the frontend (e.g., `Promise.all` with dozens of endpoints). Always use the `/api/v1/init` endpoint for initial SPA state hydration to prevent "Failed to fetch" browser connection limits.
+7. **Disaster Recovery / Backups.** The system supports automated S3/FTP external backups. Any changes to the Backup & Restore module must respect the JSON snapshot format and the external cloud synchronization workflows.
+
+8. **Deploy & Open Source (GitHub):** O sistema Enlace PBX deve ser disponibilizado publicamente no GitHub como um projeto Open Source. 
+   - A documentação (Módulo Ajuda, README) deve instruir os administradores de como realizar o deploy via script em VPS/Linux.
+   - O projeto possui um botão "Atualizar Sistema" (`/api/v1/system/update`) no painel (InfraSettingsView) para facilitar a atualização via Over-The-Air (OTA) em produção puxando os novos commits do repositório remoto (e.g. `git pull origin main`, seguido pelo processo de build).
+   - Mantenha o projeto referenciado como "Enlace PBX OSS" nos manuais.

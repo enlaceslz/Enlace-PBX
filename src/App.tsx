@@ -88,76 +88,51 @@ export default function App() {
 
   const loadAllData = useCallback(async () => {
     try {
-      const fetchWithAuth = (url: string) => fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`
+      const fetchWithAuth = async (url: string) => {
+        try {
+          const r = await fetch(url, {
+            headers: {
+              'Authorization': `Bearer ${authToken}`
+            }
+          });
+          if (!r.ok) {
+            console.error(`fetchWithAuth failed for ${url}: ${r.status} ${r.statusText}`);
+          }
+          return await r.json();
+        } catch (err) {
+          console.error(`fetchWithAuth network error for ${url}:`, err);
+          throw err;
         }
-      }).then(r => r.json());
+      };
 
-      const [
-        metricsRes,
-        tenantsRes,
-        usersRes,
-        channelsRes,
-        extensionsRes,
-        trunksRes,
-        routesRes,
-        queuesRes,
-        ringGroupsRes,
-        ivrsRes,
-        cdrsRes,
-        agentsRes,
-        providersRes,
-        toolsRes,
-        knowledgeRes,
-        sessionsRes,
-        auditRes,
-        healthRes,
-      ] = await Promise.all([
-        fetchWithAuth('/api/v1/dashboard/metrics'),
-        fetchWithAuth('/api/v1/tenants'),
-        fetchWithAuth('/api/v1/users'),
-        fetchWithAuth('/api/v1/asterisk/channels'),
-        fetchWithAuth('/api/v1/extensions'),
-        fetchWithAuth('/api/v1/trunks'),
-        fetchWithAuth('/api/v1/routes'),
-        fetchWithAuth('/api/v1/queues'),
-        fetchWithAuth('/api/v1/ring-groups'),
-        fetchWithAuth('/api/v1/ivr'),
-        fetchWithAuth('/api/v1/cdr'),
-        fetchWithAuth('/api/v1/ai/agents'),
-        fetchWithAuth('/api/v1/ai/providers'),
-        fetchWithAuth('/api/v1/ai/tools'),
-        fetchWithAuth('/api/v1/ai/knowledge'),
-        fetchWithAuth('/api/v1/ai/sessions'),
-        fetchWithAuth('/api/v1/audit-logs'),
-        fetchWithAuth('/api/v1/health'),
-      ]);
-
-      setMetrics(metricsRes);
-      setTenants(tenantsRes);
-      if (tenantsRes.length > 0 && !currentTenant) {
-        setCurrentTenant(tenantsRes[0]);
+      const initData = await fetchWithAuth('/api/v1/init');
+      
+      if (initData) {
+        setMetrics(initData.metrics || null);
+        setTenants(initData.tenants || []);
+        if (initData.tenants && initData.tenants.length > 0 && !currentTenant) {
+          setCurrentTenant(initData.tenants[0]);
+        }
+        setUsers(initData.users || []);
+        if (initData.users && initData.users.length > 0 && !currentUser) {
+          setCurrentUser(initData.users[0]);
+        }
+        setChannels(initData.channels || []);
+        setExtensions(initData.extensions || []);
+        setTrunks(initData.trunks || []);
+        setRoutes(initData.routes || []);
+        setQueues(initData.queues || []);
+        setRingGroups(initData.ringGroups || []);
+        setIvrs(initData.ivrs || []);
+        setCdrs(initData.cdrs || []);
+        setAiAgents(initData.aiAgents || []);
+        setAiProviders(initData.aiProviders || []);
+        setAiTools(initData.aiTools || []);
+        setAiKnowledge(initData.aiKnowledge || []);
+        setAiSessions(initData.aiSessions || []);
+        setAuditLogs(initData.auditLogs || []);
+        setHealth(initData.health || null);
       }
-      setUsers(usersRes);
-      if (usersRes.length > 0 && !currentUser) {
-        setCurrentUser(usersRes[0]);
-      }
-      setChannels(channelsRes);
-      setExtensions(extensionsRes);
-      setTrunks(trunksRes);
-      setRoutes(routesRes);
-      setQueues(queuesRes);
-      setRingGroups(ringGroupsRes);
-      setIvrs(ivrsRes);
-      setCdrs(cdrsRes);
-      setAiAgents(agentsRes);
-      setAiProviders(providersRes);
-      setAiTools(toolsRes);
-      setAiKnowledge(knowledgeRes);
-      setAiSessions(sessionsRes);
-      setAuditLogs(auditRes);
-      setHealth(healthRes);
     } catch (e) {
       console.error('Error loading PBX data:', e);
     } finally {

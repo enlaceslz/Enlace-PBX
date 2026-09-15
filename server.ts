@@ -253,6 +253,24 @@ async function startServer() {
     res.json(camp);
   });
 
+  app.post('/api/v1/system/update', (req, res) => {
+    // Retorna OK imediatamente para não prender o navegador
+    res.json({ success: true, message: 'Atualização iniciada. O sistema será reiniciado.' });
+    
+    // Executa as rotinas em background
+    const { exec } = require('child_process');
+    setTimeout(() => {
+      console.log('[Enlace-PBX] Iniciando atualização via GitHub (git pull)...');
+      exec('git pull origin master && npm install && npm run build && pm2 restart enlace-pbx', (err, stdout, stderr) => {
+        if (err) {
+          console.error('[Enlace-PBX] Falha na atualização:', err);
+          return;
+        }
+        console.log('[Enlace-PBX] Atualização concluída. Reiniciando o sistema...', stdout);
+      });
+    }, 2000);
+  });
+
   app.get('/api/v1/health', (req, res) => {
     res.json(getHealthStatus());
   });
@@ -1459,6 +1477,39 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({ success: true, message: 'Restauração concluída com sucesso!' });
   });
 
+  // -------------------------------------------------------------------------
+  // INIT ENDPOINT (BFF)
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/init', (req, res) => {
+    res.json({
+      metrics: getDashboardMetrics(),
+      tenants: db.tenants,
+      users: db.users,
+      channels: asteriskService.getActiveChannels(),
+      extensions: db.extensions,
+      trunks: db.trunks,
+      routes: db.routes,
+      queues: db.queues,
+      ringGroups: db.ringGroups,
+      ivrs: db.ivrs,
+      cdrs: db.cdrs,
+      aiAgents: db.aiAgents,
+      aiProviders: db.aiProviders,
+      aiTools: db.aiTools,
+      aiKnowledge: db.aiKnowledge,
+      aiSessions: db.aiSessions,
+      auditLogs: db.auditLogs,
+      health: {
+        status: 'online',
+        uptime: process.uptime(),
+        cpuUsage: 12.5,
+        memoryUsage: process.memoryUsage().heapUsed / 1024 / 1024,
+        activeCalls: asteriskService.getActiveChannels().length,
+        version: '20.5.0'
+      }
+    });
+  });
+
   app.get('/api/v1/dashboard/metrics', (req, res) => {
     res.json(getDashboardMetrics());
   });
@@ -2599,11 +2650,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         // Trigger AI response if in bot_handling status
         if (conv.status === 'bot_handling') {
            const { geminiService } = await import('./server/geminiService.js');
-           const aiResponseText = await geminiService.processWhatsAppTurn(conv.id, msg_body);
+           const aiResponse = await geminiService.processWhatsAppTurn(conv.id, msg_body);
+           const aiResponseText = typeof aiResponse === 'string' ? aiResponse : aiResponse.text;
            
-           // Check if AI decided to transfer (simple keyword matching for demo purposes)
-           if (aiResponseText.toLowerCase().includes('transferir') || aiResponseText.toLowerCase().includes('atendente')) {
+           if (typeof aiResponse !== 'string' && aiResponse.transfer) {
               conv.status = 'queued'; // Transfer to human
+              conv.messages.push({
+                id: `msg-sys-${Date.now()}`,
+                sender: 'agent',
+                text: '[Sistema]: O agente MaIA solicitou transbordo para fila humana.',
+                timestamp: new Date().toISOString()
+              });
            }
            
            const aiMsg = {

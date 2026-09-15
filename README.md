@@ -81,6 +81,14 @@ A marca do **Enlace-PBX** traz como símbolo oficial o **Polvo Tecnológico com 
 
 **1. Webphone & Hub Omnichannel Lado-a-Lado**
 Aplica um modal unificado flutuante na interface. O operador pode manter uma chamada de áudio (WebRTC via PJSIP) simultaneamente a conversas de chat ativo (WhatsApp Cloud API e Webchat), sem a necessidade de abrir novas janelas ou trocar de abas.
+**2. Hydration Centralizada (BFF)**
+Um único endpoint `/api/v1/init` serve todo o estado relacional, abolindo lentidão e mitigando bloqueios de estrangulamento web (Failed to Fetch) na inicialização.
+
+**4. Atualizações em 1-Clique (GitHub)**
+Como um projeto de código aberto, a plataforma disponibiliza atualizações over-the-air diretamente na interface. Administradores podem atualizar o PBX sem tocar no terminal, integrando `git pull` e builds de forma visual e segura.
+
+**3. Módulo Disaster Recovery**
+Suporte nativo para espelhamento em JSON de todo o ambiente, com rotinas cronológicas para despachar backups automatizados a Cloud Providers (S3/FTP).
 
 | Módulo | Finalidade | Tecnologias Utilizadas |
 | :--- | :--- | :--- |
@@ -259,6 +267,6 @@ O aplicativo estará disponível em `http://localhost:3000`.
 ---
 
 ## 🇧🇷 Créditos & Licença
-Desenvolvido por **André LJP** e equipe **Enlace Telecom** sob licença comercial / código aberto.  
+Desenvolvido por **André LJP** e mantido pela comunidade Open Source (GitHub) sob licença comercial / código aberto.  
 Dúvidas e suporte técnico: [slzenlace@gmail.com](mailto:slzenlace@gmail.com) | [enlace.slz.br](https://enlace.slz.br)
 
