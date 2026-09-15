@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { VUMeter } from "./VUMeter";
 import {
-  MessageSquare,
   Phone,
   PhoneOff,
   Mic,
@@ -29,14 +28,7 @@ import {
   VideoOff,
 } from 'lucide-react';
 import { playDtmfTone, playRingbackTone, playCallEndBeep } from '../utils/audio';
-import {
-  speakHumanized,
-  stopSpeaking,
-  stopAnyVoice,
-  detectVoiceGender,
-  detectSpeakerPersona,
-  VoicePersona,
-} from '../utils/speechVoiceHelper';
+import { speakHumanized, stopSpeaking, detectVoiceGender, VoicePersona } from '../utils/speechVoiceHelper';
 
 interface WebphoneProps {
   isOpen: boolean;
@@ -60,10 +52,6 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const [isVideoCamOn, setIsVideoCamOn] = useState(true);
   const [activeTab, setActiveTab] = useState<'keypad' | 'ai_live' | 'ivr' | 'queue' | 'extension'>('keypad');
   const [isMinimized, setIsMinimized] = useState(false);
-  const [showOmnichannel, setShowOmnichannel] = useState(false);
-  const [omniConversations, setOmniConversations] = useState<any[]>([]);
-  const [selectedOmniConv, setSelectedOmniConv] = useState<any | null>(null);
-  const [omniReply, setOmniReply] = useState('');
 
   // Call classification & target states
   const [callType, setCallType] = useState<'idle' | 'ai' | 'ivr' | 'queue' | 'extension' | 'external'>('idle');
@@ -92,37 +80,6 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
   const stopRingbackRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    if (showOmnichannel) {
-      fetch("/api/v1/omnichannel/conversations")
-        .then(r => r.json())
-        .then(data => setOmniConversations(data))
-        .catch(console.error);
-    }
-  }, [showOmnichannel]);
-
-  const handleSendOmni = async () => {
-    if (!omniReply.trim() || !selectedOmniConv) return;
-    const textToSend = omniReply;
-    setOmniReply("");
-    try {
-      const res = await fetch(`/api/v1/whatsapp/conversations/${selectedOmniConv.id}/reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: textToSend }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setOmniConversations(prev => prev.map(c => c.id === updated.id ? updated : c));
-        setSelectedOmniConv(updated);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
 
   useEffect(() => {
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -166,13 +123,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       recognitionRef.current.stop();
       setIsListening(false);
     } else {
-      stopAnyVoice();
-      if (audioPlayerRef.current) {
-        try {
-          audioPlayerRef.current.pause();
-          audioPlayerRef.current = null;
-        } catch {}
-      }
+      window.speechSynthesis?.cancel();
       setIsAiSpeaking(false);
       try {
         recognitionRef.current.start();
@@ -223,24 +174,13 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       setIvrAnnouncement('Opção 2 selecionada: Encaminhando para Suporte Técnico com Roberto Mendes...');
       speakText('Opção dois. Encaminhando para o Suporte Técnico com Roberto Mendes. Por favor, aguarde.', 'female', 'ura');
       setTimeout(() => {
-        setCallType('ai');
-        setIsAiCall(true);
-        setActiveTab('ai_live');
+        setCallType('extension');
+        setActiveTab('extension');
         setConnectedDestination('4102 (Suporte - Roberto Mendes)');
-        const robertoGreeting = 'Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar com a sua conexão ou chamado hoje?';
-        setAiHistory([
-          {
-            role: 'system',
-            text: 'Conexão estabelecida com Ramal 4102 [Roberto Mendes - NOC/Suporte N1] via Asterisk 20 e Google Gemini.',
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-          {
-            role: 'model',
-            text: robertoGreeting,
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-        ]);
-        speakText(robertoGreeting, 'male', 'roberto');
+        setExtInfo({ name: 'Roberto Mendes', number: '4102', dept: 'NOC / Suporte Técnico N1' });
+        setTimeout(() => {
+          speakText('Suporte Técnico Enlace, boa tarde! Roberto falando. Como posso ajudar com a sua conexão hoje?', 'male', 'roberto');
+        }, 1400);
       }, 2200);
     } else if (digit === '3') {
       // Financeiro (Fila 7002 - Renata Lima)
@@ -334,24 +274,15 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         setActiveTab('ai_live');
         speakText('Olá! Sou a MaIA, fui conectada à sua chamada transferida. Como posso ajudar?', 'female', 'maia');
       } else if (dest === '4102') {
-        setCallType('ai');
-        setIsAiCall(true);
-        setActiveTab('ai_live');
-        const robertoGreeting = 'Alô! Suporte Técnico Enlace, Roberto falando. Recebi a sua transferência, em que posso ajudar com a sua conexão hoje?';
-        setAiHistory((prev) => [
-          ...prev,
-          {
-            role: 'system',
-            text: 'Chamada transferida para o Ramal 4102 [Roberto Mendes - Suporte N1 & NOC] via Asterisk 20 e Google Gemini.',
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-          {
-            role: 'model',
-            text: robertoGreeting,
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-        ]);
-        speakText(robertoGreeting, 'male', 'roberto');
+        setCallType('extension');
+        setIsAiCall(false);
+        setActiveTab('extension');
+        setExtInfo({
+          name: 'Roberto Mendes',
+          number: '4102',
+          dept: 'NOC / Suporte Técnico N1',
+        });
+        speakText('Alô! Suporte Técnico Enlace, Roberto falando. Recebi a sua transferência, em que posso ajudar?', 'male', 'roberto');
       } else if (dest === '7001' || dest === '7002') {
         setCallType('queue');
         setIsAiCall(false);
@@ -389,11 +320,10 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
     setCallState('calling');
     setConnectedDestination(num);
-    const isSupportAi = num === '4102' || num.toLowerCase().includes('roberto');
-    const isTargetAi = num === '9001' || isSupportAi || num.includes('0800') || num.toLowerCase().includes('maia');
+    const isTargetAi = num === '9001' || num.includes('0800') || num.toLowerCase().includes('maia');
     const isIvr = num === '6001';
     const isQueue = num === '7001' || num === '7002';
-    const isExt = num === '4101' || num === '4103';
+    const isExt = num === '4101' || num === '4102' || num === '4103';
 
     setIsAiCall(isTargetAi);
     if (isTargetAi) {
@@ -414,9 +344,9 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       setCallType('extension');
       setActiveTab('extension');
       setExtInfo({
-        name: num === '4103' ? 'Mariana Costa' : 'Carlos Silva',
+        name: num === '4102' ? 'Roberto Mendes' : num === '4103' ? 'Mariana Costa' : 'Carlos Silva',
         number: num,
-        dept: num === '4103' ? 'Comercial & Vendas' : 'Central Telefônica',
+        dept: num === '4102' ? 'NOC / Suporte Técnico N1' : num === '4103' ? 'Comercial & Vendas' : 'Central Telefônica',
       });
     } else {
       setCallType('external');
@@ -447,16 +377,11 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       setCallState('connected');
 
       if (isTargetAi) {
-        const initialGreeting = isSupportAi
-          ? 'Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar com sua conexão, ramal ou chamado hoje?'
-          : 'Olá! Sou a MaIA, assistente virtual da Enlace Telecom. Como posso ajudar você hoje?';
-
+        const initialGreeting = 'Olá! Sou a MaIA, assistente virtual da Enlace Telecom. Como posso ajudar você hoje?';
         setAiHistory([
           {
             role: 'system',
-            text: isSupportAi
-              ? 'Conexão estabelecida com Ramal 4102 [Roberto Mendes - NOC/Suporte N1] via Asterisk 20 e Google Gemini.'
-              : 'Conexão estabelecida com Asterisk 20 [from-gemini] via AudioSocket e Google Gemini Live API.',
+            text: 'Conexão estabelecida com Asterisk 20 [from-gemini] via AudioSocket e Google Gemini Live API.',
             timestamp: new Date().toLocaleTimeString('pt-BR'),
           },
           {
@@ -465,7 +390,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
             timestamp: new Date().toLocaleTimeString('pt-BR'),
           },
         ]);
-        speakText(initialGreeting, isSupportAi ? 'male' : 'female', isSupportAi ? 'roberto' : 'maia');
+        speakText(initialGreeting, 'female', 'maia');
       } else if (isIvr) {
         const ivrPrompt = 'Olá! Você ligou para a Enlace Telecom. Para Comercial digite 1. Para Suporte Técnico com Roberto digite 2. Para Financeiro digite 3. Ou digite 9 para falar com a MaIA.';
         speakText(ivrPrompt, 'female', 'ura');
@@ -482,7 +407,9 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
           setQueueInfo((prev) => prev ? { ...prev, agentName: isSupport ? 'Roberto Mendes (Atendendo)' : 'Renata Lima (Atendendo)' } : null);
         }, 3000);
       } else if (isExt) {
-        if (num === '4103') {
+        if (num === '4102') {
+          speakText('Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar com seu chamado ou conexão?', 'male', 'roberto');
+        } else if (num === '4103') {
           speakText('Comercial Enlace, boa tarde! Mariana falando, em que posso ajudar?', 'female', 'mariana');
         } else {
           speakText('Central Enlace Telecom, boa tarde! Carlos falando, como posso direcionar sua ligação?', 'male', 'carlos');
@@ -495,6 +422,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     if (stopRingbackRef.current) stopRingbackRef.current();
     playCallEndBeep();
     setCallState('idle');
+    setIsVideoCall(false);
     setIsVideoCall(false);
     setCallType('idle');
     setShowTransferDialog(false);
@@ -530,22 +458,18 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     setTransferDestination('');
     setAiHistory([]);
     setLastExecutedTool(null);
-    stopAnyVoice();
-    if (audioPlayerRef.current) {
-      try {
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current = null;
-      } catch {}
-    }
+    stopSpeaking();
     setIsAiSpeaking(false);
   };
 
   const speakText = (text: string, explicitGender?: 'male' | 'female', persona?: VoicePersona) => {
-    const speakerInfo = detectSpeakerPersona(text, connectedDestination);
-    let gender = explicitGender || (persona === 'roberto' || persona === 'carlos' ? 'male' : undefined);
-
+    let gender = explicitGender;
     if (!gender) {
-      if (
+      if (persona === 'roberto' || persona === 'carlos') {
+        gender = 'male';
+      } else if (persona === 'maia' || persona === 'mariana' || persona === 'renata' || persona === 'ura') {
+        gender = 'female';
+      } else if (
         connectedDestination.includes('4102') ||
         connectedDestination.toLowerCase().includes('roberto') ||
         extInfo?.name.toLowerCase().includes('roberto') ||
@@ -553,21 +477,28 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       ) {
         gender = 'male';
       } else {
-        gender = speakerInfo.gender;
+        gender = detectVoiceGender(text, persona, 'female');
       }
     }
 
-    const resolvedPersona = persona || (gender === 'male' ? 'roberto' : speakerInfo.persona);
     setCurrentVoiceGender(gender);
-    setCurrentVoiceSpeaker(
-      gender === 'male' && (speakerInfo.persona === 'roberto' || text.toLowerCase().includes('roberto') || connectedDestination.includes('4102'))
+    const speakerLabel =
+      persona === 'roberto' || (gender === 'male' && (connectedDestination.includes('4102') || text.toLowerCase().includes('roberto')))
         ? 'Roberto Mendes (Voz Masculina • Suporte N1)'
-        : speakerInfo.speakerName
-    );
+        : persona === 'carlos' || (gender === 'male' && connectedDestination.includes('4101'))
+        ? 'Carlos Silva (Voz Masculina • Central)'
+        : persona === 'mariana'
+        ? 'Mariana Costa (Voz Feminina • Comercial)'
+        : persona === 'renata'
+        ? 'Renata Lima (Voz Feminina • Financeiro)'
+        : gender === 'male'
+        ? 'Voz Masculina Humanizada'
+        : 'MaIA (Voz Feminina • IA Enlace)';
+    setCurrentVoiceSpeaker(speakerLabel);
 
     speakHumanized(text, {
       gender,
-      persona: resolvedPersona,
+      persona: persona || (gender === 'male' ? 'roberto' : 'maia'),
       onStart: () => setIsAiSpeaking(true),
       onEnd: () => setIsAiSpeaking(false),
       onError: () => setIsAiSpeaking(false),
@@ -578,13 +509,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     if (!messageText.trim() || isProcessingTurn) return;
 
     // Barge-in: interrupt AI if speaking
-    stopAnyVoice();
-    if (audioPlayerRef.current) {
-      try {
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current = null;
-      } catch {}
-    }
+    stopSpeaking();
     setIsAiSpeaking(false);
 
     const userEntry = {
@@ -600,8 +525,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       const isSupportTarget =
         connectedDestination.includes('4102') ||
         connectedDestination.toLowerCase().includes('roberto') ||
-        connectedDestination.toLowerCase().includes('suporte') ||
-        messageText.toLowerCase().includes('roberto');
+        connectedDestination.toLowerCase().includes('suporte');
 
       const targetAgentId = isSupportTarget ? 'agent-suporte-n1' : 'agent-maia-247';
 
@@ -640,30 +564,24 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         },
       ]);
 
-      const speakerInfo = detectSpeakerPersona(modelReply, connectedDestination);
-      const resolvedGender = (data.voiceConfig?.gender as 'male' | 'female') || (isSupportTarget ? 'male' : speakerInfo.gender);
-      const resolvedPersona = resolvedGender === 'male' ? 'roberto' : speakerInfo.persona;
-      const speakerDisplay = data.voiceConfig?.detectedSpeaker || speakerInfo.speakerName;
-
-      setCurrentVoiceGender(resolvedGender);
-      setCurrentVoiceSpeaker(speakerDisplay);
+      const resolvedGender = (data.voiceConfig?.gender as 'male' | 'female') || (isSupportTarget ? 'male' : 'female');
+      const resolvedPersona = resolvedGender === 'male' ? 'roberto' : 'maia';
 
       if (data.audioBase64) {
         try {
           const audio = new Audio(`data:audio/wav;base64,${data.audioBase64}`);
-          audioPlayerRef.current = audio;
           setIsAiSpeaking(true);
-
-          audio.onended = () => {
-            audioPlayerRef.current = null;
-            setIsAiSpeaking(false);
-          };
+          setCurrentVoiceGender(resolvedGender);
+          setCurrentVoiceSpeaker(
+            resolvedGender === 'male'
+              ? 'Roberto Mendes (Voz Masculina • Gemini TTS)'
+              : 'MaIA (Voz Feminina • Gemini TTS)'
+          );
+          audio.onended = () => setIsAiSpeaking(false);
           audio.onerror = () => {
-            audioPlayerRef.current = null;
             speakText(modelReply, resolvedGender, resolvedPersona);
           };
           audio.play().catch(() => {
-            audioPlayerRef.current = null;
             speakText(modelReply, resolvedGender, resolvedPersona);
           });
         } catch {
@@ -723,8 +641,8 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       id="enlace-webphone-modal"
       className={`fixed z-50 transition-all duration-200 shadow-2xl rounded-2xl border border-slate-200 bg-white text-slate-900 flex flex-col overflow-hidden ${
         isMinimized
-          ? 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 ' + (showOmnichannel && isMinimized ? 'sm:w-[760px]' : 'sm:w-80') + ' h-14 sm:h-16 cursor-pointer'
-          : 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 ' + (showOmnichannel && !isMinimized ? 'sm:w-[760px]' : 'sm:w-96') + ' h-[580px] sm:h-[640px] max-h-[calc(100dvh-1rem)] sm:max-h-[90vh]'
+          ? 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 sm:w-80 h-14 sm:h-16 cursor-pointer'
+          : 'bottom-2 right-2 left-2 sm:left-auto sm:right-6 sm:bottom-6 sm:w-96 h-[580px] sm:h-[640px] max-h-[calc(100dvh-1rem)] sm:max-h-[90vh]'
       }`}
     >
       {/* Softphone Header */}
@@ -743,15 +661,6 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         </div>
 
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowOmnichannel(!showOmnichannel)}
-            className={`p-1.5 rounded-lg transition flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${showOmnichannel ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`}
-            title="Hub Omnichannel (WhatsApp/Webchat)"
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{showOmnichannel ? 'Chat Ativo' : 'Chats'}</span>
-          </button>
-
           <button
             onClick={() => setIsMinimized(!isMinimized)}
             className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
@@ -779,10 +688,8 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         </div>
       )}
 
-            {!isMinimized && (
-        <div className="flex-1 flex flex-col sm:flex-row min-h-0 bg-white/95">
-          {/* Softphone Section (Left side when expanded) */}
-          <div className={`flex flex-col min-h-0 transition-all ${showOmnichannel ? 'w-full sm:w-80 border-r border-slate-200' : 'w-full'}`}>
+      {!isMinimized && (
+        <div className="flex-1 flex flex-col min-h-0 bg-white/95">
           {/* Status Bar / Active Call Display */}
           <div className="bg-slate-50/60 p-4 border-b border-slate-200 shadow-sm">
             {callState === 'idle' ? (
@@ -993,15 +900,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     >
                       <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
                         <span className="font-semibold capitalize">
-                          {item.role === 'user'
-                            ? 'Você (Chamador)'
-                            : item.role === 'model'
-                            ? connectedDestination.includes('4102') || connectedDestination.toLowerCase().includes('roberto')
-                              ? 'Roberto Mendes (Suporte N1)'
-                              : 'MaIA (Gemini)'
-                            : item.role === 'tool'
-                            ? 'Function Calling'
-                            : 'Asterisk 20'}
+                          {item.role === 'user' ? 'Você (Chamador)' : item.role === 'model' ? 'MaIA (Gemini)' : item.role === 'tool' ? 'Function Calling' : 'Asterisk 20'}
                         </span>
                         <span>{item.timestamp}</span>
                       </div>
@@ -1011,9 +910,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                   {isProcessingTurn && (
                     <div className="p-2 text-xs text-slate-500 italic flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
-                      {connectedDestination.includes('4102') || connectedDestination.toLowerCase().includes('roberto')
-                        ? 'Roberto Mendes analisando com Gemini...'
-                        : 'MaIA processando turno com Gemini...'}
+                      MaIA processando turno com Gemini...
                     </div>
                   )}
                 </div>
@@ -1025,49 +922,26 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     <span className="text-blue-600">Barge-in ativo</span>
                   </div>
 
-                  {connectedDestination.includes('4102') || connectedDestination.toLowerCase().includes('roberto') ? (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      <button
-                        onClick={() => handleSendVoiceTurn('Estou com o ramal mudo e chiado na linha')}
-                        className="text-[11px] px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg transition border border-amber-200 text-left"
-                      >
-                        "Ramal com chiado"
-                      </button>
-                      <button
-                        onClick={() => handleSendVoiceTurn('O link de internet caiu, pode abrir um chamado no NOC?')}
-                        className="text-[11px] px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg transition border border-amber-200 text-left"
-                      >
-                        "Link caiu, abrir chamado"
-                      </button>
-                      <button
-                        onClick={() => handleSendVoiceTurn('Qual o status do servidor Asterisk e dos troncos SIP?')}
-                        className="text-[11px] px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg transition border border-amber-200 text-left"
-                      >
-                        "Status do Asterisk e troncos"
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      <button
-                        onClick={() => handleSendVoiceTurn('Quero consultar a minha fatura em aberto')}
-                        className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded-lg transition border border-slate-200 text-left"
-                      >
-                        "Consultar minha fatura"
-                      </button>
-                      <button
-                        onClick={() => handleSendVoiceTurn('Pode me transferir para o suporte com o Roberto?')}
-                        className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded-lg transition border border-slate-200 text-left"
-                      >
-                        "Transferir para Roberto"
-                      </button>
-                      <button
-                        onClick={() => handleSendVoiceTurn('Estou sem internet no escritório')}
-                        className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded-lg transition border border-slate-200 text-left"
-                      >
-                        "Estou sem internet"
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    <button
+                      onClick={() => handleSendVoiceTurn('Quero consultar a minha fatura em aberto')}
+                      className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded-lg transition border border-slate-200 text-left"
+                    >
+                      "Consultar minha fatura"
+                    </button>
+                    <button
+                      onClick={() => handleSendVoiceTurn('Pode me transferir para o suporte humano?')}
+                      className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded-lg transition border border-slate-200 text-left"
+                    >
+                      "Transferir para suporte"
+                    </button>
+                    <button
+                      onClick={() => handleSendVoiceTurn('Estou sem internet no escritório')}
+                      className="text-[11px] px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded-lg transition border border-slate-200 text-left"
+                    >
+                      "Estou sem internet"
+                    </button>
+                  </div>
 
                   {isListening && (
                     <div className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl flex items-center justify-between mb-2 font-medium">
@@ -1105,13 +979,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                       type="text"
                       value={userInputText}
                       onChange={(e) => setUserInputText(e.target.value)}
-                      placeholder={
-                        isListening
-                          ? 'Ouvindo sua voz...'
-                          : connectedDestination.includes('4102') || connectedDestination.toLowerCase().includes('roberto')
-                          ? 'Diga ou digite sua dúvida para o Roberto...'
-                          : 'Diga ou digite algo para a MaIA...'
-                      }
+                      placeholder={isListening ? 'Ouvindo sua voz...' : 'Diga ou digite algo para a MaIA...'}
                       className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500"
                     />
                     <button
@@ -1394,6 +1262,19 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     {isVideoCamOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
                   </button>
                 )}
+                {isVideoCall && (
+                  <button
+                    onClick={() => setIsVideoCamOn(!isVideoCamOn)}
+                    className={`p-3 rounded-xl border transition flex items-center justify-center ${
+                      !isVideoCamOn
+                        ? 'bg-rose-500/20 border-rose-500 text-rose-400'
+                        : 'bg-purple-100 border-purple-200 text-purple-700 hover:bg-purple-200'
+                    }`}
+                    title={isVideoCamOn ? 'Desligar Câmera' : 'Ligar Câmera'}
+                  >
+                    {isVideoCamOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+                  </button>
+                )}
                 <button
                   onClick={() => setIsMuted(!isMuted)}
                   className={`p-3 rounded-xl border transition flex items-center justify-center ${
@@ -1440,94 +1321,6 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
               </div>
             )}
           </div>
-
-        </div>
-
-        {/* Omnichannel Section (Right side when expanded) */}
-        {showOmnichannel && (
-          <div className="hidden sm:flex flex-1 flex-col min-h-0 bg-slate-50/50">
-            <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
-              <div>
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-emerald-600" />
-                  Hub Omnichannel
-                </h3>
-                <p className="text-[10px] text-slate-500">Conversas ativas no WhatsApp Webhook</p>
-              </div>
-            </div>
-            
-            <div className="flex-1 flex min-h-0">
-              {/* Chat List */}
-              <div className="w-1/3 border-r border-slate-200 bg-slate-50 overflow-y-auto p-2 space-y-1">
-                {omniConversations.length === 0 ? (
-                  <div className="text-center p-4 text-slate-400 text-xs">Nenhum chat ativo.</div>
-                ) : (
-                  omniConversations.map(conv => (
-                    <button 
-                      key={conv.id}
-                      onClick={() => setSelectedOmniConv(conv)}
-                      className={`w-full text-left p-3 rounded-xl transition border ${selectedOmniConv?.id === conv.id ? 'bg-white border-emerald-200 shadow-sm' : 'border-transparent hover:bg-slate-200/50'}`}
-                    >
-                      <div className="flex justify-between items-start mb-1">
-                        <span className="font-bold text-xs text-slate-800 truncate">{conv.contactId}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${conv.status === 'active' ? 'bg-emerald-100 text-emerald-700' : conv.status === 'queued' ? 'bg-amber-100 text-amber-700' : conv.status === 'bot_handling' ? 'bg-purple-100 text-purple-700' : 'bg-slate-200 text-slate-600'}`}>
-                          {conv.status === 'bot_handling' ? 'MaIA (IA)' : conv.status}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-slate-500 truncate">
-                        {conv.messages[conv.messages.length - 1]?.text || 'Nova conversa'}
-                      </p>
-                    </button>
-                  ))
-                )}
-              </div>
-              
-              {/* Chat View */}
-              <div className="flex-1 flex flex-col bg-white">
-                {selectedOmniConv ? (
-                  <>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                      {selectedOmniConv.messages.map((m: any) => (
-                        <div key={m.id} className={`flex flex-col ${m.sender === 'user' ? 'items-start' : 'items-end'}`}>
-                          <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${m.sender === 'user' ? 'bg-slate-100 text-slate-800 rounded-tl-sm' : m.sender === 'bot' ? 'bg-purple-100 text-purple-800 rounded-tr-sm border border-purple-200' : 'bg-emerald-100 text-emerald-800 rounded-tr-sm border border-emerald-200'}`}>
-                            {m.text}
-                          </div>
-                          <span className="text-[9px] text-slate-400 mt-1 font-mono">{new Date(m.timestamp).toLocaleTimeString('pt-BR')}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="p-3 border-t border-slate-200 bg-slate-50">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={omniReply}
-                          onChange={(e) => setOmniReply(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleSendOmni()}
-                          placeholder="Digite a resposta..."
-                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
-                        />
-                        <button
-                          onClick={handleSendOmni}
-                          disabled={!omniReply.trim()}
-                          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white p-2 rounded-xl transition"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-6 text-center space-y-3">
-                    <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100">
-                      <MessageSquare className="w-8 h-8 text-slate-300" />
-                    </div>
-                    <p className="text-sm">Selecione uma conversa ao lado para visualizar e interagir com o cliente via WhatsApp.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
         </div>
       )}
     </div>

@@ -18,7 +18,6 @@ import { TrunksView } from './components/views/TrunksView';
 import { RoutesView } from './components/views/RoutesView';
 import { QueuesAndGroupsView } from './components/views/QueuesAndGroupsView';
 import { IvrView } from './components/views/IvrView';
-import { MediaManagerView } from './components/views/MediaManagerView';
 import { CdrAndRecordingsView } from './components/views/CdrAndRecordingsView';
 import { AiGatewayView } from './components/views/AiGatewayView';
 import { AsteriskCoreView } from './components/views/AsteriskCoreView';
@@ -29,6 +28,12 @@ import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
 import { HealthCheckView } from './components/views/HealthCheckView';
 import { SettingsView } from './components/views/SettingsView';
 import { HelpManualView } from './components/views/HelpManualView';
+import { SettingsView } from './components/views/SettingsView';
+import { SettingsView } from './components/views/SettingsView';
+import { HelpManualView } from './components/views/HelpManualView';
+import { BackupRestoreView } from './components/views/BackupRestoreView';
+import { HelpManualView } from './components/views/HelpManualView';
+import { BackupRestoreView } from './components/views/BackupRestoreView';
 import { BackupRestoreView } from './components/views/BackupRestoreView';
 import { LoginView } from './components/views/LoginView';
 import {
@@ -88,51 +93,90 @@ export default function App() {
 
   const loadAllData = useCallback(async () => {
     try {
+      const token = authToken || localStorage.getItem('enlace_jwt');
       const fetchWithAuth = async (url: string) => {
-        try {
-          const r = await fetch(url, {
-            headers: {
-              'Authorization': `Bearer ${authToken}`
-            }
-          });
-          if (!r.ok) {
-            console.error(`fetchWithAuth failed for ${url}: ${r.status} ${r.statusText}`);
-          }
-          return await r.json();
-        } catch (err) {
-          console.error(`fetchWithAuth network error for ${url}:`, err);
-          throw err;
+        const res = await fetch(url, {
+          headers: token ? {
+            'Authorization': `Bearer ${token}`
+          } : {}
+        });
+        if (res.status === 401) {
+          localStorage.removeItem('enlace_jwt');
+          setAuthToken(null);
+          setIsAuthenticated(false);
+          return null;
         }
+        return res.json();
       };
 
-      const initData = await fetchWithAuth('/api/v1/init');
-      
-      if (initData) {
-        setMetrics(initData.metrics || null);
-        setTenants(initData.tenants || []);
-        if (initData.tenants && initData.tenants.length > 0 && !currentTenant) {
-          setCurrentTenant(initData.tenants[0]);
+      const [
+        metricsRes,
+        tenantsRes,
+        usersRes,
+        channelsRes,
+        extensionsRes,
+        trunksRes,
+        routesRes,
+        queuesRes,
+        ringGroupsRes,
+        ivrsRes,
+        cdrsRes,
+        agentsRes,
+        providersRes,
+        toolsRes,
+        knowledgeRes,
+        sessionsRes,
+        auditRes,
+        healthRes,
+      ] = await Promise.all([
+        fetchWithAuth('/api/v1/dashboard/metrics'),
+        fetchWithAuth('/api/v1/tenants'),
+        fetchWithAuth('/api/v1/users'),
+        fetchWithAuth('/api/v1/asterisk/channels'),
+        fetchWithAuth('/api/v1/extensions'),
+        fetchWithAuth('/api/v1/trunks'),
+        fetchWithAuth('/api/v1/routes'),
+        fetchWithAuth('/api/v1/queues'),
+        fetchWithAuth('/api/v1/ring-groups'),
+        fetchWithAuth('/api/v1/ivr'),
+        fetchWithAuth('/api/v1/cdr'),
+        fetchWithAuth('/api/v1/ai/agents'),
+        fetchWithAuth('/api/v1/ai/providers'),
+        fetchWithAuth('/api/v1/ai/tools'),
+        fetchWithAuth('/api/v1/ai/knowledge'),
+        fetchWithAuth('/api/v1/ai/sessions'),
+        fetchWithAuth('/api/v1/audit-logs'),
+        fetchWithAuth('/api/v1/health'),
+      ]);
+
+      if (metricsRes) setMetrics(metricsRes);
+      if (Array.isArray(tenantsRes)) {
+        setTenants(tenantsRes);
+        if (tenantsRes.length > 0 && !currentTenant) {
+          setCurrentTenant(tenantsRes[0]);
         }
-        setUsers(initData.users || []);
-        if (initData.users && initData.users.length > 0 && !currentUser) {
-          setCurrentUser(initData.users[0]);
-        }
-        setChannels(initData.channels || []);
-        setExtensions(initData.extensions || []);
-        setTrunks(initData.trunks || []);
-        setRoutes(initData.routes || []);
-        setQueues(initData.queues || []);
-        setRingGroups(initData.ringGroups || []);
-        setIvrs(initData.ivrs || []);
-        setCdrs(initData.cdrs || []);
-        setAiAgents(initData.aiAgents || []);
-        setAiProviders(initData.aiProviders || []);
-        setAiTools(initData.aiTools || []);
-        setAiKnowledge(initData.aiKnowledge || []);
-        setAiSessions(initData.aiSessions || []);
-        setAuditLogs(initData.auditLogs || []);
-        setHealth(initData.health || null);
       }
+      if (Array.isArray(usersRes)) {
+        setUsers(usersRes);
+        if (usersRes.length > 0 && !currentUser) {
+          setCurrentUser(usersRes[0]);
+        }
+      }
+      if (Array.isArray(channelsRes)) setChannels(channelsRes);
+      if (Array.isArray(extensionsRes)) setExtensions(extensionsRes);
+      if (Array.isArray(trunksRes)) setTrunks(trunksRes);
+      if (Array.isArray(routesRes)) setRoutes(routesRes);
+      if (Array.isArray(queuesRes)) setQueues(queuesRes);
+      if (Array.isArray(ringGroupsRes)) setRingGroups(ringGroupsRes);
+      if (Array.isArray(ivrsRes)) setIvrs(ivrsRes);
+      if (Array.isArray(cdrsRes)) setCdrs(cdrsRes);
+      if (Array.isArray(agentsRes)) setAiAgents(agentsRes);
+      if (Array.isArray(providersRes)) setAiProviders(providersRes);
+      if (Array.isArray(toolsRes)) setAiTools(toolsRes);
+      if (Array.isArray(knowledgeRes)) setAiKnowledge(knowledgeRes);
+      if (Array.isArray(sessionsRes)) setAiSessions(sessionsRes);
+      if (Array.isArray(auditRes)) setAuditLogs(auditRes);
+      if (healthRes) setHealth(healthRes);
     } catch (e) {
       console.error('Error loading PBX data:', e);
     } finally {
@@ -273,8 +317,6 @@ export default function App() {
             onRefresh={loadAllData}
           />
         );
-      case 'media_manager':
-        return <MediaManagerView key="media_manager" />;
       case 'ivr':
         return (
           <IvrView
@@ -481,7 +523,7 @@ export default function App() {
       case 'settings':
         return <SettingsView onNavigate={setActiveView} />;
       case 'help_manual':
-        return <HelpManualView onNavigate={setActiveView} />;
+        return <HelpManualView />;
       case 'backup_restore':
         return <BackupRestoreView />;
       default:

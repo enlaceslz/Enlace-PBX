@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Users,
   Settings,
+  Settings,
   PhoneCall,
   GitFork,
   Radio,
@@ -52,7 +53,7 @@ export type ActiveView =
   | 'routes'
   | 'ring_groups'
   | 'queues'
-  | 'ivr' | 'media_manager'
+  | 'ivr'
   | 'cdr'
   | 'recordings'
   | 'transcriptions'
@@ -128,7 +129,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
         { id: 'ring_groups' as ActiveView, label: 'Grupos de Toque', icon: Layers },
         { id: 'queues' as ActiveView, label: 'Filas de Atendimento', icon: Split },
         { id: 'ivr' as ActiveView, label: 'URAs / IVR', icon: PhoneCall },
-        { id: 'media_manager' as ActiveView, label: 'Áudios & Locuções', icon: Mic },
       ],
     },
     {
@@ -334,9 +334,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       {!isCollapsed && (
         <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 text-center shrink-0">
           <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
-            O Enlace-PBX é uma contribuição open-source da <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Enlace Telecom (enlace.slz.br)</a> e <strong>André LJP</strong>.
+            O Enlace-PBX é uma contribuição open-source da <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Enlace Telecom</a> e <strong>André LJP</strong>.
             <br />
-            <a href="mailto:pbx@enlace.slz.br" className="hover:text-slate-600 transition-colors">pbx@enlace.slz.br</a> • <a href="mailto:slzenlace@gmail.com" className="hover:text-slate-600 transition-colors">slzenlace@gmail.com</a>
+            <a href="mailto:slzenlace@gmail.com" className="hover:text-slate-600 transition-colors">slzenlace@gmail.com</a>
           </p>
         </div>
       )}
@@ -385,7 +385,6 @@ export const checkAccess = (view: ActiveView, role: UserRole): boolean => {
     ring_groups: ['admin', 'supervisor'],
     queues: ['admin', 'supervisor'],
     ivr: ['admin', 'supervisor'],
-    media_manager: ['admin', 'supervisor'],
     cdr: ['admin', 'supervisor', 'auditor'],
     recordings: ['admin', 'supervisor', 'auditor'],
     transcriptions: ['admin', 'supervisor', 'auditor'],

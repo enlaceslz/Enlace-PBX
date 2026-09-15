@@ -1,5 +1,3 @@
-import fs from 'fs';
-import path from 'path';
 // Enlace-PBX Data Store & State Engine (PostgreSQL Simulation with Multi-Tenant & RLS support)
 
 export interface CrmProvider {
@@ -614,7 +612,7 @@ export class Database {
         blockInternational: true,
         blockExpensiveDestinations: true,
         maxCallDurationMinutes: 180,
-        alertEmail: 'pbx@enlace.slz.br',
+        alertEmail: 'noc@enlacedigital.com.br',
         autoSuspendOnAnomaly: true
       }
     },
@@ -644,17 +642,27 @@ export class Database {
       id: 'user-admin',
       tenantId: 'tenant-enlace-matriz',
       name: 'Administrador Enlace',
-      email: 'pbx@enlace.slz.br',
+      email: 'admin@enlace.pbx',
       role: 'super_admin',
       extension: '4100',
       isActive: true,
-      lastLogin: new Date().toISOString(),
+      lastLogin: '2026-09-15T00:00:00Z',
+    },
+    {
+      id: 'user-slz',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'Administrador (slzenlace)',
+      email: 'slzenlace@gmail.com',
+      role: 'super_admin',
+      extension: '4100',
+      isActive: true,
+      lastLogin: '2026-09-15T00:00:00Z',
     },
     {
       id: 'user-1',
       tenantId: 'tenant-enlace-matriz',
       name: 'Carlos Henrique Silva',
-      email: 'carlos.silva@enlace.slz.br',
+      email: 'carlos.silva@enlacedigital.com.br',
       role: 'super_admin',
       extension: '4101',
       isActive: true,
@@ -664,7 +672,7 @@ export class Database {
       id: 'user-2',
       tenantId: 'tenant-enlace-matriz',
       name: 'Mariana Duarte Souza',
-      email: 'mariana.souza@enlace.slz.br',
+      email: 'mariana.souza@enlacedigital.com.br',
       role: 'supervisor',
       extension: '4102',
       isActive: true,
@@ -674,7 +682,7 @@ export class Database {
       id: 'user-3',
       tenantId: 'tenant-enlace-matriz',
       name: 'Lucas Barreto',
-      email: 'lucas.barreto@enlace.slz.br',
+      email: 'lucas.barreto@enlacedigital.com.br',
       role: 'operador',
       extension: '4103',
       isActive: true,
@@ -684,7 +692,7 @@ export class Database {
       id: 'user-auditor',
       tenantId: 'tenant-enlace-matriz',
       name: 'Fernanda Leite (Auditoria LGPD)',
-      email: 'auditoria@enlace.slz.br',
+      email: 'auditoria@enlacedigital.com.br',
       role: 'auditor',
       isActive: true,
       lastLogin: '2026-09-09T16:30:00Z',
@@ -1193,7 +1201,7 @@ export class Database {
       mockResponse: {
         valor: 'R$ 289,90',
         vencimento: '15/09/2026',
-        pix_copia_cola: '00020126580014br.gov.bcb.pix0136enlace-telecom-cobranca@enlace.slz.br5204000053039865406289.905802BR5914ENLACE TELECOM6009SAO LUIS62070503***6304E8A2',
+        pix_copia_cola: '00020126580014br.gov.bcb.pix0136enlace-telecom-cobranca@enlace.com.br5204000053039865406289.905802BR5914ENLACE TELECOM6009SAO PAULO62070503***6304E8A2',
         status: 'Aberta a vencer',
       },
     },
@@ -2127,7 +2135,7 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       maxRetry: 3,
       findTimeSeconds: 600,
       banTimeSeconds: 86400,
-      destEmail: 'pbx@enlace.slz.br',
+      destEmail: 'noc@enlacetentelecom.com.br',
       action: '%(action_mwl)s',
       logPathAsterisk: '/var/log/asterisk/messages',
       sipRateLimitPps: 20,
@@ -2210,9 +2218,9 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
     };
     updatedAt: string;
   } = {
-    hostname: 'pbx.enlace.slz.br',
+    hostname: 'pbx-sp-datacenter.enlace.internal',
     publicIp: '177.136.210.12',
-    domain: 'enlace.slz.br',
+    domain: 'pbx.enlacetelecom.com.br',
     lanIp: '192.168.1.100',
     lanSubnet: '192.168.1.0/24',
     lanGateway: '192.168.1.1',
@@ -2232,20 +2240,20 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
     sslCertificate: {
       provider: 'letsencrypt',
       status: 'valid',
-      issuedTo: 'enlace.slz.br',
+      issuedTo: 'pbx.enlacetelecom.com.br',
       issuer: "Let's Encrypt Authority R3",
       validFrom: '2026-08-15T00:00:00Z',
       validTo: '2026-11-15T23:59:59Z',
       daysRemaining: 64,
       autoRenew: true,
       renewBeforeDays: 30,
-      san: ['enlace.slz.br', 'pbx.enlace.slz.br', 'sip.enlace.slz.br', 'webrtc.enlace.slz.br'],
+      san: ['pbx.enlacetelecom.com.br', 'sip.enlacetelecom.com.br', 'webrtc.enlacetelecom.com.br'],
       keyType: 'ECDSA (prime256v1) / TLS 1.3',
       fingerprintSha256: 'E4:91:2B:6F:09:A1:77:8C:3D:5F:92:4E:01:8A:BC:33:41:99:FF:70',
-      certPath: '/etc/letsencrypt/live/enlace.slz.br/fullchain.pem',
-      keyPath: '/etc/letsencrypt/live/enlace.slz.br/privkey.pem',
+      certPath: '/etc/letsencrypt/live/pbx.enlacetelecom.com.br/fullchain.pem',
+      keyPath: '/etc/letsencrypt/live/pbx.enlacetelecom.com.br/privkey.pem',
       challengeType: 'http-01',
-      adminEmail: 'pbx@enlace.slz.br',
+      adminEmail: 'noc@enlacetelecom.com.br',
     },
     validationWebphone: {
       status: 'passed',
@@ -2255,7 +2263,7 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       mediaMicrophonePermission: 'granted',
       stunConfigured: true,
       lastTested: '2026-09-12T16:50:00Z',
-      details: 'Certificado HTTPS ativo para enlace.slz.br e pbx.enlace.slz.br. Handshake WSS (wss://pbx.enlace.slz.br:8089/ws) respondendo 101 Switching Protocols. Codec Opus 48kHz ativo.',
+      details: 'Certificado HTTPS ativo. Handshake WSS (wss://pbx.enlacetelecom.com.br:8089/ws) respondendo 101 Switching Protocols. Codec Opus 48kHz ativo.',
     },
     validationPwa: {
       status: 'passed',
@@ -2264,7 +2272,7 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       manifestValid: true,
       pushVapidConfigured: true,
       vapidPublicKey: 'BOrnQ_VzHh6lUoP-XkGzGz56H1Wf2YJ3A4vG7Q-x9u2w4gE-X5f3K1lP8qW_7tY',
-      vapidSubject: 'mailto:pbx@enlace.slz.br',
+      vapidSubject: 'mailto:noc@enlacetelecom.com.br',
       lastTested: '2026-09-12T16:51:00Z',
       details: 'Web App Manifest e Service Worker em conformidade. Chaves VAPID configuradas e aptas para disparos de Push em segundo plano.',
     },
@@ -2272,64 +2280,15 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       status: 'passed',
       httpsVerified: true,
       publicCertTrusted: true,
-      webhookEndpoint: 'https://pbx.enlace.slz.br/api/v1/webhooks/whatsapp',
+      webhookEndpoint: 'https://pbx.enlacetelecom.com.br/api/v1/webhooks/whatsapp',
       verifyToken: 'enlace_meta_webhook_token_2026',
       port443Standard: true,
       lastTested: '2026-09-12T16:52:00Z',
-      details: 'Endpoint público HTTPS verificado pela Meta. Certificado reconhecido por AC pública para enlace.slz.br. Resposta do webhook com status 200 OK para o desafio hub.challenge.',
+      details: 'Endpoint público HTTPS verificado pela Meta. Certificado reconhecido por AC pública. Resposta do webhook com status 200 OK para o desafio hub.challenge.',
     },
     updatedAt: '2026-09-12T16:52:00Z',
   };
-
-
-  private _lastSnapshot = '';
-  private _dbFilePath = path.join(process.cwd(), 'database.json');
-
-  constructor() {
-    this.loadFromDisk();
-    // Iniciar loop de backup automático a cada 10 segundos
-    setInterval(() => this.saveToDisk(), 10000);
-  }
-
-  private loadFromDisk() {
-    try {
-      if (fs.existsSync(this._dbFilePath)) {
-        const fileData = fs.readFileSync(this._dbFilePath, 'utf-8');
-        const parsed = JSON.parse(fileData);
-        
-        for (const [key, value] of Object.entries(parsed)) {
-          if (key !== '_lastSnapshot' && key !== '_dbFilePath') {
-            (this as any)[key] = value;
-          }
-        }
-        this._lastSnapshot = fileData;
-        console.log(`[Database] Banco de dados self-hosted carregado do disco local (${this._dbFilePath}).`);
-      }
-    } catch (err) {
-      console.error(`[Database] Erro ao carregar banco de dados local:`, err);
-    }
-  }
-
-  public saveToDisk() {
-    try {
-      const dataToSave = {};
-      for (const [key, value] of Object.entries(this)) {
-        if (key !== '_lastSnapshot' && key !== '_dbFilePath') {
-          dataToSave[key] = value;
-        }
-      }
-      
-      const currentJson = JSON.stringify(dataToSave);
-      
-      if (currentJson !== this._lastSnapshot) {
-        fs.writeFileSync(this._dbFilePath, currentJson, 'utf-8');
-        this._lastSnapshot = currentJson;
-        // console.log(`[Database] Sincronização self-hosted concluída.`);
-      }
-    } catch (err) {
-      console.error(`[Database] Erro ao salvar no disco:`, err);
-    }
-  }
 }
 
 export const db = new Database();
+

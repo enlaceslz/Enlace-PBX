@@ -14,7 +14,20 @@ interface HelpManualViewProps {
   onNavigate?: (view: ActiveView) => void;
 }
 
-type ChapterId = 'intro' | 'brand_assets' | 'modules_guide' | 'deploy_guide' | 'infra_ssl' | 'pjsip_webrtc' | 'routing_trunks' | 'acd_queues' | 'ai_maia' | 'whatsapp_pwa' | 'security_lgpd' | 'troubleshooting' | 'glossary' | 'backup_restore_guide' | 'backup';
+type ChapterId = 
+  | 'intro'
+  | 'brand_assets'
+  | 'modules_guide'
+  | 'deploy_guide'
+  | 'infra_ssl'
+  | 'pjsip_webrtc'
+  | 'routing_trunks'
+  | 'acd_queues'
+  | 'ai_maia'
+  | 'whatsapp_pwa'
+  | 'security_lgpd'
+  | 'troubleshooting'
+  | 'glossary';
 
 interface DocTopic {
   id: ChapterId;
@@ -31,7 +44,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
 
   const topics: DocTopic[] = [
     { id: 'intro', label: 'Introdução & Arquitetura', icon: BookOpen, description: 'Visão geral do Enlace-PBX e fluxo Asterisk 20 + IA' },
-    { id: 'brand_assets', label: 'Identidade Visual & Logos', badge: 'Oficial', icon: Palette, description: 'Logos, tipografia Enlace-PBX e download de ativos' },
+    { id: 'brand_assets', label: 'Identidade Visual & Logos', badge: 'Oficial', icon: Palette, description: 'Mascote Polvo com IA, tipografia Enlace-PBX e download de ativos' },
     { id: 'modules_guide', label: 'Módulos, URA & Recursos', badge: 'Completo', icon: Layers, description: 'Guia de ponta a ponta: URA Visual, CRM Hub, Billing, Snapshots' },
     { id: 'deploy_guide', label: 'Procedimentos de Deploy & Linux', badge: 'Produção', icon: Server, description: 'Script deploy.sh, Asterisk 20, NGINX SSL, PM2 e Firewall UFW' },
     { id: 'infra_ssl', label: 'Host, Domínio, Rede & SSL', badge: 'Novo', icon: Globe, description: 'Configuração de IP WAN/LAN, NAT Traversal e Certificados HTTPS' },
@@ -41,7 +54,6 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
     { id: 'ai_maia', label: 'Agentes MaIA (Google Gemini)', badge: 'IA Realtime', icon: Bot, description: 'Arquitetura ARI Stasis, RAG semântico e Function Calling' },
     { id: 'whatsapp_pwa', label: 'WhatsApp Meta & PWA Push', badge: 'Omnichannel', icon: MessageSquare, description: 'Webhooks na porta 443, PWA desktop/mobile e notificações VAPID' },
     { id: 'security_lgpd', label: 'Segurança, Firewall & LGPD', icon: ShieldCheck, description: 'Fail2ban, WireGuard, RBAC e trilha de auditoria criptográfica' },
-    { id: 'backup_restore_guide', label: 'Backup & Disaster Recovery', icon: Database, description: 'Snapshots locais e automatizados em nuvem (S3/FTP)' },
     { id: 'troubleshooting', label: 'Diagnóstico & Resolução (FAQ)', icon: Wrench, description: 'Áudio mudo, registro SIP rejeitado, falha SSL e comandos CLI' },
     { id: 'glossary', label: 'Glossário Técnico Completo', icon: HelpCircle, description: 'Dicionário de termos de Telecom, VoIP e Inteligência Artificial' },
   ];
@@ -175,10 +187,10 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
             </p>
             <div className="space-y-2">
               <a
-                href="mailto:pbx@enlace.slz.br"
+                href="mailto:slzenlace@gmail.com"
                 className="block text-center text-xs font-bold bg-blue-600 hover:bg-blue-500 py-2 rounded-lg transition"
               >
-                Abrir Chamado Técnico (pbx@enlace.slz.br)
+                Abrir Chamado Técnico
               </a>
               {onNavigate && (
                 <button
@@ -246,7 +258,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                   <div className="w-24 h-24 sm:w-28 sm:h-28 shrink-0 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-2 flex items-center justify-center shadow-inner">
                     <img
                       src="/logo-icon.png"
-                      alt="Logo Oficial Enlace-PBX"
+                      alt="Mascote Oficial Enlace-PBX"
                       className="w-full h-full object-contain filter drop-shadow-md"
                       onError={(e) => {
                         (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
@@ -255,10 +267,10 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                   </div>
                   <div className="flex-1 text-center md:text-left">
                     <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-[10px] font-black uppercase tracking-wider mb-2 border border-blue-400/30">
-                      <Sparkles className="w-3 h-3 text-cyan-300" /> Logo Oficial Enlace-PBX
+                      <Sparkles className="w-3 h-3 text-cyan-300" /> Mascote Oficial Enlace-PBX
                     </div>
                     <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                      Logotipo da Plataforma
+                      O Polvo Tecnológico de Voz & Inteligência Artificial
                     </h3>
                     <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed max-w-2xl">
                       Simboliza a capacidade multicanal de atender dezenas de chamadas simultâneas (tentáculos operacionais) com precisão neural centralizada (emblema IA e headset profissional de call center).
@@ -372,17 +384,17 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                     </div>
                   </div>
 
-                  {/* Logo Redonda / Quadrada */}
+                  {/* Mascote Redondo / Quadrado */}
                   <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between mb-4">
-                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Ícone Oficial</span>
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Ícone & Mascote Oficial</span>
                         <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded">512 × 512 px</span>
                       </div>
                       <div className="bg-white p-6 rounded-xl border border-slate-200 flex items-center justify-center min-h-[160px] shadow-sm">
                         <img
                           src="/logo-icon.png"
-                          alt="Ícone Enlace-PBX"
+                          alt="Mascote Enlace-PBX"
                           className="max-h-28 w-auto object-contain"
                           onError={(e) => {
                             (e.currentTarget as HTMLImageElement).src = '/logo-icon.svg';
@@ -396,14 +408,14 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                     <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-200">
                       <a
                         href="/logo-icon.png"
-                        download="enlace-pbx-logo-icon.png"
+                        download="enlace-pbx-mascote-icon.png"
                         className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
                       >
                         <Download className="w-3.5 h-3.5" /> Baixar PNG HD
                       </a>
                       <a
                         href="/logo-icon.svg"
-                        download="enlace-pbx-logo-icon.svg"
+                        download="enlace-pbx-mascote.svg"
                         className="flex-1 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
                       >
                         <Download className="w-3.5 h-3.5" /> Baixar Vetor SVG
@@ -414,7 +426,30 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
 
                 {/* Conceito da Marca e Cores */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                  <div className="p-6 bg-white border border-slate-200 rounded-2xl md:col-span-2">
+                  <div className="p-6 bg-white border border-slate-200 rounded-2xl">
+                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-blue-600" /> A Simbologia do Mascote Polvo
+                    </h4>
+                    <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                      O polvo foi escolhido por representar com perfeição o coração de uma central de telecomunicações de nova geração:
+                    </p>
+                    <ul className="space-y-2 text-xs text-slate-600">
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>Múltiplos Canais Simultâneos:</strong> Cada tentáculo simboliza um fluxo de atendimento em paralelo (Voz, WhatsApp, Chat, CRM, IA).</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>Núcleo Cognitivo IA:</strong> O nó neural luminoso na cabeça indica o processamento em tempo real com Google Gemini.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>Headset Profissional:</strong> Representa o compromisso com a telefonia profissional e acústica de alta fidelidade (Opus 48kHz).</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="p-6 bg-white border border-slate-200 rounded-2xl">
                     <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-2">
                       <Palette className="w-4 h-4 text-blue-600" /> Paleta Cromática Corporativa
                     </h4>
@@ -556,7 +591,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                       </div>
                       <h3 className="text-base font-bold text-slate-900 mb-2">3. Contact Center Omnichannel</h3>
                       <p className="text-xs text-slate-600 leading-relaxed mb-4">
-                        Caixa de entrada unificada (BFF Express) combinando chamadas de voz com mensagens oficiais do WhatsApp. O Webphone conta com a aba lateral flutuante "Hub Omnichannel", permitindo gerenciar o softphone (chamada ativa, mudo, espera, AMI/ARI) e o chat no mesmo modal de forma lado a lado, sem recarregar a página (React Context State).
+                        Caixa de entrada unificada de atendimento combinando chamadas de voz com mensagens oficiais do WhatsApp (Meta Cloud API v20.0), Webchat embutido e PWA móvel com notificações Push VAPID.
                       </p>
                       <ul className="space-y-1.5 text-xs text-slate-600">
                         <li className="flex items-center gap-2">
@@ -741,37 +776,6 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                       {copiedKey === 'deploy_cmd' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                     </button>
                   </div>
-                </div>
-
-
-                {/* Botão de Atualização Integrada */}
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 mt-8 flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4 text-emerald-600" /> Atualizações via GitHub (OTA)
-                </h3>
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 mb-8">
-                  <p className="text-xs text-slate-700 mb-3">
-                    Como o projeto <strong>Enlace PBX OSS</strong> é de código aberto e hospedado no GitHub, a plataforma conta com um sistema de atualização via OTA (Over-The-Air) disponível diretamente na interface.
-                  </p>
-                  <ul className="space-y-2 text-xs text-slate-600 mb-4 ml-2">
-                    <li className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      Não é necessário acessar o terminal SSH em produção para puxar novas versões.
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      O botão "Atualizar Sistema" no painel de Infraestrutura executa <code className="font-mono bg-white px-1 py-0.5 rounded border border-slate-200">git pull origin main</code> e reconstrói o frontend e backend.
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      Bloqueio de segurança integrado: O sistema não permite atualizações se houver chamadas em curso para evitar interrupções de serviço.
-                    </li>
-                  </ul>
-                  <button
-                    onClick={() => onNavigate && onNavigate('infra_settings')}
-                    className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition inline-flex items-center gap-2"
-                  >
-                    Acessar Infraestrutura & Rede <ArrowRight className="w-3 h-3" />
-                  </button>
                 </div>
 
                 {/* Requisitos de Hardware & Rede */}
@@ -979,7 +983,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                       <Terminal className="w-4 h-4 text-emerald-400" /> Geração de Certificado Oficial no Linux (Certbot Let's Encrypt)
                     </span>
                     <button
-                      onClick={() => handleCopy("certbot certonly --standalone -d pbx.enlace.slz.br -d enlace.slz.br --agree-tos -m pbx@enlace.slz.br", "certbot_cmd")}
+                      onClick={() => handleCopy("certbot certonly --standalone -d pbx.seudominio.com.br --agree-tos -m contato@seudominio.com.br", "certbot_cmd")}
                       className="text-[11px] font-mono bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-lg border border-slate-700 flex items-center gap-1.5 transition"
                     >
                       {copiedKey === 'certbot_cmd' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -987,7 +991,7 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                     </button>
                   </div>
                   <pre className="text-xs font-mono text-emerald-400 bg-black/40 p-3.5 rounded-xl overflow-x-auto">
-certbot certonly --standalone -d pbx.enlace.slz.br -d enlace.slz.br --agree-tos -m pbx@enlace.slz.br
+certbot certonly --standalone -d pbx.seudominio.com.br --agree-tos -m contato@seudominio.com.br
                   </pre>
                   <p className="text-[11px] text-slate-400 mt-3">
                     Após gerar, o script automatizado sincroniza os certificados em <code>/etc/asterisk/keys/</code> e reinicia o transporte PJSIP seguro.
@@ -1474,9 +1478,7 @@ exten => 1140049999,1,NoOp(Chamada direcionada ao Agente MaIA)
         <p className="text-[11px] text-slate-400 mt-2 flex items-center justify-center gap-2 flex-wrap">
           <span>Criado por <strong>André LJP</strong></span>
           <span className="w-1 h-1 rounded-full bg-slate-300" />
-          <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 hover:underline transition">Enlace Telecom (enlace.slz.br)</a>
-          <span className="w-1 h-1 rounded-full bg-slate-300" />
-          <a href="mailto:pbx@enlace.slz.br" className="hover:text-slate-600 transition">pbx@enlace.slz.br</a>
+          <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 hover:underline transition">Enlace Telecom</a>
           <span className="w-1 h-1 rounded-full bg-slate-300" />
           <a href="mailto:slzenlace@gmail.com" className="hover:text-slate-600 transition">slzenlace@gmail.com</a>
         </p>

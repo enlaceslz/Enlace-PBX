@@ -107,21 +107,19 @@ export function detectVoiceGender(text: string, persona?: VoicePersona, fallback
   if (persona === 'roberto' || persona === 'carlos') return 'male';
   if (persona === 'maia' || persona === 'mariana' || persona === 'renata' || persona === 'ura') return 'female';
 
-  const lower = (text || '').toLowerCase();
+  const lower = text.toLowerCase();
 
-  // Pistas prioritárias de identidade masculina (Roberto Mendes / Suporte N1 / Carlos)
+  // Pistas explícitas de identidade masculina (Roberto / Carlos / Suporte N1 / Lucas)
   const maleKeywords = [
     'roberto falando',
     'roberto mendes',
     'meu nome é roberto',
     'sou o roberto',
-    'aqui é o roberto',
     'roberto do suporte',
     'carlos falando',
     'carlos silva',
     'meu nome é carlos',
     'sou o carlos',
-    'aqui é o carlos',
     'lucas falando',
     'meu nome é lucas',
     'sou o lucas',
@@ -152,108 +150,6 @@ export function detectVoiceGender(text: string, persona?: VoicePersona, fallback
   }
 
   return fallback === 'male' ? 'male' : 'female';
-}
-
-export interface DetectedSpeakerInfo {
-  gender: 'male' | 'female';
-  persona: VoicePersona;
-  speakerName: string;
-  geminiVoice: 'Fenrir' | 'Zephyr' | 'Puck' | 'Kore';
-}
-
-/**
- * Identifica formalmente o atendente com base na transcrição falada ou ramal de destino
- */
-export function detectSpeakerPersona(text: string, destination?: string): DetectedSpeakerInfo {
-  const lower = (text || '').toLowerCase();
-  const dest = (destination || '').toLowerCase();
-
-  // Roberto Mendes (Suporte Técnico N1/N2, NOC, Ramal 4102)
-  if (
-    lower.includes('roberto falando') ||
-    lower.includes('roberto mendes') ||
-    lower.includes('aqui é o roberto') ||
-    lower.includes('sou o roberto') ||
-    lower.includes('roberto do suporte') ||
-    dest.includes('4102') ||
-    dest.includes('roberto')
-  ) {
-    return {
-      gender: 'male',
-      persona: 'roberto',
-      speakerName: 'Roberto Mendes (Voz Masculina • Suporte N1)',
-      geminiVoice: 'Fenrir',
-    };
-  }
-
-  // Carlos Silva (Central Telefônica, Ramal 4101)
-  if (
-    lower.includes('carlos falando') ||
-    lower.includes('carlos silva') ||
-    lower.includes('aqui é o carlos') ||
-    lower.includes('sou o carlos') ||
-    dest.includes('4101') ||
-    dest.includes('carlos')
-  ) {
-    return {
-      gender: 'male',
-      persona: 'carlos',
-      speakerName: 'Carlos Silva (Voz Masculina • Central)',
-      geminiVoice: 'Puck',
-    };
-  }
-
-  // Mariana Costa (Comercial, Ramal 4103)
-  if (
-    lower.includes('mariana falando') ||
-    lower.includes('mariana costa') ||
-    dest.includes('4103') ||
-    dest.includes('mariana')
-  ) {
-    return {
-      gender: 'female',
-      persona: 'mariana',
-      speakerName: 'Mariana Costa (Voz Feminina • Comercial)',
-      geminiVoice: 'Zephyr',
-    };
-  }
-
-  // Renata Lima (Financeiro, Ramal 4201)
-  if (
-    lower.includes('renata falando') ||
-    lower.includes('renata lima') ||
-    dest.includes('4201') ||
-    dest.includes('renata')
-  ) {
-    return {
-      gender: 'female',
-      persona: 'renata',
-      speakerName: 'Renata Lima (Voz Feminina • Financeiro)',
-      geminiVoice: 'Kore',
-    };
-  }
-
-  // Outros marcadores masculinos
-  if (
-    lower.includes('especialista masculino') ||
-    lower.includes('atendente masculino') ||
-    lower.includes('lucas falando')
-  ) {
-    return {
-      gender: 'male',
-      persona: 'roberto',
-      speakerName: 'Atendente Técnico (Voz Masculina)',
-      geminiVoice: 'Fenrir',
-    };
-  }
-
-  // Padrão: MaIA 24/7
-  return {
-    gender: 'female',
-    persona: 'maia',
-    speakerName: 'MaIA (Voz Feminina • Assistente Virtual 24/7)',
-    geminiVoice: 'Zephyr',
-  };
 }
 
 /**
@@ -438,92 +334,6 @@ export function speakHumanized(text: string, options: SpeakOptions = {}): Speech
   }
 
   return utterance;
-}
-
-/**
- * Interrompe qualquer reprodução de voz ativa (Gemini áudio ou Web Speech API).
- */
-let activeAudioElement: HTMLAudioElement | null = null;
-
-export function stopAnyVoice(): void {
-  if (activeAudioElement) {
-    try {
-      activeAudioElement.pause();
-      activeAudioElement.currentTime = 0;
-    } catch {
-      // Ignora
-    }
-    activeAudioElement = null;
-  }
-  stopSpeaking();
-}
-
-/**
- * Reproduz voz de altíssima qualidade utilizando prioritariamente o Gemini TTS (WAV 24kHz)
- * com fallback imediato para o motor local humanizado Web Speech API.
- */
-export async function playStudioOrWebVoice(
-  text: string,
-  options: SpeakOptions & {
-    voiceName?: string;
-    onStart?: () => void;
-    onEnd?: () => void;
-    onError?: (e: unknown) => void;
-  } = {}
-): Promise<void> {
-  stopAnyVoice();
-
-  const detected = detectSpeakerPersona(text);
-  const targetGender = options.gender && options.gender !== 'auto' ? options.gender : detected.gender;
-  const targetVoice = options.voiceName || (targetGender === 'male' ? 'Fenrir' : 'Zephyr');
-
-  try {
-    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('enlace_jwt_token') : null;
-    const res = await fetch('/api/v1/ai/preview-voice', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        text,
-        voiceGender: targetGender,
-        voice: targetVoice,
-      }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data.audioBase64) {
-        const audio = new Audio(`data:audio/wav;base64,${data.audioBase64}`);
-        activeAudioElement = audio;
-        if (options.onStart) options.onStart();
-
-        audio.onended = () => {
-          activeAudioElement = null;
-          if (options.onEnd) options.onEnd();
-        };
-
-        audio.onerror = (e) => {
-          activeAudioElement = null;
-          console.warn('Erro ao reproduzir áudio Gemini, usando fallback Web Speech:', e);
-          speakHumanized(text, { ...options, gender: targetGender });
-        };
-
-        await audio.play();
-        return;
-      }
-    }
-  } catch (err) {
-    console.warn('Falha na requisição de voz de estúdio Gemini, aplicando fallback local:', err);
-  }
-
-  // Fallback para Web Speech API local humanizada
-  speakHumanized(text, {
-    ...options,
-    gender: targetGender,
-    persona: options.persona || detected.persona,
-  });
 }
 
 /**

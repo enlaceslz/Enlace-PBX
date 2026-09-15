@@ -10,7 +10,7 @@ import {
   Radio,
   Menu,
   ShieldCheck,
-  LogOut,
+  LogOut
 } from 'lucide-react';
 import { Tenant, User, UserRole } from '../types/pbx';
 
@@ -171,6 +171,11 @@ export const Navbar: React.FC<NavbarProps> = ({
              Open Source by Enlace
            </a>
         </div>
+        <div className="hidden md:flex items-center gap-1.5 mr-2">
+           <a href="https://enlace.slz.be" target="_blank" rel="noopener noreferrer" className="px-2 py-1 rounded bg-slate-50 border border-slate-200 text-[9px] font-black uppercase text-slate-400 hover:text-blue-500 hover:border-blue-200 transition-colors">
+             Open Source by Enlace
+           </a>
+        </div>
         {/* Webphone Toggle Button */}
         <button
           onClick={onOpenWebphone}
@@ -184,7 +189,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span>Webphone</span>
         </button>
 
-        {/* User Identity & Logout */}
+        {/* User Identity */}
         <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-slate-200">
           <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-blue-600">
             {currentUser?.name?.slice(0, 2).toUpperCase() || 'CH'}
@@ -198,8 +203,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           {onLogout && (
             <button
               onClick={onLogout}
-              title="Encerrar sessão (Logout)"
-              className="ml-1 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+              title="Encerrar sessão"
+              className="ml-2 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
             >
               <LogOut className="w-4 h-4" />
             </button>

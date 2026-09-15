@@ -96,15 +96,6 @@ export const OmnichannelView: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    fetchConversations().then(() => setIsLoading(false));
-    fetchConfig();
-
-    // Poll every 3s for new WhatsApp messages
-    const interval = setInterval(fetchConversations, 3000);
-    return () => clearInterval(interval);
-  }, []);
-
   const handleSaveConfig = async () => {
     try {
       const res = await fetch("/api/v1/whatsapp/config", {
@@ -953,6 +944,71 @@ export const OmnichannelView: React.FC = () => {
                   Salvar Configuração
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showConfig && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-emerald-600" />
+                Configurar WhatsApp Cloud API
+              </h3>
+              <button onClick={() => setShowConfig(false)} className="text-slate-400 hover:text-slate-600">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Phone Number ID</label>
+                <input 
+                  type="text" 
+                  value={whatsappConfig.phoneNumberId} 
+                  onChange={e => setWhatsappConfig({...whatsappConfig, phoneNumberId: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Ex: 104593848573..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Access Token (Permanente)</label>
+                <input 
+                  type="password" 
+                  value={whatsappConfig.accessToken} 
+                  onChange={e => setWhatsappConfig({...whatsappConfig, accessToken: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="EAAGX..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Verify Token (Para Webhook)</label>
+                <input 
+                  type="text" 
+                  value={whatsappConfig.verifyToken} 
+                  onChange={e => setWhatsappConfig({...whatsappConfig, verifyToken: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Seu token secreto para validar o Webhook"
+                />
+              </div>
+              <div className="flex items-center gap-2 mt-4">
+                <input 
+                  type="checkbox" 
+                  id="waActive"
+                  checked={whatsappConfig.isActive} 
+                  onChange={e => setWhatsappConfig({...whatsappConfig, isActive: e.target.checked})}
+                  className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                />
+                <label htmlFor="waActive" className="text-sm font-medium text-slate-700">Ativar Integração Oficial</label>
+              </div>
+
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
+                <span className="font-bold block mb-1">Webhook URL:</span>
+                <code>https://{'<'}seu-dominio{'>'}/api/v1/webhooks/whatsapp</code>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <button onClick={() => setShowConfig(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition">Cancelar</button>
+              <button onClick={handleSaveConfig} className="px-4 py-2 text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg transition">Salvar Credenciais</button>
             </div>
           </div>
         </div>

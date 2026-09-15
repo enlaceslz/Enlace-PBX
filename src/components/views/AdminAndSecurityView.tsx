@@ -960,9 +960,8 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
           </div>
         </div>
       )}
+      </div>
 
-      </div>
-      </div>
       {/* MODAL: ADICIONAR / EDITAR USUÁRIO */}
       {isUserModalOpen && (
         <div className="fixed inset-0 z-50 bg-[#0f172a]/40 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1000,7 +999,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                 <input
                   type="email"
                   required
-                  placeholder="Ex: pbx@enlace.slz.br ou operador@enlace.slz.br"
+                  placeholder="Ex: ana.ribeiro@empresa.com.br"
                   value={userFormData.email}
                   onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-600"
@@ -1168,6 +1167,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 };
