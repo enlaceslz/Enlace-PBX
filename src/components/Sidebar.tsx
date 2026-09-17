@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Users,
   Settings,
-  Settings,
   PhoneCall,
   GitFork,
   Radio,

@@ -7,13 +7,20 @@ import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { db } from './server/db.js';
+import { adminDb } from './server/firebase-admin.js';
 import { geminiService } from './server/geminiService.js';
 import { asteriskService } from './server/asteriskService.js';
 import { systemLogsManager } from './server/systemLogs.js';
 
+import { syncInitialDataToFirestore } from './server/firebase-seed.js';
+
 async function startServer() {
+  await syncInitialDataToFirestore();
   const app = express();
   const PORT = 3000;
+
+  // Configure express to trust the reverse proxy (crucial for AI Studio environment)
+  app.set('trust proxy', 1);
 
   // -------------------------------------------------------------------------
   // Middlewares de Segurança Enterprise (Security by Design)
@@ -37,6 +44,7 @@ async function startServer() {
     max: 1000, // Limite de 1000 requisições por IP a cada 15 min
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false, trustProxy: false },
     message: { error: 'Limite de requisições excedido. Tente novamente mais tarde.' }
   });
   app.use('/api/', apiLimiter);
@@ -45,6 +53,7 @@ async function startServer() {
   const authLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hora
     max: 10, // 10 tentativas por IP
+    validate: { xForwardedForHeader: false, trustProxy: false },
     message: { error: 'Muitas tentativas de login. IP bloqueado temporariamente.' }
   });
   app.use('/api/v1/auth/', authLimiter);
@@ -82,8 +91,9 @@ const authenticateToken = (req: express.Request, res: express.Response, next: ex
       return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
     }
 
-    // Busca usuário no banco (por e-mail, username ou alias)
-    let user = db.users.find(u => 
+    // Busca usuário no Firestore
+    const usersSnapshot = await adminDb.collection('users').get();
+    let user = usersSnapshot.docs.map(doc => doc.data() as any).find(u => 
       u.email.toLowerCase() === rawEmail ||
       (rawEmail === 'admin' && (u.email === 'admin@enlace.pbx' || u.role === 'super_admin')) ||
       (rawEmail.startsWith('admin@') && u.role === 'super_admin')
@@ -92,17 +102,20 @@ const authenticateToken = (req: express.Request, res: express.Response, next: ex
     // Se o usuário digitou e-mail ainda não registrado (ex: e-mail corporativo ou slzenlace@gmail.com)
     if (!user) {
       if (rawEmail === 'admin@enlace.pbx' || rawEmail === 'admin' || rawEmail.includes('admin') || rawEmail === 'slzenlace@gmail.com') {
+        const tenantsSnapshot = await adminDb.collection('tenants').limit(1).get();
+        const tenantId = tenantsSnapshot.empty ? 'tenant-enlace-matriz' : tenantsSnapshot.docs[0].id;
+
         user = {
           id: 'user-admin-' + Date.now(),
-          tenantId: db.tenants[0]?.id || 'tenant-enlace-matriz',
+          tenantId,
           name: rawEmail === 'slzenlace@gmail.com' ? 'Administrador (slzenlace)' : 'Administrador Enlace',
           email: rawEmail.includes('@') ? rawEmail : 'admin@enlace.pbx',
-          role: 'super_admin',
+          role: 'superadmin',
           extension: '4100',
-          isActive: true,
+          status: 'active',
           lastLogin: new Date().toISOString(),
         };
-        db.users.unshift(user);
+        await adminDb.collection('users').doc(user.id).set(user);
       }
     }
 
@@ -112,6 +125,7 @@ const authenticateToken = (req: express.Request, res: express.Response, next: ex
 
     if (user && isPasswordValid) {
       user.lastLogin = new Date().toISOString();
+      await adminDb.collection('users').doc(user.id).update({ lastLogin: user.lastLogin }).catch(() => {});
       const token = jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: '8h' });
       res.json({ token, user });
     } else if (!user) {
@@ -2293,8 +2307,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json(newLog);
   });
 
-  app.get('/api/v1/users', (req, res) => res.json(db.users));
-  app.post('/api/v1/users', (req, res) => {
+  app.get('/api/v1/users', async (req, res) => {
+    try {
+      const snapshot = await adminDb.collection('users').get();
+      res.json(snapshot.docs.map(d => d.data()));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Erro ao listar usuários' });
+    }
+  });
+
+  app.post('/api/v1/users', async (req, res) => {
     const { name, email, role, extension, tenantId } = req.body;
     if (!name || !email) {
       return res.status(400).json({ error: 'Nome e e-mail são obrigatórios.' });
@@ -2304,12 +2327,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       tenantId: tenantId || 'tenant-enlace-matriz',
       name,
       email,
-      role: role || 'operador',
+      role: role || 'agent',
       extension: extension || undefined,
-      isActive: true,
+      status: 'active',
       lastLogin: new Date().toISOString(),
     };
-    db.users.push(newUser);
+    
+    await adminDb.collection('users').doc(newUser.id).set(newUser);
+    
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: newUser.tenantId,
@@ -2324,32 +2349,38 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json(newUser);
   });
 
-  app.put('/api/v1/users/:id', (req, res) => {
-    const idx = db.users.findIndex((u) => u.id === req.params.id);
-    if (idx === -1) {
+  app.put('/api/v1/users/:id', async (req, res) => {
+    const docRef = adminDb.collection('users').doc(req.params.id);
+    const snap = await docRef.get();
+    if (!snap.exists) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
-    db.users[idx] = { ...db.users[idx], ...req.body };
+    const updated = { ...snap.data(), ...req.body };
+    await docRef.set(updated);
+    
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
-      tenantId: db.users[idx].tenantId,
+      tenantId: updated.tenantId || 'tenant-enlace-matriz',
       userId: 'user-1',
       userName: 'Carlos Henrique Silva',
       action: 'UPDATE_USER',
       resource: `users/${req.params.id}`,
       ip: req.ip || '189.40.122.14',
       timestamp: new Date().toISOString(),
-      details: `Atualização de parâmetros do usuário ${db.users[idx].name}.`,
+      details: `Atualização de parâmetros do usuário ${updated.name}.`,
     });
-    res.json(db.users[idx]);
+    res.json(updated);
   });
 
-  app.delete('/api/v1/users/:id', (req, res) => {
-    const idx = db.users.findIndex((u) => u.id === req.params.id);
-    if (idx === -1) {
+  app.delete('/api/v1/users/:id', async (req, res) => {
+    const docRef = adminDb.collection('users').doc(req.params.id);
+    const snap = await docRef.get();
+    if (!snap.exists) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
-    const removed = db.users.splice(idx, 1)[0];
+    const removed = snap.data() as any;
+    await docRef.delete();
+    
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: removed.tenantId,
@@ -2364,8 +2395,16 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({ success: true });
   });
 
-  app.get('/api/v1/tenants', (req, res) => res.json(db.tenants));
-  app.post('/api/v1/tenants', (req, res) => {
+  app.get('/api/v1/tenants', async (req, res) => {
+    try {
+      const snap = await adminDb.collection('tenants').get();
+      res.json(snap.docs.map(d => d.data()));
+    } catch(e) {
+      console.error(e);
+      res.status(500).json({ error: 'Erro ao listar empresas' });
+    }
+  });
+  app.post('/api/v1/tenants', async (req, res) => {
     const { name, cnpj, plan, maxExtensions, maxTrunks, aiCreditsUsd } = req.body;
     if (!name || !cnpj) {
       return res.status(400).json({ error: 'Nome e CNPJ da empresa são obrigatórios.' });
@@ -2374,13 +2413,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       id: `tenant-${Date.now()}`,
       name,
       cnpj,
-      plan: plan || 'Business Voice Standard',
+      plan: plan || 'business',
+      status: 'active',
       maxExtensions: Number(maxExtensions) || 50,
       maxTrunks: Number(maxTrunks) || 10,
       aiCreditsUsd: Number(aiCreditsUsd) || 500,
       createdAt: new Date().toISOString(),
     };
-    db.tenants.push(newTenant);
+    await adminDb.collection('tenants').doc(newTenant.id).set(newTenant);
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: newTenant.id,
@@ -2659,41 +2699,6 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   });
 
-  app.get('/api/v1/dashboard/metrics', (req, res) => {
-    // Generate some dynamic metrics for the dashboard
-    const now = new Date();
-    const currentHour = now.getHours();
-    
-    // Simulate realistic daily curve
-    const hourlyCallDistribution = Array.from({ length: 24 }).map((_, i) => {
-      const isWorkHour = i >= 8 && i <= 18;
-      const baseCalls = isWorkHour ? Math.floor(Math.random() * 50) + 20 : Math.floor(Math.random() * 10) + 1;
-      const aiCalls = Math.floor(baseCalls * (Math.random() * 0.4 + 0.3)); // 30-70% handled by AI
-      return {
-        hour: `${i.toString().padStart(2, '0')}:00`,
-        total: i <= currentHour ? baseCalls : 0,
-        ai: i <= currentHour ? aiCalls : 0
-      };
-    });
-
-    const callsToday = hourlyCallDistribution.reduce((acc, curr) => acc + curr.total, 0);
-    const aiTranscriptionsToday = Math.floor(callsToday * 1.5); // Approx 1.5 mins per call
-    const callsAnswered = Math.floor(callsToday * 0.94); // 94% SLA
-
-    res.json({
-      callsToday,
-      callsAnswered,
-      callsMissed: callsToday - callsAnswered,
-      extensionsTotal: db.extensions.length,
-      extensionsOnline: db.extensions.filter(e => e.status === 'online').length,
-      trunksTotal: db.trunks.length,
-      trunksOnline: db.trunks.filter(t => t.status === 'registered').length,
-      aiLatencyAvgMs: Math.floor(Math.random() * 50) + 320,
-      aiTranscriptionsToday,
-      hourlyCallDistribution,
-    });
-  });
-
   app.post('/api/v1/health/run-diagnostic', (req, res) => {
     // Generate fresh diagnostic telemetry
     const rtt = Math.floor(Math.random() * 8) + 12; // 12-20ms
@@ -2737,6 +2742,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Global Error Handler to always return JSON (no HTML stack traces)
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Unhandled Server Error:', err);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Enlace-PBX] Servidor rodando em http://0.0.0.0:${PORT}`);

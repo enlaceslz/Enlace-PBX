@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "Tenant": {
+      "title": "Tenant",
+      "description": "A PBX tenant (organization)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "plan": { "type": "string", "enum": ["startup", "business", "enterprise"] },
+        "status": { "type": "string", "enum": ["active", "suspended"] }
+      },
+      "required": ["id", "name", "plan", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "A user of the PBX system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tenantId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["superadmin", "admin", "manager", "agent"] },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["id", "tenantId", "name", "email", "role", "status"]
+    }
+  },
+  "firestore": {
+    "/tenants/{tenantId}": {
+      "schema": { "$ref": "#/entities/Tenant" },
+      "description": "Stores tenants"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores users"
+    }
+  }
+}

@@ -28,12 +28,6 @@ import { AdminAndSecurityView } from './components/views/AdminAndSecurityView';
 import { HealthCheckView } from './components/views/HealthCheckView';
 import { SettingsView } from './components/views/SettingsView';
 import { HelpManualView } from './components/views/HelpManualView';
-import { SettingsView } from './components/views/SettingsView';
-import { SettingsView } from './components/views/SettingsView';
-import { HelpManualView } from './components/views/HelpManualView';
-import { BackupRestoreView } from './components/views/BackupRestoreView';
-import { HelpManualView } from './components/views/HelpManualView';
-import { BackupRestoreView } from './components/views/BackupRestoreView';
 import { BackupRestoreView } from './components/views/BackupRestoreView';
 import { LoginView } from './components/views/LoginView';
 import {
