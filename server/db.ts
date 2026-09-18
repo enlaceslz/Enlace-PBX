@@ -125,6 +125,24 @@ export interface Trunk {
   status: 'registered' | 'unregistered' | 'error';
   channelsMax: number;
   channelsInUse: number;
+  // Advanced PJSIP / Telecom fields
+  dtmfMode?: 'rfc4733' | 'inband' | 'info' | 'auto';
+  fromDomain?: string;
+  fromUser?: string;
+  qualifyFrequency?: number;
+  directMedia?: boolean;
+  outboundProxy?: string;
+  callerIdMode?: 'from' | 'pai' | 'rpid';
+  failoverTrunkId?: string;
+  lastPingLatencyMs?: number;
+  lastPingStatus?: '200 OK' | '401 Unauthorized' | 'Reachable' | 'Timeout' | 'Unreachable';
+  lastPingAt?: string;
+}
+
+export interface RouteTimeSchedule {
+  startHour: string; // "08:00"
+  endHour: string;   // "18:00"
+  weekdays: string[]; // ["mon", "tue", "wed", "thu", "fri"]
 }
 
 export interface Route {
@@ -134,11 +152,17 @@ export interface Route {
   type: 'outbound' | 'inbound';
   pattern: string; // e.g. "9XXXXXXXX", "0[1-9][1-9]9XXXXXXXX", "0800XXXXXXX"
   prefixRemove?: string;
+  prepend?: string; // Prepend digits before dialing (e.g. "015", "021")
   trunkId?: string;
+  failoverTrunkId?: string; // Secondary trunk for Least Cost Routing & Failover
+  callerIdOverride?: string; // Custom CallerID for this specific route
   destinationType: 'trunk' | 'extension' | 'queue' | 'ivr' | 'ai_agent' | 'ring_group';
   destinationId: string;
   priority: number;
-  timeSchedule?: string;
+  timeSchedule?: string | RouteTimeSchedule;
+  timeConditionEnabled?: boolean;
+  afterHoursDestType?: 'ai_agent' | 'ivr' | 'voicemail' | 'queue' | 'extension';
+  afterHoursDestId?: string;
   fallbackType?: 'human' | 'ivr' | 'voicemail' | 'queue';
   fallbackTarget?: string;
 }
@@ -371,6 +395,9 @@ export interface WebhookConfig {
   lastTriggered?: string;
 }
 
+export type AuditCategory = 'TELECOM_SIP' | 'ROUTING' | 'SECURITY' | 'AI_GATEWAY' | 'USER_MGMT' | 'LGPD_ACCESS' | 'SYSTEM';
+export type AuditSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
+
 export interface AuditLog {
   id: string;
   tenantId: string;
@@ -381,6 +408,10 @@ export interface AuditLog {
   ip: string;
   timestamp: string;
   details: string;
+  category?: AuditCategory;
+  severity?: AuditSeverity;
+  sha256Hash?: string;
+  payload?: Record<string, unknown>;
 }
 
 // Initial In-Memory Seed Data adhering to Brazilian context & Enlace Telecom standards
@@ -809,6 +840,16 @@ export class Database {
       status: 'registered',
       channelsMax: 30,
       channelsInUse: 4,
+      dtmfMode: 'rfc4733',
+      fromDomain: 'sip.vivo.com.br',
+      fromUser: '1130900100',
+      qualifyFrequency: 30,
+      directMedia: false,
+      callerIdMode: 'pai',
+      failoverTrunkId: 'trunk-algar-backup',
+      lastPingLatencyMs: 14,
+      lastPingStatus: '200 OK',
+      lastPingAt: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
     },
     {
       id: 'trunk-claro-0800',
@@ -827,11 +868,20 @@ export class Database {
       status: 'registered',
       channelsMax: 60,
       channelsInUse: 6,
+      dtmfMode: 'rfc4733',
+      fromDomain: 'sip0800.embratel.net.br',
+      fromUser: '08007702020',
+      qualifyFrequency: 60,
+      directMedia: false,
+      callerIdMode: 'pai',
+      lastPingLatencyMs: 22,
+      lastPingStatus: '200 OK',
+      lastPingAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
     },
     {
       id: 'trunk-algar-backup',
       tenantId: 'tenant-enlace-matriz',
-      name: 'Algar Telecom Backup',
+      name: 'Algar Telecom Backup LCR',
       providerName: 'Algar Telecom',
       host: 'sip.algartelecom.com.br',
       port: 5060,
@@ -845,6 +895,15 @@ export class Database {
       status: 'registered',
       channelsMax: 15,
       channelsInUse: 0,
+      dtmfMode: 'rfc4733',
+      fromDomain: 'sip.algartelecom.com.br',
+      fromUser: '1140028922',
+      qualifyFrequency: 60,
+      directMedia: false,
+      callerIdMode: 'from',
+      lastPingLatencyMs: 18,
+      lastPingStatus: '200 OK',
+      lastPingAt: new Date(Date.now() - 1000 * 60 * 8).toISOString(),
     },
   ];
 
@@ -852,11 +911,14 @@ export class Database {
     {
       id: 'route-out-sp-local',
       tenantId: 'tenant-enlace-matriz',
-      name: 'Saída Local SP (DDD 11)',
+      name: 'Saída Local SP (DDD 11) + LCR Failover',
       type: 'outbound',
       pattern: '9[2-9]XXXXXXXX',
       prefixRemove: '9',
+      prepend: '015',
       trunkId: 'trunk-vivo-e1',
+      failoverTrunkId: 'trunk-algar-backup',
+      callerIdOverride: '1130900100',
       destinationType: 'trunk',
       destinationId: 'trunk-vivo-e1',
       priority: 1,
@@ -869,7 +931,11 @@ export class Database {
       name: 'Saída Nacional DDD (0 + DDD + Número)',
       type: 'outbound',
       pattern: '0[1-9][1-9]9XXXXXXXX',
+      prefixRemove: '0',
+      prepend: '015',
       trunkId: 'trunk-vivo-e1',
+      failoverTrunkId: 'trunk-algar-backup',
+      callerIdOverride: '1130900100',
       destinationType: 'trunk',
       destinationId: 'trunk-vivo-e1',
       priority: 2,
@@ -877,7 +943,7 @@ export class Database {
     {
       id: 'route-in-0800',
       tenantId: 'tenant-enlace-matriz',
-      name: 'Entrada 0800 Nacional → Agente Gemini MaIA',
+      name: 'Entrada 0800 Nacional → Agente Gemini MaIA 24/7',
       type: 'inbound',
       pattern: '08007702020',
       destinationType: 'ai_agent',
@@ -889,12 +955,20 @@ export class Database {
     {
       id: 'route-in-fixo-matriz',
       tenantId: 'tenant-enlace-matriz',
-      name: 'Entrada Fixo SP (11 3090-0100) → URA Principal',
+      name: 'Entrada Fixo SP (11 3090-0100) — URA c/ Horário Comercial',
       type: 'inbound',
       pattern: '1130900100',
       destinationType: 'ivr',
       destinationId: 'ivr-principal',
       priority: 2,
+      timeConditionEnabled: true,
+      timeSchedule: {
+        startHour: '08:00',
+        endHour: '18:00',
+        weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
+      },
+      afterHoursDestType: 'ai_agent',
+      afterHoursDestId: 'agent-maia-247',
     },
   ];
 
@@ -1588,19 +1662,27 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       action: 'UPDATE_AGENT_PROMPT',
       resource: 'ai_agents/agent-maia-247',
       ip: '189.40.122.14',
-      timestamp: '2026-09-10T11:00:15Z',
-      details: 'Ajuste no prompt do sistema da MaIA para suporte a regras de faturamento.',
+      timestamp: '2026-09-17T16:00:15Z',
+      details: 'Ajuste no prompt do sistema da MaIA para suporte a regras de faturamento e regras de horário comercial.',
+      category: 'AI_GATEWAY',
+      severity: 'INFO',
+      sha256Hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      payload: { agentId: 'agent-maia-247', model: 'gemini-flash-latest', voice: 'Zephyr' },
     },
     {
       id: 'audit-02',
       tenantId: 'tenant-enlace-matriz',
       userId: 'user-2',
-      userName: 'Mariana Duarte Souza',
+      userName: 'Fernanda Leite (Auditoria LGPD)',
       action: 'DOWNLOAD_RECORDING',
       resource: 'recordings/rec-1725969600.mp3',
       ip: '189.40.122.18',
-      timestamp: '2026-09-10T11:25:00Z',
-      details: 'Download autorizado para auditoria de atendimento (Protocolo LGPD registrado).',
+      timestamp: '2026-09-17T15:25:00Z',
+      details: 'Download autorizado para auditoria de atendimento (Protocolo LGPD 2026/09-8812 registrado).',
+      category: 'LGPD_ACCESS',
+      severity: 'WARNING',
+      sha256Hash: '8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4',
+      payload: { audioCdrId: 'cdr-1001', justification: 'Auditoria de Conformidade e Qualidade', protocol: 'LGPD-2026-8812' },
     },
     {
       id: 'audit-03',
@@ -1610,8 +1692,57 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       action: 'UPDATE_TRUNK',
       resource: 'trunks/trunk-vivo-e1',
       ip: '189.40.122.14',
-      timestamp: '2026-09-09T17:40:22Z',
-      details: 'Renovação de certificado TLS e verificação de registro SIP.',
+      timestamp: '2026-09-17T14:40:22Z',
+      details: 'Ativação de contingência LCR automática com tronco Algar Backup e envio de PAI (P-Asserted-Identity).',
+      category: 'TELECOM_SIP',
+      severity: 'INFO',
+      sha256Hash: '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
+      payload: { trunkId: 'trunk-vivo-e1', failoverTrunkId: 'trunk-algar-backup', callerIdMode: 'pai', qualifyFrequency: 30 },
+    },
+    {
+      id: 'audit-04',
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'user-1',
+      userName: 'Carlos Henrique Silva',
+      action: 'UPDATE_ROUTE',
+      resource: 'routes/route-out-sp-local',
+      ip: '189.40.122.14',
+      timestamp: '2026-09-17T13:10:05Z',
+      details: 'Configuração de regra de menor custo (LCR) com Prepend CSP 015 e Failover automático para Algar Backup.',
+      category: 'ROUTING',
+      severity: 'INFO',
+      sha256Hash: '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
+      payload: { routeId: 'route-out-sp-local', prepend: '015', failoverTrunkId: 'trunk-algar-backup' },
+    },
+    {
+      id: 'audit-05',
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'system',
+      userName: 'Enlace PBX Monitor / PJSIP',
+      action: 'SIP_OPTIONS_PING',
+      resource: 'trunks/trunk-vivo-e1',
+      ip: '127.0.0.1',
+      timestamp: '2026-09-17T12:00:00Z',
+      details: 'Keepalive SIP OPTIONS bem-sucedido. RTT: 14ms. Status: 200 OK. Endpoint PJSIP operacional.',
+      category: 'TELECOM_SIP',
+      severity: 'INFO',
+      sha256Hash: '1a5b4819d45e99be5c3b999fa4813589c313a2fa80907e5f322300b8e8f85f38',
+      payload: { trunkId: 'trunk-vivo-e1', host: 'sip.vivo.com.br', port: 5060, latencyMs: 14, response: '200 OK' },
+    },
+    {
+      id: 'audit-06',
+      tenantId: 'tenant-enlace-matriz',
+      userId: 'system',
+      userName: 'Anti-Fraude Sentinel AI',
+      action: 'ANTI_FRAUD_ALERT',
+      resource: 'security/telecom',
+      ip: '177.18.204.91',
+      timestamp: '2026-09-17T11:15:30Z',
+      details: 'Bloqueio preventivo de tentativa de discagem internacional anômala para Cuba (+53). IP isolado no Fail2ban.',
+      category: 'SECURITY',
+      severity: 'CRITICAL',
+      sha256Hash: 'a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e',
+      payload: { blockedNumber: '+538891230', attemptsCount: 4, actionTaken: 'DROP_PACKET_AND_BLACKLIST' },
     },
   ];
 

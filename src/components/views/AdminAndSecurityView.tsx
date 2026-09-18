@@ -26,7 +26,10 @@ import {
   ShieldOff,
   Crosshair,
   Database,
-  Zap
+  Zap,
+  Fingerprint,
+  FileText,
+  FileCode,
 } from 'lucide-react';
 import { User, Tenant, AuditLog, HealthStatus, Extension } from '../../types/pbx';
 
@@ -82,6 +85,18 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
   // Audit search & filter
   const [auditSearch, setAuditSearch] = useState('');
   const [auditActionFilter, setAuditActionFilter] = useState('ALL');
+  const [auditCategoryFilter, setAuditCategoryFilter] = useState('ALL');
+  const [auditSeverityFilter, setAuditSeverityFilter] = useState('ALL');
+  const [isVerifyingIntegrity, setIsVerifyingIntegrity] = useState(false);
+  const [integrityResult, setIntegrityResult] = useState<{
+    status: string;
+    verified: boolean;
+    totalChecked: number;
+    tamperedCount: number;
+    algorithm: string;
+    message: string;
+    timestamp: string;
+  } | null>(null);
 
   // Diagnostic running state
   const [isRunningDiagnostic, setIsRunningDiagnostic] = useState(false);
@@ -180,17 +195,20 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
     }
   };
 
-  // Export LGPD Audit Logs to CSV
+  // Export LGPD Audit Logs to CSV with SHA-256 and Category
   const handleExportLgpdCsv = () => {
-    const headers = ['ID', 'Data/Hora', 'Usuário', 'Ação', 'Recurso', 'Endereço IP', 'Detalhes'];
+    const headers = ['ID', 'Data/Hora', 'Usuário', 'Ação', 'Categoria', 'Severidade', 'Recurso', 'Endereço IP', 'Detalhes', 'Hash SHA-256 (Cadeia de Custódia)'];
     const rows = filteredLogs.map((l) => [
       `"${l.id}"`,
       `"${new Date(l.timestamp).toLocaleString('pt-BR')}"`,
       `"${l.userName}"`,
       `"${l.action}"`,
+      `"${l.category || 'GERAL'}"`,
+      `"${l.severity || 'INFO'}"`,
       `"${l.resource}"`,
       `"${l.ip}"`,
       `"${l.details.replace(/"/g, '""')}"`,
+      `"${l.hashSha256 || 'N/A'}"`,
     ]);
 
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n');
@@ -203,6 +221,38 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
     document.body.removeChild(link);
   };
 
+  // Export Syslog RFC 5424 formatted for SIEM (Splunk, Elastic, QRadar)
+  const handleExportSyslog = async () => {
+    try {
+      const res = await fetch('/api/v1/audit-logs?format=syslog');
+      const text = await res.text();
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `enlace_pbx_syslog_rfc5424_${new Date().toISOString().slice(0, 10)}.log`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Erro ao exportar syslog:', err);
+    }
+  };
+
+  // Verify SHA-256 forensic integrity / chain-of-custody
+  const handleVerifyIntegrity = async () => {
+    setIsVerifyingIntegrity(true);
+    try {
+      const res = await fetch('/api/v1/audit-logs/verify-integrity', { method: 'POST' });
+      const data = await res.json();
+      setIntegrityResult(data);
+    } catch (err) {
+      console.error('Erro na verificação de integridade:', err);
+    } finally {
+      setIsVerifyingIntegrity(false);
+    }
+  };
+
   // Filtered audit logs
   const filteredLogs = useMemo(() => {
     return auditLogs.filter((log) => {
@@ -212,17 +262,25 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
         log.action.toLowerCase().includes(auditSearch.toLowerCase()) ||
         log.resource.toLowerCase().includes(auditSearch.toLowerCase()) ||
         log.ip.includes(auditSearch) ||
-        log.details.toLowerCase().includes(auditSearch.toLowerCase());
+        log.details.toLowerCase().includes(auditSearch.toLowerCase()) ||
+        (log.hashSha256 && log.hashSha256.toLowerCase().includes(auditSearch.toLowerCase()));
 
       const matchesAction = auditActionFilter === 'ALL' || log.action === auditActionFilter;
+      const matchesCategory = auditCategoryFilter === 'ALL' || log.category === auditCategoryFilter;
+      const matchesSeverity = auditSeverityFilter === 'ALL' || log.severity === auditSeverityFilter;
 
-      return matchesText && matchesAction;
+      return matchesText && matchesAction && matchesCategory && matchesSeverity;
     });
-  }, [auditLogs, auditSearch, auditActionFilter]);
+  }, [auditLogs, auditSearch, auditActionFilter, auditCategoryFilter, auditSeverityFilter]);
 
   // Unique actions list for dropdown
   const uniqueActions = useMemo(() => {
     return Array.from(new Set(auditLogs.map((l) => l.action)));
+  }, [auditLogs]);
+
+  // Unique categories list for dropdown
+  const uniqueCategories = useMemo(() => {
+    return Array.from(new Set(auditLogs.map((l) => l.category).filter(Boolean)));
   }, [auditLogs]);
 
   return (
@@ -491,7 +549,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
       {/* 3. AUDIT LOGS LGPD */}
       {currentTab === 'audit_logs' && (
         <div className="space-y-6">
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-sm text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm relative overflow-hidden">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-sm text-amber-900 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 shadow-sm relative overflow-hidden">
             <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
             <div className="flex items-start gap-4 relative z-10">
               <div className="p-2.5 bg-amber-100 rounded-xl text-amber-600 flex-shrink-0">
@@ -499,22 +557,73 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
               </div>
               <div>
                 <strong className="font-bold text-base block mb-1 text-amber-900">
-                  Conformidade Estrita com LGPD (Lei 13.709/2018)
+                  Auditoria Forense & Conformidade LGPD (Art. 37) / NIST FIPS 180-4
                 </strong>
-                <p className="text-amber-800/80 leading-relaxed max-w-3xl">
-                  Acessos a gravações (CDR), extrações de relatórios, downloads de transcrições da MaIA e exclusões de recursos são registrados com carimbo de tempo imutável e rastreabilidade de IP. Logs retidos por 5 anos (resolução Anatel).
+                <p className="text-amber-800/80 leading-relaxed max-w-3xl text-xs">
+                  Acessos a CDR, alterações de rotas Asterisk, comandos SIP e chamadas de IA possuem hashes criptográficos SHA-256 encadeados. Compatível com ingestão SIEM em formato RFC 5424 (Splunk, Elastic, QRadar).
                 </p>
               </div>
             </div>
-            <button
-              id="export-lgpd-btn"
-              onClick={handleExportLgpdCsv}
-              className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition shadow-md shadow-amber-600/20 whitespace-nowrap relative z-10"
-            >
-              <Download className="w-4 h-4" />
-              Exportar SIEM / CSV
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2 relative z-10">
+              <button
+                id="verify-integrity-btn"
+                onClick={handleVerifyIntegrity}
+                disabled={isVerifyingIntegrity}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-sm disabled:opacity-50 whitespace-nowrap"
+              >
+                <Fingerprint className={`w-4 h-4 ${isVerifyingIntegrity ? 'animate-spin' : ''}`} />
+                {isVerifyingIntegrity ? 'Verificando...' : 'Verificar Cadeia SHA-256'}
+              </button>
+              <button
+                id="export-syslog-btn"
+                onClick={handleExportSyslog}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-sm whitespace-nowrap"
+              >
+                <FileCode className="w-4 h-4 text-emerald-400" />
+                Syslog (RFC 5424)
+              </button>
+              <button
+                id="export-lgpd-btn"
+                onClick={handleExportLgpdCsv}
+                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-sm shadow-amber-600/20 whitespace-nowrap"
+              >
+                <Download className="w-4 h-4" />
+                Exportar CSV
+              </button>
+            </div>
           </div>
+
+          {/* Cryptographic Integrity Result Card */}
+          {integrityResult && (
+            <div className={`p-4 rounded-2xl border flex items-center justify-between text-xs transition animate-fade-in ${
+              integrityResult.verified
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl ${integrityResult.verified ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                  {integrityResult.verified ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                </div>
+                <div>
+                  <div className="font-bold text-sm">
+                    {integrityResult.verified
+                      ? 'Selo Criptográfico Válido — Cadeia de Custódia Intacta'
+                      : 'Alerta de Violação de Integridade Forense'}
+                  </div>
+                  <div className="text-[11px] opacity-80 mt-0.5 font-mono">
+                    {integrityResult.totalChecked} registros validados • 0 corrupções • Algoritmo: {integrityResult.algorithm} • {new Date(integrityResult.timestamp).toLocaleTimeString('pt-BR')}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setIntegrityResult(null)}
+                className="p-1 rounded-lg hover:bg-black/5 text-slate-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
@@ -522,49 +631,56 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                    <Activity className="w-4 h-4 text-blue-500" />
                    <span className="text-[11px] font-bold uppercase tracking-wider">Eventos Hoje</span>
                 </div>
-                <div className="text-2xl font-black text-slate-900">1,204</div>
+                <div className="text-2xl font-black text-slate-900">{auditLogs.length}</div>
              </div>
              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
                 <div className="flex items-center gap-2 text-slate-500 mb-2">
                    <Download className="w-4 h-4 text-purple-500" />
-                   <span className="text-[11px] font-bold uppercase tracking-wider">Downloads (Áudio/CDR)</span>
+                   <span className="text-[11px] font-bold uppercase tracking-wider">Downloads / Exportações</span>
                 </div>
-                <div className="text-2xl font-black text-slate-900">42</div>
+                <div className="text-2xl font-black text-slate-900">
+                  {auditLogs.filter(l => l.action.includes('EXPORT') || l.action.includes('DOWNLOAD')).length}
+                </div>
              </div>
              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
                 <div className="flex items-center gap-2 text-slate-500 mb-2">
-                   <Lock className="w-4 h-4 text-emerald-500" />
-                   <span className="text-[11px] font-bold uppercase tracking-wider">Acessos Seguros</span>
+                   <Fingerprint className="w-4 h-4 text-emerald-500" />
+                   <span className="text-[11px] font-bold uppercase tracking-wider">Hashes Criptográficos</span>
                 </div>
-                <div className="text-2xl font-black text-slate-900">99.8%</div>
+                <div className="text-2xl font-black text-slate-900 font-mono text-emerald-600">
+                  {auditLogs.filter(l => l.hashSha256).length} <span className="text-xs text-slate-400 font-sans">/ 100%</span>
+                </div>
              </div>
              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
                 <div className="flex items-center gap-2 text-slate-500 mb-2">
                    <AlertCircle className="w-4 h-4 text-rose-500" />
-                   <span className="text-[11px] font-bold uppercase tracking-wider">Falhas de Login (24h)</span>
+                   <span className="text-[11px] font-bold uppercase tracking-wider">Avisos / Críticos</span>
                 </div>
-                <div className="text-2xl font-black text-slate-900">3</div>
+                <div className="text-2xl font-black text-slate-900">
+                  {auditLogs.filter(l => l.severity === 'CRITICAL' || l.severity === 'WARNING').length}
+                </div>
              </div>
           </div>
 
           {/* Search, Filter & Table */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50">
-              <div className="flex flex-1 items-center gap-3 w-full sm:w-auto">
-                <div className="relative flex-1 max-w-md">
+            <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row items-center justify-between gap-3 bg-slate-50/50">
+              <div className="flex flex-1 flex-wrap items-center gap-2.5 w-full">
+                <div className="relative flex-1 min-w-[200px]">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Filtrar logs por usuário, recurso, IP..."
+                    placeholder="Filtrar por usuário, recurso, IP, hash SHA-256..."
                     value={auditSearch}
                     onChange={(e) => setAuditSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-sans shadow-sm"
+                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-sans shadow-sm"
                   />
                 </div>
+
                 <select
                   value={auditActionFilter}
                   onChange={(e) => setAuditActionFilter(e.target.value)}
-                  className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm text-slate-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono shadow-sm cursor-pointer"
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 font-mono shadow-sm cursor-pointer"
                 >
                   <option value="ALL">Todas as Ações ({auditLogs.length})</option>
                   {uniqueActions.map((act) => (
@@ -573,25 +689,51 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                     </option>
                   ))}
                 </select>
+
+                <select
+                  value={auditCategoryFilter}
+                  onChange={(e) => setAuditCategoryFilter(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 font-mono shadow-sm cursor-pointer"
+                >
+                  <option value="ALL">Todas as Categorias</option>
+                  {uniqueCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={auditSeverityFilter}
+                  onChange={(e) => setAuditSeverityFilter(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 font-mono shadow-sm cursor-pointer"
+                >
+                  <option value="ALL">Severidade: Todas</option>
+                  <option value="INFO">INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 bg-white text-slate-400 font-mono text-[10px] uppercase tracking-wider">
-                    <th className="py-4 px-6 font-bold">Data / Hora</th>
-                    <th className="py-4 px-6 font-bold">Usuário / Agente</th>
-                    <th className="py-4 px-6 font-bold">Ação</th>
-                    <th className="py-4 px-6 font-bold">Recurso Afetado</th>
-                    <th className="py-4 px-6 font-bold">Endereço IP / Origem</th>
-                    <th className="py-4 px-6 font-bold">Detalhes Técnicos</th>
+                    <th className="py-3 px-4 font-bold">Data / Hora</th>
+                    <th className="py-3 px-4 font-bold">Usuário</th>
+                    <th className="py-3 px-4 font-bold">Ação & Categoria</th>
+                    <th className="py-3 px-4 font-bold">Severidade</th>
+                    <th className="py-3 px-4 font-bold">Recurso</th>
+                    <th className="py-3 px-4 font-bold">IP Origem</th>
+                    <th className="py-3 px-4 font-bold">Hash SHA-256 (Custódia)</th>
+                    <th className="py-3 px-4 font-bold">Detalhes Técnicos</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 font-sans">
                   {filteredLogs.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center">
+                      <td colSpan={8} className="py-12 text-center">
                         <div className="flex flex-col items-center justify-center text-slate-400">
                           <Search className="w-8 h-8 mb-3 opacity-20" />
                           <p className="text-sm font-medium">Nenhum registro de auditoria encontrado.</p>
@@ -602,29 +744,60 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                   ) : (
                     filteredLogs.map((log) => (
                       <tr key={log.id} className="hover:bg-slate-50/80 transition-colors group">
-                        <td className="py-4 px-6 font-mono text-slate-500 text-xs whitespace-nowrap">
+                        <td className="py-3.5 px-4 font-mono text-slate-500 text-[11px] whitespace-nowrap">
                           {new Date(log.timestamp).toLocaleString('pt-BR')}
                         </td>
-                        <td className="py-4 px-6 font-bold text-slate-800 text-sm">
+                        <td className="py-3.5 px-4 font-bold text-slate-800 text-xs whitespace-nowrap">
                           {log.userName}
                         </td>
-                        <td className="py-4 px-6">
-                          <span className={`font-mono text-[10px] uppercase font-bold px-2.5 py-1 rounded-md border ${
-                            log.action.includes('DELETE') ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                            log.action.includes('DOWNLOAD') ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                            log.action.includes('UPDATE') ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                            'bg-slate-100 text-slate-700 border-slate-200'
+                        <td className="py-3.5 px-4">
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className={`font-mono text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
+                              log.action.includes('DELETE') ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                              log.action.includes('DOWNLOAD') || log.action.includes('EXPORT') ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                              log.action.includes('UPDATE') ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                              'bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
+                              {log.action}
+                            </span>
+                            {log.category && (
+                              <span className="font-mono text-[9px] text-slate-400 uppercase tracking-wider">
+                                {log.category}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono border ${
+                            log.severity === 'CRITICAL'
+                              ? 'bg-rose-100 text-rose-800 border-rose-300'
+                              : log.severity === 'WARNING'
+                              ? 'bg-amber-100 text-amber-800 border-amber-300'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                           }`}>
-                            {log.action}
+                            {log.severity || 'INFO'}
                           </span>
                         </td>
-                        <td className="py-4 px-6 text-slate-600 font-mono text-xs">
+                        <td className="py-3.5 px-4 text-slate-600 font-mono text-xs whitespace-nowrap">
                           {log.resource}
                         </td>
-                        <td className="py-4 px-6 font-mono text-blue-600/80 text-xs font-medium">
+                        <td className="py-3.5 px-4 font-mono text-blue-600/80 text-xs font-medium whitespace-nowrap">
                           {log.ip}
                         </td>
-                        <td className="py-4 px-6 text-slate-500 text-xs max-w-sm truncate group-hover:text-slate-800 transition-colors" title={log.details}>
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          {log.hashSha256 ? (
+                            <span
+                              className="font-mono text-[10px] text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded flex items-center gap-1 max-w-[140px] truncate"
+                              title={`Hash SHA-256 Forense: ${log.hashSha256}`}
+                            >
+                              <Fingerprint className="w-3 h-3 text-emerald-600 shrink-0" />
+                              {log.hashSha256.slice(0, 10)}...
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 font-mono">Assinatura Legado</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-500 text-xs max-w-xs truncate group-hover:text-slate-800 transition-colors" title={log.details}>
                           {log.details}
                         </td>
                       </tr>

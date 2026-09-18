@@ -34,12 +34,22 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
     type: 'outbound' as 'inbound' | 'outbound',
     pattern: '_9XXXXXXXX',
     prefixRemove: '',
+    prepend: '',
     trunkId: trunks[0]?.id || '',
+    failoverTrunkId: '',
     destinationType: 'trunk' as 'trunk' | 'ai_agent' | 'extension' | 'queue' | 'ivr',
     destinationId: trunks[0]?.id || '',
     priority: 1,
     fallbackType: 'human',
     fallbackTarget: '4101',
+    timeConditionEnabled: false,
+    timeSchedule: {
+      startHour: '08:00',
+      endHour: '18:00',
+      daysOfWeek: [1, 2, 3, 4, 5],
+      outOfHoursDestinationType: 'ai_agent' as 'ai_agent' | 'ivr' | 'queue' | 'extension',
+      outOfHoursDestinationId: 'agent-maia-247',
+    },
   });
 
   const filteredRoutes = routes.filter((r) => r.type === activeTab);
@@ -121,12 +131,16 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
           type: formData.type,
           pattern: formData.pattern,
           prefixRemove: formData.prefixRemove || undefined,
+          prepend: formData.prepend || undefined,
           trunkId: formData.type === 'outbound' ? formData.trunkId : undefined,
+          failoverTrunkId: formData.type === 'outbound' ? (formData.failoverTrunkId || undefined) : undefined,
           destinationType: formData.destinationType,
           destinationId: formData.type === 'outbound' ? formData.trunkId : formData.destinationId,
           priority: Number(formData.priority) || 1,
           fallbackType: formData.fallbackType,
           fallbackTarget: formData.fallbackTarget,
+          timeConditionEnabled: formData.timeConditionEnabled,
+          timeSchedule: formData.timeConditionEnabled ? formData.timeSchedule : undefined,
         }),
       });
 
@@ -299,8 +313,24 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
                       </span>
                     )}
                     {route.prefixRemove && (
-                      <span className="text-[10px] font-mono text-slate-500">
-                        Remove Prefixo: {route.prefixRemove}
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                        Strip: {route.prefixRemove}
+                      </span>
+                    )}
+                    {route.prepend && (
+                      <span className="text-[10px] font-mono text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                        Prepend: {route.prepend}
+                      </span>
+                    )}
+                    {route.failoverTrunkId && (
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        LCR Failover: {trunks.find((t) => t.id === route.failoverTrunkId)?.name || 'Tronco Reserva'}
+                      </span>
+                    )}
+                    {route.timeConditionEnabled && (
+                      <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-amber-600" />
+                        {route.timeSchedule ? `${route.timeSchedule.startHour}-${route.timeSchedule.endHour} (Seg-Sex)` : 'Horário Comercial'}
                       </span>
                     )}
                   </div>
@@ -468,39 +498,76 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
               </div>
 
               {formData.type === 'outbound' ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 block mb-1">
-                      Tronco SIP de Saída
-                    </label>
-                    <select
-                      value={formData.trunkId}
-                      onChange={(e) => setFormData({ ...formData, trunkId: e.target.value })}
-                      className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
-                    >
-                      {trunks.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.providerName})
-                        </option>
-                      ))}
-                    </select>
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 block mb-1">
+                        Tronco SIP Primário
+                      </label>
+                      <select
+                        value={formData.trunkId}
+                        onChange={(e) => setFormData({ ...formData, trunkId: e.target.value })}
+                        className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none"
+                      >
+                        {trunks.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.providerName})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 block mb-1">
+                        Tronco de Contingência (LCR Failover)
+                      </label>
+                      <select
+                        value={formData.failoverTrunkId}
+                        onChange={(e) => setFormData({ ...formData, failoverTrunkId: e.target.value })}
+                        className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none"
+                      >
+                        <option value="">Nenhum (Sem contingência)</option>
+                        {trunks.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.host})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 block mb-1">
-                      Remover Prefixo (Strip)
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.prefixRemove}
-                      onChange={(e) =>
-                        setFormData({ ...formData, prefixRemove: e.target.value })
-                      }
-                      className="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
-                      placeholder="Ex: 0 (para remover dígito da operadora)"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 block mb-1">
+                        Remover Prefixo (Strip)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.prefixRemove}
+                        onChange={(e) =>
+                          setFormData({ ...formData, prefixRemove: e.target.value })
+                        }
+                        className="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
+                        placeholder="Ex: 0 (para remover dígito da operadora)"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 block mb-1">
+                        Adicionar Prefixo (Prepend)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.prepend}
+                        onChange={(e) =>
+                          setFormData({ ...formData, prepend: e.target.value })
+                        }
+                        className="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800"
+                        placeholder="Ex: 015 ou 021 (CSP de operadora)"
+                      />
+                    </div>
                   </div>
-                </div>
+                </>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -540,6 +607,91 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
                   </div>
                 </div>
               )}
+
+              {/* Time Conditions Section */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-600" />
+                    <span className="text-xs font-bold text-slate-800">
+                      Regra de Horário Comercial (Time Conditions)
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.timeConditionEnabled}
+                      onChange={(e) =>
+                        setFormData({ ...formData, timeConditionEnabled: e.target.checked })
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600" />
+                  </label>
+                </div>
+
+                {formData.timeConditionEnabled && (
+                  <div className="pt-2 border-t border-slate-200 space-y-2 text-xs">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                          Início do Expediente
+                        </label>
+                        <input
+                          type="time"
+                          value={formData.timeSchedule.startHour}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              timeSchedule: { ...formData.timeSchedule, startHour: e.target.value },
+                            })
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                          Término do Expediente
+                        </label>
+                        <input
+                          type="time"
+                          value={formData.timeSchedule.endHour}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              timeSchedule: { ...formData.timeSchedule, endHour: e.target.value },
+                            })
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                        Destino Fora do Horário Comercial
+                      </label>
+                      <select
+                        value={formData.timeSchedule.outOfHoursDestinationType}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            timeSchedule: {
+                              ...formData.timeSchedule,
+                              outOfHoursDestinationType: e.target.value as any,
+                            },
+                          })
+                        }
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                      >
+                        <option value="ai_agent">Atendimento IA MaIA (24/7 Noturno)</option>
+                        <option value="ivr">URA / Mensagem de Fora de Expediente</option>
+                        <option value="extension">Caixa Postal / Ramal de Plantão</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
@@ -624,32 +776,62 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
               </div>
 
               {editingRoute.type === "outbound" && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-slate-700 font-semibold mb-1">Tronco de Saída</label>
-                    <select
-                      value={editingRoute.trunkId || ""}
-                      onChange={(e) => setEditingRoute({ ...editingRoute, trunkId: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-500"
-                    >
-                      {trunks.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.providerName})
-                        </option>
-                      ))}
-                    </select>
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Tronco Primário</label>
+                      <select
+                        value={editingRoute.trunkId || ""}
+                        onChange={(e) => setEditingRoute({ ...editingRoute, trunkId: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-500"
+                      >
+                        {trunks.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.providerName})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Tronco de Contingência (LCR)</label>
+                      <select
+                        value={editingRoute.failoverTrunkId || ""}
+                        onChange={(e) => setEditingRoute({ ...editingRoute, failoverTrunkId: e.target.value || undefined })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="">Nenhum (Sem contingência)</option>
+                        {trunks.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.host})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-slate-700 font-semibold mb-1">Remover Prefixo (Dígitos)</label>
-                    <input
-                      type="text"
-                      value={editingRoute.prefixRemove || ""}
-                      onChange={(e) => setEditingRoute({ ...editingRoute, prefixRemove: e.target.value })}
-                      placeholder="Ex: 0"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:outline-none focus:border-blue-500"
-                    />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Remover Prefixo (Strip)</label>
+                      <input
+                        type="text"
+                        value={editingRoute.prefixRemove || ""}
+                        onChange={(e) => setEditingRoute({ ...editingRoute, prefixRemove: e.target.value })}
+                        placeholder="Ex: 0"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Adicionar Prefixo (Prepend)</label>
+                      <input
+                        type="text"
+                        value={editingRoute.prepend || ""}
+                        onChange={(e) => setEditingRoute({ ...editingRoute, prepend: e.target.value })}
+                        placeholder="Ex: 015 ou 021"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
                   </div>
-                </div>
+                </>
               )}
 
               {editingRoute.type === "inbound" && (
@@ -684,6 +866,125 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, onRefres
                   </div>
                 </div>
               )}
+
+              {/* Time Conditions Section */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-600" />
+                    <span className="text-xs font-bold text-slate-800">
+                      Regra de Horário Comercial (Time Conditions)
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!editingRoute.timeConditionEnabled}
+                      onChange={(e) =>
+                        setEditingRoute({
+                          ...editingRoute,
+                          timeConditionEnabled: e.target.checked,
+                          timeSchedule: editingRoute.timeSchedule || {
+                            startHour: '08:00',
+                            endHour: '18:00',
+                            daysOfWeek: [1, 2, 3, 4, 5],
+                            outOfHoursDestinationType: 'ai_agent',
+                            outOfHoursDestinationId: 'agent-maia-247',
+                          },
+                        })
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600" />
+                  </label>
+                </div>
+
+                {editingRoute.timeConditionEnabled && (
+                  <div className="pt-2 border-t border-slate-200 space-y-2 text-xs">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                          Início do Expediente
+                        </label>
+                        <input
+                          type="time"
+                          value={editingRoute.timeSchedule?.startHour || '08:00'}
+                          onChange={(e) =>
+                            setEditingRoute({
+                              ...editingRoute,
+                              timeSchedule: {
+                                ...(editingRoute.timeSchedule || {
+                                  startHour: '08:00',
+                                  endHour: '18:00',
+                                  daysOfWeek: [1, 2, 3, 4, 5],
+                                  outOfHoursDestinationType: 'ai_agent',
+                                  outOfHoursDestinationId: 'agent-maia-247',
+                                }),
+                                startHour: e.target.value,
+                              },
+                            })
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                          Término do Expediente
+                        </label>
+                        <input
+                          type="time"
+                          value={editingRoute.timeSchedule?.endHour || '18:00'}
+                          onChange={(e) =>
+                            setEditingRoute({
+                              ...editingRoute,
+                              timeSchedule: {
+                                ...(editingRoute.timeSchedule || {
+                                  startHour: '08:00',
+                                  endHour: '18:00',
+                                  daysOfWeek: [1, 2, 3, 4, 5],
+                                  outOfHoursDestinationType: 'ai_agent',
+                                  outOfHoursDestinationId: 'agent-maia-247',
+                                }),
+                                endHour: e.target.value,
+                              },
+                            })
+                          }
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                        Destino Fora do Horário Comercial
+                      </label>
+                      <select
+                        value={editingRoute.timeSchedule?.outOfHoursDestinationType || 'ai_agent'}
+                        onChange={(e) =>
+                          setEditingRoute({
+                            ...editingRoute,
+                            timeSchedule: {
+                              ...(editingRoute.timeSchedule || {
+                                startHour: '08:00',
+                                endHour: '18:00',
+                                daysOfWeek: [1, 2, 3, 4, 5],
+                                outOfHoursDestinationType: 'ai_agent',
+                                outOfHoursDestinationId: 'agent-maia-247',
+                              }),
+                              outOfHoursDestinationType: e.target.value as any,
+                            },
+                          })
+                        }
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                      >
+                        <option value="ai_agent">Atendimento IA MaIA (24/7 Noturno)</option>
+                        <option value="ivr">URA / Mensagem de Fora de Expediente</option>
+                        <option value="extension">Caixa Postal / Ramal de Plantão</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div className="pt-2 flex justify-end gap-2">
                 <button

@@ -256,13 +256,16 @@ disallow=all
 ${trk.codecs.map((c) => `allow=${c}`).join('\n')}
 aors=trunk-${trk.id}-aor
 outbound_auth=trunk-${trk.id}-auth
-from_user=${trk.username}
-from_domain=${trk.host}
+from_user=${trk.fromUser || trk.username}
+from_domain=${trk.fromDomain || trk.host}
 callerid=${trk.callerId}
-direct_media=no
+dtmf_mode=${trk.dtmfMode || 'rfc4733'}
+direct_media=${trk.directMedia ? 'yes' : 'no'}
 rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=yes
+${trk.callerIdMode === 'pai' ? 'send_pai=yes\ntrust_id_inbound=yes' : trk.callerIdMode === 'rpid' ? 'send_rpid=yes\ntrust_id_inbound=yes' : ''}
+${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 
 [trunk-${trk.id}-auth]
 type=auth
@@ -273,7 +276,8 @@ password=DEFINIR_SENHA_TRONCO_NO_ENV
 [trunk-${trk.id}-aor]
 type=aor
 contact=sip:${trk.host}:${trk.port}
-qualify_frequency=60
+qualify_frequency=${trk.qualifyFrequency || 60}
+${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 
 ${trk.register ? `[trunk-${trk.id}-reg]
 type=registration
@@ -282,6 +286,7 @@ server_uri=sip:${trk.host}:${trk.port}
 client_uri=sip:${trk.username}@${trk.host}:${trk.port}
 retry_interval=30
 max_retries=10
+${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 ` : ''}
 `;
     }
@@ -424,7 +429,7 @@ exten => s,1,NoOp(Enlace-PBX Gemini Agent Voice Gateway)
 exten => 9001,1,Goto(from-gemini,s,1) ; Discagem direta interna para MaIA
 
 ; ====================================================================
-; Rotas de Saída (Regras brasileiras de discagem)
+; Rotas de Saída (Regras brasileiras de discagem com LCR & Contingência)
 ; ====================================================================
 [outbound-routes]
 ${routes
@@ -432,18 +437,38 @@ ${routes
   .map((r) => {
     const pat = r.pattern.startsWith('_') ? r.pattern : `_${r.pattern}`;
     const stripDigits = r.prefixRemove ? r.prefixRemove.length : 0;
-    const targetTrunk = r.trunkId ? `PJSIP/${r.trunkId}` : `\${TRUNK_VIVO}`;
-    return `exten => ${pat},1,NoOp(Rota de Saida: ${r.name})
+    const prependStr = r.prepend || '';
+    const dialedExten = prependStr ? `${prependStr}\${EXTEN:${stripDigits}}` : `\${EXTEN:${stripDigits}}`;
+    const targetTrunk = r.trunkId ? `PJSIP/trunk-${r.trunkId}` : `\${TRUNK_VIVO}`;
+    const safeRouteTag = r.id.replace(/[^a-zA-Z0-9_]/g, '_');
+
+    let lines = `exten => ${pat},1,NoOp(Rota de Saida: ${r.name})
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CALLFILENAME=rec-out-\${EPOCH}-\${EXTEN})
- same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)
- same => n,Dial(${targetTrunk}/\${EXTEN:${stripDigits}},60,tT)
- same => n,Hangup()`;
+ same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)`;
+
+    if (r.callerIdOverride) {
+      lines += `\n same => n,Set(CALLERID(num)=${r.callerIdOverride})`;
+    }
+
+    lines += `\n same => n,Dial(${targetTrunk}/${dialedExten},60,tT)`;
+
+    if (r.failoverTrunkId) {
+      const failoverTrunk = `PJSIP/trunk-${r.failoverTrunkId}`;
+      lines += `\n same => n,GotoIf($["\${DIALSTATUS}" = "CHANUNAVAIL" | "\${DIALSTATUS}" = "CONGESTION" | "\${DIALSTATUS}" = "BUSY"]?failover_${safeRouteTag}:hangup_normal)
+ same => n(failover_${safeRouteTag}),NoOp(=== CONTINGENCIA LCR: Tronco primario indisponivel (\${DIALSTATUS}). Acionando ${failoverTrunk} ===)
+ same => n,Dial(${failoverTrunk}/${dialedExten},60,tT)
+ same => n(hangup_normal),Hangup()`;
+    } else {
+      lines += `\n same => n,Hangup()`;
+    }
+
+    return lines;
   })
   .join('\n\n')}
 
 ; ====================================================================
-; Rotas de Entrada (DIDs das Operadoras Brasileiras)
+; Rotas de Entrada (DIDs das Operadoras Brasileiras & Horários)
 ; ====================================================================
 [from-trunk]
 ${routes
@@ -452,6 +477,8 @@ ${routes
     const pat = r.pattern.startsWith('_')
       ? r.pattern
       : (r.pattern.includes('X') || r.pattern.includes('N') || r.pattern.includes('.') ? `_${r.pattern}` : r.pattern);
+    const safeRouteTag = r.id.replace(/[^a-zA-Z0-9_]/g, '_');
+
     let dest = 'Goto(from-internal,4101,1)';
     if (r.destinationType === 'extension') dest = `Goto(from-internal,${r.destinationId},1)`;
     else if (r.destinationType === 'queue') dest = `Goto(call-queues,${r.destinationId},1)`;
@@ -459,11 +486,34 @@ ${routes
     else if (r.destinationType === 'ai_agent') dest = `Goto(from-gemini,s,1)`;
     else if (r.destinationType === 'ring_group') dest = `Goto(ring-groups,${r.destinationId},1)`;
 
-    return `exten => ${pat},1,NoOp(Rota de Entrada: ${r.name})
+    let lines = `exten => ${pat},1,NoOp(Rota de Entrada: ${r.name})
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CALLFILENAME=rec-in-\${EPOCH}-\${CALLERID(num)}-\${EXTEN})
- same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)
+ same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)`;
+
+    if (r.timeConditionEnabled) {
+      let timeStr = '08:00-18:00,mon-fri,*,*';
+      if (r.timeSchedule && typeof r.timeSchedule === 'object') {
+        const weekdays = r.timeSchedule.weekdays?.length ? r.timeSchedule.weekdays.join('-') : 'mon-fri';
+        timeStr = `${r.timeSchedule.startHour || '08:00'}-${r.timeSchedule.endHour || '18:00'},${weekdays},*,*`;
+      }
+
+      let afterHoursDest = 'Goto(from-gemini,s,1)'; // Default 24/7 AI MaIA
+      if (r.afterHoursDestType === 'ivr') afterHoursDest = `Goto(ivr-menus,${r.afterHoursDestId || 'ivr-principal'},1)`;
+      else if (r.afterHoursDestType === 'queue') afterHoursDest = `Goto(call-queues,${r.afterHoursDestId || 'queue-suporte-n1'},1)`;
+      else if (r.afterHoursDestType === 'extension') afterHoursDest = `Goto(from-internal,${r.afterHoursDestId || '4101'},1)`;
+      else if (r.afterHoursDestType === 'voicemail') afterHoursDest = `VoiceMail(${r.afterHoursDestId || '4101'}@default,u)`;
+
+      lines += `\n same => n,GotoIfTime(${timeStr}?open_${safeRouteTag}:closed_${safeRouteTag})
+ same => n(closed_${safeRouteTag}),NoOp(=== FORA DO EXPEDIENTE (${timeStr}): Direcionando para destino alternativo ===)
+ same => n,${afterHoursDest}
+ same => n(open_${safeRouteTag}),NoOp(=== EXPEDIENTE NORMAL: Direcionando para destino principal ===)
  same => n,${dest}`;
+    } else {
+      lines += `\n same => n,${dest}`;
+    }
+
+    return lines;
   })
   .join('\n\n')}
 

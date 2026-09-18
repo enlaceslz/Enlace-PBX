@@ -70,6 +70,24 @@ export interface Trunk {
   status: 'registered' | 'unregistered' | 'error';
   channelsMax: number;
   channelsInUse: number;
+  // Advanced PJSIP / Telecom fields
+  dtmfMode?: 'rfc4733' | 'inband' | 'info' | 'auto';
+  fromDomain?: string;
+  fromUser?: string;
+  qualifyFrequency?: number; // seconds (default: 60)
+  directMedia?: boolean;
+  outboundProxy?: string;
+  callerIdMode?: 'from' | 'pai' | 'rpid';
+  failoverTrunkId?: string;
+  lastPingLatencyMs?: number;
+  lastPingStatus?: '200 OK' | '401 Unauthorized' | 'Reachable' | 'Timeout' | 'Unreachable';
+  lastPingAt?: string;
+}
+
+export interface RouteTimeSchedule {
+  startHour: string; // e.g. "08:00"
+  endHour: string;   // e.g. "18:00"
+  weekdays: string[]; // ["mon", "tue", "wed", "thu", "fri"]
 }
 
 export interface Route {
@@ -79,11 +97,17 @@ export interface Route {
   type: 'outbound' | 'inbound';
   pattern: string;
   prefixRemove?: string;
+  prepend?: string; // Prepend digits before dialing (e.g., CSP "015", "021")
   trunkId?: string;
+  failoverTrunkId?: string; // Secondary trunk for Least Cost Routing & Failover
+  callerIdOverride?: string; // Custom outgoing CallerID for this specific route
   destinationType: 'trunk' | 'extension' | 'queue' | 'ivr' | 'ai_agent' | 'ring_group';
   destinationId: string;
   priority: number;
-  timeSchedule?: string;
+  timeSchedule?: string | RouteTimeSchedule;
+  timeConditionEnabled?: boolean;
+  afterHoursDestType?: 'ai_agent' | 'ivr' | 'voicemail' | 'queue' | 'extension';
+  afterHoursDestId?: string;
   fallbackType?: 'human' | 'ivr' | 'voicemail' | 'queue';
   fallbackTarget?: string;
 }
@@ -360,6 +384,9 @@ export interface DashboardMetrics {
   hourlyCallDistribution: Array<{ hour: string; total: number; ai: number }>;
 }
 
+export type AuditCategory = 'TELECOM_SIP' | 'ROUTING' | 'SECURITY' | 'AI_GATEWAY' | 'USER_MGMT' | 'LGPD_ACCESS' | 'SYSTEM';
+export type AuditSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
+
 export interface AuditLog {
   id: string;
   tenantId: string;
@@ -370,6 +397,10 @@ export interface AuditLog {
   ip: string;
   timestamp: string;
   details: string;
+  category?: AuditCategory;
+  severity?: AuditSeverity;
+  sha256Hash?: string; // Cryptographic hash for audit tamper-proofing & chain of custody
+  payload?: Record<string, unknown>;
 }
 
 export interface WebhookConfig {
