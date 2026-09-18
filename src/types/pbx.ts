@@ -41,6 +41,7 @@ export interface Extension {
   sipSecret: string;
   context: string;
   callerId: string;
+  cliCallerId?: string; // BINA transmitida especificamente em rotas CLI/ITX
   codecs: string[];
   nat: boolean;
   webrtc: boolean;
@@ -51,6 +52,14 @@ export interface Extension {
   ipAddress?: string;
   allowAiTransfer: boolean;
   videoEnabled?: boolean;
+}
+
+export interface AuthorizedIpItem {
+  ip: string;
+  label?: string;
+  status: 'active' | 'inactive' | 'testing' | 'unreachable';
+  latencyMs?: number;
+  lastChecked?: string;
 }
 
 export interface Trunk {
@@ -71,6 +80,21 @@ export interface Trunk {
   channelsMax: number;
   channelsInUse: number;
   // Advanced PJSIP / Telecom fields
+  authMode?: 'ip' | 'credentials';
+  authorizedIps?: string[];
+  ipStatusList?: AuthorizedIpItem[];
+  sipPort?: number;
+  rtpRange?: string;
+  natEnabled?: boolean;
+  publicIpOverride?: string;
+  identifyBy?: 'ip' | 'username' | 'header';
+  matchHeader?: string;
+  inboundContext?: string;
+  sendPai?: boolean;
+  sendRpid?: boolean;
+  userEqPhone?: boolean;
+  insecure?: 'invite,port' | 'no' | 'port';
+  notes?: string;
   dtmfMode?: 'rfc4733' | 'inband' | 'info' | 'auto';
   fromDomain?: string;
   fromUser?: string;
@@ -84,10 +108,51 @@ export interface Trunk {
   lastPingAt?: string;
 }
 
+export interface Did {
+  id: string;
+  tenantId: string;
+  did: string; // e.g. "1135008000"
+  normalizedNumber: string; // E.164 "+551135008000"
+  presentedNumber: string; // "(11) 3500-8000"
+  operatorName: string; // e.g. "TIP Brasil"
+  trunkId: string; // FK -> Trunk.id
+  description: string;
+  status: 'active' | 'inactive' | 'suspended';
+  // Vínculo de Empresa / Cliente Beneficiário & Billing
+  assignedCompany?: string; // Nome da Empresa ou Razão Social
+  assignedCnpj?: string;    // CNPJ ou CPF do beneficiário
+  assignedUser?: string;    // Responsável / Contato
+  monthlyFee?: number;      // Mensalidade do DID (ex: R$ 25,00/mês)
+  billingCycleDay?: number; // Dia de vencimento/cobrança (ex: dia 10)
+  destinationType: 'extension' | 'queue' | 'ivr' | 'ring_group' | 'ai_agent';
+  destinationId: string;
+  destinationLabel?: string;
+  timeConditionEnabled?: boolean;
+  timeSchedule?: RouteTimeSchedule;
+  afterHoursDestType?: 'extension' | 'queue' | 'ivr' | 'ai_agent' | 'voicemail';
+  afterHoursDestId?: string;
+  fallbackType?: 'human' | 'ivr' | 'voicemail' | 'queue';
+  fallbackTarget?: string;
+  didSourceHeader: 'request_uri' | 'to' | 'p_called_party_id' | 'p_asserted_identity' | 'custom';
+  customHeaderName?: string;
+  unknownDidAction: 'reject_404' | 'congestion_503' | 'busy_486' | 'default_route';
+  channelsInUse: number;
+  totalCallsReceived: number;
+  lastCallAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RouteTimeSchedule {
   startHour: string; // e.g. "08:00"
   endHour: string;   // e.g. "18:00"
   weekdays: string[]; // ["mon", "tue", "wed", "thu", "fri"]
+}
+
+export interface RouteExtensionOverride {
+  extensionNumber: string;
+  callerId: string;
+  label?: string;
 }
 
 export interface Route {
@@ -100,7 +165,10 @@ export interface Route {
   prepend?: string; // Prepend digits before dialing (e.g., CSP "015", "021")
   trunkId?: string;
   failoverTrunkId?: string; // Secondary trunk for Least Cost Routing & Failover
-  callerIdOverride?: string; // Custom outgoing CallerID for this specific route
+  isCliItx?: boolean; // Rota classificada como CLI / ITX (Interconexão com BINA Aberta)
+  callerIdOverride?: string; // Custom outgoing CallerID for this specific route / Fallback
+  callerIdMode?: 'extension_cli' | 'fixed' | 'keep_original'; // Regra de BINA da rota
+  extensionOverrides?: RouteExtensionOverride[]; // Sobrescritas específicas de Ramal -> BINA nesta rota
   destinationType: 'trunk' | 'extension' | 'queue' | 'ivr' | 'ai_agent' | 'ring_group';
   destinationId: string;
   priority: number;
@@ -382,6 +450,41 @@ export interface DashboardMetrics {
   aiTokensUsedToday: number;
   costEstimateTodayBrl: number;
   hourlyCallDistribution: Array<{ hour: string; total: number; ai: number }>;
+}
+
+export interface QualityAuditRecord {
+  id: string;
+  tenantId: string;
+  channelType: 'voice_pjsip' | 'whatsapp' | 'webrtc';
+  referenceId: string;
+  contactName: string;
+  contactNumber: string;
+  agentOrBot: string;
+  timestamp: string;
+  score: number; // 0 to 100
+  sentiment: 'positive' | 'neutral' | 'negative';
+  slaBreach: boolean;
+  complianceChecked: boolean;
+  keyPhrases: string[];
+  riskAlerts: string[];
+  summary: string;
+  feedbackForAgent: string;
+}
+
+export interface EntityExtractionSchema {
+  id: string;
+  name: string;
+  description: string;
+  targetChannels: ('voice' | 'whatsapp' | 'webrtc')[];
+  fields: {
+    key: string;
+    label: string;
+    type: 'string' | 'number' | 'cpf_cnpj' | 'currency' | 'date' | 'boolean';
+    required: boolean;
+    description: string;
+  }[];
+  syncWithCrm: boolean;
+  isActive: boolean;
 }
 
 export type AuditCategory = 'TELECOM_SIP' | 'ROUTING' | 'SECURITY' | 'AI_GATEWAY' | 'USER_MGMT' | 'LGPD_ACCESS' | 'SYSTEM';

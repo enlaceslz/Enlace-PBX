@@ -36,8 +36,10 @@ import {
   ChevronDown,
   ChevronRight,
   Phone,
-  Globe
-, User } from 'lucide-react';
+  Globe,
+  User,
+  Hash
+} from 'lucide-react';
 import { UserRole } from '../types/pbx';
 
 export type ActiveView =
@@ -49,6 +51,7 @@ export type ActiveView =
   | 'campaigns'
   | 'extensions'
   | 'trunks'
+  | 'dids'
   | 'routes'
   | 'ring_groups'
   | 'queues'
@@ -124,6 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       items: [
         { id: 'extensions' as ActiveView, label: 'Ramais PJSIP', icon: Users },
         { id: 'trunks' as ActiveView, label: 'Troncos SIP', icon: Radio, allowedRoles: ['super_admin'] },
+        { id: 'dids' as ActiveView, label: 'DIDs / Numerações', icon: Hash, allowedRoles: ['super_admin', 'admin'] },
         { id: 'routes' as ActiveView, label: 'Rotas de Entrada/Saída', icon: GitFork, allowedRoles: ['super_admin', 'admin'] },
         { id: 'ring_groups' as ActiveView, label: 'Grupos de Toque', icon: Layers },
         { id: 'queues' as ActiveView, label: 'Filas de Atendimento', icon: Split },
@@ -380,6 +384,7 @@ export const checkAccess = (view: ActiveView, role: UserRole): boolean => {
     campaigns: ['admin', 'supervisor'],
     extensions: ['admin', 'supervisor'],
     trunks: [],
+    dids: ['admin'],
     routes: ['admin'],
     ring_groups: ['admin', 'supervisor'],
     queues: ['admin', 'supervisor'],

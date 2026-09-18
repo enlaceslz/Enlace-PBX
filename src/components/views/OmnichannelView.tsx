@@ -22,14 +22,29 @@ import {
   Users,
   CornerDownRight,
   ShieldCheck,
+  Sparkles,
+  StickyNote,
+  Briefcase,
+  Calendar,
+  Zap,
+  Building2,
+  DollarSign,
+  CheckSquare,
+  ThumbsUp,
+  HelpCircle,
 } from "lucide-react";
 
 interface Conversation {
   id: string;
   tenantId: string;
   contactId: string;
+  contactName?: string;
+  contactPhone?: string;
+  companyName?: string;
   channel: "whatsapp" | "voice" | "webrtc" | "sms";
   status: "active" | "closed" | "queued" | "bot_handling";
+  sentiment?: "positive" | "neutral" | "negative";
+  tags?: string[];
   createdAt: string;
   messages: Array<{
     id: string;
@@ -37,11 +52,41 @@ interface Conversation {
     text: string;
     timestamp: string;
   }>;
+  notes?: Array<{
+    id: string;
+    agentName: string;
+    text: string;
+    createdAt: string;
+  }>;
 }
+
+const QUICK_TEMPLATES = [
+  {
+    label: "📄 Fatura PIX",
+    text: "Olá! Segue sua fatura e a chave PIX Copia-e-Cola para baixa imediata: 00020126580014br.gov.bcb.pix0136slzenlace@gmail.com5204000053039865802BR. A compensação ocorre em até 2 minutos!",
+  },
+  {
+    label: "⚙️ Teste Áudio SIP",
+    text: "Realizamos a otimização da rota VoIP no tronco PJSIP prioritário com QoS DSCP 46. Poderia fazer uma chamada de teste para verificarmos a estabilidade?",
+  },
+  {
+    label: "⏱️ Protocolo & Fila N2",
+    text: "Seu protocolo de atendimento #ENL-2026-9812 foi aberto com prioridade Alta e está sendo tratado diretamente pelo time de Engenharia N2.",
+  },
+  {
+    label: "⭐ Pesquisa CSAT",
+    text: "Seu atendimento foi concluído! Em uma escala de 1 a 5, como você avalia nosso suporte de telecom e IA hoje?",
+  },
+];
 
 export const OmnichannelView: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
+  const [crmContacts, setCrmContacts] = useState<any[]>([]);
+  const [activeCrmTab, setActiveCrmTab] = useState<"profile" | "notes">("profile");
+  const [newNoteText, setNewNoteText] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [isSuggestingAi, setIsSuggestingAi] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [replyText, setReplyText] = useState("");
   const [showConfig, setShowConfig] = useState(false);
@@ -84,6 +129,79 @@ export const OmnichannelView: React.FC = () => {
     }
   };
 
+  const fetchCrmContacts = async () => {
+    try {
+      const res = await fetch("/api/v1/crm/contacts");
+      if (res.ok) {
+        const data = await res.json();
+        setCrmContacts(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch crm contacts", e);
+    }
+  };
+
+  const handleAiSuggest = async () => {
+    if (!selectedConv) return;
+    setIsSuggestingAi(true);
+    try {
+      const res = await fetch("/api/v1/omnichannel/ai-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: selectedConv.id,
+          history: selectedConv.messages,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.suggestion) {
+          setReplyText(data.suggestion);
+          setStatusFeedback("Sugestão da IA carregada no campo de resposta!");
+          setTimeout(() => setStatusFeedback(null), 3000);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to get AI suggestion", err);
+    } finally {
+      setIsSuggestingAi(false);
+    }
+  };
+
+  const handleSaveNote = async () => {
+    if (!selectedConv || !newNoteText.trim()) return;
+    setIsSavingNote(true);
+    try {
+      const res = await fetch(`/api/v1/omnichannel/conversations/${selectedConv.id}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: newNoteText.trim(),
+          agentName: "Operador NOC",
+        }),
+      });
+      if (res.ok) {
+        const note = await res.json();
+        setSelectedConv((prev) =>
+          prev
+            ? {
+                ...prev,
+                notes: [note, ...(prev.notes || [])],
+              }
+            : null
+        );
+        setNewNoteText("");
+        setStatusFeedback("Anotação interna gravada no histórico com sucesso!");
+        setTimeout(() => setStatusFeedback(null), 3000);
+        fetchConversations();
+      }
+    } catch (err) {
+      console.error("Failed to save note", err);
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
   const fetchConfig = async () => {
     try {
       const res = await fetch("/api/v1/whatsapp/config");
@@ -112,6 +230,19 @@ export const OmnichannelView: React.FC = () => {
       console.error("Erro ao salvar config WhatsApp", e);
     }
   };
+
+  useEffect(() => {
+    fetchConversations();
+    fetchConfig();
+    fetchCrmContacts();
+    setIsLoading(false);
+
+    const interval = setInterval(() => {
+      fetchConversations();
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleUpdateStatus = async (
     status: "active" | "closed" | "queued" | "bot_handling"
@@ -429,6 +560,13 @@ export const OmnichannelView: React.FC = () => {
               filteredConversations.map((conv) => {
                 const isSelected = selectedConv?.id === conv.id;
                 const lastMsg = conv.messages[conv.messages.length - 1];
+                const matched = crmContacts.find(
+                  (c) =>
+                    c.phone === conv.contactId ||
+                    c.phone === conv.contactPhone ||
+                    c.id === conv.contactId
+                );
+                const displayName = conv.contactName || matched?.name || conv.contactId;
 
                 return (
                   <div
@@ -443,8 +581,8 @@ export const OmnichannelView: React.FC = () => {
                     <div className="flex justify-between items-start mb-1.5">
                       <div className="flex items-center gap-2">
                         {getChannelIcon(conv.channel)}
-                        <span className="font-bold text-xs text-slate-900">
-                          {conv.contactId}
+                        <span className="font-bold text-xs text-slate-900 truncate max-w-[150px]">
+                          {displayName}
                         </span>
                       </div>
                       <span className="text-[10px] text-slate-400 font-mono">
@@ -463,7 +601,7 @@ export const OmnichannelView: React.FC = () => {
                       </p>
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-1 flex-wrap">
                       <span
                         className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${getStatusColor(
                           conv.status
@@ -472,9 +610,23 @@ export const OmnichannelView: React.FC = () => {
                         {getStatusLabel(conv.status)}
                       </span>
 
+                      {conv.sentiment && (
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                            conv.sentiment === "positive"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : conv.sentiment === "negative"
+                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : "bg-slate-50 text-slate-600 border-slate-200"
+                          }`}
+                        >
+                          {conv.sentiment === "positive" ? "Satisfeito" : conv.sentiment === "negative" ? "Risco Churn" : "Neutro"}
+                        </span>
+                      )}
+
                       {conv.status === "queued" && (
                         <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> Aguardando Operador
+                          <Clock className="w-3 h-3" /> Aguardando
                         </span>
                       )}
                     </div>
@@ -643,6 +795,23 @@ export const OmnichannelView: React.FC = () => {
                     ))}
                   </div>
 
+                  {/* Quick Replies Bar */}
+                  <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 flex items-center gap-2 overflow-x-auto">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-amber-500" /> Respostas Rápidas:
+                    </span>
+                    {QUICK_TEMPLATES.map((tmpl, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setReplyText(tmpl.text)}
+                        className="text-[11px] font-medium px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 shadow-2xs whitespace-nowrap transition"
+                      >
+                        {tmpl.label}
+                      </button>
+                    ))}
+                  </div>
+
                   {/* Input Box */}
                   <div className="p-3.5 bg-white border-t border-slate-200">
                     <div className="flex items-center gap-2">
@@ -658,13 +827,26 @@ export const OmnichannelView: React.FC = () => {
                             ? "Digite sua mensagem (o envio acionará Barge-in para atendimento humano)..."
                             : "Digite sua resposta para o cliente..."
                         }
-                        className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800"
                         disabled={selectedConv.status === "closed"}
                       />
+
+                      {/* AI Copilot Suggestion Button */}
+                      <button
+                        type="button"
+                        onClick={handleAiSuggest}
+                        disabled={isSuggestingAi || selectedConv.status === "closed"}
+                        className="h-10 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl flex items-center justify-center transition disabled:opacity-50 text-xs font-bold gap-1.5 shadow-sm shrink-0"
+                        title="Gerar sugestão inteligente com Gemini para o contexto do cliente"
+                      >
+                        <Sparkles className={`w-3.5 h-3.5 ${isSuggestingAi ? 'animate-spin' : ''}`} />
+                        {isSuggestingAi ? "Gerando..." : "Sugerir IA"}
+                      </button>
+
                       <button
                         onClick={handleSend}
                         disabled={!replyText.trim() || selectedConv.status === "closed"}
-                        className="h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm text-xs font-bold gap-1.5"
+                        className="h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm text-xs font-bold gap-1.5 shrink-0"
                       >
                         <Send className="w-4 h-4" /> Enviar
                       </button>
@@ -672,64 +854,186 @@ export const OmnichannelView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* CRM 360 / Painel Lateral */}
-                <div className="w-72 border-l border-slate-200 bg-white p-4 overflow-y-auto hidden md:block text-xs space-y-4">
-                  <h4 className="font-bold text-slate-800 text-xs flex items-center gap-2 border-b border-slate-100 pb-2">
-                    <ShieldCheck className="w-4 h-4 text-blue-600" /> Perfil 360º & CRM
-                  </h4>
+                {/* CRM 360 / Painel Lateral Avançado */}
+                {(() => {
+                  const matchedContact = crmContacts.find(
+                    (c) =>
+                      c.phone === selectedConv.contactId ||
+                      c.phone === selectedConv.contactPhone ||
+                      c.id === selectedConv.contactId
+                  );
+                  const clientName = selectedConv.contactName || matchedContact?.name || selectedConv.contactId;
+                  const company = selectedConv.companyName || matchedContact?.company || "Empresa Contratante PBX";
+                  const notesList = selectedConv.notes || [];
 
-                  <div className="space-y-3">
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <div className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Identificação</div>
-                      <div className="font-bold text-slate-800">{selectedConv.contactId}</div>
-                      <div className="text-[10px] text-emerald-600 font-medium mt-0.5">WhatsApp Verificado</div>
-                    </div>
-
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <div className="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Status no CRM</div>
-                      <div className="font-semibold text-slate-700">Cliente Prime (Contrato Ativo)</div>
-                    </div>
-
-                    <div>
-                      <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                        Tags da IA (Gemini Grounding)
-                      </h5>
-                      <div className="flex flex-wrap gap-1.5">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold rounded">
-                          Suporte Técnico
-                        </span>
-                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded">
-                          SLA Alta Prioridade
-                        </span>
-                        <span className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold rounded">
-                          VoIP PJSIP
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-slate-100">
-                      <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                        Timeline de Contatos
-                      </h5>
-                      <div className="space-y-2 text-[11px]">
-                        <div className="flex items-start gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0"></span>
-                          <div>
-                            <div className="font-semibold text-slate-700">Interação via WhatsApp</div>
-                            <div className="text-[10px] text-slate-400">Hoje às 09:12</div>
-                          </div>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
-                          <div>
-                            <div className="font-semibold text-slate-700">Ligação Ramal 4101</div>
-                            <div className="text-[10px] text-slate-400">Ontem às 16:45 (Dur: 03m12s)</div>
-                          </div>
+                  return (
+                    <div className="w-80 border-l border-slate-200 bg-white flex flex-col hidden md:flex text-xs overflow-hidden">
+                      {/* Tabs Header */}
+                      <div className="p-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                        <div className="flex bg-slate-200/80 p-0.5 rounded-lg w-full">
+                          <button
+                            type="button"
+                            onClick={() => setActiveCrmTab("profile")}
+                            className={`flex-1 py-1 text-[11px] font-bold rounded transition flex items-center justify-center gap-1 ${
+                              activeCrmTab === "profile"
+                                ? "bg-white text-slate-900 shadow-xs"
+                                : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Perfil & CRM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveCrmTab("notes")}
+                            className={`flex-1 py-1 text-[11px] font-bold rounded transition flex items-center justify-center gap-1 ${
+                              activeCrmTab === "notes"
+                                ? "bg-white text-slate-900 shadow-xs"
+                                : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            <StickyNote className="w-3.5 h-3.5 text-amber-600" /> Notas ({notesList.length})
+                          </button>
                         </div>
                       </div>
+
+                      {/* Tab 1: Profile & CRM 360 */}
+                      {activeCrmTab === "profile" && (
+                        <div className="p-4 overflow-y-auto space-y-4 flex-1">
+                          {/* Client Identification Card */}
+                          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Cliente Identificado</span>
+                              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-bold rounded">
+                                WhatsApp Ativo
+                              </span>
+                            </div>
+                            <div className="font-bold text-slate-900 text-sm">{clientName}</div>
+                            <div className="text-[11px] text-slate-600 flex items-center gap-1 mt-0.5">
+                              <Building2 className="w-3 h-3 text-slate-400" /> {company}
+                            </div>
+                            <div className="text-[10px] font-mono text-slate-400 mt-1">
+                              Telefone: {selectedConv.contactPhone || selectedConv.contactId}
+                            </div>
+                          </div>
+
+                          {/* CRM Association */}
+                          <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-200">
+                            <div className="flex items-center justify-between text-[10px] uppercase font-bold text-blue-600 mb-1">
+                              <span className="flex items-center gap-1"><Briefcase className="w-3 h-3" /> Integração CRM</span>
+                              <span className="font-mono text-[9px] bg-blue-100 text-blue-800 px-1 rounded">HubSpot / Pipedrive</span>
+                            </div>
+                            <div className="font-semibold text-slate-800 text-[11px]">Plano PBX Cloud Corporativo</div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">Contrato Anual • SLA Ouro • 20 Ramais WebRTC</div>
+                          </div>
+
+                          {/* Sentiment & Tags */}
+                          <div>
+                            <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                              <Tag className="w-3 h-3 text-purple-500" /> Tags & Análise de Sentimento (IA)
+                            </h5>
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                                selectedConv.sentiment === 'positive' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                selectedConv.sentiment === 'negative' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                'bg-slate-100 text-slate-700 border-slate-200'
+                              }`}>
+                                Sentimento: {selectedConv.sentiment === 'positive' ? 'Satisfeito' : selectedConv.sentiment === 'negative' ? 'Crítico / Risco' : 'Neutro'}
+                              </span>
+                              {(selectedConv.tags || ["Suporte Técnico", "SLA Alto", "Tronco SIP"]).map((t, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold rounded">
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Unified Timeline */}
+                          <div className="pt-2 border-t border-slate-100">
+                            <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-slate-500" /> Timeline Unificada do Contato
+                            </h5>
+                            <div className="space-y-2.5 text-[11px]">
+                              <div className="flex items-start gap-2">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1 shrink-0"></span>
+                                <div>
+                                  <div className="font-semibold text-slate-800">Mensagem via WhatsApp</div>
+                                  <div className="text-[10px] text-slate-400">Hoje às 09:12 • Protocolo aberto</div>
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-2">
+                                <span className="w-2 h-2 rounded-full bg-blue-500 mt-1 shrink-0"></span>
+                                <div>
+                                  <div className="font-semibold text-slate-800">Ligação de Voz Asterisk 20</div>
+                                  <div className="text-[10px] text-slate-400">Ontem às 16:45 (03m12s) • Ramal 4101</div>
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-2">
+                                <span className="w-2 h-2 rounded-full bg-amber-500 mt-1 shrink-0"></span>
+                                <div>
+                                  <div className="font-semibold text-slate-800">Fatura Emitida (DID Locado)</div>
+                                  <div className="text-[10px] text-slate-400">15/09/2026 • R$ 420,00 • Chave Pix enviada</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tab 2: Internal Operator Notes */}
+                      {activeCrmTab === "notes" && (
+                        <div className="p-4 flex flex-col flex-1 overflow-hidden">
+                          <div className="mb-3">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">
+                              Nova Anotação Interna (NOC & Atendimento)
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={newNoteText}
+                              onChange={(e) => setNewNoteText(e.target.value)}
+                              placeholder="Adicione detalhes de diagnóstico, preferências ou acordos com o cliente..."
+                              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+                            />
+                            <div className="flex justify-end mt-1.5">
+                              <button
+                                type="button"
+                                onClick={handleSaveNote}
+                                disabled={isSavingNote || !newNoteText.trim()}
+                                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition disabled:opacity-50 flex items-center gap-1 shadow-2xs"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                {isSavingNote ? "Gravando..." : "Salvar Nota"}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto space-y-2 pt-2 border-t border-slate-100">
+                            {notesList.length === 0 ? (
+                              <div className="text-center py-6 text-slate-400">
+                                <StickyNote className="w-6 h-6 mx-auto mb-1 opacity-40 text-amber-500" />
+                                <p className="text-[11px]">Nenhuma anotação registrada ainda.</p>
+                              </div>
+                            ) : (
+                              notesList.map((note) => (
+                                <div key={note.id} className="p-2.5 bg-amber-50/60 border border-amber-200/80 rounded-xl">
+                                  <div className="flex justify-between items-center text-[10px] text-amber-900 font-bold mb-1">
+                                    <span>{note.agentName}</span>
+                                    <span className="font-mono text-slate-400 font-normal">
+                                      {new Date(note.createdAt).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-700 leading-relaxed">{note.text}</p>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
             </>
           )}

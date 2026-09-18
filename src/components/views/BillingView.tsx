@@ -27,6 +27,10 @@ import {
   ChevronRight,
   Receipt,
   Layers,
+  Building2,
+  Hash,
+  Edit3,
+  User,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -46,7 +50,7 @@ import {
   BillingSummaryData,
   FinancialTransaction,
 } from '../../utils/pdfExportHelper';
-import { Tenant } from '../../types/pbx';
+import { Tenant, Did } from '../../types/pbx';
 
 interface BillingViewProps {
   currentTenant?: Tenant | null;
@@ -84,10 +88,23 @@ const tokenUsageData = [
 export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   const [billing, setBilling] = useState<ExtendedBillingData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'invoices' | 'statement'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'invoices' | 'statement' | 'dids_billing'>('overview');
+  const [didsList, setDidsList] = useState<Did[]>([]);
+  const [didsSearchTerm, setDidsSearchTerm] = useState('');
   
   // Selected Invoice Modal
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceData | null>(null);
+
+  // Edit DID Billing Modal
+  const [editingDid, setEditingDid] = useState<Did | null>(null);
+  const [isSavingDid, setIsSavingDid] = useState(false);
+  const [didEditForm, setDidEditForm] = useState({
+    assignedCompany: '',
+    assignedCnpj: '',
+    assignedUser: '',
+    monthlyFee: '29.90',
+    billingCycleDay: '10',
+  });
   
   // Recharge Modal
   const [isRechargeModalOpen, setIsRechargeModalOpen] = useState(false);
@@ -102,10 +119,17 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   const fetchBilling = async () => {
     try {
       const tenantId = currentTenant?.id || 'tenant-enlace-matriz';
-      const res = await fetch(`/api/v1/billing/${tenantId}`);
-      if (res.ok) {
-        const data = await res.json();
+      const [resBilling, resDids] = await Promise.all([
+        fetch(`/api/v1/billing/${tenantId}`),
+        fetch(`/api/v1/dids?tenantId=${tenantId}`),
+      ]);
+      if (resBilling.ok) {
+        const data = await resBilling.json();
         setBilling(data);
+      }
+      if (resDids.ok) {
+        const didsData = await resDids.json();
+        setDidsList(didsData);
       }
     } catch (e) {
       console.error('Error loading billing data:', e);
@@ -192,6 +216,98 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
       }
     } catch (err) {
       console.error('Error paying invoice:', err);
+    }
+  };
+
+  // Handle Export Single DID Invoice PDF
+  const handleGenerateDidInvoicePdf = (didItem: Did) => {
+    const fee = didItem.monthlyFee !== undefined ? didItem.monthlyFee : 29.90;
+    const invData: InvoiceData = {
+      id: `INV-DID-${(didItem.did || '').slice(-4)}-${new Date().getMonth() + 1}${new Date().getFullYear()}`,
+      date: new Date().toISOString(),
+      dueDate: new Date(Date.now() + 7 * 86400000).toISOString(),
+      amount: fee,
+      status: 'pending',
+      pixKey: '12.345.678/0001-90',
+      barcode: '34191.79001 01043.510047 91020.150008 8 98450000002990',
+      items: [
+        {
+          description: `Locação Mensal de DID Telefônico E.164 (${didItem.presentedNumber || didItem.did})`,
+          category: 'Numeração DID & Telefonia',
+          qty: '1 número DID',
+          unitPrice: fee,
+          total: fee,
+        },
+      ],
+    };
+
+    const summaryData: BillingSummaryData = {
+      tenantId: didItem.tenantId || currentTenant?.id || 'tenant-enlace-matriz',
+      tenantName: didItem.assignedCompany || 'Cliente Assinante de Linha DID',
+      tenantCnpj: didItem.assignedCnpj || '00.000.000/0001-00',
+      plan: 'Locação de Linha Telefônica DID Receptiva',
+      balance: 0,
+      currency: 'BRL',
+      currentMonthCosts: {
+        telephony: fee,
+        aiTokens: 0,
+        omnichannel: 0,
+        licenses: 0,
+      },
+    };
+
+    const mockTenant: Tenant = {
+      id: didItem.tenantId || 'tenant-custom',
+      name: didItem.assignedCompany || 'Cliente Assinante de Linha DID',
+      cnpj: didItem.assignedCnpj || '00.000.000/0001-00',
+      plan: 'Locação DID Receptivo',
+      maxExtensions: 10,
+      maxTrunks: 2,
+      aiCreditsUsd: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    exportInvoicePdf(invData, summaryData, mockTenant);
+  };
+
+  // Open Edit DID Modal from Billing Tab
+  const handleOpenEditDid = (didItem: Did) => {
+    setEditingDid(didItem);
+    setDidEditForm({
+      assignedCompany: didItem.assignedCompany || '',
+      assignedCnpj: didItem.assignedCnpj || '',
+      assignedUser: didItem.assignedUser || '',
+      monthlyFee: didItem.monthlyFee !== undefined ? String(didItem.monthlyFee) : '29.90',
+      billingCycleDay: didItem.billingCycleDay !== undefined ? String(didItem.billingCycleDay) : '10',
+    });
+  };
+
+  // Save DID Billing Information
+  const handleSaveDidBilling = async () => {
+    if (!editingDid) return;
+    setIsSavingDid(true);
+    try {
+      const res = await fetch(`/api/v1/dids/${editingDid.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...editingDid,
+          assignedCompany: didEditForm.assignedCompany,
+          assignedCnpj: didEditForm.assignedCnpj,
+          assignedUser: didEditForm.assignedUser,
+          monthlyFee: parseFloat(didEditForm.monthlyFee) || 29.90,
+          billingCycleDay: parseInt(didEditForm.billingCycleDay, 10) || 10,
+        }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setDidsList((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+        setEditingDid(null);
+      }
+    } catch (err) {
+      console.error('Error saving DID billing details:', err);
+    } finally {
+      setIsSavingDid(false);
     }
   };
 
@@ -293,6 +409,17 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
         >
           <FileText className="w-4 h-4" />
           Extrato Detalhado de Lançamentos
+        </button>
+        <button
+          onClick={() => setActiveSubTab('dids_billing')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+            activeSubTab === 'dids_billing'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          DIDs por Empresa & Mensalidades ({didsList.length})
         </button>
       </div>
 
@@ -665,6 +792,219 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
         </div>
       )}
 
+      {/* TAB 4: DIDS POR EMPRESA & MENSALIDADES */}
+      {activeSubTab === 'dids_billing' && (
+        <div className="space-y-6">
+          {/* Summary KPIs for DIDs */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total de DIDs</span>
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                  <Hash className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-900">{didsList.length}</span>
+                <span className="text-xs text-slate-400 font-medium">números ativos</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Empresas Clientes</span>
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <Building2 className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-900">
+                  {new Set(didsList.map((d) => d.assignedCompany).filter(Boolean)).size}
+                </span>
+                <span className="text-xs text-slate-400 font-medium">empresas vinculadas</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Receita Recorrente (MRR)</span>
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-emerald-700">
+                  {formatCurrency(
+                    didsList.reduce((acc, d) => acc + (d.monthlyFee !== undefined ? d.monthlyFee : 29.9), 0)
+                  )}
+                </span>
+                <span className="text-xs text-slate-400 font-medium">/mês em DIDs</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chamadas Recebidas</span>
+                <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
+                  <PhoneCall className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-purple-700">
+                  {didsList.reduce((acc, d) => acc + (d.totalCallsReceived || 0), 0)}
+                </span>
+                <span className="text-xs text-slate-400 font-medium">inbound total</span>
+              </div>
+            </div>
+          </div>
+
+          {/* DIDs & Companies Table */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-blue-600" />
+                  Gestão de DIDs Vinculados a Empresas & Cobrança
+                </h2>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">
+                  Associação de números telefônicos a clientes receptores, cadastro de CNPJ, contato responsável e valores de mensalidade.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Buscar empresa, CNPJ ou número..."
+                  value={didsSearchTerm}
+                  onChange={(e) => setDidsSearchTerm(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 w-64 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-600">
+                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider font-mono">
+                  <tr>
+                    <th className="p-3.5">Empresa Titular / Cliente</th>
+                    <th className="p-3.5">CNPJ / CPF</th>
+                    <th className="p-3.5">Número DID</th>
+                    <th className="p-3.5">Tronco SIP Operadora</th>
+                    <th className="p-3.5">Responsável</th>
+                    <th className="p-3.5 text-right">Mensalidade</th>
+                    <th className="p-3.5 text-center">Vencimento</th>
+                    <th className="p-3.5 text-center">Status</th>
+                    <th className="p-3.5 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {didsList
+                    .filter((item) => {
+                      if (!didsSearchTerm) return true;
+                      const term = didsSearchTerm.toLowerCase();
+                      return (
+                        (item.assignedCompany && item.assignedCompany.toLowerCase().includes(term)) ||
+                        (item.assignedCnpj && item.assignedCnpj.toLowerCase().includes(term)) ||
+                        (item.did && item.did.includes(term)) ||
+                        (item.presentedNumber && item.presentedNumber.includes(term))
+                      );
+                    })
+                    .map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50/80 transition">
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">
+                              <Building2 className="w-3.5 h-3.5" />
+                            </div>
+                            <div>
+                              <div className="font-bold text-slate-900">
+                                {item.assignedCompany || (
+                                  <span className="text-slate-400 italic">Não vinculado</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {item.description || `DID ${item.presentedNumber || item.did}`}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="p-3.5 font-mono text-[11px] text-slate-700">
+                          {item.assignedCnpj || '—'}
+                        </td>
+
+                        <td className="p-3.5">
+                          <div className="font-mono font-bold text-slate-900">
+                            {item.presentedNumber || item.did}
+                          </div>
+                          <div className="font-mono text-[10px] text-slate-400">
+                            {item.normalizedNumber || `+55${item.did}`}
+                          </div>
+                        </td>
+
+                        <td className="p-3.5">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                            {item.operatorName}
+                          </span>
+                        </td>
+
+                        <td className="p-3.5 text-slate-700">
+                          {item.assignedUser || '—'}
+                        </td>
+
+                        <td className="p-3.5 text-right font-black text-slate-900 font-mono">
+                          R$ {(item.monthlyFee !== undefined ? item.monthlyFee : 29.9).toFixed(2).replace('.', ',')}
+                        </td>
+
+                        <td className="p-3.5 text-center font-medium text-slate-700">
+                          Dia {item.billingCycleDay || 10}
+                        </td>
+
+                        <td className="p-3.5 text-center">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              item.status === 'active'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                item.status === 'active' ? 'bg-emerald-500' : 'bg-rose-500'
+                              }`}
+                            />
+                            {item.status === 'active' ? 'Ativo' : 'Inativo'}
+                          </span>
+                        </td>
+
+                        <td className="p-3.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleGenerateDidInvoicePdf(item)}
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition font-bold text-[11px] flex items-center gap-1 border border-blue-200 shadow-xs"
+                              title="Emitir Fatura PDF Individual do DID"
+                            >
+                              <Download className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Fatura PDF</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditDid(item)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition border border-slate-200"
+                              title="Editar Vínculo & Cobrança"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: INVOICE DETAILS & PDF PREVIEW */}
       {selectedInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-xs p-4">
@@ -723,6 +1063,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                   {(
                     selectedInvoice.items || [
                       { description: 'Telefonia SIP Asterisk 20', category: 'Telefonia', qty: '12.450 min', unitPrice: 0.028, total: 345.20 },
+                      { description: 'Locação e Roteamento de Numeração DID Receptiva', category: 'Numeração DID', qty: '5 números', unitPrice: 29.90, total: 149.50 },
                       { description: 'Processamento de Voz Gemini Live', category: 'IA Gemini', qty: '2.85M tokens', unitPrice: 0.000045, total: 128.50 },
                       { description: 'Licenças Ramais PJSIP Cloud', category: 'Licenças', qty: '30 ramais', unitPrice: 5.0, total: 150.00 },
                       { description: 'Mensagens WhatsApp Business API', category: 'Omnichannel', qty: '4.500 msgs', unitPrice: 0.02, total: 90.00 },
@@ -880,6 +1221,137 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                   <CheckCircle2 className="w-4 h-4" />
                 )}
                 Confirmar Crédito de R$ {rechargeAmount.toFixed(2)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT DID BILLING & COMPANY ASSIGNMENT */}
+      {editingDid && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base">
+                    Editar Cobrança: DID {editingDid.presentedNumber || editingDid.did}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Tronco SIP: <span className="font-bold text-slate-700">{editingDid.operatorName}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingDid(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Empresa Titular / Cliente Assinante
+                </label>
+                <input
+                  type="text"
+                  value={didEditForm.assignedCompany}
+                  onChange={(e) => setDidEditForm({ ...didEditForm, assignedCompany: e.target.value })}
+                  placeholder="Ex: Prime Consultoria e Tecnologia Ltda"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-500 font-medium"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    CNPJ ou CPF
+                  </label>
+                  <input
+                    type="text"
+                    value={didEditForm.assignedCnpj}
+                    onChange={(e) => setDidEditForm({ ...didEditForm, assignedCnpj: e.target.value })}
+                    placeholder="Ex: 23.456.789/0001-12"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Contato / Responsável
+                  </label>
+                  <div className="relative">
+                    <User className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={didEditForm.assignedUser}
+                      onChange={(e) => setDidEditForm({ ...didEditForm, assignedUser: e.target.value })}
+                      placeholder="Ex: Carlos Mendes"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Mensalidade do DID (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={didEditForm.monthlyFee}
+                    onChange={(e) => setDidEditForm({ ...didEditForm, monthlyFee: e.target.value })}
+                    placeholder="29.90"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:outline-none focus:border-blue-500 font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Dia do Vencimento
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={didEditForm.billingCycleDay}
+                    onChange={(e) => setDidEditForm({ ...didEditForm, billingCycleDay: e.target.value })}
+                    placeholder="10"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setEditingDid(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={isSavingDid}
+                onClick={handleSaveDidBilling}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center gap-1.5"
+              >
+                {isSavingDid ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                Salvar Alterações
               </button>
             </div>
           </div>

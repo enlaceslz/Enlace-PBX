@@ -15,6 +15,7 @@ import { QuickSetupView } from './components/views/QuickSetupView';
 import { BillingView } from './components/views/BillingView';
 import { ExtensionsView } from './components/views/ExtensionsView';
 import { TrunksView } from './components/views/TrunksView';
+import { DidsView } from './components/views/DidsView';
 import { RoutesView } from './components/views/RoutesView';
 import { QueuesAndGroupsView } from './components/views/QueuesAndGroupsView';
 import { IvrView } from './components/views/IvrView';
@@ -35,6 +36,7 @@ import {
   User,
   Extension,
   Trunk,
+  Did,
   Route,
   Queue,
   RingGroup,
@@ -70,6 +72,7 @@ export default function App() {
   const [channels, setChannels] = useState<AsteriskChannel[]>([]);
   const [extensions, setExtensions] = useState<Extension[]>([]);
   const [trunks, setTrunks] = useState<Trunk[]>([]);
+  const [dids, setDids] = useState<Did[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [queues, setQueues] = useState<Queue[]>([]);
   const [ringGroups, setRingGroups] = useState<RingGroup[]>([]);
@@ -117,6 +120,7 @@ export default function App() {
         channelsRes,
         extensionsRes,
         trunksRes,
+        didsRes,
         routesRes,
         queuesRes,
         ringGroupsRes,
@@ -136,6 +140,7 @@ export default function App() {
         fetchWithAuth('/api/v1/asterisk/channels'),
         fetchWithAuth('/api/v1/extensions'),
         fetchWithAuth('/api/v1/trunks'),
+        fetchWithAuth('/api/v1/dids'),
         fetchWithAuth('/api/v1/routes'),
         fetchWithAuth('/api/v1/queues'),
         fetchWithAuth('/api/v1/ring-groups'),
@@ -166,6 +171,7 @@ export default function App() {
       if (Array.isArray(channelsRes)) setChannels(channelsRes);
       if (Array.isArray(extensionsRes)) setExtensions(extensionsRes);
       if (Array.isArray(trunksRes)) setTrunks(trunksRes);
+      if (Array.isArray(didsRes)) setDids(didsRes);
       if (Array.isArray(routesRes)) setRoutes(routesRes);
       if (Array.isArray(queuesRes)) setQueues(queuesRes);
       if (Array.isArray(ringGroupsRes)) setRingGroups(ringGroupsRes);
@@ -293,9 +299,28 @@ export default function App() {
           />
         );
       case 'trunks':
-        return <TrunksView trunks={trunks} onRefresh={loadAllData} />;
+        return (
+          <TrunksView
+            trunks={trunks}
+            onRefresh={loadAllData}
+            onNavigate={(v) => setActiveView(v as ActiveView)}
+          />
+        );
+      case 'dids':
+        return (
+          <DidsView
+            dids={dids}
+            trunks={trunks}
+            extensions={extensions}
+            queues={queues}
+            ivrs={ivrs}
+            aiAgents={aiAgents}
+            ringGroups={ringGroups}
+            onRefresh={loadAllData}
+          />
+        );
       case 'routes':
-        return <RoutesView routes={routes} trunks={trunks} onRefresh={loadAllData} />;
+        return <RoutesView routes={routes} trunks={trunks} extensions={extensions} onRefresh={loadAllData} />;
       case 'ring_groups':
         return (
           <QueuesAndGroupsView

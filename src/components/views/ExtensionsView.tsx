@@ -41,6 +41,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
     number: '',
     name: '',
     callerId: '',
+    cliCallerId: '',
     sipSecret: '',
     context: 'from-internal',
     codecs: 'opus, pcma, pcmu, g722',
@@ -69,6 +70,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
           number: formData.number,
           name: formData.name,
           callerId: formData.callerId || `"${formData.name}" <${formData.number}>`,
+          cliCallerId: formData.cliCallerId ? formData.cliCallerId.trim() : undefined,
           sipSecret: formData.sipSecret || `Enlace@${formData.number}#Sec`,
           context: formData.context,
           codecs: formData.codecs.split(',').map((c) => c.trim()),
@@ -93,6 +95,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
         number: '',
         name: '',
         callerId: '',
+        cliCallerId: '',
         sipSecret: '',
         context: 'from-internal',
         codecs: 'opus, pcma, pcmu, g722',
@@ -125,6 +128,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
         body: JSON.stringify({
           name: editingExt.name,
           callerId: editingExt.callerId,
+          cliCallerId: editingExt.cliCallerId ? editingExt.cliCallerId.trim() : undefined,
           recording: editingExt.recording,
           allowAiTransfer: editingExt.allowAiTransfer,
           voicemail: editingExt.voicemail,
@@ -256,7 +260,13 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                       </div>
                     </td>
                     <td className="py-3.5 px-4 text-slate-700 font-mono text-[11px]">
-                      {ext.callerId}
+                      <div>{ext.callerId}</div>
+                      {ext.cliCallerId && (
+                        <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-amber-700 font-mono bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                          <Radio className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                          <span>CLI/ITX: <strong>{ext.cliCallerId}</strong></span>
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="flex flex-wrap gap-1">
@@ -436,6 +446,25 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                 </div>
               </div>
 
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-amber-950 font-bold text-xs">
+                    BINA em Rotas CLI / ITX (CallerID de Interconexão)
+                  </label>
+                  <span className="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-medium">BINA Aberta</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Ex: 1135008001 (Número DID com DDD)"
+                  value={formData.cliCallerId}
+                  onChange={(e) => setFormData({ ...formData, cliCallerId: e.target.value })}
+                  className="w-full bg-white border border-amber-300 rounded-lg px-3 py-1.5 text-slate-900 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                />
+                <p className="text-[10px] text-amber-800">
+                  Número que a operadora apresentará na ponta chamada quando este ramal discar através de rotas do tipo CLI/ITX. Se vazio, herdará a BINA da rota.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
                   Codecs de Áudio Suportados (Ordem de preferência)
@@ -532,6 +561,14 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                   <span className="text-slate-500 block text-[10px] uppercase">Caller ID Transmitido:</span>
                   <span className="text-slate-700">{selectedExtForCreds.callerId}</span>
                 </div>
+                {selectedExtForCreds.cliCallerId && (
+                  <div>
+                    <span className="text-amber-800 block text-[10px] uppercase font-bold">BINA em Rota CLI/ITX:</span>
+                    <span className="text-amber-900 font-bold bg-amber-100/70 px-2 py-0.5 rounded border border-amber-200">
+                      {selectedExtForCreds.cliCallerId}
+                    </span>
+                  </div>
+                )}
                 <div>
                   <span className="text-slate-500 block text-[10px] uppercase">Transporte:</span>
                   <span className="text-slate-700">UDP, TCP, TLS (WSS para WebRTC)</span>
@@ -693,6 +730,25 @@ qualify_frequency=30`}
                   onChange={(e) => setEditingExt({ ...editingExt, callerId: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:border-blue-500 focus:outline-none"
                 />
+              </div>
+
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-amber-950 font-bold text-xs">
+                    BINA em Rotas CLI / ITX (CallerID de Saída)
+                  </label>
+                  <span className="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-medium">BINA Aberta</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Ex: 1135008001 (Número DID com DDD)"
+                  value={editingExt.cliCallerId || ''}
+                  onChange={(e) => setEditingExt({ ...editingExt, cliCallerId: e.target.value })}
+                  className="w-full bg-white border border-amber-300 rounded-lg px-3 py-1.5 text-slate-900 font-mono text-xs focus:border-amber-500 focus:outline-none"
+                />
+                <p className="text-[10px] text-amber-800">
+                  Número E.164 transmitido via PJSIP CallerID e cabeçalhos SIP (P-Asserted-Identity / Remote-Party-ID) quando a chamada sair por rotas CLI/ITX.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

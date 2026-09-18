@@ -246,49 +246,65 @@ qualify_frequency=30
 
     // Trunks
     for (const trk of trunks) {
+      const isIpAuth = trk.authMode === 'ip';
+      const authorizedIpsList = (trk.authorizedIps && trk.authorizedIps.length > 0)
+        ? trk.authorizedIps
+        : [trk.host];
+
       output += `; ----------------------------------------------------
 ; Tronco SIP: ${trk.name} (${trk.providerName})
+; Modo: ${isIpAuth ? 'AUTENTICAÇÃO POR IP (Sem REGISTER / Sem Usuário e Senha)' : 'Credenciais SIP'}
 ; ----------------------------------------------------
 [trunk-${trk.id}]
 type=endpoint
-context=${trk.context}
+context=${trk.inboundContext || trk.context || 'from-trunk'}
 disallow=all
 ${trk.codecs.map((c) => `allow=${c}`).join('\n')}
 aors=trunk-${trk.id}-aor
-outbound_auth=trunk-${trk.id}-auth
-from_user=${trk.fromUser || trk.username}
-from_domain=${trk.fromDomain || trk.host}
+${!isIpAuth ? `outbound_auth=trunk-${trk.id}-auth\nfrom_user=${trk.fromUser || trk.username}\nfrom_domain=${trk.fromDomain || trk.host}` : `from_domain=${trk.fromDomain || trk.host}`}
 callerid=${trk.callerId}
 dtmf_mode=${trk.dtmfMode || 'rfc4733'}
 direct_media=${trk.directMedia ? 'yes' : 'no'}
 rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=yes
-${trk.callerIdMode === 'pai' ? 'send_pai=yes\ntrust_id_inbound=yes' : trk.callerIdMode === 'rpid' ? 'send_rpid=yes\ntrust_id_inbound=yes' : ''}
+${trk.callerIdMode === 'pai' || trk.sendPai ? 'send_pai=yes\ntrust_id_inbound=yes' : trk.callerIdMode === 'rpid' || trk.sendRpid ? 'send_rpid=yes\ntrust_id_inbound=yes' : ''}
 ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 
+[trunk-${trk.id}-aor]
+type=aor
+contact=sip:${trk.host}:${trk.port || 5060}
+qualify_frequency=${trk.qualifyFrequency || 60}
+${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
+`;
+
+      if (isIpAuth) {
+        output += `
+; Identificação por IP de Origem (SBCs Autorizados da Operadora)
+[trunk-${trk.id}-identify]
+type=identify
+endpoint=trunk-${trk.id}
+match=${authorizedIpsList.join(',')}
+`;
+      } else {
+        output += `
 [trunk-${trk.id}-auth]
 type=auth
 auth_type=userpass
 username=${trk.username}
 password=DEFINIR_SENHA_TRONCO_NO_ENV
 
-[trunk-${trk.id}-aor]
-type=aor
-contact=sip:${trk.host}:${trk.port}
-qualify_frequency=${trk.qualifyFrequency || 60}
-${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
-
 ${trk.register ? `[trunk-${trk.id}-reg]
 type=registration
 outbound_auth=trunk-${trk.id}-auth
-server_uri=sip:${trk.host}:${trk.port}
-client_uri=sip:${trk.username}@${trk.host}:${trk.port}
+server_uri=sip:${trk.host}:${trk.port || 5060}
+client_uri=sip:${trk.username}@${trk.host}:${trk.port || 5060}
 retry_interval=30
 max_retries=10
 ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 ` : ''}
 `;
+      }
     }
 
     return output;
@@ -301,6 +317,7 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
     const groups = db.ringGroups.filter((g) => g.tenantId === tenantId);
     const queues = db.queues.filter((q) => q.tenantId === tenantId);
     const ivrs = db.ivrs.filter((i) => i.tenantId === tenantId);
+    const dids = db.dids.filter((d) => d.tenantId === tenantId && d.status === 'active');
 
     return `; ====================================================================
 ; Enlace-PBX — Dialplan Oficial Asterisk 20 LTS (extensions.conf)
@@ -442,13 +459,47 @@ ${routes
     const targetTrunk = r.trunkId ? `PJSIP/trunk-${r.trunkId}` : `\${TRUNK_VIVO}`;
     const safeRouteTag = r.id.replace(/[^a-zA-Z0-9_]/g, '_');
 
-    let lines = `exten => ${pat},1,NoOp(Rota de Saida: ${r.name})
+    let lines = `exten => ${pat},1,NoOp(Rota de Saida: ${r.name}${r.isCliItx ? ' [MODO CLI/ITX - BINA DINAMICA]' : ''})
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CALLFILENAME=rec-out-\${EPOCH}-\${EXTEN})
  same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)`;
 
-    if (r.callerIdOverride) {
-      lines += `\n same => n,Set(CALLERID(num)=${r.callerIdOverride})`;
+    if (r.isCliItx) {
+      lines += `\n ; --- Tratamento Especial CLI/ITX: Identificacao de Ramal para BINA Aberta ---
+ same => n,Set(CALLING_EXT=\${CALLERID(num)})
+ same => n,Set(TARGET_CLI=)`;
+
+      // 1. Prioridade 1: Overrides específicos definidos na própria rota
+      if (r.extensionOverrides && r.extensionOverrides.length > 0) {
+        for (const ov of r.extensionOverrides) {
+          if (ov.extensionNumber && ov.callerId) {
+            lines += `\n same => n,ExecIf($["\${CALLING_EXT}" = "${ov.extensionNumber}"]?Set(TARGET_CLI=${ov.callerId}))`;
+          }
+        }
+      }
+
+      // 2. Prioridade 2: cliCallerId configurado no cadastro do Ramal (Extension.cliCallerId)
+      for (const ext of extensions) {
+        if (ext.cliCallerId) {
+          lines += `\n same => n,ExecIf($["\${CALLING_EXT}" = "${ext.number}" & $[${'${LEN(${TARGET_CLI})}'} = 0]]?Set(TARGET_CLI=${ext.cliCallerId}))`;
+        }
+      }
+
+      // 3. Prioridade 3: Fallback para callerIdOverride da Rota
+      if (r.callerIdOverride) {
+        lines += `\n same => n,ExecIf($[$[${'${LEN(${TARGET_CLI})}'} = 0]]?Set(TARGET_CLI=${r.callerIdOverride}))`;
+      }
+
+      // 4. Aplica no Asterisk PJSIP (CallerID num, name e P-Asserted-Identity)
+      lines += `\n same => n,GotoIf($[$[${'${LEN(${TARGET_CLI})}'} > 0]?apply_cli_${safeRouteTag}:continue_dial_${safeRouteTag})
+ same => n(apply_cli_${safeRouteTag}),NoOp(=== Enlace-PBX CLI/ITX: Ramal \${CALLING_EXT} binando com sucesso \${TARGET_CLI} ===)
+ same => n,Set(CALLERID(num)=\${TARGET_CLI})
+ same => n,Set(CALLERID(name)=\${TARGET_CLI})
+ same => n,Set(PJSIP_HEADER(add,P-Asserted-Identity)=<sip:\${TARGET_CLI}@\${CHANNEL(pjsip,remote_addr)}>)
+ same => n(continue_dial_${safeRouteTag}),NoOp(Prosseguindo discagem via tronco)`;
+    } else if (r.callerIdOverride) {
+      lines += `\n same => n,Set(CALLERID(num)=${r.callerIdOverride})
+ same => n,Set(CALLERID(name)=${r.callerIdOverride})`;
     }
 
     lines += `\n same => n,Dial(${targetTrunk}/${dialedExten},60,tT)`;
@@ -471,6 +522,33 @@ ${routes
 ; Rotas de Entrada (DIDs das Operadoras Brasileiras & Horários)
 ; ====================================================================
 [from-trunk]
+${dids
+  .map((d) => {
+    let dest = 'Goto(from-internal,4101,1)';
+    if (d.destinationType === 'extension') dest = `Goto(from-internal,${d.destinationId},1)`;
+    else if (d.destinationType === 'queue') dest = `Goto(call-queues,${d.destinationId},1)`;
+    else if (d.destinationType === 'ivr') dest = `Goto(ivr-menus,${d.destinationId},1)`;
+    else if (d.destinationType === 'ai_agent') dest = `Goto(from-gemini,s,1)`;
+    else if (d.destinationType === 'ring_group') dest = `Goto(ring-groups,${d.destinationId},1)`;
+
+    const cleanNumber = d.did.replace(/\D/g, '');
+    const cleanNational = cleanNumber.startsWith('55') ? cleanNumber.slice(2) : cleanNumber;
+    const cleanE164 = `55${cleanNational}`;
+
+    let lines = `; DID: ${d.presentedNumber} (${d.operatorName} - ${d.description})
+exten => ${cleanNational},1,NoOp(DID: ${d.presentedNumber} [${d.operatorName}])
+ same => n,Set(CDR(tenant_id)=${tenantId})
+ same => n,Set(CDR(did)=${d.did})
+ same => n,Set(CALLFILENAME=rec-did-\${EPOCH}-${cleanNational})
+ same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)
+ same => n,${dest}
+
+exten => ${cleanE164},1,Goto(${cleanNational},1)`;
+
+    return lines;
+  })
+  .join('\n\n')}
+
 ${routes
   .filter((r) => r.type === 'inbound')
   .map((r) => {
@@ -841,6 +919,69 @@ Packets exchanged: 48,120 (0 lost)`;
     }
 
     return `No such command '${rawCmd}' (type 'help' for Asterisk 20 command list)`;
+  }
+
+  /**
+   * Simulação e Resolução de CallerID / BINA para chamadas de saída
+   * Permite verificar exatamente como o dialplan Asterisk e os troncos CLI/ITX
+   * resolverão o número binado para qualquer ramal discando em qualquer rota.
+   */
+  resolveCallerIdForOutboundCall(tenantId: string, extensionNumber: string, routeId: string) {
+    const ext = db.extensions.find((e) => e.tenantId === tenantId && e.number === extensionNumber);
+    const route = db.routes.find((r) => r.tenantId === tenantId && r.id === routeId);
+
+    if (!ext || !route) {
+      return null;
+    }
+
+    let resolvedCallerId = ext.number;
+    let source: 'route_extension_override' | 'extension_cli_setting' | 'route_default' | 'original_extension' = 'original_extension';
+    let explanation = `O ramal binaria seu identificador padrão interno (${ext.callerId || ext.number}).`;
+
+    if (route.isCliItx) {
+      // 1. Prioridade 1: Sobrescrita explícita na própria rota
+      const routeOverride = route.extensionOverrides?.find((o) => o.extensionNumber === extensionNumber);
+      if (routeOverride && routeOverride.callerId) {
+        resolvedCallerId = routeOverride.callerId;
+        source = 'route_extension_override';
+        explanation = `Sobrescrita prioritária da Rota aplicada para o ramal ${extensionNumber}: ${routeOverride.label ? `${routeOverride.label} (${routeOverride.callerId})` : routeOverride.callerId}.`;
+      } else if (ext.cliCallerId) {
+        resolvedCallerId = ext.cliCallerId;
+        source = 'extension_cli_setting';
+        explanation = `BINA CLI/ITX personalizada configurada no cadastro do Ramal ${extensionNumber}: ${ext.cliCallerId}.`;
+      } else if (route.callerIdOverride) {
+        resolvedCallerId = route.callerIdOverride;
+        source = 'route_default';
+        explanation = `Ramal sem BINA CLI individual; utilizando CallerID fallback padrão da Rota CLI/ITX: ${route.callerIdOverride}.`;
+      }
+    } else if (route.callerIdOverride) {
+      resolvedCallerId = route.callerIdOverride;
+      source = 'route_default';
+      explanation = `Rota padrão sem CLI dinâmico com CallerID fixo configurado: ${route.callerIdOverride}.`;
+    }
+
+    const trunk = db.trunks.find((t) => t.id === route.trunkId);
+    const trunkHost = trunk ? trunk.host : 'sip.operadora.com.br';
+
+    return {
+      extensionNumber: ext.number,
+      extensionName: ext.name,
+      originalCallerId: ext.callerId,
+      routeId: route.id,
+      routeName: route.name,
+      pattern: route.pattern,
+      isCliItx: !!route.isCliItx,
+      resolutionSource: source,
+      resolvedCallerId,
+      headersAdded: {
+        callerIdNum: resolvedCallerId,
+        callerIdName: resolvedCallerId,
+        pAssertedIdentity: route.isCliItx ? `<sip:${resolvedCallerId}@${trunkHost}>` : undefined,
+        remotePartyId: route.isCliItx ? `<sip:${resolvedCallerId}@${trunkHost}>;party=calling;screen=yes;privacy=off` : undefined,
+      },
+      explanation,
+      matchedTrunk: trunk ? { id: trunk.id, name: trunk.name, provider: trunk.providerName, host: trunk.host } : null,
+    };
   }
 }
 

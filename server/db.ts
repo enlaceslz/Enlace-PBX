@@ -38,14 +38,62 @@ export interface OmnichannelMessage {
   timestamp: string;
 }
 
+export interface OmnichannelNote {
+  id: string;
+  agentName: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface OmnichannelConversation {
   id: string;
   tenantId: string;
   contactId: string;
+  contactName?: string;
+  contactPhone?: string;
+  companyName?: string;
   channel: 'whatsapp' | 'voice' | 'webrtc' | 'sms';
   status: 'active' | 'closed' | 'queued' | 'bot_handling';
   createdAt: string;
   messages: OmnichannelMessage[];
+  notes?: OmnichannelNote[];
+  sentiment?: 'positive' | 'neutral' | 'negative';
+  tags?: string[];
+}
+
+export interface QualityAuditRecord {
+  id: string;
+  tenantId: string;
+  channelType: 'voice_pjsip' | 'whatsapp' | 'webrtc';
+  referenceId: string;
+  contactName: string;
+  contactNumber: string;
+  agentOrBot: string;
+  timestamp: string;
+  score: number;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  slaBreach: boolean;
+  complianceChecked: boolean;
+  keyPhrases: string[];
+  riskAlerts: string[];
+  summary: string;
+  feedbackForAgent: string;
+}
+
+export interface EntityExtractionSchema {
+  id: string;
+  name: string;
+  description: string;
+  targetChannels: ('voice' | 'whatsapp' | 'webrtc')[];
+  fields: {
+    key: string;
+    label: string;
+    type: 'string' | 'number' | 'cpf_cnpj' | 'currency' | 'date' | 'boolean';
+    required: boolean;
+    description: string;
+  }[];
+  syncWithCrm: boolean;
+  isActive: boolean;
 }
 
 export interface WhatsappConfig {
@@ -97,6 +145,7 @@ export interface Extension {
   sipSecret: string;
   context: string;
   callerId: string;
+  cliCallerId?: string; // BINA transmitida especificamente em rotas CLI/ITX
   codecs: string[];
   nat: boolean;
   webrtc: boolean;
@@ -106,6 +155,14 @@ export interface Extension {
   status: 'online' | 'offline' | 'busy' | 'ringing';
   ipAddress?: string;
   allowAiTransfer: boolean;
+}
+
+export interface AuthorizedIpItem {
+  ip: string;
+  label?: string;
+  status: 'active' | 'inactive' | 'testing' | 'unreachable';
+  latencyMs?: number;
+  lastChecked?: string;
 }
 
 export interface Trunk {
@@ -126,6 +183,21 @@ export interface Trunk {
   channelsMax: number;
   channelsInUse: number;
   // Advanced PJSIP / Telecom fields
+  authMode?: 'ip' | 'credentials';
+  authorizedIps?: string[];
+  ipStatusList?: AuthorizedIpItem[];
+  sipPort?: number;
+  rtpRange?: string;
+  natEnabled?: boolean;
+  publicIpOverride?: string;
+  identifyBy?: 'ip' | 'username' | 'header';
+  matchHeader?: string;
+  inboundContext?: string;
+  sendPai?: boolean;
+  sendRpid?: boolean;
+  userEqPhone?: boolean;
+  insecure?: 'invite,port' | 'no' | 'port';
+  notes?: string;
   dtmfMode?: 'rfc4733' | 'inband' | 'info' | 'auto';
   fromDomain?: string;
   fromUser?: string;
@@ -139,10 +211,51 @@ export interface Trunk {
   lastPingAt?: string;
 }
 
+export interface Did {
+  id: string;
+  tenantId: string;
+  did: string; // e.g. "1135008000"
+  normalizedNumber: string; // E.164 "+551135008000"
+  presentedNumber: string; // "(11) 3500-8000"
+  operatorName: string; // e.g. "TIP Brasil"
+  trunkId: string; // FK -> Trunk.id
+  description: string;
+  status: 'active' | 'inactive' | 'suspended';
+  // Vínculo com Empresa / Cliente Beneficiário & Billing
+  assignedCompany?: string; // Nome da Empresa ou Razão Social
+  assignedCnpj?: string;    // CNPJ ou CPF
+  assignedUser?: string;    // Responsável / Contato
+  monthlyFee?: number;      // Mensalidade do DID (ex: R$ 25,00/mês)
+  billingCycleDay?: number; // Dia de vencimento/cobrança (ex: dia 10)
+  destinationType: 'extension' | 'queue' | 'ivr' | 'ring_group' | 'ai_agent';
+  destinationId: string;
+  destinationLabel?: string;
+  timeConditionEnabled?: boolean;
+  timeSchedule?: RouteTimeSchedule;
+  afterHoursDestType?: 'extension' | 'queue' | 'ivr' | 'ai_agent' | 'voicemail';
+  afterHoursDestId?: string;
+  fallbackType?: 'human' | 'ivr' | 'voicemail' | 'queue';
+  fallbackTarget?: string;
+  didSourceHeader: 'request_uri' | 'to' | 'p_called_party_id' | 'p_asserted_identity' | 'custom';
+  customHeaderName?: string;
+  unknownDidAction: 'reject_404' | 'congestion_503' | 'busy_486' | 'default_route';
+  channelsInUse: number;
+  totalCallsReceived: number;
+  lastCallAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RouteTimeSchedule {
   startHour: string; // "08:00"
   endHour: string;   // "18:00"
   weekdays: string[]; // ["mon", "tue", "wed", "thu", "fri"]
+}
+
+export interface RouteExtensionOverride {
+  extensionNumber: string;
+  callerId: string;
+  label?: string;
 }
 
 export interface Route {
@@ -155,7 +268,10 @@ export interface Route {
   prepend?: string; // Prepend digits before dialing (e.g. "015", "021")
   trunkId?: string;
   failoverTrunkId?: string; // Secondary trunk for Least Cost Routing & Failover
-  callerIdOverride?: string; // Custom CallerID for this specific route
+  isCliItx?: boolean; // Rota classificada como CLI / ITX (Interconexão com BINA Aberta)
+  callerIdOverride?: string; // Custom CallerID for this specific route / Fallback
+  callerIdMode?: 'extension_cli' | 'fixed' | 'keep_original'; // Modo de resolução de BINA
+  extensionOverrides?: RouteExtensionOverride[]; // Mapeamento explícito de Ramal -> BINA nesta rota
   destinationType: 'trunk' | 'extension' | 'queue' | 'ivr' | 'ai_agent' | 'ring_group';
   destinationId: string;
   priority: number;
@@ -589,6 +705,7 @@ export class Database {
       data: JSON.stringify({
         extensions: this.extensions.filter(e => e.tenantId === tenantId),
         trunks: this.trunks.filter(t => t.tenantId === tenantId),
+        dids: this.dids.filter(d => d.tenantId === tenantId),
         routes: this.routes.filter(r => r.tenantId === tenantId),
         ringGroups: this.ringGroups.filter(rg => rg.tenantId === tenantId),
         queues: this.queues.filter(q => q.tenantId === tenantId),
@@ -609,6 +726,7 @@ export class Database {
       // Remove current tenant data
       this.extensions = this.extensions.filter(e => e.tenantId !== tenantId);
       this.trunks = this.trunks.filter(t => t.tenantId !== tenantId);
+      this.dids = this.dids.filter(d => d.tenantId !== tenantId);
       this.routes = this.routes.filter(r => r.tenantId !== tenantId);
       this.ringGroups = this.ringGroups.filter(rg => rg.tenantId !== tenantId);
       this.queues = this.queues.filter(q => q.tenantId !== tenantId);
@@ -616,6 +734,7 @@ export class Database {
       // Restore from snapshot
       this.extensions.push(...data.extensions);
       this.trunks.push(...data.trunks);
+      if (Array.isArray(data.dids)) this.dids.push(...data.dids);
       this.routes.push(...data.routes);
       this.ringGroups.push(...data.ringGroups);
       this.queues.push(...data.queues);
@@ -739,6 +858,7 @@ export class Database {
       sipSecret: 'Enlace@4101#Sec',
       context: 'from-internal',
       callerId: '"Carlos Silva" <4101>',
+      cliCallerId: '1135008001', // BINA exclusiva em rotas CLI/ITX (DID Direto Carlos Silva)
       codecs: ['opus', 'pcma', 'pcmu', 'g722'],
       nat: true,
       webrtc: true,
@@ -757,6 +877,7 @@ export class Database {
       sipSecret: 'Enlace@4102#Sec',
       context: 'from-internal',
       callerId: '"Roberto Mendes" <4102>',
+      cliCallerId: '1135008001', // BINA exclusiva em rotas CLI/ITX (Linha Direta de Suporte)
       codecs: ['opus', 'pcma', 'g722'],
       nat: true,
       webrtc: true,
@@ -775,6 +896,7 @@ export class Database {
       sipSecret: 'Enlace@4103#Sec',
       context: 'from-internal',
       callerId: '"Mariana Costa" <4103>',
+      cliCallerId: '1135008002', // BINA exclusiva em rotas CLI/ITX (Linha Recepção & Comercial)
       codecs: ['opus', 'pcma', 'pcmu'],
       nat: true,
       webrtc: true,
@@ -793,6 +915,7 @@ export class Database {
       sipSecret: 'Enlace@4201#Sec',
       context: 'from-internal',
       callerId: '"Financeiro Enlace" <4201>',
+      cliCallerId: '1135008000', // BINA exclusiva em rotas CLI/ITX (DID Piloto Matriz)
       codecs: ['opus', 'pcma'],
       nat: true,
       webrtc: true,
@@ -811,6 +934,7 @@ export class Database {
       sipSecret: 'Enlace@4301#Sec',
       context: 'from-internal',
       callerId: '"Diretoria" <4301>',
+      cliCallerId: '1135008003', // BINA exclusiva em rotas CLI/ITX (DID Linha Executiva Direta)
       codecs: ['opus', 'g722'],
       nat: true,
       webrtc: false,
@@ -905,9 +1029,237 @@ export class Database {
       lastPingStatus: '200 OK',
       lastPingAt: new Date(Date.now() - 1000 * 60 * 8).toISOString(),
     },
+    {
+      id: 'trunk-tip-brasil',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'TIP Brasil — Tronco SIP Corporativo (Autenticação por IP)',
+      providerName: 'TIP Brasil Telecomunicações',
+      host: '200.80.127.10',
+      port: 5060,
+      username: '',
+      secretMasked: '',
+      transport: 'UDP',
+      callerId: '1135008000',
+      codecs: ['pcma', 'pcmu', 'g729', 'opus'],
+      context: 'from-trunk',
+      register: false,
+      status: 'registered',
+      channelsMax: 60,
+      channelsInUse: 3,
+      authMode: 'ip',
+      authorizedIps: ['200.80.127.10', '200.80.127.11', '200.80.127.12'],
+      ipStatusList: [
+        { ip: '200.80.127.10', label: 'SBC Primário SP (TIP Brasil)', status: 'active', latencyMs: 11, lastChecked: new Date().toISOString() },
+        { ip: '200.80.127.11', label: 'SBC Secundário RJ (TIP Brasil)', status: 'active', latencyMs: 16, lastChecked: new Date().toISOString() },
+        { ip: '200.80.127.12', label: 'SBC Redundância Cloud (TIP Brasil)', status: 'active', latencyMs: 24, lastChecked: new Date().toISOString() },
+      ],
+      sipPort: 5060,
+      rtpRange: '10000-20000',
+      natEnabled: true,
+      identifyBy: 'ip',
+      inboundContext: 'from-trunk',
+      sendPai: true,
+      sendRpid: false,
+      userEqPhone: true,
+      insecure: 'invite,port',
+      dtmfMode: 'rfc4733',
+      qualifyFrequency: 30,
+      directMedia: false,
+      callerIdMode: 'pai',
+      failoverTrunkId: 'trunk-vivo-e1',
+      lastPingLatencyMs: 12,
+      lastPingStatus: '200 OK',
+      lastPingAt: new Date().toISOString(),
+      notes: 'Tronco SIP de produção com Autenticação por IP. Sem REGISTER. Conexão direta com SBCs da TIP Brasil.',
+    },
+  ];
+
+  dids: Did[] = [
+    {
+      id: 'did-tip-01',
+      tenantId: 'tenant-enlace-matriz',
+      did: '1135008000',
+      normalizedNumber: '+551135008000',
+      presentedNumber: '(11) 3500-8000',
+      operatorName: 'TIP Brasil',
+      trunkId: 'trunk-tip-brasil',
+      description: 'DID Principal Atendimento — Agente Gemini MaIA 24/7',
+      status: 'active',
+      assignedCompany: 'Enlace Telecomunicações Ltda',
+      assignedCnpj: '12.345.678/0001-90',
+      assignedUser: 'Carlos Silva (NOC)',
+      monthlyFee: 35.00,
+      billingCycleDay: 10,
+      destinationType: 'ai_agent',
+      destinationId: 'agent-maia-247',
+      destinationLabel: 'MaIA — Agente Inteligente 24/7 (Gemini AudioSocket)',
+      timeConditionEnabled: false,
+      fallbackType: 'queue',
+      fallbackTarget: 'queue-suporte-n1',
+      didSourceHeader: 'request_uri',
+      unknownDidAction: 'reject_404',
+      channelsInUse: 1,
+      totalCallsReceived: 1420,
+      lastCallAt: new Date(Date.now() - 1000 * 60 * 4).toISOString(),
+      createdAt: '2026-03-01T10:00:00Z',
+      updatedAt: '2026-03-01T10:00:00Z',
+    },
+    {
+      id: 'did-tip-02',
+      tenantId: 'tenant-enlace-matriz',
+      did: '1135008001',
+      normalizedNumber: '+551135008001',
+      presentedNumber: '(11) 3500-8001',
+      operatorName: 'TIP Brasil',
+      trunkId: 'trunk-tip-brasil',
+      description: 'DID Linha Direta Suporte Técnico N1 (ACD Queue)',
+      status: 'active',
+      assignedCompany: 'Suporte Tech Soluções Cloud',
+      assignedCnpj: '45.123.890/0001-44',
+      assignedUser: 'Marcos Oliveira',
+      monthlyFee: 29.90,
+      billingCycleDay: 15,
+      destinationType: 'queue',
+      destinationId: 'queue-suporte-n1',
+      destinationLabel: 'Fila de Suporte Técnico Especializado N1',
+      timeConditionEnabled: true,
+      timeSchedule: {
+        startHour: '08:00',
+        endHour: '20:00',
+        weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
+      },
+      afterHoursDestType: 'ai_agent',
+      afterHoursDestId: 'agent-maia-247',
+      fallbackType: 'ivr',
+      fallbackTarget: 'ivr-principal',
+      didSourceHeader: 'request_uri',
+      unknownDidAction: 'reject_404',
+      channelsInUse: 1,
+      totalCallsReceived: 890,
+      lastCallAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
+      createdAt: '2026-03-01T10:00:00Z',
+      updatedAt: '2026-03-01T10:00:00Z',
+    },
+    {
+      id: 'did-tip-03',
+      tenantId: 'tenant-enlace-matriz',
+      did: '1135008002',
+      normalizedNumber: '+551135008002',
+      presentedNumber: '(11) 3500-8002',
+      operatorName: 'TIP Brasil',
+      trunkId: 'trunk-tip-brasil',
+      description: 'DID Recepção Geral & URA Multi-opções',
+      status: 'active',
+      assignedCompany: 'Clínica Saúde & Bem-Estar',
+      assignedCnpj: '33.987.654/0001-02',
+      assignedUser: 'Fernanda Rocha',
+      monthlyFee: 29.90,
+      billingCycleDay: 5,
+      destinationType: 'ivr',
+      destinationId: 'ivr-principal',
+      destinationLabel: 'URA de Autoatendimento Enlace Matriz',
+      timeConditionEnabled: false,
+      fallbackType: 'human',
+      fallbackTarget: '4101',
+      didSourceHeader: 'to',
+      unknownDidAction: 'reject_404',
+      channelsInUse: 1,
+      totalCallsReceived: 640,
+      lastCallAt: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
+      createdAt: '2026-03-01T10:00:00Z',
+      updatedAt: '2026-03-01T10:00:00Z',
+    },
+    {
+      id: 'did-tip-04',
+      tenantId: 'tenant-enlace-matriz',
+      did: '1135008003',
+      normalizedNumber: '+551135008003',
+      presentedNumber: '(11) 3500-8003',
+      operatorName: 'TIP Brasil',
+      trunkId: 'trunk-tip-brasil',
+      description: 'DID Linha Executiva Direta — Operador NOC',
+      status: 'active',
+      assignedCompany: 'Advocacia & Consultoria Silva',
+      assignedCnpj: '18.765.432/0001-99',
+      assignedUser: 'Dr. Roberto Silva',
+      monthlyFee: 39.00,
+      billingCycleDay: 10,
+      destinationType: 'extension',
+      destinationId: '4101',
+      destinationLabel: 'Ramal 4101 — Carlos Henrique Silva',
+      timeConditionEnabled: false,
+      fallbackType: 'voicemail',
+      fallbackTarget: '4101',
+      didSourceHeader: 'request_uri',
+      unknownDidAction: 'busy_486',
+      channelsInUse: 0,
+      totalCallsReceived: 215,
+      lastCallAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+      createdAt: '2026-03-01T10:00:00Z',
+      updatedAt: '2026-03-01T10:00:00Z',
+    },
+    {
+      id: 'did-vivo-01',
+      tenantId: 'tenant-enlace-matriz',
+      did: '1130900100',
+      normalizedNumber: '+551130900100',
+      presentedNumber: '(11) 3090-0100',
+      operatorName: 'Telefônica Brasil (Vivo)',
+      trunkId: 'trunk-vivo-e1',
+      description: 'Número Fixo Legado E1 Matriz SP',
+      status: 'active',
+      assignedCompany: 'Enlace Telecomunicações Ltda',
+      assignedCnpj: '12.345.678/0001-90',
+      assignedUser: 'Diretoria Financeira',
+      monthlyFee: 49.00,
+      billingCycleDay: 20,
+      destinationType: 'ivr',
+      destinationId: 'ivr-principal',
+      destinationLabel: 'URA de Autoatendimento Enlace Matriz',
+      timeConditionEnabled: true,
+      timeSchedule: {
+        startHour: '08:00',
+        endHour: '18:00',
+        weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
+      },
+      afterHoursDestType: 'ai_agent',
+      afterHoursDestId: 'agent-maia-247',
+      fallbackType: 'human',
+      fallbackTarget: '4101',
+      didSourceHeader: 'request_uri',
+      unknownDidAction: 'reject_404',
+      channelsInUse: 2,
+      totalCallsReceived: 3120,
+      lastCallAt: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
+      createdAt: '2026-01-15T08:00:00Z',
+      updatedAt: '2026-01-15T08:00:00Z',
+    },
   ];
 
   routes: Route[] = [
+    {
+      id: 'route-out-cli-itx',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'Saída Interconexão CLI / ITX (BINA Aberta TIP Brasil)',
+      type: 'outbound',
+      pattern: '_[1-9]XXXXXXXX',
+      prefixRemove: '',
+      prepend: '',
+      trunkId: 'trunk-tip-brasil',
+      failoverTrunkId: 'trunk-vivo-e1',
+      isCliItx: true,
+      callerIdMode: 'extension_cli',
+      callerIdOverride: '1135008000', // BINA Piloto de contingência da rota
+      extensionOverrides: [
+        { extensionNumber: '4101', callerId: '1135008001', label: 'Carlos Silva -> DID Suporte Direto' },
+        { extensionNumber: '4103', callerId: '1135008002', label: 'Mariana Costa -> Linha Recepção/Comercial' },
+      ],
+      destinationType: 'trunk',
+      destinationId: 'trunk-tip-brasil',
+      priority: 1,
+      fallbackType: 'human',
+      fallbackTarget: '4101',
+    },
     {
       id: 'route-out-sp-local',
       tenantId: 'tenant-enlace-matriz',
@@ -918,10 +1270,15 @@ export class Database {
       prepend: '015',
       trunkId: 'trunk-vivo-e1',
       failoverTrunkId: 'trunk-algar-backup',
+      isCliItx: true,
+      callerIdMode: 'extension_cli',
       callerIdOverride: '1130900100',
+      extensionOverrides: [
+        { extensionNumber: '4101', callerId: '1135008001', label: 'Carlos Silva -> DID Direto' },
+      ],
       destinationType: 'trunk',
       destinationId: 'trunk-vivo-e1',
-      priority: 1,
+      priority: 2,
       fallbackType: 'human',
       fallbackTarget: '4101',
     },
@@ -935,10 +1292,12 @@ export class Database {
       prepend: '015',
       trunkId: 'trunk-vivo-e1',
       failoverTrunkId: 'trunk-algar-backup',
+      isCliItx: true,
+      callerIdMode: 'extension_cli',
       callerIdOverride: '1130900100',
       destinationType: 'trunk',
       destinationId: 'trunk-vivo-e1',
-      priority: 2,
+      priority: 3,
     },
     {
       id: 'route-in-0800',
@@ -1814,7 +2173,25 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       phone: '5511999999999',
       email: 'joao@cliente.com',
       crmId: 'hubspot-8291',
-      lastInteraction: '2026-09-09T14:00:00Z',
+      lastInteraction: '2026-09-17T14:00:00Z',
+    },
+    {
+      id: 'contact-002',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'Dra. Camila Vasconcelos',
+      phone: '5511988776655',
+      email: 'camila@clinicavita.med.br',
+      crmId: 'pipedrive-4421',
+      lastInteraction: '2026-09-18T08:30:00Z',
+    },
+    {
+      id: 'contact-003',
+      tenantId: 'tenant-enlace-matriz',
+      name: 'Roberto Mendes (Tech)',
+      phone: '5511977665544',
+      email: 'roberto@datacenterbrasil.com.br',
+      crmId: 'twenty-1092',
+      lastInteraction: '2026-09-18T09:15:00Z',
     },
   ];
 
@@ -1827,23 +2204,167 @@ Seu objetivo é coletar sintomas de falhas na telefonia (eco, picote de áudio, 
       summary: 'Cliente interessado em migrar de plano PME para Corporativo. Reclamou de lentidão na rota internacional.',
       preferences: ['Prefere atendimento via WhatsApp', 'Aprovação de orçamentos apenas na sexta-feira'],
       sentimentHistory: 'neutral',
-      churnRisk: 30,
-    }
+      churnRisk: 25,
+    },
+    {
+      id: 'mem-002',
+      tenantId: 'tenant-enlace-matriz',
+      contactId: 'contact-002',
+      phone: '5511988776655',
+      summary: 'Clínica Médica com 20 ramais WebRTC e fila de agendamento. Alta prioridade para resolução em 1º contato.',
+      preferences: ['Horário de pico: 08h às 11h', 'Exige gravação com retenção LGPD'],
+      sentimentHistory: 'positive',
+      churnRisk: 10,
+    },
   ];
 
   omnichannelConversations: OmnichannelConversation[] = [
     {
       id: 'conv-whatsapp-1',
       tenantId: 'tenant-enlace-matriz',
-      contactId: 'contact-001',
+      contactId: '5511999999999',
+      contactName: 'João da Silva',
+      contactPhone: '5511999999999',
+      companyName: 'Silva & Filhos Logística',
       channel: 'whatsapp',
       status: 'active',
-      createdAt: '2026-09-10T12:00:00Z',
+      sentiment: 'neutral',
+      tags: ['Suporte Técnico', 'SLA Alto', 'Tronco SIP'],
+      createdAt: '2026-09-18T09:12:00Z',
       messages: [
-        { id: 'msg-1', sender: 'user', text: 'Olá, preciso de ajuda com o PBX.', timestamp: '2026-09-10T12:00:00Z' },
-        { id: 'msg-2', sender: 'bot', text: 'Olá! Um momento, vou transferir para um agente.', timestamp: '2026-09-10T12:00:05Z' }
+        { id: 'msg-1', sender: 'user', text: 'Bom dia! Nossos ramais do escritório estão com chiado em ligações externas.', timestamp: '2026-09-18T09:12:00Z' },
+        { id: 'msg-2', sender: 'bot', text: 'Olá João! Aqui é a MaIA da Enlace PBX. Já estou verificando a telemetria do seu tronco SIP. Os testes acústicos indicam perda de 2% de pacotes no link secundário.', timestamp: '2026-09-18T09:12:20Z' },
+        { id: 'msg-3', sender: 'user', text: 'Perfeito, precisamos normalizar antes das 10h pois temos reunião com a diretoria.', timestamp: '2026-09-18T09:13:00Z' },
+        { id: 'msg-4', sender: 'agent', text: 'Olá João, sou o suporte N2. Acabei de forçar o tráfego de voz pelo tronco principal com QoS prioritário (DSCP 46 EF). Pode fazer um teste de chamada?', timestamp: '2026-09-18T09:15:30Z' }
+      ],
+      notes: [
+        { id: 'note-1', agentName: 'Carlos NOC', text: 'Rota alternativa Claro ativada. Monitorando jitter abaixo de 12ms.', createdAt: '2026-09-18T09:16:00Z' }
       ]
     },
+    {
+      id: 'conv-whatsapp-2',
+      tenantId: 'tenant-enlace-matriz',
+      contactId: '5511988776655',
+      contactName: 'Dra. Camila Vasconcelos',
+      contactPhone: '5511988776655',
+      companyName: 'Clínica Vita Médica',
+      channel: 'whatsapp',
+      status: 'bot_handling',
+      sentiment: 'positive',
+      tags: ['Comercial & Planos', 'WebRTC', 'Faturamento'],
+      createdAt: '2026-09-18T09:45:00Z',
+      messages: [
+        { id: 'msg-201', sender: 'user', text: 'Gostaria de solicitar a segunda via da fatura com chave PIX e adicionar 5 novos ramais WebRTC para nossas recepcionistas.', timestamp: '2026-09-18T09:45:00Z' },
+        { id: 'msg-202', sender: 'bot', text: 'Com certeza Dra. Camila! Sua fatura do ciclo atual no valor de R$ 420,00 foi gerada. Código PIX copia-e-cola: 00020126580014br.gov.bcb.pix0136slzenlace@gmail.com5204000053039865802BR. Deseja que eu provisione os 5 ramais agora?', timestamp: '2026-09-18T09:45:15Z' }
+      ],
+      notes: []
+    },
+    {
+      id: 'conv-whatsapp-3',
+      tenantId: 'tenant-enlace-matriz',
+      contactId: '5511977665544',
+      contactName: 'Roberto Mendes (Tech)',
+      contactPhone: '5511977665544',
+      companyName: 'DataCenter Brasil',
+      channel: 'voice',
+      status: 'queued',
+      sentiment: 'neutral',
+      tags: ['PJSIP Asterisk 20', 'Transbordo', 'Fila N1'],
+      createdAt: '2026-09-18T10:00:00Z',
+      messages: [
+        { id: 'msg-301', sender: 'user', text: '[Ligação de Voz Conectada via DID 1140039988] Aguardando na fila Suporte Técnico N1.', timestamp: '2026-09-18T10:00:00Z' }
+      ],
+      notes: []
+    }
+  ];
+
+  qualityAudits: QualityAuditRecord[] = [
+    {
+      id: 'audit-001',
+      tenantId: 'tenant-enlace-matriz',
+      channelType: 'voice_pjsip',
+      referenceId: 'call-unique-9812',
+      contactName: 'João da Silva',
+      contactNumber: '11999999999',
+      agentOrBot: 'MaIA (Gemini Live)',
+      timestamp: '2026-09-18T09:12:00Z',
+      score: 96,
+      sentiment: 'positive',
+      slaBreach: false,
+      complianceChecked: true,
+      keyPhrases: ['diagnóstico de rede', 'tronco sip', 'qos dscp', 'resolvido'],
+      riskAlerts: [],
+      summary: 'Atendimento objetivo de diagnóstico de áudio VoIP com execução de teste de latência e transbordo suave.',
+      feedbackForAgent: 'Excelente ritmo conversacional e tempo de resposta de 320ms.'
+    },
+    {
+      id: 'audit-002',
+      tenantId: 'tenant-enlace-matriz',
+      channelType: 'whatsapp',
+      referenceId: 'conv-whatsapp-2',
+      contactName: 'Dra. Camila Vasconcelos',
+      contactNumber: '11988776655',
+      agentOrBot: 'MaIA (Omnichannel)',
+      timestamp: '2026-09-18T09:45:00Z',
+      score: 98,
+      sentiment: 'positive',
+      slaBreach: false,
+      complianceChecked: true,
+      keyPhrases: ['segunda via', 'chave pix', 'ramais webrtc', 'autoatendimento'],
+      riskAlerts: [],
+      summary: 'Envio imediato de fatura e chave PIX com oferta proativa de provisionamento de novos ramais.',
+      feedbackForAgent: 'Alta retenção sem necessidade de intervenção humana (FCR 100%).'
+    },
+    {
+      id: 'audit-003',
+      tenantId: 'tenant-enlace-matriz',
+      channelType: 'webrtc',
+      referenceId: 'webrtc-call-104',
+      contactName: 'Eng. Marcus Pires',
+      contactNumber: '11966554433',
+      agentOrBot: 'Carlos Mendes (Operador)',
+      timestamp: '2026-09-18T08:10:00Z',
+      score: 84,
+      sentiment: 'neutral',
+      slaBreach: false,
+      complianceChecked: true,
+      keyPhrases: ['configuração vpn wireguard', 'codec opus', 'porta 5060'],
+      riskAlerts: ['Cliente expressou pressa com prazo de entrega'],
+      summary: 'Orientação técnica sobre túnel VPN WireGuard para ramal remoto.',
+      feedbackForAgent: 'Recomenda-se reforçar o número do protocolo antes do término da chamada.'
+    }
+  ];
+
+  entitySchemas: EntityExtractionSchema[] = [
+    {
+      id: 'schema-general-support',
+      name: 'Triagem de Suporte Técnico & NOC',
+      description: 'Extração de documento, modelo de equipamento, falha relatada e nível de urgência.',
+      targetChannels: ['voice', 'whatsapp', 'webrtc'],
+      syncWithCrm: true,
+      isActive: true,
+      fields: [
+        { key: 'documento', label: 'CPF ou CNPJ do Cliente', type: 'cpf_cnpj', required: true, description: 'Número do documento cadastrado' },
+        { key: 'ramalAfetado', label: 'Ramal ou DID Afetado', type: 'string', required: false, description: 'Número de telefone ou ramal interno com falha' },
+        { key: 'tipoFalha', label: 'Categoria da Falha', type: 'string', required: true, description: 'Ex: Sem áudio, Queda de chamada, Chiado, Não registra' },
+        { key: 'urgencia', label: 'Nível de Criticidade', type: 'string', required: true, description: 'Baixa, Média, Alta ou Crítica' },
+        { key: 'disponibilidade', label: 'Horário para Retorno', type: 'string', required: false, description: 'Período disponível do cliente' }
+      ]
+    },
+    {
+      id: 'schema-sales-expansion',
+      name: 'Qualificação de Oportunidades & SDR',
+      description: 'Extração de tamanho de equipe, interesse em IA, orçamento e decisor.',
+      targetChannels: ['voice', 'whatsapp'],
+      syncWithCrm: true,
+      isActive: true,
+      fields: [
+        { key: 'quantidadeRamais', label: 'Quantidade de Ramais Desejados', type: 'number', required: true, description: 'Número total de posições de atendimento' },
+        { key: 'interesseIa', label: 'Interesse em Agente de Voz Gemini', type: 'boolean', required: true, description: 'Se deseja automação com voz conversacional' },
+        { key: 'orcamentoMensal', label: 'Expectativa de Investimento Mensal', type: 'currency', required: false, description: 'Valor estimado em R$' },
+        { key: 'cargoDecisor', label: 'Cargo do Contato', type: 'string', required: false, description: 'Ex: Diretor de TI, Gerente de Operações, CEO' }
+      ]
+    }
   ];
 
   whatsappConfigs: WhatsappConfig[] = [];

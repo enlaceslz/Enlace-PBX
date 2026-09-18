@@ -36,6 +36,13 @@ import {
   FileCheck,
   AlertCircle,
   RefreshCw,
+  ClipboardCheck,
+  Database,
+  Filter,
+  ChevronRight,
+  MessageSquare,
+  AlertTriangle,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   AiAgent,
@@ -43,6 +50,8 @@ import {
   AiTool,
   AiKnowledgeSource,
   AiSession,
+  QualityAuditRecord,
+  EntityExtractionSchema,
 } from '../../types/pbx';
 import { speakHumanized, stopSpeaking } from '../../utils/speechVoiceHelper';
 
@@ -157,7 +166,7 @@ interface AiGatewayViewProps {
   tools: AiTool[];
   knowledge: AiKnowledgeSource[];
   sessions: AiSession[];
-  activeSubTab?: 'agents' | 'providers' | 'tools' | 'knowledge' | 'sessions';
+  activeSubTab?: 'agents' | 'providers' | 'tools' | 'knowledge' | 'sessions' | 'supervisor' | 'extraction';
   onOpenWebphone: (number: string) => void;
   onRefresh: () => void;
 }
@@ -172,7 +181,9 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
   onOpenWebphone,
   onRefresh,
 }) => {
-  const [currentTab, setCurrentTab] = useState<'agents' | 'providers' | 'tools' | 'knowledge' | 'sessions'>(activeSubTab);
+  const [currentTab, setCurrentTab] = useState<
+    'agents' | 'providers' | 'tools' | 'knowledge' | 'sessions' | 'supervisor' | 'extraction'
+  >(activeSubTab);
 
   useEffect(() => {
     if (activeSubTab) {
@@ -183,6 +194,28 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
   const [selectedTool, setSelectedTool] = useState<AiTool | null>(null);
   const [testToolArgs, setTestToolArgs] = useState('{"documento": "12345678900"}');
   const [toolSimResult, setToolSimResult] = useState<any>(null);
+
+  // Quality Supervisor State
+  const [qualityAudits, setQualityAudits] = useState<QualityAuditRecord[]>([]);
+  const [selectedAudit, setSelectedAudit] = useState<QualityAuditRecord | null>(null);
+  const [auditFilterChannel, setAuditFilterChannel] = useState<string>('all');
+  const [auditFilterRisk, setAuditFilterRisk] = useState<string>('all');
+  const [isEvaluatingAudit, setIsEvaluatingAudit] = useState(false);
+  const [evalSampleText, setEvalSampleText] = useState(
+    "Operador: Central Enlace PBX, meu nome é Carlos. Com quem falo e qual o protocolo de atendimento?\nCliente: Olá Carlos, aqui é Roberto da Tech Telecom. Nosso tronco SIP PJSIP ramal 4101 está com oscilação de áudio e picote constante. Se não normalizarem hoje teremos que cancelar a portabilidade e suspender pagamentos!\nOperador: Compreendo a gravidade, Sr. Roberto. Informo que nossa ligação está gravada conforme as normas da LGPD. Já localizei seu cadastro empresarial no CRM e estou aplicando agora mesmo QoS prioritário DSCP EF 46 no tronco para restabelecer a comunicação."
+  );
+  const [evalChannel, setEvalChannel] = useState<'voice' | 'whatsapp' | 'webrtc'>('voice');
+  const [evalAgentName, setEvalAgentName] = useState('Carlos (Operador Central)');
+  const [showEvalModal, setShowEvalModal] = useState(false);
+
+  // Entity Extraction State
+  const [entitySchemas, setEntitySchemas] = useState<EntityExtractionSchema[]>([]);
+  const [selectedSchema, setSelectedSchema] = useState<EntityExtractionSchema | null>(null);
+  const [testExtractionText, setTestExtractionText] = useState(
+    "Olá suporte, sou a Mariana da Alpha Logística (CNPJ 12.345.678/0001-90). Estamos com instabilidade no ramal 3004 da filial Campinas. O nosso diretor financeiro aprovou um orçamento de R$ 15.000 para migração urgente para tronco PJSIP dedicado."
+  );
+  const [extractedResult, setExtractedResult] = useState<any>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
 
   // Edit Selected Agent State
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
@@ -792,6 +825,91 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     return matchesSearch && matchesCat;
   });
 
+  const fetchAudits = async () => {
+    try {
+      const res = await fetch('/api/v1/ai/quality-supervisor/audits');
+      if (res.ok) {
+        const data = await res.json();
+        setQualityAudits(data);
+        if (data.length > 0 && !selectedAudit) {
+          setSelectedAudit(data[0]);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch quality audits', e);
+    }
+  };
+
+  const fetchSchemas = async () => {
+    try {
+      const res = await fetch('/api/v1/ai/entity-extraction/schemas');
+      if (res.ok) {
+        const data = await res.json();
+        setEntitySchemas(data);
+        if (data.length > 0 && !selectedSchema) {
+          setSelectedSchema(data[0]);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch entity schemas', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchAudits();
+    fetchSchemas();
+  }, []);
+
+  const handleRunEvaluation = async () => {
+    if (!evalSampleText.trim()) return;
+    setIsEvaluatingAudit(true);
+    try {
+      const res = await fetch('/api/v1/ai/quality-supervisor/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: evalChannel,
+          agentName: evalAgentName,
+          customerIdentifier: '+55 11 98765-4321',
+          transcript: evalSampleText,
+        }),
+      });
+      if (res.ok) {
+        const newAudit = await res.json();
+        setQualityAudits((prev) => [newAudit, ...prev]);
+        setSelectedAudit(newAudit);
+        setShowEvalModal(false);
+      }
+    } catch (e) {
+      console.error('Failed to evaluate quality audit', e);
+    } finally {
+      setIsEvaluatingAudit(false);
+    }
+  };
+
+  const handleTestExtraction = async () => {
+    if (!testExtractionText.trim() || !selectedSchema) return;
+    setIsExtracting(true);
+    try {
+      const res = await fetch('/api/v1/ai/entity-extraction/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          schemaId: selectedSchema.id,
+          text: testExtractionText,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setExtractedResult(data);
+      }
+    } catch (e) {
+      console.error('Failed to extract entities', e);
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
       {/* Premium Header */}
@@ -924,7 +1042,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
           <button
             onClick={() => setCurrentTab('sessions')}
-            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group mt-4 ${
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group mt-2 ${
               currentTab === 'sessions'
                 ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
                 : 'bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200'
@@ -934,6 +1052,36 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               <Activity className="w-5 h-5" /> Live Monitor
             </div>
             <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'sessions' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-emerald-100 group-hover:text-emerald-600'}`}>{sessions.length}</span>
+          </button>
+
+          <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mt-4 mb-1 px-2">Auditoria & Inteligência</div>
+
+          <button
+            onClick={() => setCurrentTab('supervisor')}
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group ${
+              currentTab === 'supervisor'
+                ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                : 'bg-white text-slate-600 hover:bg-purple-50 hover:text-purple-600 border border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <ClipboardCheck className="w-5 h-5" /> Supervisor de Qualidade
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'supervisor' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-purple-100 group-hover:text-purple-600'}`}>{qualityAudits.length}</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentTab('extraction')}
+            className={`px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between group ${
+              currentTab === 'extraction'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                : 'bg-white text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Database className="w-5 h-5" /> Extração de Dados
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'extraction' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-indigo-100 group-hover:text-indigo-600'}`}>{entitySchemas.length}</span>
           </button>
         </div>
         
@@ -1963,9 +2111,511 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
           ))}
         </div>
       )}
+
+      {/* 6. SUPERVISOR DE QUALIDADE (VOZ, WHATSAPP, WEBRTC) */}
+      {currentTab === 'supervisor' && (
+        <div className="space-y-6">
+          {/* Top Control Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div>
+              <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
+                <ClipboardCheck className="w-6 h-6 text-purple-600" />
+                Supervisor de Qualidade & Compliance LGPD/Anatel
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Auditoria automática por IA das chamadas telefônicas e conversas de WhatsApp com detecção de sentimento, conformidade regulatória e risco de churn.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowEvalModal(true)}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-purple-600/20 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Nova Auditoria IA
+              </button>
+            </div>
+          </div>
+
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total de Auditorias</div>
+              <div className="text-2xl font-black text-slate-900 mt-1">{qualityAudits.length}</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Média de Nota (QA)</div>
+              <div className="text-2xl font-black text-purple-600 mt-1">
+                {qualityAudits.length > 0
+                  ? Math.round(qualityAudits.reduce((acc, q) => acc + q.score, 0) / qualityAudits.length)
+                  : 0}
+                <span className="text-xs text-slate-400 font-normal"> / 100</span>
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Conformidade LGPD</div>
+              <div className="text-2xl font-black text-emerald-600 mt-1">
+                {qualityAudits.length > 0
+                  ? Math.round((qualityAudits.filter((q) => q.complianceFlags.lgpdConsent).length / qualityAudits.length) * 100)
+                  : 100}
+                %
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Alertas de Risco Alto</div>
+              <div className="text-2xl font-black text-rose-600 mt-1">
+                {qualityAudits.filter((q) => q.riskLevel === 'alto').length}
+              </div>
+            </div>
+          </div>
+
+          {/* Master Detail Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* List */}
+            <div className="lg:col-span-5 space-y-3">
+              <div className="flex items-center justify-between gap-2 px-1">
+                <span className="text-xs font-bold text-slate-700">Chamadas e Mensagens Auditadas</span>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={auditFilterRisk}
+                    onChange={(e) => setAuditFilterRisk(e.target.value)}
+                    className="text-[11px] px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium"
+                  >
+                    <option value="all">Todos Riscos</option>
+                    <option value="baixo">Baixo Risco</option>
+                    <option value="médio">Médio Risco</option>
+                    <option value="alto">Alto Risco</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {qualityAudits
+                  .filter((a) => auditFilterRisk === 'all' || a.riskLevel === auditFilterRisk)
+                  .map((audit) => {
+                    const isSelected = selectedAudit?.id === audit.id;
+                    const scoreColor =
+                      audit.score >= 85
+                        ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
+                        : audit.score >= 70
+                        ? 'text-amber-600 bg-amber-50 border-amber-200'
+                        : 'text-rose-600 bg-rose-50 border-rose-200';
+
+                    const riskColor =
+                      audit.riskLevel === 'alto'
+                        ? 'bg-rose-100 text-rose-700 border-rose-200'
+                        : audit.riskLevel === 'médio'
+                        ? 'bg-amber-100 text-amber-700 border-amber-200'
+                        : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+
+                    return (
+                      <div
+                        key={audit.id}
+                        onClick={() => setSelectedAudit(audit)}
+                        className={`p-4 rounded-xl border transition cursor-pointer text-left ${
+                          isSelected
+                            ? 'bg-purple-50/70 border-purple-400 ring-2 ring-purple-500/20 shadow-sm'
+                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div>
+                            <div className="font-bold text-xs text-slate-900 flex items-center gap-2">
+                              <span>{audit.agentName}</span>
+                              <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                                {audit.channel}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                              {audit.customerIdentifier}
+                            </div>
+                          </div>
+                          <div className={`px-2.5 py-1 rounded-lg border font-mono font-bold text-xs ${scoreColor}`}>
+                            {audit.score} / 100
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-100">
+                          <span className={`px-2 py-0.5 rounded-full font-bold border uppercase tracking-wider ${riskColor}`}>
+                            Risco: {audit.riskLevel}
+                          </span>
+                          <span className="text-slate-400 font-mono">
+                            {new Date(audit.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Detail */}
+            <div className="lg:col-span-7">
+              {selectedAudit ? (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+                  {/* Header Detail */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                          ID: {selectedAudit.id}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          Canal {selectedAudit.channel.toUpperCase()}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-base text-slate-900 mt-1">
+                        Atendimento: {selectedAudit.customerIdentifier}
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Atendente / Agente: <strong>{selectedAudit.agentName}</strong>
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-3xl font-black text-purple-600">
+                        {selectedAudit.score} <span className="text-sm font-normal text-slate-400">/ 100</span>
+                      </div>
+                      <div className="text-xs font-semibold text-slate-500">Nota de Qualidade Geral</div>
+                    </div>
+                  </div>
+
+                  {/* Sub Scores Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase">Empatia & Tom</div>
+                      <div className="text-lg font-black text-slate-900 mt-0.5">{selectedAudit.subScores.empathy}/100</div>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase">Clareza & Comunicação</div>
+                      <div className="text-lg font-black text-slate-900 mt-0.5">{selectedAudit.subScores.clarity}/100</div>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase">Resolução Técnica</div>
+                      <div className="text-lg font-black text-slate-900 mt-0.5">{selectedAudit.subScores.technicalResolution}/100</div>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase">Conformidade</div>
+                      <div className="text-lg font-black text-slate-900 mt-0.5">{selectedAudit.subScores.complianceScore}/100</div>
+                    </div>
+                  </div>
+
+                  {/* Compliance & Regulation Checklist */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-2">
+                      Conformidade Regulatória (Anatel & LGPD):
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${selectedAudit.complianceFlags.lgpdConsent ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
+                        {selectedAudit.complianceFlags.lgpdConsent ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                        <span>Aviso de Gravação / LGPD</span>
+                      </div>
+                      <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${selectedAudit.complianceFlags.firstContactResolution ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
+                        {selectedAudit.complianceFlags.firstContactResolution ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />}
+                        <span>Resolução no 1º Contato</span>
+                      </div>
+                      <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${selectedAudit.complianceFlags.correctTransfer ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                        {selectedAudit.complianceFlags.correctTransfer ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />}
+                        <span>Transbordo Assertivo</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Feedback Points & Strengths */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200">
+                      <h5 className="text-xs font-bold text-emerald-900 mb-2 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Pontos Fortes Observados
+                      </h5>
+                      <ul className="space-y-1.5 text-xs text-emerald-800 list-disc list-inside">
+                        {selectedAudit.feedbackPoints.strengths.map((s, idx) => (
+                          <li key={idx}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200">
+                      <h5 className="text-xs font-bold text-amber-900 mb-2 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-600" /> Oportunidades de Melhoria
+                      </h5>
+                      <ul className="space-y-1.5 text-xs text-amber-800 list-disc list-inside">
+                        {selectedAudit.feedbackPoints.improvements.map((imp, idx) => (
+                          <li key={idx}>{imp}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Transcript */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                      Transcrição Integral Auditada:
+                    </label>
+                    <div className="bg-slate-900 text-slate-200 p-4 rounded-xl text-xs font-mono whitespace-pre-wrap max-h-56 overflow-y-auto leading-relaxed border border-slate-800">
+                      {selectedAudit.transcript}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
+                  <ClipboardCheck className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+                  <p>Selecione um registro de auditoria para visualizar a análise aprofundada.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. EXTRAÇÃO DE DADOS & ENTIDADES */}
+      {currentTab === 'extraction' && (
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div>
+              <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
+                <Database className="w-6 h-6 text-indigo-600" />
+                Extração Automatizada de Dados & Entidades
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Esquemas estruturados para capturar documentos (CPF/CNPJ), protocolos, ramais, valores e intenções a partir de transcrições de voz ou mensagens de WhatsApp.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Schemas List */}
+            <div className="lg:col-span-4 space-y-3">
+              <div className="text-xs font-bold text-slate-700 px-1">Esquemas de Extração Disponíveis</div>
+              <div className="space-y-2">
+                {entitySchemas.map((sch) => {
+                  const isSelected = selectedSchema?.id === sch.id;
+                  return (
+                    <div
+                      key={sch.id}
+                      onClick={() => {
+                        setSelectedSchema(sch);
+                        setExtractedResult(null);
+                      }}
+                      className={`p-4 rounded-xl border transition cursor-pointer text-left ${
+                        isSelected
+                          ? 'bg-indigo-50/70 border-indigo-400 ring-2 ring-indigo-500/20 shadow-sm'
+                          : 'bg-white border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs text-slate-900">{sch.name}</span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold">
+                          {sch.targetFields.length} campos
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 line-clamp-2">{sch.description}</p>
+                      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mt-3 pt-2 border-t border-slate-100">
+                        <span>Canais: {sch.channelSupport.join(', ')}</span>
+                        {sch.autoSyncToCrm && <span className="text-emerald-600 font-bold">Auto CRM ✓</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Playground / Sandbox */}
+            <div className="lg:col-span-8 space-y-5">
+              {selectedSchema ? (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+                  {/* Schema Info */}
+                  <div className="border-b border-slate-200 pb-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-slate-900 text-base">{selectedSchema.name}</h4>
+                      <span className="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
+                        {selectedSchema.id}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">{selectedSchema.description}</p>
+
+                    {/* Target Fields Badges */}
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {selectedSchema.targetFields.map((f, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 flex items-center gap-1.5"
+                        >
+                          <span className="font-bold text-indigo-600">{f.name}</span>
+                          <span className="text-[10px] text-slate-400">({f.type})</span>
+                          {f.required && <span className="text-rose-500 font-black">*</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Sandbox Input */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700">
+                        Texto ou Transcrição de Teste:
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTestExtractionText(
+                            "Olá suporte, sou a Mariana da Alpha Logística (CNPJ 12.345.678/0001-90). Estamos com instabilidade no ramal 3004 da filial Campinas. O nosso diretor financeiro aprovou um orçamento de R$ 15.000 para migração urgente para tronco PJSIP dedicado."
+                          )
+                        }
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
+                      >
+                        Carregar Amostra B2B Telecom
+                      </button>
+                    </div>
+
+                    <textarea
+                      rows={4}
+                      value={testExtractionText}
+                      onChange={(e) => setTestExtractionText(e.target.value)}
+                      className="w-full text-xs font-mono p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-y leading-relaxed"
+                      placeholder="Cole um diálogo ou mensagem de texto para extrair os campos..."
+                    />
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        onClick={handleTestExtraction}
+                        disabled={isExtracting}
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-2"
+                      >
+                        <Zap className="w-4 h-4" />
+                        {isExtracting ? 'Processando Extração...' : 'Executar Extração com IA'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Extraction Results */}
+                  {extractedResult && (
+                    <div className="bg-slate-50 rounded-xl p-5 border border-slate-200 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h5 className="font-bold text-xs text-slate-900 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          Resultado da Extração Semântica:
+                        </h5>
+                        <span className="text-xs font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                          Confiança Média: {extractedResult.confidence * 100}%
+                        </span>
+                      </div>
+
+                      {/* Extracted Fields Visual Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {Object.entries(extractedResult.extractedData || {}).map(([k, val]: any) => (
+                          <div key={k} className="bg-white p-3 rounded-lg border border-slate-200">
+                            <div className="text-[10px] text-slate-400 font-mono uppercase font-bold">{k}</div>
+                            <div className="text-sm font-black text-slate-900 mt-0.5">{String(val)}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Raw JSON */}
+                      <div>
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                          Payload JSON Gerado:
+                        </div>
+                        <pre className="bg-slate-950 text-emerald-400 p-3 rounded-lg text-[11px] font-mono overflow-x-auto">
+                          {JSON.stringify(extractedResult, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
+                  <Database className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+                  <p>Selecione um esquema para testar extração de entidades.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
         </div>
       </div>
-      {/* CREATE AGENT MODAL */}
+
+      {/* NEW EVALUATION MODAL */}
+      {showEvalModal && (
+        <div className="fixed inset-0 bg-[#0f172a]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full flex flex-col my-auto">
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-600">
+                  <ClipboardCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">Nova Auditoria com Supervisor de IA</h3>
+                  <p className="text-xs text-slate-500">Avalie gravações ou chats de operadores e agentes</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEvalModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Canal de Origem</label>
+                  <select
+                    value={evalChannel}
+                    onChange={(e: any) => setEvalChannel(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900"
+                  >
+                    <option value="voice">Voz (Asterisk PJSIP)</option>
+                    <option value="whatsapp">WhatsApp Cloud API</option>
+                    <option value="webrtc">WebRTC Ramal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Nome do Atendente / Agente</label>
+                  <input
+                    type="text"
+                    value={evalAgentName}
+                    onChange={(e) => setEvalAgentName(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Transcrição da Conversa / Áudio
+                </label>
+                <textarea
+                  rows={6}
+                  value={evalSampleText}
+                  onChange={(e) => setEvalSampleText(e.target.value)}
+                  className="w-full text-xs font-mono p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20 resize-y leading-relaxed"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEvalModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleRunEvaluation}
+                disabled={isEvaluatingAudit}
+                className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                {isEvaluatingAudit ? 'Auditando com IA...' : 'Processar Avaliação IA'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col my-auto">

@@ -1,7 +1,47 @@
 import React, { useState, useEffect } from 'react';
 import { AsteriskChannel, DashboardMetrics } from '../../types/pbx';
-import { Activity, PhoneCall, Ear, Mic, Users2,  PhoneMissed, PhoneForwarded, Phone, Bot, CheckCircle2, AlertTriangle, Users, HeadphonesIcon, TrendingUp, Clock, BarChart3, SignalHigh } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
+import {
+  Activity,
+  PhoneCall,
+  Ear,
+  Mic,
+  Users2,
+  PhoneMissed,
+  PhoneForwarded,
+  Phone,
+  Bot,
+  CheckCircle2,
+  AlertTriangle,
+  Users,
+  HeadphonesIcon,
+  TrendingUp,
+  Clock,
+  BarChart3,
+  SignalHigh,
+  Wifi,
+  Gauge,
+  Cpu,
+  Server,
+  Zap,
+  Radio,
+  Sliders,
+  ShieldCheck,
+} from 'lucide-react';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Legend,
+  LineChart,
+  Line,
+  ReferenceLine,
+} from 'recharts';
 
 interface OperationDashboardViewProps {
   channels: AsteriskChannel[];
@@ -30,6 +70,27 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
     { name: 'Vendas & Retenção', waiting: 0, agentsOnline: 4, sla: 98, longestWait: '00:00' },
     { name: 'Faturamento', waiting: 1, agentsOnline: 2, sla: 76, longestWait: '04:15' },
     { name: 'Ouvidoria', waiting: 0, agentsOnline: 1, sla: 100, longestWait: '00:00' },
+  ];
+
+  // Deep VoIP Quality Telemetry (MOS, Jitter, Packet Loss, RTT)
+  const voipTelemetryHistory = [
+    { time: '08:00', mos: 4.42, jitter: 3.1, lossPercent: 0.04, rtt: 17 },
+    { time: '09:00', mos: 4.39, jitter: 3.8, lossPercent: 0.09, rtt: 21 },
+    { time: '10:00', mos: 4.28, jitter: 5.4, lossPercent: 0.22, rtt: 28 },
+    { time: '11:00', mos: 4.35, jitter: 4.2, lossPercent: 0.12, rtt: 23 },
+    { time: '12:00', mos: 4.44, jitter: 2.9, lossPercent: 0.03, rtt: 16 },
+    { time: '13:00', mos: 4.41, jitter: 3.4, lossPercent: 0.06, rtt: 19 },
+    { time: '14:00', mos: 4.36, jitter: 4.6, lossPercent: 0.15, rtt: 24 },
+    { time: '15:00', mos: 4.45, jitter: 2.7, lossPercent: 0.02, rtt: 15 },
+  ];
+
+  // Multichannel SLA Benchmark (Target vs Real)
+  const slaBenchmarkData = [
+    { channel: 'Tronco PJSIP (Voz)', realSla: 94.2, targetSla: 85, vol: 184 },
+    { channel: 'WebRTC Ramais', realSla: 89.5, targetSla: 85, vol: 72 },
+    { channel: 'WhatsApp Cloud API', realSla: 96.8, targetSla: 85, vol: 320 },
+    { channel: 'Fila Suporte N1', realSla: 91.0, targetSla: 85, vol: 110 },
+    { channel: 'Fila Financeiro', realSla: 78.4, targetSla: 85, vol: 48 },
   ];
 
   return (
@@ -164,6 +225,120 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
+
+      {/* SEÇÃO PROFUNDA: TELEMETRIA DE QUALIDADE VOIP & BENCHMARK SLA MULTICANAL */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        
+        {/* Gráfico 1: Telemetria VoIP (MOS & Jitter / Perda de Pacotes) */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
+            <div>
+              <h3 className="font-bold text-white flex items-center gap-2">
+                <Wifi className="w-5 h-5 text-emerald-400" />
+                Telemetria de Qualidade VoIP (RTP & Codecs)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                MOS Score (ITU-T P.800), Jitter (ms) e Perda de Pacotes (%)
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-semibold">
+              <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-emerald-400"></div> MOS (1-5)</span>
+              <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-sky-400"></div> Jitter (ms)</span>
+              <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-amber-400"></div> RTT (ms)</span>
+            </div>
+          </div>
+
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={voipTelemetryHistory}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="time" stroke="#475569" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis yAxisId="left" stroke="#10b981" fontSize={11} domain={[3.5, 5.0]} tickLine={false} axisLine={false} />
+                <YAxis yAxisId="right" orientation="right" stroke="#38bdf8" fontSize={11} domain={[0, 40]} tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc', borderRadius: '8px', fontSize: '12px' }}
+                />
+                <ReferenceLine yAxisId="left" y={4.0} stroke="#10b981" strokeDasharray="3 3" label={{ value: 'Limiar Ótimo (4.0)', fill: '#10b981', fontSize: 10 }} />
+                <Line yAxisId="left" type="monotone" dataKey="mos" stroke="#10b981" strokeWidth={2.5} dot={{ r: 3, fill: '#10b981' }} name="MOS Score" />
+                <Line yAxisId="right" type="monotone" dataKey="jitter" stroke="#38bdf8" strokeWidth={2} dot={{ r: 2.5 }} name="Jitter (ms)" />
+                <Line yAxisId="right" type="monotone" dataKey="rtt" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 2" dot={false} name="RTT (ms)" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Quick Metrics Cards */}
+          <div className="grid grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-800 text-center">
+            <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">MOS Médio</div>
+              <div className="text-base font-black text-emerald-400 mt-0.5">4.42 <span className="text-[10px] font-normal text-slate-500">/ 5.0</span></div>
+            </div>
+            <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Jitter Médio</div>
+              <div className="text-base font-black text-sky-400 mt-0.5">3.4 ms</div>
+            </div>
+            <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Perda Pacotes</div>
+              <div className="text-base font-black text-emerald-400 mt-0.5">0.05%</div>
+            </div>
+            <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">QoS DSCP</div>
+              <div className="text-base font-mono font-bold text-purple-400 mt-0.5">EF (46)</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Gráfico 2: SLA Multicanal Comparativo (Meta 85% vs Real) */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
+            <div>
+              <h3 className="font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-blue-400" />
+                Benchmark de SLA Multicanal vs Meta (85%)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Cumprimento de SLA por canal e fila de atendimento
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-semibold">
+              <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-blue-500"></div> SLA Real (%)</span>
+              <span className="flex items-center gap-1.5"><div className="w-2.5 h-0.5 bg-rose-400"></div> Meta 85%</span>
+            </div>
+          </div>
+
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={slaBenchmarkData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                <XAxis type="number" domain={[0, 100]} stroke="#475569" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="channel" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} width={130} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc', borderRadius: '8px', fontSize: '12px' }}
+                  formatter={(value: any) => [`${value}%`, 'SLA Real']}
+                />
+                <ReferenceLine x={85} stroke="#f43f5e" strokeWidth={2} strokeDasharray="3 3" label={{ value: 'Meta (85%)', fill: '#f43f5e', fontSize: 10, position: 'top' }} />
+                <Bar dataKey="realSla" fill="#3b82f6" radius={[0, 6, 6, 0]} name="SLA Atingido (%)" barSize={14} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* SLA Insights bar */}
+          <div className="grid grid-cols-3 gap-3 mt-3 pt-3 border-t border-slate-800 text-center">
+            <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Canais em Meta</div>
+              <div className="text-base font-black text-emerald-400 mt-0.5">4 de 5 <span className="text-xs text-slate-500 font-normal">(80%)</span></div>
+            </div>
+            <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Melhor Canal</div>
+              <div className="text-base font-black text-blue-400 mt-0.5">WhatsApp <span className="text-xs text-emerald-400 font-normal">96.8%</span></div>
+            </div>
+            <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Atenção Prioritária</div>
+              <div className="text-base font-black text-amber-400 mt-0.5">Financeiro <span className="text-xs text-amber-400 font-normal">78.4%</span></div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       {/* Bottom Section: Queues and Channels */}

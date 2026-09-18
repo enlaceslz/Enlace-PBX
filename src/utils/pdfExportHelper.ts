@@ -278,6 +278,13 @@ export function exportInvoicePdf(
       total: billing.currentMonthCosts.omnichannel || 90.00,
     },
     {
+      description: 'Locação e Roteamento de Numeração DID Receptiva (E.164 PSTN Nacional)',
+      category: 'Numeração DID & Portabilidade',
+      qty: '5 números DID',
+      unitPrice: 29.90,
+      total: 149.50,
+    },
+    {
       description: 'Infraestrutura Gerenciada Asterisk 20 LTS + SLA 24/7 de Alta Disponibilidade',
       category: 'Infraestrutura & NOC',
       qty: '1 mês',
