@@ -100,7 +100,14 @@ export default function App() {
           setIsAuthenticated(false);
           return null;
         }
-        return res.json();
+        
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          return res.json();
+        } else {
+          console.warn(`[App.tsx] Endpoint ${url} did not return JSON. Returning null to avoid crash.`);
+          return null;
+        }
       };
 
       const [

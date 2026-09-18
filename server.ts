@@ -7,15 +7,12 @@ import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { db } from './server/db.js';
-import { adminDb } from './server/firebase-admin.js';
 import { geminiService } from './server/geminiService.js';
 import { asteriskService } from './server/asteriskService.js';
 import { systemLogsManager } from './server/systemLogs.js';
 
-import { syncInitialDataToFirestore } from './server/firebase-seed.js';
 
 async function startServer() {
-  await syncInitialDataToFirestore();
   const app = express();
   const PORT = 3000;
 
@@ -91,9 +88,8 @@ const authenticateToken = (req: express.Request, res: express.Response, next: ex
       return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
     }
 
-    // Busca usuário no Firestore
-    const usersSnapshot = await adminDb.collection('users').get();
-    let user = usersSnapshot.docs.map(doc => doc.data() as any).find(u => 
+    // Busca usuário no banco (por e-mail, username ou alias)
+    let user = db.users.find(u => 
       u.email.toLowerCase() === rawEmail ||
       (rawEmail === 'admin' && (u.email === 'admin@enlace.pbx' || u.role === 'super_admin')) ||
       (rawEmail.startsWith('admin@') && u.role === 'super_admin')
@@ -102,20 +98,17 @@ const authenticateToken = (req: express.Request, res: express.Response, next: ex
     // Se o usuário digitou e-mail ainda não registrado (ex: e-mail corporativo ou slzenlace@gmail.com)
     if (!user) {
       if (rawEmail === 'admin@enlace.pbx' || rawEmail === 'admin' || rawEmail.includes('admin') || rawEmail === 'slzenlace@gmail.com') {
-        const tenantsSnapshot = await adminDb.collection('tenants').limit(1).get();
-        const tenantId = tenantsSnapshot.empty ? 'tenant-enlace-matriz' : tenantsSnapshot.docs[0].id;
-
         user = {
           id: 'user-admin-' + Date.now(),
-          tenantId,
+          tenantId: db.tenants[0]?.id || 'tenant-enlace-matriz',
           name: rawEmail === 'slzenlace@gmail.com' ? 'Administrador (slzenlace)' : 'Administrador Enlace',
           email: rawEmail.includes('@') ? rawEmail : 'admin@enlace.pbx',
-          role: 'superadmin',
+          role: 'super_admin',
           extension: '4100',
-          status: 'active',
+          isActive: true,
           lastLogin: new Date().toISOString(),
         };
-        await adminDb.collection('users').doc(user.id).set(user);
+        db.users.unshift(user);
       }
     }
 
@@ -125,7 +118,6 @@ const authenticateToken = (req: express.Request, res: express.Response, next: ex
 
     if (user && isPasswordValid) {
       user.lastLogin = new Date().toISOString();
-      await adminDb.collection('users').doc(user.id).update({ lastLogin: user.lastLogin }).catch(() => {});
       const token = jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: '8h' });
       res.json({ token, user });
     } else if (!user) {
@@ -2307,17 +2299,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json(newLog);
   });
 
-  app.get('/api/v1/users', async (req, res) => {
-    try {
-      const snapshot = await adminDb.collection('users').get();
-      res.json(snapshot.docs.map(d => d.data()));
-    } catch (e) {
-      console.error(e);
-      res.status(500).json({ error: 'Erro ao listar usuários' });
-    }
-  });
-
-  app.post('/api/v1/users', async (req, res) => {
+  app.get('/api/v1/users', (req, res) => res.json(db.users));
+  app.post('/api/v1/users', (req, res) => {
     const { name, email, role, extension, tenantId } = req.body;
     if (!name || !email) {
       return res.status(400).json({ error: 'Nome e e-mail são obrigatórios.' });
@@ -2327,14 +2310,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       tenantId: tenantId || 'tenant-enlace-matriz',
       name,
       email,
-      role: role || 'agent',
+      role: role || 'operador',
       extension: extension || undefined,
-      status: 'active',
+      isActive: true,
       lastLogin: new Date().toISOString(),
     };
-    
-    await adminDb.collection('users').doc(newUser.id).set(newUser);
-    
+    db.users.push(newUser);
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: newUser.tenantId,
@@ -2348,39 +2329,31 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
     res.status(201).json(newUser);
   });
-
-  app.put('/api/v1/users/:id', async (req, res) => {
-    const docRef = adminDb.collection('users').doc(req.params.id);
-    const snap = await docRef.get();
-    if (!snap.exists) {
+  app.put('/api/v1/users/:id', (req, res) => {
+    const idx = db.users.findIndex((u) => u.id === req.params.id);
+    if (idx === -1) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
-    const updated = { ...snap.data(), ...req.body };
-    await docRef.set(updated);
-    
+    db.users[idx] = { ...db.users[idx], ...req.body };
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
-      tenantId: updated.tenantId || 'tenant-enlace-matriz',
+      tenantId: db.users[idx].tenantId,
       userId: 'user-1',
       userName: 'Carlos Henrique Silva',
       action: 'UPDATE_USER',
       resource: `users/${req.params.id}`,
       ip: req.ip || '189.40.122.14',
       timestamp: new Date().toISOString(),
-      details: `Atualização de parâmetros do usuário ${updated.name}.`,
+      details: `Atualização de parâmetros do usuário ${db.users[idx].name}.`,
     });
-    res.json(updated);
+    res.json(db.users[idx]);
   });
-
-  app.delete('/api/v1/users/:id', async (req, res) => {
-    const docRef = adminDb.collection('users').doc(req.params.id);
-    const snap = await docRef.get();
-    if (!snap.exists) {
+  app.delete('/api/v1/users/:id', (req, res) => {
+    const idx = db.users.findIndex((u) => u.id === req.params.id);
+    if (idx === -1) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
-    const removed = snap.data() as any;
-    await docRef.delete();
-    
+    const removed = db.users.splice(idx, 1)[0];
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: removed.tenantId,
@@ -2395,16 +2368,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({ success: true });
   });
 
-  app.get('/api/v1/tenants', async (req, res) => {
-    try {
-      const snap = await adminDb.collection('tenants').get();
-      res.json(snap.docs.map(d => d.data()));
-    } catch(e) {
-      console.error(e);
-      res.status(500).json({ error: 'Erro ao listar empresas' });
-    }
-  });
-  app.post('/api/v1/tenants', async (req, res) => {
+  app.get('/api/v1/tenants', (req, res) => res.json(db.tenants));
+  app.post('/api/v1/tenants', (req, res) => {
     const { name, cnpj, plan, maxExtensions, maxTrunks, aiCreditsUsd } = req.body;
     if (!name || !cnpj) {
       return res.status(400).json({ error: 'Nome e CNPJ da empresa são obrigatórios.' });
@@ -2413,14 +2378,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       id: `tenant-${Date.now()}`,
       name,
       cnpj,
-      plan: plan || 'business',
-      status: 'active',
+      plan: plan || 'Business Voice Standard',
       maxExtensions: Number(maxExtensions) || 50,
       maxTrunks: Number(maxTrunks) || 10,
       aiCreditsUsd: Number(aiCreditsUsd) || 500,
       createdAt: new Date().toISOString(),
     };
-    await adminDb.collection('tenants').doc(newTenant.id).set(newTenant);
+    db.tenants.push(newTenant);
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: newTenant.id,

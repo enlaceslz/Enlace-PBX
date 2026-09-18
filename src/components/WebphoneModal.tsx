@@ -76,6 +76,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   // Speech Recognition state
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
+  const [interimTranscript, setInterimTranscript] = useState('');
   const recognitionRef = useRef<any>(null);
 
   const stopRingbackRef = useRef<(() => void) | null>(null);
@@ -86,14 +87,29 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     if (SpeechRec) {
       const recog = new SpeechRec();
       recog.lang = 'pt-BR';
-      recog.continuous = false;
-      recog.interimResults = false;
+      recog.continuous = true;
+      recog.interimResults = true;
       recog.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-          handleSendVoiceTurn(transcript);
+        let finalTranscript = '';
+        let currentInterim = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            currentInterim += event.results[i][0].transcript;
+          }
         }
-        setIsListening(false);
+        if (currentInterim) {
+          setInterimTranscript(currentInterim);
+        }
+        if (finalTranscript) {
+          setInterimTranscript('');
+          handleSendVoiceTurn(finalTranscript);
+          setIsListening(false);
+          try {
+            recognitionRef.current?.stop();
+          } catch(e){}
+        }
       };
       recog.onerror = (e: any) => {
         console.warn('Speech recognition error:', e);
@@ -947,7 +963,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     <div className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl flex items-center justify-between mb-2 font-medium">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                        <span>Ouvindo sua voz... Fale agora.</span>
+                        <span>Ouvindo sua voz... {interimTranscript ? <span className="text-rose-900 font-bold ml-1">"{interimTranscript}"</span> : 'Fale agora.'}</span>
                       </div>
                       <VUMeter isActive={isListening} color="rose" />
                     </div>

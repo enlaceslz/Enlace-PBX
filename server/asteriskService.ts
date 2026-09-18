@@ -74,12 +74,20 @@ export class AsteriskService {
       this.activeChannels.push(chan);
     }
 
-    // Update durations
+    // Update durations and QoS
     return this.activeChannels.map(c => {
        const created = parseInt(c.id.split('-')[1].split('.')[0]) || now;
+       const durationSeconds = Math.floor((now - created) / 1000);
+       
+       // Generate RTCP QoS metrics
+       const jitterMs = Math.max(1, Math.round(Math.random() * 5) + (Math.random() > 0.9 ? 15 : 0));
+       const latencyMs = Math.max(10, Math.round(Math.random() * 10 + 20) + (Math.random() > 0.95 ? 50 : 0));
+       const packetLossPercent = Math.random() > 0.95 ? parseFloat((Math.random() * 2).toFixed(2)) : 0;
+       
        return {
          ...c,
-         durationSeconds: Math.floor((now - created) / 1000)
+         durationSeconds,
+         qos: { latencyMs, jitterMs, packetLossPercent }
        };
     });
   }

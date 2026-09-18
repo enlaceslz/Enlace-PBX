@@ -334,6 +334,11 @@ export interface AsteriskChannel {
   application: string;
   durationSeconds: number;
   aiBridgeActive: boolean;
+  qos?: {
+    latencyMs: number;
+    jitterMs: number;
+    packetLossPercent: number;
+  };
 }
 
 export interface DashboardMetrics {

@@ -388,6 +388,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
                       <th className="py-2.5 px-3">Aplicação</th>
                       <th className="py-2.5 px-3">Duração</th>
                       <th className="py-2.5 px-3">Ponte IA</th>
+                      <th className="py-2.5 px-3">QoS (RTCP)</th>
                       <th className="py-2.5 px-3 text-right">Ações de Operador</th>
                     </tr>
                   </thead>
@@ -407,6 +408,23 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
                             </span>
                           ) : (
                             <span className="text-slate-500 text-[10px]">Dial padrão</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {chan.qos ? (
+                            <div className="flex flex-col gap-0.5 text-[9px] uppercase tracking-wider">
+                              <span className={chan.qos.latencyMs > 50 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-medium'}>
+                                Lat: {chan.qos.latencyMs}ms
+                              </span>
+                              <span className={chan.qos.jitterMs > 10 ? 'text-amber-600 font-bold' : 'text-emerald-600 font-medium'}>
+                                Jit: {chan.qos.jitterMs}ms
+                              </span>
+                              <span className={chan.qos.packetLossPercent > 0.5 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-medium'}>
+                                Loss: {chan.qos.packetLossPercent}%
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">N/A</span>
                           )}
                         </td>
                         <td className="py-3 px-3 text-right">

@@ -1,0 +1,33 @@
+
+  // Speech Recognition state
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const recognitionRef = useRef<any>(null);
+
+  const stopRingbackRef = useRef<(() => void) | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRec) {
+      const recog = new SpeechRec();
+      recog.lang = 'pt-BR';
+      recog.continuous = false;
+      recog.interimResults = false;
+      recog.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          handleSendVoiceTurn(transcript);
+        }
+        setIsListening(false);
+      };
+      recog.onerror = (e: any) => {
+        console.warn('Speech recognition error:', e);
+        setIsListening(false);
+      };
+      recog.onend = () => {
+        setIsListening(false);
+      };
+      recognitionRef.current = recog;
+    } else {
+      setSpeechSupported(false);

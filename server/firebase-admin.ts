@@ -11,4 +11,7 @@ if (!getApps().length) {
 
 export const adminAuth = getAuth();
 export const adminDb = getFirestore();
-adminDb.settings({ databaseId: firebaseConfig.firestoreDatabaseId });
+adminDb.settings({ 
+  databaseId: firebaseConfig.firestoreDatabaseId,
+  preferRest: true
+});
