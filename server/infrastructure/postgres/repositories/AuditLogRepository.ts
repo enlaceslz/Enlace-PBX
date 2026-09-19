@@ -3,6 +3,21 @@ import { postgresClient } from '../client';
 import { db, AuditLog } from '../../../db';
 
 export class AuditLogRepository {
+  public static async create(entry: {
+    tenantId: string;
+    userId: string;
+    userName: string;
+    action: string;
+    resource: string;
+    ip: string;
+    details: string;
+    category?: 'TELECOM_SIP' | 'ROUTING' | 'SECURITY' | 'AI_GATEWAY' | 'USER_MGMT' | 'LGPD_ACCESS' | 'SYSTEM';
+    severity?: 'INFO' | 'WARNING' | 'CRITICAL';
+    payload?: Record<string, unknown>;
+  }): Promise<AuditLog> {
+    return this.log(entry);
+  }
+
   public static async log(entry: {
     tenantId: string;
     userId: string;
@@ -16,7 +31,7 @@ export class AuditLogRepository {
     payload?: Record<string, unknown>;
   }): Promise<AuditLog> {
     const timestamp = new Date().toISOString();
-    const id = `audit-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const id = `audit-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     const hashData = `${id}|${entry.tenantId}|${entry.userId}|${entry.action}|${entry.resource}|${timestamp}`;
     const sha256Hash = crypto.createHash('sha256').update(hashData).digest('hex');
 

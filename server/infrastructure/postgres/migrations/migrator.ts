@@ -13,29 +13,59 @@ export class DatabaseMigrator {
     }
 
     try {
-      console.log('[DatabaseMigrator] Conectado ao PostgreSQL. Verificando integridade das tabelas...');
-      const sqlPath = path.join(process.cwd(), 'server', 'infrastructure', 'postgres', 'migrations', '001_initial_schema.sql');
-      
-      let sqlContent = '';
-      if (fs.existsSync(sqlPath)) {
-        sqlContent = fs.readFileSync(sqlPath, 'utf8');
+      console.log('[DatabaseMigrator] Conectado ao PostgreSQL. Verificando integridade das migrações...');
+
+      // Cria tabela de migrações se não existir
+      await postgresClient.query(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          version VARCHAR(64) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      const migrationsDir = path.join(process.cwd(), 'server', 'infrastructure', 'postgres', 'migrations');
+      let files: string[] = [];
+
+      if (fs.existsSync(migrationsDir)) {
+        files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
       } else {
-        // Fallback para caminho de compilação
-        const altPath = path.join(__dirname, '001_initial_schema.sql');
-        if (fs.existsSync(altPath)) {
-          sqlContent = fs.readFileSync(altPath, 'utf8');
+        const altDir = __dirname;
+        if (fs.existsSync(altDir)) {
+          files = fs.readdirSync(altDir).filter(f => f.endsWith('.sql')).sort();
         }
       }
 
-      if (sqlContent) {
-        await postgresClient.query(sqlContent);
-        console.log('[DatabaseMigrator] Migrações DDL aplicadas com sucesso.');
+      let appliedCount = 0;
+      for (const file of files) {
+        const version = file.split('_')[0];
+        const checkRes = await postgresClient.query(
+          'SELECT version FROM schema_migrations WHERE version = $1',
+          [version]
+        );
+
+        if (checkRes.rows.length === 0) {
+          console.log(`[DatabaseMigrator] Executando migração: ${file}...`);
+          let filePath = path.join(migrationsDir, file);
+          if (!fs.existsSync(filePath)) {
+            filePath = path.join(__dirname, file);
+          }
+          const sql = fs.readFileSync(filePath, 'utf8');
+          await postgresClient.query(sql);
+
+          await postgresClient.query(
+            'INSERT INTO schema_migrations (version, name) VALUES ($1, $2) ON CONFLICT (version) DO NOTHING',
+            [version, file]
+          );
+          console.log(`[DatabaseMigrator] Migração ${file} aplicada e registrada.`);
+          appliedCount++;
+        }
       }
 
       // Sincronização inicial se o banco estiver limpo
       await this.seedInitialDataIfEmpty();
 
-      return { success: true, applied: 1 };
+      return { success: true, applied: appliedCount };
     } catch (err: any) {
       console.error('[DatabaseMigrator] Erro ao aplicar migrações:', err.message);
       return { success: false, applied: 0, error: err.message };

@@ -1,6 +1,9 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import zlib from 'zlib';
 import { db } from './db.js';
+import { asteriskAdapter } from './infrastructure/asterisk/AsteriskAdapter.js';
+import { CdrRepository } from './infrastructure/postgres/repositories/CdrRepository.js';
+import { AuditLogRepository } from './infrastructure/postgres/repositories/AuditLogRepository.js';
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -153,6 +156,7 @@ export interface VoiceTurnRequest {
   history: Array<{ role: 'user' | 'model' | 'system'; text: string }>;
   callerNumber?: string;
   tenantId?: string;
+  channelId?: string;
 }
 
 export interface VoiceTurnResponse {
@@ -383,57 +387,86 @@ ${knowledgeSnippets}`;
         }
 
         const args = (fc.args as Record<string, unknown>) || {};
-        let result: Record<string, unknown> = toolObj ? { ...toolObj.mockResponse } : { status: 'ok' };
+        let result: Record<string, unknown> = { status: 'OK' };
 
-        // Log AI tool execution to Audit
-        db.auditLogs.unshift({
-          id: `audit-${Date.now()}`,
+        // Auditoria real da execução de ferramenta
+        await AuditLogRepository.create({
           tenantId,
           userId: 'ai-gateway',
           userName: `AI Agent: ${agent.name}`,
           action: 'EXECUTE_TOOL',
           resource: `ai_tools/${toolObj.id}`,
           ip: 'internal',
-          timestamp: new Date().toISOString(),
           details: `Execução da ferramenta ${fc.name} com os argumentos: ${JSON.stringify(args)}`,
         });
 
         if (fc.name === 'transferir_chamada') {
           action = 'transfer';
           transferDestination = (args.destino as string) || agent.transferExtension || '4101';
+          
+          // Se houver canal telefônico ativo associado à sessão
+          const channelId = req.channelId || `PJSIP/${transferDestination}`;
+          const transferRes = await asteriskAdapter.transferCall(channelId, transferDestination);
+
           result = {
-            sucesso: true,
-            canal_ari: `PJSIP/${transferDestination}-transfer`,
-            mensagem: `Transferindo para ramal/fila ${transferDestination}`,
+            sucesso: transferRes.success,
+            canal: channelId,
+            destino: transferDestination,
+            mensagem: transferRes.message,
           };
+
           if (!replyText) {
             replyText = `Com certeza! Estou transferindo sua ligação para o ramal ${transferDestination}. Um momento, por favor.`;
           }
         } else if (fc.name === 'encerrar_chamada') {
           action = 'hangup';
+          if (req.channelId) {
+            await asteriskAdapter.hangupCall(req.channelId);
+          }
+          result = {
+            sucesso: true,
+            status: 'chamada_encerrada',
+          };
           if (!replyText) {
             replyText = 'Agradeço pelo contato com a Enlace Telecom. Tenha um ótimo dia!';
           }
-        } else if (fc.name === 'consultar_cliente') {
+        } else if (fc.name === 'consultar_cdr') {
+          const cdrs = await CdrRepository.listByTenant(tenantId, { limit: 5 });
           result = {
-            status: 'encontrado',
-            nome: 'Cliente Enlace Telecom',
-            plano: 'Fibra Óptica Dedicada + Telefonia IP',
-            financeiro: 'Em dia',
+            sucesso: true,
+            registros: cdrs.map(c => ({
+              data: c.startTime,
+              origem: c.caller,
+              destino: c.callee,
+              duracao: c.duration,
+              disposicao: c.disposition,
+            })),
           };
           if (!replyText) {
-            replyText = 'Localizei seu cadastro ativo aqui na Enlace Telecom. Como posso te auxiliar hoje?';
+            replyText = `Localizei os últimos ${cdrs.length} registros de bilhetagem no sistema.`;
+          }
+        } else if (fc.name === 'consultar_cliente') {
+          // Executor real: consulta dados cadastrais ou reporta não configurado
+          result = {
+            status: 'NOT_CONFIGURED',
+            message: 'Módulo de CRM/ERP não integrado a este tenant. Para ativar, vincule sua chave de CRM no Enlace Hub.',
+          };
+          if (!replyText) {
+            replyText = 'Estou consultando seus dados cadastrais, mas a integração de CRM com seu cadastro ainda está em fase de vinculação. Posso te ajudar com o assunto principal do seu atendimento?';
           }
         } else if (fc.name === 'consultar_fatura') {
           result = {
-            status: 'Aberta',
-            valor: 'R$ 249,00',
-            vencimento: '15/09/2026',
-            codigo_pix: 'pix-copia-e-cola-enlace-telecom',
+            status: 'NOT_CONFIGURED',
+            message: 'Módulo de Gateway Bancário/ERP não integrado a este tenant.',
           };
           if (!replyText) {
-            replyText = 'Sua fatura de R$ 249,00 está em aberto com vencimento para 15 de setembro. Posso te enviar o código Pix por SMS ou transferir para o financeiro.';
+            replyText = 'O serviço de consulta direta de faturas está temporariamente indisponível para consulta automática. Deseja que eu transfira para o setor financeiro?';
           }
+        } else {
+          result = {
+            status: 'NOT_IMPLEMENTED',
+            error: `A ferramenta ${fc.name} não possui um executor de produção configurado neste ambiente.`,
+          };
         }
 
         toolCallExecuted = {

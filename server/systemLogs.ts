@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { SystemLogEntry, SystemLogLevel, SystemLogService, SystemLogStats } from '../src/types/pbx.js';
 
 class SystemLogsManager {
@@ -217,7 +218,7 @@ class SystemLogsManager {
 
   public addLog(entry: Omit<SystemLogEntry, 'id' | 'timestamp'> & { timestamp?: string }): SystemLogEntry {
     const fullEntry: SystemLogEntry = {
-      id: `syslog-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: `syslog-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
       timestamp: entry.timestamp || new Date().toISOString(),
       service: entry.service,
       serviceLabel: entry.serviceLabel || this.getServiceDefaultLabel(entry.service),
@@ -304,6 +305,10 @@ class SystemLogsManager {
       filtered = filtered.filter((l) => new Date(l.timestamp).getTime() > sinceTime);
     }
 
+    // Cálculo real de eventos por minuto baseado no histórico dos últimos 60 segundos
+    const oneMinuteAgo = Date.now() - 60000;
+    const recentLogsCount = this.logs.filter(l => new Date(l.timestamp).getTime() >= oneMinuteAgo).length;
+
     // Estatísticas
     const stats: SystemLogStats = {
       total: this.logs.length,
@@ -316,7 +321,7 @@ class SystemLogsManager {
         CRITICAL: 0,
       },
       byService: {},
-      eventsPerMinute: Math.floor(18 + Math.random() * 8),
+      eventsPerMinute: recentLogsCount,
       lastTimestamp: this.logs[0]?.timestamp || new Date().toISOString(),
     };
 
@@ -348,63 +353,29 @@ class SystemLogsManager {
     });
   }
 
-  // Gera evento aleatório dinâmico para simulação em tempo real
-  public generateRandomEvent(): SystemLogEntry {
-    const templates = [
-      {
-        service: 'asterisk' as SystemLogService,
-        serviceLabel: 'Asterisk Core',
-        level: 'INFO' as SystemLogLevel,
-        component: 'pjsip/channel',
-        message: `PJSIP/4101-${Math.floor(100000 + Math.random() * 900000)} RTP audio packet stats: 0 packet loss, 1.4ms jitter.`,
-      },
-      {
-        service: 'asterisk' as SystemLogService,
-        serviceLabel: 'Asterisk Core',
-        level: 'NOTICE' as SystemLogLevel,
-        component: 'res_pjsip_registrar.c',
-        message: `Endpoint 410${Math.floor(Math.random() * 3 + 1)} keepalive OPTIONS ping acknowledged.`,
-      },
-      {
-        service: 'nginx' as SystemLogService,
-        serviceLabel: 'Nginx Gateway',
-        level: 'INFO' as SystemLogLevel,
-        component: 'http-access',
-        message: `GET /api/v1/network/telemetry HTTP/1.1 200 OK (${(Math.random() * 2 + 0.8).toFixed(1)}ms) - 10.10.0.1`,
-      },
-      {
-        service: 'wireguard' as SystemLogService,
-        serviceLabel: 'WireGuard VPN',
-        level: 'DEBUG' as SystemLogLevel,
-        component: 'wg0',
-        message: `Peer handshake renewal successful for 10.10.0.${Math.floor(Math.random() * 4 + 2)}/32.`,
-      },
-      {
-        service: 'gemini-gateway' as SystemLogService,
-        serviceLabel: 'AI Voice Bridge',
-        level: 'INFO' as SystemLogLevel,
-        component: 'live-stream',
-        message: `MaIA Voice buffer processed 320 audio bytes. Round-trip inference latency: ${(135 + Math.random() * 15).toFixed(0)}ms.`,
-      },
-      {
-        service: 'fail2ban' as SystemLogService,
-        serviceLabel: 'Fail2ban Defense',
-        level: 'DEBUG' as SystemLogLevel,
-        component: 'filter.asterisk',
-        message: `Log line inspected: /var/log/asterisk/messages (0 failure matches).`,
-      },
-      {
-        service: 'postgresql' as SystemLogService,
-        serviceLabel: 'PostgreSQL 16',
-        level: 'DEBUG' as SystemLogLevel,
-        component: 'connection-pool',
-        message: `Connection released back to pool. Active connections: 4/100.`,
-      },
-    ];
+  /**
+   * Ingere linhas de log reais obtidas de arquivos de log do Asterisk (/var/log/asterisk/messages)
+   * ou de saídas reais do CLI
+   */
+  public ingestAsteriskLogLine(rawLine: string): void {
+    if (!rawLine || rawLine.trim() === '') return;
+    const line = rawLine.trim();
 
-    const pick = templates[Math.floor(Math.random() * templates.length)];
-    return this.addLog(pick);
+    let level: SystemLogLevel = 'INFO';
+    if (line.includes('[ERROR]') || line.includes('ERROR:')) level = 'ERROR';
+    else if (line.includes('[WARNING]') || line.includes('WARNING:')) level = 'WARNING';
+    else if (line.includes('[NOTICE]') || line.includes('NOTICE:')) level = 'NOTICE';
+    else if (line.includes('[DEBUG]')) level = 'DEBUG';
+
+    this.addLog({
+      service: 'asterisk',
+      serviceLabel: 'Asterisk Core',
+      level,
+      component: 'asterisk-engine',
+      message: line,
+    });
   }
 }
 
 export const systemLogsManager = new SystemLogsManager();
+

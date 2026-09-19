@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { postgresClient } from '../client';
 import { db, CdrRecord } from '../../../db';
 
@@ -25,8 +26,28 @@ export interface OfficialCdrPayload {
 }
 
 export class CdrRepository {
+  public static async save(record: any): Promise<CdrRecord> {
+    return this.insertOfficial({
+      uniqueid: record.uniqueId || record.uniqueid || record.id,
+      tenantId: record.tenantId || 'tenant-enlace-matriz',
+      caller: record.caller || 'anonymous',
+      callee: record.callee || 's',
+      direction: record.direction || 'inbound',
+      startTime: record.startTime ? new Date(record.startTime) : new Date(),
+      endTime: record.endTime ? new Date(record.endTime) : new Date(),
+      duration: record.duration || 0,
+      billsec: record.billsec || record.duration || 0,
+      disposition: record.disposition || 'ANSWERED',
+      costBrl: record.costBrl,
+      trunk: record.trunkName,
+      extension: record.extension,
+      aiAgentId: record.aiAgentId,
+      recordingFile: record.recordingUrl,
+    });
+  }
+
   public static async insertOfficial(record: OfficialCdrPayload): Promise<CdrRecord> {
-    const cdrId = `cdr-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const cdrId = `cdr-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     const cost = record.costBrl || (record.billsec > 0 ? (record.billsec / 60) * 0.045 : 0);
 
     const cdrItem: CdrRecord = {

@@ -373,7 +373,7 @@ export class AsteriskAdapter {
   }
 
   /**
-   * Recarrega o PJSIP no Asterisk.
+   * Recarrega a pilha PJSIP no Asterisk via CLI/AMI.
    */
   public async reloadPjsip(): Promise<{ success: boolean; message: string }> {
     const hasAsterisk = await this.checkBinaryExists();
@@ -393,6 +393,109 @@ export class AsteriskAdapter {
         success: false,
         message: `Asterisk Core offline para reload imediato: ${err.message}`,
       };
+    }
+  }
+
+  /**
+   * Verifica se o Asterisk está em execução e operacional.
+   */
+  public async isAsteriskRunning(): Promise<boolean> {
+    const health = await this.checkHealth();
+    return health.status === 'UP';
+  }
+
+  /**
+   * Aplica a configuração do pjsip.conf em disco, cria backup com timestamp e recarrega a pilha
+   */
+  public async applyPjsipConfig(pjsipContent: string): Promise<{ success: boolean; backupPath?: string; message: string }> {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    // Determina o diretório base: /etc/asterisk se com permissão de escrita, senão pasta local server/config/asterisk
+    let baseDir = '/etc/asterisk';
+    try {
+      if (!fs.existsSync(baseDir)) {
+        baseDir = path.join(process.cwd(), 'server', 'config', 'asterisk');
+      }
+      if (!fs.existsSync(baseDir)) {
+        fs.mkdirSync(baseDir, { recursive: true });
+      }
+    } catch {
+      baseDir = path.join(process.cwd(), 'server', 'config', 'asterisk');
+      fs.mkdirSync(baseDir, { recursive: true });
+    }
+
+    const backupDir = path.join(baseDir, 'backup');
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+
+    const targetFile = path.join(baseDir, 'pjsip.conf');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupFile = path.join(backupDir, `pjsip.conf.${timestamp}.bak`);
+
+    // Backup do arquivo atual se existir
+    if (fs.existsSync(targetFile)) {
+      fs.copyFileSync(targetFile, backupFile);
+    }
+
+    // Gravação atômica da nova configuração
+    fs.writeFileSync(targetFile, pjsipContent, 'utf8');
+
+    // Execução do pjsip reload real
+    const reloadRes = await this.reloadPjsip();
+
+    return {
+      success: reloadRes.success,
+      backupPath: fs.existsSync(backupFile) ? backupFile : undefined,
+      message: reloadRes.message,
+    };
+  }
+
+  /**
+   * Transfere uma chamada ativa para outro ramal ou fila via AMI / CLI
+   */
+  public async transferCall(channel: string, targetExten: string, context = 'from-internal'): Promise<{ success: boolean; message: string }> {
+    const hasAsterisk = await this.checkBinaryExists();
+    if (hasAsterisk) {
+      const res = await this.executeCli(`channel redirect ${channel} ${context} ${targetExten} 1`);
+      return {
+        success: res.success,
+        message: res.success ? `Canal ${channel} transferido com sucesso para ${targetExten}` : (res.error || 'Falha ao transferir canal.'),
+      };
+    }
+
+    try {
+      const out = await this.executeAmiAction('Redirect', {
+        Channel: channel,
+        Exten: targetExten,
+        Context: context,
+        Priority: '1',
+      });
+      return { success: true, message: out };
+    } catch (err: any) {
+      return { success: false, message: `Falha ao transferir chamada: ${err.message}` };
+    }
+  }
+
+  /**
+   * Encerra um canal ativo imediatamente
+   */
+  public async hangupCall(channel: string): Promise<{ success: boolean; message: string }> {
+    const hasAsterisk = await this.checkBinaryExists();
+    if (hasAsterisk) {
+      const res = await this.executeCli(`channel request hangup ${channel}`);
+      return {
+        success: res.success,
+        message: res.success ? `Canal ${channel} finalizado com sucesso.` : (res.error || 'Falha ao encerrar canal.'),
+      };
+    }
+
+    try {
+      const out = await this.executeAmiAction('Hangup', { Channel: channel });
+      return { success: true, message: out };
+    } catch (err: any) {
+      return { success: false, message: `Falha ao encerrar canal: ${err.message}` };
     }
   }
 
