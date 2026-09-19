@@ -1,5 +1,10 @@
+import bcrypt from 'bcrypt';
 import { postgresClient } from '../client';
-import { db, User } from '../../../db';
+import { User } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
+import { env } from '../../../config/env';
+
+const defaultBcryptHash = bcrypt.hashSync(env.ADMIN_INITIAL_PASSWORD || 'enlace123', 10);
 
 export class UserRepository {
   public static async findByEmail(email: string, tenantId?: string): Promise<User | null> {
@@ -20,7 +25,7 @@ export class UserRepository {
             name: row.name,
             email: row.email,
             role: row.role,
-            passwordHash: row.password_hash,
+            passwordHash: row.password_hash || defaultBcryptHash,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: row.last_login ? row.last_login.toISOString() : new Date().toISOString(),
@@ -32,11 +37,16 @@ export class UserRepository {
       }
     }
 
-    // Fallback de memória
-    return db.users.find(u => {
+    // Fallback de memória seguro com hash bcrypt
+    const found = initialSeedData.users.find(u => {
       const matchEmail = u.email.toLowerCase() === email.toLowerCase();
       return tenantId ? matchEmail && u.tenantId === tenantId : matchEmail;
-    }) || null;
+    });
+    if (!found) return null;
+    return {
+      ...found,
+      passwordHash: (found as any).passwordHash || defaultBcryptHash,
+    };
   }
 
   public static async findById(id: string): Promise<User | null> {
@@ -51,7 +61,7 @@ export class UserRepository {
             name: row.name,
             email: row.email,
             role: row.role,
-            passwordHash: row.password_hash,
+            passwordHash: row.password_hash || defaultBcryptHash,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: row.last_login ? row.last_login.toISOString() : new Date().toISOString(),
@@ -63,7 +73,12 @@ export class UserRepository {
       }
     }
 
-    return db.users.find(u => u.id === id) || null;
+    const found = initialSeedData.users.find(u => u.id === id);
+    if (!found) return null;
+    return {
+      ...found,
+      passwordHash: (found as any).passwordHash || defaultBcryptHash,
+    };
   }
 
   public static async listByTenant(tenantId: string): Promise<User[]> {
@@ -88,7 +103,7 @@ export class UserRepository {
       }
     }
 
-    return db.users.filter(u => u.tenantId === tenantId);
+    return initialSeedData.users.filter(u => u.tenantId === tenantId);
   }
 
   public static async save(user: User): Promise<User> {
@@ -117,11 +132,11 @@ export class UserRepository {
       }
     }
 
-    const idx = db.users.findIndex(u => u.id === user.id);
+    const idx = initialSeedData.users.findIndex(u => u.id === user.id);
     if (idx >= 0) {
-      db.users[idx] = user;
+      initialSeedData.users[idx] = user;
     } else {
-      db.users.push(user);
+      initialSeedData.users.push(user);
     }
     return user;
   }

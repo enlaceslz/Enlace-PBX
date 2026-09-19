@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, Extension } from '../../../db';
+import { Extension } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class ExtensionRepository {
   public static async listByTenant(tenantId: string): Promise<Extension[]> {
@@ -32,7 +33,7 @@ export class ExtensionRepository {
         console.error('[ExtensionRepository] Erro ao listar ramais no Postgres:', err.message);
       }
     }
-    return db.extensions.filter(e => e.tenantId === tenantId);
+    return initialSeedData.extensions.filter(e => e.tenantId === tenantId);
   }
 
   public static async findByNumber(tenantId: string, number: string): Promise<Extension | null> {
@@ -69,7 +70,7 @@ export class ExtensionRepository {
         console.error('[ExtensionRepository] Erro ao buscar ramal por número:', err.message);
       }
     }
-    return db.extensions.find(e => e.tenantId === tenantId && e.number === number) || null;
+    return initialSeedData.extensions.find(e => e.tenantId === tenantId && e.number === number) || null;
   }
 
   public static async save(ext: Extension): Promise<Extension> {
@@ -106,11 +107,11 @@ export class ExtensionRepository {
       }
     }
 
-    const idx = db.extensions.findIndex(e => e.id === ext.id || (e.tenantId === ext.tenantId && e.number === ext.number));
+    const idx = initialSeedData.extensions.findIndex(e => e.id === ext.id || (e.tenantId === ext.tenantId && e.number === ext.number));
     if (idx >= 0) {
-      db.extensions[idx] = ext;
+      initialSeedData.extensions[idx] = ext;
     } else {
-      db.extensions.push(ext);
+      initialSeedData.extensions.push(ext);
     }
     return ext;
   }
@@ -123,8 +124,8 @@ export class ExtensionRepository {
         console.error('[ExtensionRepository] Erro ao deletar ramal no Postgres:', err.message);
       }
     }
-    const prevLen = db.extensions.length;
-    db.extensions = db.extensions.filter(e => !(e.tenantId === tenantId && e.id === id));
-    return db.extensions.length < prevLen;
+    const prevLen = initialSeedData.extensions.length;
+    initialSeedData.extensions = initialSeedData.extensions.filter(e => !(e.tenantId === tenantId && e.id === id));
+    return initialSeedData.extensions.length < prevLen;
   }
 }

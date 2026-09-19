@@ -3,8 +3,10 @@ import { CdrRepository } from '../server/infrastructure/postgres/repositories/Cd
 import { AuditLogRepository } from '../server/infrastructure/postgres/repositories/AuditLogRepository';
 import { AiAgentRepository } from '../server/infrastructure/postgres/repositories/AiAgentRepository';
 import { AiKnowledgeRepository } from '../server/infrastructure/postgres/repositories/AiKnowledgeRepository';
+import { ExtensionRepository } from '../server/infrastructure/postgres/repositories/ExtensionRepository';
+import { TrunkRepository } from '../server/infrastructure/postgres/repositories/TrunkRepository';
+import { DidRepository } from '../server/infrastructure/postgres/repositories/DidRepository';
 import { VpnAdapter } from '../server/infrastructure/network/VpnAdapter';
-import { db } from '../server/db';
 import crypto from 'crypto';
 
 async function runVerification() {
@@ -65,9 +67,12 @@ async function runVerification() {
 
   // 5. Teste do Webphone WebRTC & Sinalização
   console.log('\n[5/5] Testando integridade do banco e entidades SIP...');
-  console.log(`  -> Ramais cadastrados: ${db.extensions.length}`);
-  console.log(`  -> Troncos PJSIP configurados: ${db.trunks.length}`);
-  console.log(`  -> DIDs ativos: ${db.dids.length}`);
+  const extensions = await ExtensionRepository.listByTenant('tenant-enlace-matriz');
+  const trunks = await TrunkRepository.listByTenant('tenant-enlace-matriz');
+  const dids = await DidRepository.listByTenant('tenant-enlace-matriz');
+  console.log(`  -> Ramais cadastrados: ${extensions.length}`);
+  console.log(`  -> Troncos PJSIP configurados: ${trunks.length}`);
+  console.log(`  -> DIDs ativos: ${dids.length}`);
 
   console.log('\n=== [ENLACE-PBX] TODAS AS VERIFICAÇÕES CONCLUÍDAS COM SUCESSO ===');
 }

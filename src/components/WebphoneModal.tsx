@@ -236,92 +236,14 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     };
   }, [callState]);
 
-  const processIvrSelection = (digit: string) => {
-    playDtmfTone(digit);
-    if (digit === '1') {
-      // Comercial (Ramal 4103 - Mariana Costa)
-      setIvrAnnouncement('Opção 1 selecionada: Transferindo para Comercial (4103)...');
-      speakText('Opção um. Transferindo para o departamento Comercial. Por favor, aguarde.', 'female', 'ura');
-      setTimeout(() => {
-        setCallType('extension');
-        setActiveTab('extension');
-        setConnectedDestination('4103 (Comercial)');
-        setExtInfo({ name: 'Mariana Costa', number: '4103', dept: 'Comercial & Vendas' });
-        setTimeout(() => {
-          speakText('Comercial Enlace Telecom, boa tarde! Mariana falando, como posso ajudar?', 'female', 'mariana');
-        }, 1200);
-      }, 2200);
-    } else if (digit === '2') {
-      // Suporte Técnico (Roberto Mendes - Ramal 4102 / Suporte N1)
-      setIvrAnnouncement('Opção 2 selecionada: Encaminhando para Suporte Técnico com Roberto Mendes...');
-      speakText('Opção dois. Encaminhando para o Suporte Técnico com Roberto Mendes. Por favor, aguarde.', 'female', 'ura');
-      setTimeout(() => {
-        setCallType('extension');
-        setActiveTab('extension');
-        setConnectedDestination('4102 (Suporte - Roberto Mendes)');
-        setExtInfo({ name: 'Roberto Mendes', number: '4102', dept: 'NOC / Suporte Técnico N1' });
-        setTimeout(() => {
-          speakText('Suporte Técnico Enlace, boa tarde! Roberto falando. Como posso ajudar com a sua conexão hoje?', 'male', 'roberto');
-        }, 1400);
-      }, 2200);
-    } else if (digit === '3') {
-      // Financeiro (Fila 7002 - Renata Lima)
-      setIvrAnnouncement('Opção 3 selecionada: Encaminhando para o Financeiro...');
-      speakText('Opção três. Encaminhando para a Fila Financeira.', 'female', 'ura');
-      setTimeout(() => {
-        setCallType('queue');
-        setActiveTab('queue');
-        setConnectedDestination('Fila Financeiro (7002)');
-        setQueueInfo({ name: 'Financeiro & Faturamento', position: 1, agentName: 'Renata Lima' });
-        setTimeout(() => {
-          speakText('Financeiro Enlace Telecom, boa tarde! Renata falando, em que posso ajudar?', 'female', 'renata');
-        }, 1800);
-      }, 2000);
-    } else if (digit === '9') {
-      // MaIA IA
-      setIvrAnnouncement('Opção 9 selecionada: Conectando com Inteligência Artificial MaIA...');
-      speakText('Opção nove. Transferindo para MaIA, nossa assistente virtual.', 'female', 'ura');
-      setTimeout(() => {
-        setCallType('ai');
-        setIsAiCall(true);
-        setActiveTab('ai_live');
-        setConnectedDestination('MaIA (Gemini Live)');
-        const greeting = 'Olá! Sou a MaIA, assistente virtual da Enlace Telecom. Como posso ajudar você hoje?';
-        setAiHistory([
-          {
-            role: 'system',
-            text: 'Conexão estabelecida com Asterisk 20 [from-gemini] via AudioSocket e Google Gemini Live API.',
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-          {
-            role: 'model',
-            text: greeting,
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-        ]);
-        speakText(greeting, 'female', 'maia');
-      }, 2200);
-    } else if (digit === '0') {
-      // Operador (Carlos Silva - Ramal 4101)
-      setIvrAnnouncement('Opção 0 selecionada: Transferindo para Telefonista...');
-      speakText('Opção zero. Transferindo para o operador humano no ramal 4101.', 'female', 'ura');
-      setTimeout(() => {
-        setCallType('extension');
-        setActiveTab('extension');
-        setConnectedDestination('4101 (Operador)');
-        setExtInfo({ name: 'Carlos Henrique Silva', number: '4101', dept: 'Central Telefônica' });
-        speakText('Central Enlace Telecom, boa tarde! Carlos falando, em que posso ser útil?', 'male', 'carlos');
-      }, 2000);
-    }
-  };
-
   const handleKeypadPress = (digit: string) => {
     playDtmfTone(digit);
     if (callState === 'idle') {
       setDialNumber((prev) => prev + digit);
     } else if (callState === 'connected') {
-      if (callType === 'ivr') {
-        processIvrSelection(digit);
+      // Disparo real de tom DTMF RFC 4733 via WebRTC/SIP.js para o Asterisk Core
+      if (clientRef.current) {
+        clientRef.current.sendDtmf(digit);
       }
     }
   };
@@ -333,67 +255,30 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const executeInlineTransfer = async () => {
     if (!transferDestination.trim()) return;
     const dest = transferDestination.trim();
-    speakText(`Transferindo chamada para o destino ${dest}. Por favor, aguarde.`, 'female', 'ura');
-    setTransferStatusMsg(`Transferência para ${dest} iniciada...`);
+    setTransferStatusMsg(`Enviando comando de transferência para ${dest} ao Asterisk Core...`);
 
     try {
-      await fetch('/api/v1/asterisk/channels/transfer', {
+      const res = await fetch('/api/v1/asterisk/channels/transfer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('enlace_token') || ''}`,
+        },
         body: JSON.stringify({ destination: dest }),
       });
-    } catch {
-      // simulated fallback
-    }
 
-    setTimeout(() => {
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setTransferStatusMsg(`Falha na transferência: ${errData.error || 'Asterisk rejeitou'}`);
+        return;
+      }
+
       setConnectedDestination(dest);
       setShowTransferDialog(false);
       setTransferStatusMsg(null);
-      if (dest === '9001') {
-        setCallType('ai');
-        setIsAiCall(true);
-        setActiveTab('ai_live');
-        speakText('Olá! Sou a MaIA, fui conectada à sua chamada transferida. Como posso ajudar?', 'female', 'maia');
-      } else if (dest === '4102') {
-        setCallType('extension');
-        setIsAiCall(false);
-        setActiveTab('extension');
-        setExtInfo({
-          name: 'Roberto Mendes',
-          number: '4102',
-          dept: 'NOC / Suporte Técnico N1',
-        });
-        speakText('Alô! Suporte Técnico Enlace, Roberto falando. Recebi a sua transferência, em que posso ajudar?', 'male', 'roberto');
-      } else if (dest === '7001' || dest === '7002') {
-        setCallType('queue');
-        setIsAiCall(false);
-        setActiveTab('queue');
-        const isSupport = dest === '7001';
-        setQueueInfo({
-          name: isSupport ? 'Fila Suporte N1 (Roberto Mendes)' : 'Fila Financeiro (Renata)',
-          position: 1,
-          agentName: isSupport ? 'Roberto Mendes (Atendendo)' : 'Renata Lima',
-        });
-        const greeting = isSupport
-          ? 'Suporte Técnico Enlace, Roberto falando. Recebi sua transferência da fila.'
-          : 'Financeiro Enlace Telecom, Renata falando.';
-        speakText(greeting, isSupport ? 'male' : 'female', isSupport ? 'roberto' : 'renata');
-      } else {
-        setCallType('extension');
-        setIsAiCall(false);
-        setActiveTab('extension');
-        setExtInfo({
-          name: dest === '4103' ? 'Mariana Costa' : `Ramal ${dest}`,
-          number: dest,
-          dept: dest === '4103' ? 'Comercial' : 'Atendimento Interno',
-        });
-        const greeting = dest === '4103'
-          ? 'Comercial Enlace, Mariana falando. Como posso ajudar?'
-          : `Alô, ramal ${dest}!`;
-        speakText(greeting, dest === '4103' ? 'female' : 'male', dest === '4103' ? 'mariana' : 'carlos');
-      }
-    }, 2000);
+    } catch (err: any) {
+      setTransferStatusMsg(`Erro de rede ao transferir: ${err.message}`);
+    }
   };
 
   const startCall = async (targetNumber?: string) => {
@@ -624,27 +509,32 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
       if (data.action === 'transfer') {
         const transferTarget = data.transferDestination || '4102';
-        setTimeout(() => {
-          setAiHistory((prev) => [
-            ...prev,
-            {
-              role: 'system',
-              text: `🔄 Asterisk Bridge ARI: Chamada transferida com sucesso para o Ramal ${transferTarget}.`,
-              timestamp: new Date().toLocaleTimeString('pt-BR'),
-            },
-          ]);
-          if (transferTarget === '4102' || transferTarget.includes('4102')) {
-            setCallType('extension');
-            setActiveTab('extension');
-            setConnectedDestination('4102 (Suporte - Roberto Mendes)');
-            setExtInfo({ name: 'Roberto Mendes', number: '4102', dept: 'NOC / Suporte Técnico N1' });
-            speakText('Alô! Aqui é o Roberto do Suporte Técnico. Recebi a sua transferência da MaIA, como posso ajudar?', 'male', 'roberto');
-          }
-        }, 3000);
+        setAiHistory((prev) => [
+          ...prev,
+          {
+            role: 'system',
+            text: `🔄 Asterisk Bridge ARI: Solicitando transferência para o Ramal ${transferTarget}...`,
+            timestamp: new Date().toLocaleTimeString('pt-BR'),
+          },
+        ]);
+        fetch('/api/v1/asterisk/channels/transfer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('enlace_token') || ''}`,
+          },
+          body: JSON.stringify({ destination: transferTarget }),
+        })
+          .then((res) => {
+            if (res.ok) {
+              setConnectedDestination(transferTarget);
+              setCallType('extension');
+              setActiveTab('extension');
+            }
+          })
+          .catch((err) => console.warn('Falha na transferência ARI:', err));
       } else if (data.action === 'hangup') {
-        setTimeout(() => {
-          endCall();
-        }, 3500);
+        endCall();
       }
     } catch (err) {
       console.error('Turn error:', err);
@@ -1066,7 +956,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     ].map((opt) => (
                       <button
                         key={opt.key}
-                        onClick={() => processIvrSelection(opt.key)}
+                        onClick={() => handleKeypadPress(opt.key)}
                         className="w-full text-left p-2.5 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 bg-white transition flex items-center justify-between group shadow-xs active:scale-99"
                       >
                         <div className="flex items-center gap-2.5">

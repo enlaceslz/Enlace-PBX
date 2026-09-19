@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcrypt';
 import { postgresClient } from '../client';
-import { db } from '../../../db';
+import { initialSeedData as db } from '../seedData';
 
 export class DatabaseMigrator {
   public static async runMigrations(): Promise<{ success: boolean; applied: number; error?: string }> {

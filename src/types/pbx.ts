@@ -27,7 +27,7 @@ export interface User {
   tenantId: string;
   name: string;
   email: string;
-
+  passwordHash?: string;
   extension?: string;
   isActive: boolean;
   lastLogin: string;
@@ -866,4 +866,18 @@ export interface CustomerMemory {
   preferences: string[];
   sentimentHistory: 'positive' | 'neutral' | 'negative';
   churnRisk: number;
+}
+
+export interface OutboundCampaign {
+  id: string;
+  tenantId: string;
+  name: string;
+  type: 'predictive' | 'power_dialer' | 'ai_voicebot';
+  status: 'draft' | 'running' | 'paused' | 'completed';
+  aiAgentId?: string;
+  totalLeads: number;
+  processedLeads: number;
+  successCount: number;
+  activeCalls: number;
+  createdAt: string;
 }

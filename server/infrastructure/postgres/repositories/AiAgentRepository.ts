@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, AiAgent } from '../../../db';
+import { AiAgent } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class AiAgentRepository {
   public static async listByTenant(tenantId: string): Promise<AiAgent[]> {
@@ -41,7 +42,7 @@ export class AiAgentRepository {
       }
     }
 
-    return db.aiAgents.filter(a => a.tenantId === tenantId);
+    return initialSeedData.aiAgents.filter(a => a.tenantId === tenantId);
   }
 
   public static async findById(id: string, tenantId?: string): Promise<AiAgent | null> {
@@ -88,7 +89,7 @@ export class AiAgentRepository {
       }
     }
 
-    return db.aiAgents.find(a => a.id === id && (!tenantId || a.tenantId === tenantId)) || null;
+    return initialSeedData.aiAgents.find(a => a.id === id && (!tenantId || a.tenantId === tenantId)) || null;
   }
 
   public static async save(agent: AiAgent): Promise<AiAgent> {
@@ -150,11 +151,11 @@ export class AiAgentRepository {
       }
     }
 
-    const idx = db.aiAgents.findIndex(a => a.id === agent.id);
+    const idx = initialSeedData.aiAgents.findIndex(a => a.id === agent.id);
     if (idx >= 0) {
-      db.aiAgents[idx] = agent;
+      initialSeedData.aiAgents[idx] = agent;
     } else {
-      db.aiAgents.push(agent);
+      initialSeedData.aiAgents.push(agent);
     }
     return agent;
   }
@@ -171,8 +172,8 @@ export class AiAgentRepository {
       }
     }
 
-    const initialLen = db.aiAgents.length;
-    db.aiAgents = db.aiAgents.filter(a => !(a.id === id && a.tenantId === tenantId));
-    return db.aiAgents.length < initialLen;
+    const initialLen = initialSeedData.aiAgents.length;
+    initialSeedData.aiAgents = initialSeedData.aiAgents.filter(a => !(a.id === id && a.tenantId === tenantId));
+    return initialSeedData.aiAgents.length < initialLen;
   }
 }

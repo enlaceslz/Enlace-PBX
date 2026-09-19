@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import zlib from 'zlib';
-import { db } from './db.js';
+import { initialSeedData as db } from './infrastructure/postgres/seedData.js';
 import { asteriskAdapter } from './infrastructure/asterisk/AsteriskAdapter.js';
 import { CdrRepository } from './infrastructure/postgres/repositories/CdrRepository.js';
 import { AuditLogRepository } from './infrastructure/postgres/repositories/AuditLogRepository.js';

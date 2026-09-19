@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import net from 'net';
-import { db, Trunk, Did } from './db.js';
+import { Trunk, Did } from '../src/types/pbx.js';
+import { initialSeedData as db } from './infrastructure/postgres/seedData.js';
 
 export interface NormalizedDidResult {
   raw: string;

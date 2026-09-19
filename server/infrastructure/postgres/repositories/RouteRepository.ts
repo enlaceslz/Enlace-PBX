@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, Route } from '../../../db';
+import { Route } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class RouteRepository {
   public static async listByTenant(tenantId: string): Promise<Route[]> {
@@ -35,7 +36,7 @@ export class RouteRepository {
       }
     }
 
-    return db.routes.filter(r => r.tenantId === tenantId);
+    return initialSeedData.routes.filter(r => r.tenantId === tenantId);
   }
 
   public static async findById(id: string, tenantId?: string): Promise<Route | null> {
@@ -76,7 +77,7 @@ export class RouteRepository {
       }
     }
 
-    return db.routes.find(r => r.id === id && (!tenantId || r.tenantId === tenantId)) || null;
+    return initialSeedData.routes.find(r => r.id === id && (!tenantId || r.tenantId === tenantId)) || null;
   }
 
   public static async save(route: Route): Promise<Route> {
@@ -121,11 +122,11 @@ export class RouteRepository {
       }
     }
 
-    const idx = db.routes.findIndex(r => r.id === route.id);
+    const idx = initialSeedData.routes.findIndex(r => r.id === route.id);
     if (idx >= 0) {
-      db.routes[idx] = route;
+      initialSeedData.routes[idx] = route;
     } else {
-      db.routes.push(route);
+      initialSeedData.routes.push(route);
     }
     return route;
   }
@@ -142,8 +143,8 @@ export class RouteRepository {
       }
     }
 
-    const initialLen = db.routes.length;
-    db.routes = db.routes.filter(r => !(r.id === id && r.tenantId === tenantId));
-    return db.routes.length < initialLen;
+    const initialLen = initialSeedData.routes.length;
+    initialSeedData.routes = initialSeedData.routes.filter(r => !(r.id === id && r.tenantId === tenantId));
+    return initialSeedData.routes.length < initialLen;
   }
 }

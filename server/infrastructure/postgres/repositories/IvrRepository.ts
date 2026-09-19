@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, Ivr } from '../../../db';
+import { Ivr } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class IvrRepository {
   public static async listByTenant(tenantId: string): Promise<Ivr[]> {
@@ -27,7 +28,7 @@ export class IvrRepository {
       }
     }
 
-    return db.ivrs.filter(i => i.tenantId === tenantId);
+    return initialSeedData.ivrs.filter(i => i.tenantId === tenantId);
   }
 
   public static async findById(id: string, tenantId?: string): Promise<Ivr | null> {
@@ -60,7 +61,7 @@ export class IvrRepository {
       }
     }
 
-    return db.ivrs.find(i => i.id === id && (!tenantId || i.tenantId === tenantId)) || null;
+    return initialSeedData.ivrs.find(i => i.id === id && (!tenantId || i.tenantId === tenantId)) || null;
   }
 
   public static async save(ivr: Ivr): Promise<Ivr> {
@@ -97,11 +98,11 @@ export class IvrRepository {
       }
     }
 
-    const idx = db.ivrs.findIndex(i => i.id === ivr.id);
+    const idx = initialSeedData.ivrs.findIndex(i => i.id === ivr.id);
     if (idx >= 0) {
-      db.ivrs[idx] = ivr;
+      initialSeedData.ivrs[idx] = ivr;
     } else {
-      db.ivrs.push(ivr);
+      initialSeedData.ivrs.push(ivr);
     }
     return ivr;
   }
@@ -118,8 +119,8 @@ export class IvrRepository {
       }
     }
 
-    const initialLen = db.ivrs.length;
-    db.ivrs = db.ivrs.filter(i => !(i.id === id && i.tenantId === tenantId));
-    return db.ivrs.length < initialLen;
+    const initialLen = initialSeedData.ivrs.length;
+    initialSeedData.ivrs = initialSeedData.ivrs.filter(i => !(i.id === id && i.tenantId === tenantId));
+    return initialSeedData.ivrs.length < initialLen;
   }
 }

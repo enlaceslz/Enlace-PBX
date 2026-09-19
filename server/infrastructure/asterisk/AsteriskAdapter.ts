@@ -53,12 +53,12 @@ export class AsteriskAdapter {
 
   constructor() {
     this.host = process.env.ASTERISK_HOST || '127.0.0.1';
-    this.amiPort = parseInt(process.env.ASTERISK_AMI_PORT || '5038');
+    this.amiPort = parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10);
     this.amiUser = process.env.ASTERISK_AMI_USER || 'enlace_ami';
-    this.amiPass = process.env.ASTERISK_AMI_PASSWORD || 'enlace_ami_secret';
+    this.amiPass = process.env.ASTERISK_AMI_PASSWORD || '';
     this.ariUrl = process.env.ASTERISK_ARI_URL || 'http://127.0.0.1:8088';
     this.ariUser = process.env.ASTERISK_ARI_USER || 'enlace_ari';
-    this.ariPass = process.env.ASTERISK_ARI_PASSWORD || 'enlace_ari_secret';
+    this.ariPass = process.env.ASTERISK_ARI_PASSWORD || '';
   }
 
   /**

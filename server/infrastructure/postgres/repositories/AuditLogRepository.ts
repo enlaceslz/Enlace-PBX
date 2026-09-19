@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { postgresClient } from '../client';
-import { db, AuditLog } from '../../../db';
+import { AuditLog } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class AuditLogRepository {
   public static async create(entry: {
@@ -68,8 +69,8 @@ export class AuditLogRepository {
       }
     }
 
-    db.auditLogs.unshift(auditItem);
-    if (db.auditLogs.length > 500) db.auditLogs.pop();
+    initialSeedData.auditLogs.unshift(auditItem);
+    if (initialSeedData.auditLogs.length > 500) initialSeedData.auditLogs.pop();
 
     return auditItem;
   }
@@ -100,6 +101,6 @@ export class AuditLogRepository {
         console.error('[AuditLogRepository] Erro ao listar audit logs no Postgres:', err.message);
       }
     }
-    return db.auditLogs.filter(a => a.tenantId === tenantId).slice(0, limit);
+    return initialSeedData.auditLogs.filter(a => a.tenantId === tenantId).slice(0, limit);
   }
 }

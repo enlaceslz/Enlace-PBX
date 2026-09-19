@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, Tenant } from '../../../db';
+import { Tenant } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class TenantRepository {
   public static async findById(id: string): Promise<Tenant | null> {
@@ -25,7 +26,7 @@ export class TenantRepository {
         console.error('[TenantRepository] Erro ao buscar tenant no Postgres:', err.message);
       }
     }
-    return db.tenants.find(t => t.id === id) || null;
+    return initialSeedData.tenants.find(t => t.id === id) || null;
   }
 
   public static async listAll(): Promise<Tenant[]> {
@@ -47,7 +48,7 @@ export class TenantRepository {
         console.error('[TenantRepository] Erro ao listar tenants no Postgres:', err.message);
       }
     }
-    return db.tenants;
+    return initialSeedData.tenants;
   }
 
   public static async save(tenant: Tenant): Promise<Tenant> {
@@ -76,11 +77,11 @@ export class TenantRepository {
       }
     }
 
-    const idx = db.tenants.findIndex(t => t.id === tenant.id);
+    const idx = initialSeedData.tenants.findIndex(t => t.id === tenant.id);
     if (idx >= 0) {
-      db.tenants[idx] = tenant;
+      initialSeedData.tenants[idx] = tenant;
     } else {
-      db.tenants.push(tenant);
+      initialSeedData.tenants.push(tenant);
     }
     return tenant;
   }

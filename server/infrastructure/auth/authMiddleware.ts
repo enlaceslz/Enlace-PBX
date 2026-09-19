@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { db, User } from '../../db.js';
+import { User } from '../../../src/types/pbx.js';
+import { UserRepository } from '../postgres/repositories/UserRepository.js';
+import { TenantRepository } from '../postgres/repositories/TenantRepository.js';
+import { env } from '../../config/env.js';
 
 export type UserRole = 'super_admin' | 'admin' | 'supervisor' | 'operator' | 'agent' | 'readonly';
 
@@ -74,14 +77,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
 };
 
 export function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret || secret.trim() === '') {
-    throw new Error(
-      'FATAL: A variável de ambiente JWT_SECRET não está configurada. ' +
-      'Por razões estritas de segurança corporativa, o Enlace-PBX não permite inicialização com segredos JWT ausentes ou padrões fracos.'
-    );
-  }
-  return secret;
+  return env.JWT_SECRET;
 }
 
 export interface AuthenticatedRequest extends Request {
@@ -101,7 +97,7 @@ export interface AuthenticatedRequest extends Request {
  * Rejeita qualquer requisição sem token JWT com status 401 Unauthorized.
  * Não permite passagem permissiva de requisições.
  */
-export const requireAuth = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+export const requireAuth = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
@@ -119,16 +115,13 @@ export const requireAuth = (req: AuthenticatedRequest, res: Response, next: Next
     return res.status(500).json({ error: err.message });
   }
 
-  jwt.verify(token, secret, (err, decoded: any) => {
-    if (err) {
-      return res.status(401).json({
-        error: 'Token JWT inválido ou expirado.',
-        code: 'AUTH_TOKEN_INVALID'
-      });
-    }
+  try {
+    const decoded = jwt.verify(token, secret) as any;
 
-    // Busca usuário atualizado na base de dados
-    const user = db.users.find(u => u.id === decoded.id || u.email.toLowerCase() === (decoded.email || '').toLowerCase());
+    // Busca usuário atualizado no PostgreSQL através do repositório
+    const user = (decoded.id ? await UserRepository.findById(decoded.id) : null) ||
+                 (decoded.email ? await UserRepository.findByEmail(decoded.email) : null);
+
     if (!user) {
       return res.status(401).json({
         error: 'Usuário do token não localizado na base de dados.',
@@ -158,7 +151,12 @@ export const requireAuth = (req: AuthenticatedRequest, res: Response, next: Next
     req.tenantId = user.tenantId;
 
     next();
-  });
+  } catch {
+    return res.status(401).json({
+      error: 'Token JWT inválido ou expirado.',
+      code: 'AUTH_TOKEN_INVALID'
+    });
+  }
 };
 
 /**
@@ -215,7 +213,7 @@ export const requirePermission = (permission: string) => {
  * Garante que usuários só acessem recursos do seu próprio tenant.
  * Super_admin pode acessar ou trocar para qualquer tenant válido existente.
  */
-export const requireTenant = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+export const requireTenant = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Sessão não autenticada.' });
   }
@@ -229,8 +227,8 @@ export const requireTenant = (req: AuthenticatedRequest, res: Response, next: Ne
 
   if (req.user.role === 'super_admin') {
     if (requestedTenantId) {
-      const exists = db.tenants.some(t => t.id === requestedTenantId);
-      if (!exists && requestedTenantId !== req.user.tenantId) {
+      const tenant = await TenantRepository.findById(requestedTenantId);
+      if (!tenant && requestedTenantId !== req.user.tenantId) {
         return res.status(404).json({ error: `Tenant informado (${requestedTenantId}) não existe.` });
       }
       req.tenantId = requestedTenantId;

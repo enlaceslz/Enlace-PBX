@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, Queue } from '../../../db';
+import { Queue } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class QueueRepository {
   public static async listByTenant(tenantId: string): Promise<Queue[]> {
@@ -32,7 +33,7 @@ export class QueueRepository {
       }
     }
 
-    return db.queues.filter(q => q.tenantId === tenantId);
+    return initialSeedData.queues.filter(q => q.tenantId === tenantId);
   }
 
   public static async findById(id: string, tenantId?: string): Promise<Queue | null> {
@@ -70,7 +71,7 @@ export class QueueRepository {
       }
     }
 
-    return db.queues.find(q => q.id === id && (!tenantId || q.tenantId === tenantId)) || null;
+    return initialSeedData.queues.find(q => q.id === id && (!tenantId || q.tenantId === tenantId)) || null;
   }
 
   public static async save(queue: Queue): Promise<Queue> {
@@ -114,11 +115,11 @@ export class QueueRepository {
       }
     }
 
-    const idx = db.queues.findIndex(q => q.id === queue.id);
+    const idx = initialSeedData.queues.findIndex(q => q.id === queue.id);
     if (idx >= 0) {
-      db.queues[idx] = queue;
+      initialSeedData.queues[idx] = queue;
     } else {
-      db.queues.push(queue);
+      initialSeedData.queues.push(queue);
     }
     return queue;
   }
@@ -135,8 +136,8 @@ export class QueueRepository {
       }
     }
 
-    const initialLen = db.queues.length;
-    db.queues = db.queues.filter(q => !(q.id === id && q.tenantId === tenantId));
-    return db.queues.length < initialLen;
+    const initialLen = initialSeedData.queues.length;
+    initialSeedData.queues = initialSeedData.queues.filter(q => !(q.id === id && q.tenantId === tenantId));
+    return initialSeedData.queues.length < initialLen;
   }
 }

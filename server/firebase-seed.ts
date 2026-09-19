@@ -1,4 +1,4 @@
-import { db } from './db.js';
+import { initialSeedData as db } from './infrastructure/postgres/seedData.js';
 import { adminDb } from './firebase-admin.js';
 
 export async function syncInitialDataToFirestore() {

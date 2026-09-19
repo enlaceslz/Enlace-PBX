@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { postgresClient } from '../client';
-import { db, CdrRecord } from '../../../db';
+import { CdrRecord } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export interface OfficialCdrPayload {
   uniqueid: string;
@@ -101,8 +102,8 @@ export class CdrRepository {
     }
 
     // Mantém no histórico oficial
-    db.cdrs.unshift(cdrItem);
-    if (db.cdrs.length > 500) db.cdrs.pop();
+    initialSeedData.cdrs.unshift(cdrItem);
+    if (initialSeedData.cdrs.length > 500) initialSeedData.cdrs.pop();
 
     return cdrItem;
   }
@@ -158,6 +159,6 @@ export class CdrRepository {
       }
     }
 
-    return db.cdrs.filter(c => c.tenantId === tenantId).slice(offset, offset + limit);
+    return initialSeedData.cdrs.filter(c => c.tenantId === tenantId).slice(offset, offset + limit);
   }
 }

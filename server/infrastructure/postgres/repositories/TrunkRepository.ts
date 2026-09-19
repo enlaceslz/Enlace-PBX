@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, Trunk } from '../../../db';
+import { Trunk } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class TrunkRepository {
   public static async listByTenant(tenantId: string): Promise<Trunk[]> {
@@ -47,7 +48,7 @@ export class TrunkRepository {
         console.error('[TrunkRepository] Erro ao listar troncos no Postgres:', err.message);
       }
     }
-    return db.trunks.filter(t => t.tenantId === tenantId);
+    return initialSeedData.trunks.filter(t => t.tenantId === tenantId);
   }
 
   public static async findById(tenantId: string, id: string): Promise<Trunk | null> {
@@ -99,7 +100,7 @@ export class TrunkRepository {
         console.error('[TrunkRepository] Erro ao buscar tronco por id:', err.message);
       }
     }
-    return db.trunks.find(t => t.tenantId === tenantId && t.id === id) || null;
+    return initialSeedData.trunks.find(t => t.tenantId === tenantId && t.id === id) || null;
   }
 
   public static async save(trunk: Trunk): Promise<Trunk> {
@@ -158,11 +159,11 @@ export class TrunkRepository {
       }
     }
 
-    const idx = db.trunks.findIndex(t => t.id === trunk.id);
+    const idx = initialSeedData.trunks.findIndex(t => t.id === trunk.id);
     if (idx >= 0) {
-      db.trunks[idx] = trunk;
+      initialSeedData.trunks[idx] = trunk;
     } else {
-      db.trunks.push(trunk);
+      initialSeedData.trunks.push(trunk);
     }
     return trunk;
   }
@@ -175,8 +176,8 @@ export class TrunkRepository {
         console.error('[TrunkRepository] Erro ao deletar tronco no Postgres:', err.message);
       }
     }
-    const prevLen = db.trunks.length;
-    db.trunks = db.trunks.filter(t => !(t.tenantId === tenantId && t.id === id));
-    return db.trunks.length < prevLen;
+    const prevLen = initialSeedData.trunks.length;
+    initialSeedData.trunks = initialSeedData.trunks.filter(t => !(t.tenantId === tenantId && t.id === id));
+    return initialSeedData.trunks.length < prevLen;
   }
 }

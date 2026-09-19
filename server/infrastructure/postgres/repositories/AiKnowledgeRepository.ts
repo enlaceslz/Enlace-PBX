@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, AiKnowledgeSource } from '../../../db';
+import { AiKnowledgeSource } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class AiKnowledgeRepository {
   public static async listByTenant(tenantId: string): Promise<AiKnowledgeSource[]> {
@@ -27,7 +28,7 @@ export class AiKnowledgeRepository {
       }
     }
 
-    return db.aiKnowledge.filter(k => k.tenantId === tenantId);
+    return initialSeedData.aiKnowledge.filter(k => k.tenantId === tenantId);
   }
 
   public static async findById(id: string, tenantId?: string): Promise<AiKnowledgeSource | null> {
@@ -60,7 +61,7 @@ export class AiKnowledgeRepository {
       }
     }
 
-    return db.aiKnowledge.find(k => k.id === id && (!tenantId || k.tenantId === tenantId)) || null;
+    return initialSeedData.aiKnowledge.find(k => k.id === id && (!tenantId || k.tenantId === tenantId)) || null;
   }
 
   public static async save(source: AiKnowledgeSource): Promise<AiKnowledgeSource> {
@@ -95,11 +96,11 @@ export class AiKnowledgeRepository {
       }
     }
 
-    const idx = db.aiKnowledge.findIndex(k => k.id === source.id);
+    const idx = initialSeedData.aiKnowledge.findIndex(k => k.id === source.id);
     if (idx >= 0) {
-      db.aiKnowledge[idx] = source;
+      initialSeedData.aiKnowledge[idx] = source;
     } else {
-      db.aiKnowledge.push(source);
+      initialSeedData.aiKnowledge.push(source);
     }
     return source;
   }
@@ -116,8 +117,8 @@ export class AiKnowledgeRepository {
       }
     }
 
-    const initialLen = db.aiKnowledge.length;
-    db.aiKnowledge = db.aiKnowledge.filter(k => !(k.id === id && k.tenantId === tenantId));
-    return db.aiKnowledge.length < initialLen;
+    const initialLen = initialSeedData.aiKnowledge.length;
+    initialSeedData.aiKnowledge = initialSeedData.aiKnowledge.filter(k => !(k.id === id && k.tenantId === tenantId));
+    return initialSeedData.aiKnowledge.length < initialLen;
   }
 }

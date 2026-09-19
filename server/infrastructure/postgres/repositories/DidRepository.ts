@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
-import { db, Did } from '../../../db';
+import { Did } from '../../../../src/types/pbx';
+import { initialSeedData } from '../seedData';
 
 export class DidRepository {
   public static async listByTenant(tenantId: string): Promise<Did[]> {
@@ -46,7 +47,7 @@ export class DidRepository {
         console.error('[DidRepository] Erro ao listar DIDs no Postgres:', err.message);
       }
     }
-    return db.dids.filter(d => d.tenantId === tenantId);
+    return initialSeedData.dids.filter(d => d.tenantId === tenantId);
   }
 
   public static async findByDidNumber(didNumber: string): Promise<Did | null> {
@@ -93,7 +94,7 @@ export class DidRepository {
       }
     }
 
-    return db.dids.find(d => {
+    return initialSeedData.dids.find(d => {
       const c = d.did.replace(/\D/g, '');
       const n = d.normalizedNumber.replace(/\D/g, '');
       return c === cleanNumber || n === cleanNumber || n === `55${cleanNumber}`;
@@ -152,11 +153,11 @@ export class DidRepository {
       }
     }
 
-    const idx = db.dids.findIndex(d => d.id === did.id || (d.tenantId === did.tenantId && d.did === did.did));
+    const idx = initialSeedData.dids.findIndex(d => d.id === did.id || (d.tenantId === did.tenantId && d.did === did.did));
     if (idx >= 0) {
-      db.dids[idx] = did;
+      initialSeedData.dids[idx] = did;
     } else {
-      db.dids.push(did);
+      initialSeedData.dids.push(did);
     }
     return did;
   }
@@ -169,8 +170,8 @@ export class DidRepository {
         console.error('[DidRepository] Erro ao deletar DID no Postgres:', err.message);
       }
     }
-    const prevLen = db.dids.length;
-    db.dids = db.dids.filter(d => !(d.tenantId === tenantId && d.id === id));
-    return db.dids.length < prevLen;
+    const prevLen = initialSeedData.dids.length;
+    initialSeedData.dids = initialSeedData.dids.filter(d => !(d.tenantId === tenantId && d.id === id));
+    return initialSeedData.dids.length < prevLen;
   }
 }

@@ -1,4 +1,8 @@
-import { db, Extension, Trunk, Route } from './db.js';
+import { Extension, Trunk, Route } from '../src/types/pbx.js';
+import { initialSeedData as db } from './infrastructure/postgres/seedData.js';
+import { ExtensionRepository } from './infrastructure/postgres/repositories/ExtensionRepository.js';
+import { TrunkRepository } from './infrastructure/postgres/repositories/TrunkRepository.js';
+import { RouteRepository } from './infrastructure/postgres/repositories/RouteRepository.js';
 import { asteriskAdapter, AsteriskChannelInfo } from './infrastructure/asterisk/AsteriskAdapter.js';
 
 export interface AsteriskChannel {
