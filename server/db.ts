@@ -135,6 +135,7 @@ export interface User {
   extension?: string;
   isActive: boolean;
   lastLogin: string;
+  passwordHash?: string;
 }
 
 export interface Extension {

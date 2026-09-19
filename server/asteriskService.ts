@@ -1,4 +1,5 @@
 import { db, Extension, Trunk, Route } from './db.js';
+import { asteriskAdapter, AsteriskChannelInfo } from './infrastructure/asterisk/AsteriskAdapter.js';
 
 export interface AsteriskChannel {
   id: string;
@@ -11,143 +12,118 @@ export interface AsteriskChannel {
   application: string;
   durationSeconds: number;
   aiBridgeActive: boolean;
+  qos?: {
+    latencyMs: number;
+    jitterMs: number;
+    packetLossPercent: number;
+  };
 }
 
 export class AsteriskService {
-  private activeChannels: AsteriskChannel[] = [
-    {
-      id: 'chan-1725969600.104',
-      name: 'PJSIP/trunk-claro-0800-0000021c',
-      state: 'Up' as 'Up',
-      callerNumber: '08007702020',
-      connectedLine: 'Stasis/enlace-gemini',
-      context: 'from-gemini',
-      exten: 's',
-      application: 'Stasis(enlace-gemini)',
-      durationSeconds: 45,
-      aiBridgeActive: true,
-    },
-    {
-      id: 'chan-1725969601.105',
-      name: 'PJSIP/4101-0000021d',
-      state: 'Up' as 'Up',
-      callerNumber: '4101',
-      connectedLine: '4102',
-      context: 'from-internal',
-      exten: '4102',
-      application: 'Dial(PJSIP/4102,30)',
-      durationSeconds: 112,
-      aiBridgeActive: false,
-    },
-  ];
+  private activeChannelsCache: AsteriskChannel[] = [];
+  private lastFetchTime: number = 0;
 
-  getActiveChannels(): AsteriskChannel[] {
-    // Dynamic mock for active channels to make the dashboard blink
-    const now = Date.now();
-    
-    // Clear out old random channels periodically to simulate hangup
-    this.activeChannels = this.activeChannels.filter(c => {
-       const created = parseInt(c.id.split('-')[1].split('.')[0]) || now;
-       return (now - created) < 180000; // max 3 mins alive
-    });
+  constructor() {
+    this.refreshChannelsReal();
+  }
 
-    // Randomly spawn new channels if we have fewer than 5
-    if (this.activeChannels.length < 5 && Math.random() > 0.4) {
-      const isAi = Math.random() > 0.3;
-      const caller = `119${Math.floor(Math.random() * 90000000 + 10000000)}`;
-      const callee = isAi ? '9001' : '5002';
-      
-      const id = `chan-${now}.${Math.floor(Math.random() * 1000)}`;
-      const chan = {
-        id,
-        name: `PJSIP/${caller}-${Math.floor(Math.random() * 90000 + 10000).toString(16)}`,
-        state: 'Up' as 'Up',
-        callerNumber: caller,
-        connectedLine: callee,
-        durationSeconds: 0,
-        exten: callee,
-        aiBridgeActive: isAi,
-        application: isAi ? 'Stasis' : 'Dial',
-        context: 'enlace-inbound',
-        format: 'ulaw'
-      };
-      this.activeChannels.push(chan);
+  /**
+   * Atualiza cache de canais reais consultando o Asterisk Core.
+   */
+  public async refreshChannelsReal(): Promise<AsteriskChannel[]> {
+    try {
+      const realChannels = await asteriskAdapter.getChannels();
+      this.activeChannelsCache = realChannels.map((c) => ({
+        id: c.id,
+        name: c.name,
+        state: c.state,
+        callerNumber: c.callerNumber,
+        connectedLine: c.connectedLine,
+        context: c.context,
+        exten: c.exten,
+        application: c.application,
+        durationSeconds: c.durationSeconds,
+        aiBridgeActive: c.aiBridgeActive,
+        qos: c.qos,
+      }));
+      this.lastFetchTime = Date.now();
+      return this.activeChannelsCache;
+    } catch {
+      this.activeChannelsCache = [];
+      return [];
     }
-
-    // Update durations and QoS
-    return this.activeChannels.map(c => {
-       const created = parseInt(c.id.split('-')[1].split('.')[0]) || now;
-       const durationSeconds = Math.floor((now - created) / 1000);
-       
-       // Generate RTCP QoS metrics
-       const jitterMs = Math.max(1, Math.round(Math.random() * 5) + (Math.random() > 0.9 ? 15 : 0));
-       const latencyMs = Math.max(10, Math.round(Math.random() * 10 + 20) + (Math.random() > 0.95 ? 50 : 0));
-       const packetLossPercent = Math.random() > 0.95 ? parseFloat((Math.random() * 2).toFixed(2)) : 0;
-       
-       return {
-         ...c,
-         durationSeconds,
-         qos: { latencyMs, jitterMs, packetLossPercent }
-       };
-    });
   }
 
-  addSimulationChannel(caller: string, callee: string, isAi: boolean): AsteriskChannel {
-    const id = `chan-${Date.now()}.${Math.floor(Math.random() * 1000)}`;
-    const chan: AsteriskChannel = {
-      id,
-      name: `PJSIP/${caller.replace(/\D/g, '') || '4101'}-${Math.floor(Math.random() * 90000 + 10000).toString(16)}`,
-      state: 'Up' as 'Up',
-      callerNumber: caller,
-      connectedLine: isAi ? 'MaIA (Gemini Live)' : callee,
-      context: isAi ? 'from-gemini' : 'from-internal',
-      exten: isAi ? 's' : callee,
-      application: isAi ? 'Stasis(enlace-gemini)' : `Dial(PJSIP/${callee})`,
-      durationSeconds: 1,
-      aiBridgeActive: isAi,
+  /**
+   * Retorna os canais ativos reais do Asterisk.
+   * Não gera NUNCA chamadas sintéticas com Math.random.
+   */
+  getActiveChannels(): AsteriskChannel[] {
+    // Se o cache tiver mais de 2 segundos, dispara atualização em segundo plano
+    if (Date.now() - this.lastFetchTime > 2000) {
+      this.refreshChannelsReal().catch(() => {});
+    }
+    return this.activeChannelsCache;
+  }
+
+  /**
+   * Origina chamada real através do AsteriskAdapter.
+   */
+  async originateCall(caller: string, callee: string, isAi: boolean = false): Promise<AsteriskChannel> {
+    const chan = await asteriskAdapter.originateCall(caller, callee, isAi);
+    const mapped: AsteriskChannel = {
+      id: chan.id,
+      name: chan.name,
+      state: chan.state,
+      callerNumber: chan.callerNumber,
+      connectedLine: chan.connectedLine,
+      context: chan.context,
+      exten: chan.exten,
+      application: chan.application,
+      durationSeconds: chan.durationSeconds,
+      aiBridgeActive: chan.aiBridgeActive,
     };
-    this.activeChannels.push(chan);
-    return chan;
+    this.activeChannelsCache.push(mapped);
+    return mapped;
   }
 
-  terminateSimulationChannel(channelId: string) {
-    this.activeChannels = this.activeChannels.filter((c) => c.id !== channelId);
+  /**
+   * Encerra um canal real no Asterisk.
+   */
+  async hangupChannel(channelId: string): Promise<boolean> {
+    const success = await asteriskAdapter.hangup(channelId);
+    this.activeChannelsCache = this.activeChannelsCache.filter(
+      (c) => c.id !== channelId && c.name !== channelId
+    );
+    return success;
   }
 
-  hangupChannel(channelId: string): boolean {
-    const prevCount = this.activeChannels.length;
-    this.activeChannels = this.activeChannels.filter((c) => c.id !== channelId && c.name !== channelId);
-    return this.activeChannels.length < prevCount;
+  /**
+   * Transfere chamada real no Asterisk.
+   */
+  async transferChannel(channelId: string, destination: string): Promise<AsteriskChannel | null> {
+    await asteriskAdapter.transfer(channelId, destination);
+    const chan = this.activeChannelsCache.find(
+      (c) => c.id === channelId || c.name === channelId
+    );
+    if (chan) {
+      chan.connectedLine = destination;
+      chan.exten = destination;
+      chan.application = `Dial(PJSIP/${destination})`;
+      chan.aiBridgeActive = destination === '9001' || destination.toLowerCase().includes('maia');
+      return chan;
+    }
+    return null;
   }
 
-  transferChannel(channelId: string, destination: string): AsteriskChannel | null {
-    const chan = this.activeChannels.find((c) => c.id === channelId || c.name === channelId);
-    if (!chan) return null;
-    chan.connectedLine = destination;
-    chan.exten = destination;
-    chan.application = `Dial(PJSIP/${destination})`;
-    chan.aiBridgeActive = destination === '9001' || destination.toLowerCase().includes('maia');
-    return chan;
-  }
-
-  spyChannel(channelId: string, supervisorExt: string = '4101'): AsteriskChannel {
-    const targetChan = this.activeChannels.find((c) => c.id === channelId || c.name === channelId);
-    const targetName = targetChan ? targetChan.name : channelId;
-    const spyId = `chan-spy-${Date.now()}`;
-    const spyChan: AsteriskChannel = {
-      id: spyId,
-      name: `PJSIP/${supervisorExt}-spy`,
-      state: 'Up' as 'Up',
-      callerNumber: supervisorExt,
-      connectedLine: `ChanSpy(${targetName})`,
-      context: 'from-internal',
-      exten: supervisorExt,
-      application: `ChanSpy(${targetName},qb)`,
-      durationSeconds: 1,
-      aiBridgeActive: false,
-    };
-    this.activeChannels.push(spyChan);
-    return spyChan;
+  /**
+   * Escuta supervisora (ChanSpy) real.
+   */
+  async spyChannel(channelId: string, supervisorExt: string = '4101'): Promise<boolean> {
+    const res = await asteriskAdapter.executeCli(
+      `originate PJSIP/${supervisorExt} application ChanSpy ${channelId},qb`
+    );
+    return res.success;
   }
 
   // Pure Asterisk 20+ PJSIP configuration generator (pjsip.conf)
@@ -816,7 +792,7 @@ Last reload: 1 day, 6 hours, 10 minutes, 2 segundos`;
     }
 
     if (cmd === 'core show channels' || cmd.startsWith('core show chan')) {
-      const chans = this.activeChannels;
+      const chans = this.activeChannelsCache;
       const count = chans.length;
       let out = `Channel              Location             State   Application(Data)\n`;
       out += `--------------------------------------------------------------------------------\n`;
@@ -875,7 +851,7 @@ Last reload: 1 day, 6 hours, 10 minutes, 2 segundos`;
     if (cmd.startsWith('stasis show') || cmd.includes('stasis')) {
       return `Application: enlace_ai_bridge
 Description: Stasis ARI bridge for Enlace Google Gemini AudioSocket
-Channels subscribed: ${this.activeChannels.filter(c => c.aiBridgeActive).length}
+Channels subscribed: ${this.activeChannelsCache.filter(c => c.aiBridgeActive).length}
 Endpoints subscribed: PJSIP/trunk-claro-0800, PJSIP/4101
 Bridges subscribed: 1
 Device states subscribed: 4`;

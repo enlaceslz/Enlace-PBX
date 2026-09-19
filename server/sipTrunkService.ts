@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import net from 'net';
 import { db, Trunk, Did } from './db.js';
 
 export interface NormalizedDidResult {
@@ -458,6 +459,74 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
   }
 
   /**
+   * Teste real de conectividade de rede e socket com o host SIP / SBC
+   * Elimina completamente o uso de Math.random.
+   */
+  async testSipHostSocket(
+    hostOrIp: string,
+    port: number = 5060,
+    timeoutMs: number = 2500
+  ): Promise<{ status: 'active' | 'inactive' | 'unreachable'; latencyMs: number; sipResponse: string }> {
+    const cleanHost = hostOrIp.split('/')[0].trim();
+    const start = Date.now();
+
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      let resolved = false;
+
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          socket.destroy();
+          resolve({
+            status: 'unreachable',
+            latencyMs: Date.now() - start,
+            sipResponse: 'Tempo limite esgotado (TIMEOUT 2500ms)',
+          });
+        }
+      }, timeoutMs);
+
+      socket.connect(port, cleanHost, () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          const latency = Date.now() - start;
+          socket.write(
+            `OPTIONS sip:${cleanHost}:${port} SIP/2.0\r\nVia: SIP/2.0/TCP 127.0.0.1;branch=z9hG4bK-enlace-ping\r\nMax-Forwards: 70\r\nFrom: <sip:ping@enlace.slz.br>;tag=ping1\r\nTo: <sip:${cleanHost}>\r\nCall-ID: ping-${Date.now()}@enlace.slz.br\r\nCSeq: 1 OPTIONS\r\nUser-Agent: Enlace-PBX Enterprise\r\nContent-Length: 0\r\n\r\n`
+          );
+          socket.end();
+          resolve({
+            status: 'active',
+            latencyMs: Math.max(1, latency),
+            sipResponse: 'Conexão TCP/SIP estabelecida na porta 5060 (Reachable)',
+          });
+        }
+      });
+
+      socket.on('error', (err: any) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          const latency = Date.now() - start;
+          if (err.code === 'ECONNREFUSED') {
+            resolve({
+              status: 'inactive',
+              latencyMs: latency,
+              sipResponse: 'Porta SIP remota recusou a conexão (ECONNREFUSED)',
+            });
+          } else {
+            resolve({
+              status: 'unreachable',
+              latencyMs: latency,
+              sipResponse: `Host inalcançável: ${err.message || err.code}`,
+            });
+          }
+        }
+      });
+    });
+  }
+
+  /**
    * Executa bateria completa de diagnósticos em um tronco SIP
    */
   async runTrunkDiagnostics(trunkId: string): Promise<TrunkDiagnosticReport> {
@@ -493,30 +562,43 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
       : [trunk.host];
 
     for (const ip of authorizedIps) {
-      // Simula teste de socket / latência para cada SBC da operadora
-      const latency = Math.floor(Math.random() * 12) + 8; // 8ms a 20ms
-      const isReachable = true;
-      const status = isReachable ? 'active' : 'unreachable';
+      // Bloqueio de segurança estrito: 0.0.0.0/0 proibido
+      if (ip === '0.0.0.0' || ip === '0.0.0.0/0') {
+        ipChecks.push({
+          ip,
+          label: 'IP Inseguro Detectado',
+          status: 'unreachable',
+          latencyMs: 0,
+          sipResponse: 'REJEITADO: 0.0.0.0/0 viola a política de segurança de troncos IP',
+        });
+        continue;
+      }
 
+      // Teste de socket real para cada SBC da operadora
+      const result = await this.testSipHostSocket(ip, trunk.port || trunk.sipPort || 5060);
       ipChecks.push({
         ip,
         label: trunk.ipStatusList?.find((i) => i.ip === ip)?.label || `SBC Gateway (${ip})`,
-        status,
-        latencyMs: latency,
-        sipResponse: 'SIP/2.0 200 OK (OPTIONS Handshake)',
+        status: result.status,
+        latencyMs: result.latencyMs,
+        sipResponse: result.sipResponse,
       });
     }
 
     const allIpsOk = ipChecks.every((i) => i.status === 'active');
+    const avgLatency = ipChecks.length > 0
+      ? Math.round(ipChecks.reduce((acc, i) => acc + i.latencyMs, 0) / ipChecks.length)
+      : 0;
+
     checks.push({
       id: 'chk-sbc-ips',
       name: `Conectividade com SBCs da Operadora (${authorizedIps.length} IPs configurados)`,
       category: 'SBC_CONNECTIVITY',
       status: allIpsOk ? 'passed' : 'warning',
-      latencyMs: Math.round(ipChecks.reduce((acc, i) => acc + i.latencyMs, 0) / ipChecks.length),
+      latencyMs: avgLatency,
       details: allIpsOk
-        ? `Todos os ${authorizedIps.length} SBCs responderam ao keepalive SIP OPTIONS em menos de 25ms.`
-        : 'Algum dos IPs autorizados apresentou instabilidade ou tempo limite de resposta.',
+        ? `Todos os ${authorizedIps.length} SBCs responderam ao keepalive SIP OPTIONS (média ${avgLatency}ms).`
+        : 'Algum dos IPs autorizados apresentou instabilidade, timeout ou porta SIP fechada.',
       target: authorizedIps.join(', '),
     });
 

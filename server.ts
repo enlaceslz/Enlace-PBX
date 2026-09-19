@@ -2676,22 +2676,39 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Asterisk Core & Config Generation
   // -------------------------------------------------------------------------
-  app.get('/api/v1/asterisk/channels', (req, res) => {
-    res.json(asteriskService.getActiveChannels());
+  app.get('/api/v1/asterisk/channels', async (req, res) => {
+    try {
+      const channels = await asteriskService.getActiveChannels();
+      res.json(channels);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  app.post('/api/v1/asterisk/channels', (req, res) => {
-    const chan = asteriskService.addSimulationChannel(req.body.caller, req.body.callee, req.body.isAi !== false);
-    res.status(201).json(chan);
+  app.post('/api/v1/asterisk/channels', async (req, res) => {
+    try {
+      const chan = await asteriskService.originateCall(
+        req.body.caller || '4101',
+        req.body.callee || '4102',
+        Boolean(req.body.isAi)
+      );
+      res.status(201).json(chan);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  app.delete('/api/v1/asterisk/channels/:id', (req, res) => {
-    asteriskService.terminateSimulationChannel(req.params.id);
-    res.json({ success: true });
+  app.delete('/api/v1/asterisk/channels/:id', async (req, res) => {
+    try {
+      const success = await asteriskService.hangupChannel(req.params.id);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  app.post('/api/v1/asterisk/channels/:id/hangup', (req, res) => {
-    const success = asteriskService.hangupChannel(req.params.id);
+  app.post('/api/v1/asterisk/channels/:id/hangup', async (req, res) => {
+    const success = await asteriskService.hangupChannel(req.params.id);
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: 'tenant-enlace-matriz',
@@ -2706,9 +2723,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({ success, message: `Canal ${req.params.id} encerrado.` });
   });
 
-  app.post('/api/v1/asterisk/channels/:id/transfer', (req, res) => {
+  app.post('/api/v1/asterisk/channels/:id/transfer', async (req, res) => {
     const destination = (req.body.destination || '4102').trim();
-    const chan = asteriskService.transferChannel(req.params.id, destination);
+    const chan = await asteriskService.transferChannel(req.params.id, destination);
     if (!chan) {
       return res.status(404).json({ error: 'Canal não encontrado para transferência.' });
     }
@@ -2726,9 +2743,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({ success: true, channel: chan, message: `Canal transferido para ${destination}.` });
   });
 
-  app.post('/api/v1/asterisk/channels/:id/spy', (req, res) => {
+  app.post('/api/v1/asterisk/channels/:id/spy', async (req, res) => {
     const supervisorExt = (req.body.supervisorExt || '4101').trim();
-    const spyChan = asteriskService.spyChannel(req.params.id, supervisorExt);
+    const spyChan = await asteriskService.spyChannel(req.params.id, supervisorExt);
     db.auditLogs.unshift({
       id: `audit-${Date.now()}`,
       tenantId: 'tenant-enlace-matriz',

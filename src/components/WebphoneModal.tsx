@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { playDtmfTone, playRingbackTone, playCallEndBeep } from '../utils/audio';
 import { speakHumanized, stopSpeaking, detectVoiceGender, VoicePersona } from '../utils/speechVoiceHelper';
+import { SipWebRTCClient, WebRTCConnectionState, CallStatusEvent } from '../services/sipWebRTCClient';
 
 interface WebphoneProps {
   isOpen: boolean;
@@ -78,6 +79,11 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
   const [speechSupported, setSpeechSupported] = useState(true);
   const [interimTranscript, setInterimTranscript] = useState('');
   const recognitionRef = useRef<any>(null);
+
+  // Estados reais do WebRTC e sinalização PJSIP
+  const [webrtcStatus, setWebrtcStatus] = useState<WebRTCConnectionState>('WSS_DISCONNECTED');
+  const [webrtcStatusMsg, setWebrtcStatusMsg] = useState<string>('Asterisk WebRTC (WSS:8089) Desconectado');
+  const clientRef = useRef<SipWebRTCClient | null>(null);
 
   const stopRingbackRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -155,6 +161,66 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       setDialNumber(defaultNumber);
     }
   }, [defaultNumber]);
+
+  // Conexão SIP.js real com o Asterisk WebRTC (WSS:8089)
+  useEffect(() => {
+    if (!isOpen) {
+      if (clientRef.current) {
+        clientRef.current.disconnect().catch(() => {});
+        clientRef.current = null;
+      }
+      return;
+    }
+
+    const client = new SipWebRTCClient((evt: CallStatusEvent) => {
+      setWebrtcStatus(evt.state);
+      if (evt.reason) {
+        setWebrtcStatusMsg(evt.reason);
+      }
+      if (evt.state === 'CONNECTED') {
+        setCallState('connected');
+        if (stopRingbackRef.current) stopRingbackRef.current();
+      } else if (evt.state === 'RINGING') {
+        setCallState('calling');
+      } else if (evt.state === 'DISCONNECTED' || evt.state === 'CALL_REJECTED' || evt.state === 'IDLE') {
+        setCallState('idle');
+        if (stopRingbackRef.current) stopRingbackRef.current();
+      }
+    });
+
+    clientRef.current = client;
+
+    // Obtém ramal autenticado do usuário logado
+    const token = localStorage.getItem('enlace_token');
+    fetch('/api/v1/auth/me', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((res) => res.json())
+      .then((user) => {
+        const ext = user?.extension || '4101';
+        const hostname = window.location.hostname || 'localhost';
+        const port = window.location.protocol === 'https:' ? '8089' : '8088';
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wssUrl = `${protocol}//${hostname}:${port}/ws`;
+
+        client.connectAndRegister({
+          extension: ext,
+          secret: 'enlace_secret_webrtc',
+          domain: hostname,
+          wssUrl,
+        });
+      })
+      .catch(() => {
+        setWebrtcStatus('WSS_DISCONNECTED');
+        setWebrtcStatusMsg('Asterisk WebRTC (WSS:8089) indisponível. Serviço offline.');
+      });
+
+    return () => {
+      if (clientRef.current) {
+        clientRef.current.disconnect().catch(() => {});
+      }
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (callState === 'connected') {
@@ -334,12 +400,18 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     const num = (targetNumber || dialNumber).trim();
     if (!num) return;
 
+    // Se o Asterisk WebRTC estiver offline, não inventar chamada falsa
+    if (webrtcStatus === 'WSS_DISCONNECTED' || webrtcStatus === 'SIP_REGISTRATION_FAILED' || webrtcStatus === 'WEBRTC_UNAVAILABLE') {
+      alert('Bloqueio de Produção: Asterisk WebRTC offline (WSS:8089 desconectado). O Enlace-PBX de produção exige conexão ativa com o res_pjsip_transport_websocket e não executa chamadas simuladas.');
+      return;
+    }
+
     setCallState('calling');
     setConnectedDestination(num);
     const isTargetAi = num === '9001' || num.includes('0800') || num.toLowerCase().includes('maia');
     const isIvr = num === '6001';
     const isQueue = num === '7001' || num === '7002';
-    const isExt = num === '4101' || num === '4102' || num === '4103';
+    const isExt = num.length <= 4;
 
     setIsAiCall(isTargetAi);
     if (isTargetAi) {
@@ -348,90 +420,29 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     } else if (isIvr) {
       setCallType('ivr');
       setActiveTab('ivr');
-      setIvrAnnouncement('URA Principal — Digite a opção no teclado');
     } else if (isQueue) {
       setCallType('queue');
       setActiveTab('queue');
-      setQueueInfo({
-        name: num === '7001' ? 'Suporte Técnico N1 (Roberto Mendes)' : 'Financeiro & Faturamento',
-        position: 1,
-      });
     } else if (isExt) {
       setCallType('extension');
       setActiveTab('extension');
-      setExtInfo({
-        name: num === '4102' ? 'Roberto Mendes' : num === '4103' ? 'Mariana Costa' : 'Carlos Silva',
-        number: num,
-        dept: num === '4102' ? 'NOC / Suporte Técnico N1' : num === '4103' ? 'Comercial & Vendas' : 'Central Telefônica',
-      });
     } else {
       setCallType('external');
       setActiveTab('keypad');
     }
 
-    // Play ringing tone
     stopRingbackRef.current = playRingbackTone();
 
-    // Add simulation channel in Asterisk
-    try {
-      await fetch('/api/v1/asterisk/channels', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          caller: '4101',
-          callee: num,
-          isAi: isTargetAi,
-        }),
-      });
-    } catch (e) {
-      console.warn('Channel sim error:', e);
-    }
-
-    // Answer call after 1.8s
-    setTimeout(() => {
-      if (stopRingbackRef.current) stopRingbackRef.current();
-      setCallState('connected');
-
-      if (isTargetAi) {
-        const initialGreeting = 'Olá! Sou a MaIA, assistente virtual da Enlace Telecom. Como posso ajudar você hoje?';
-        setAiHistory([
-          {
-            role: 'system',
-            text: 'Conexão estabelecida com Asterisk 20 [from-gemini] via AudioSocket e Google Gemini Live API.',
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-          {
-            role: 'model',
-            text: initialGreeting,
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-        ]);
-        speakText(initialGreeting, 'female', 'maia');
-      } else if (isIvr) {
-        const ivrPrompt = 'Olá! Você ligou para a Enlace Telecom. Para Comercial digite 1. Para Suporte Técnico com Roberto digite 2. Para Financeiro digite 3. Ou digite 9 para falar com a MaIA.';
-        speakText(ivrPrompt, 'female', 'ura');
-      } else if (isQueue) {
-        speakText('Você ligou para a Fila de Atendimento da Enlace Telecom. Conectando com o suporte.', 'female', 'ura');
-        setTimeout(() => {
-          const isSupport = num === '7001';
-          const agentGreeting = isSupport
-            ? 'Suporte Técnico Enlace, boa tarde! Roberto falando. Em que posso ajudar com a sua conexão hoje?'
-            : 'Financeiro Enlace Telecom, boa tarde! Renata falando, como posso ajudar?';
-          const agentGender = isSupport ? 'male' : 'female';
-          const agentPersona = isSupport ? 'roberto' : 'renata';
-          speakText(agentGreeting, agentGender, agentPersona);
-          setQueueInfo((prev) => prev ? { ...prev, agentName: isSupport ? 'Roberto Mendes (Atendendo)' : 'Renata Lima (Atendendo)' } : null);
-        }, 3000);
-      } else if (isExt) {
-        if (num === '4102') {
-          speakText('Alô! Suporte Técnico Enlace, Roberto falando. Como posso ajudar com seu chamado ou conexão?', 'male', 'roberto');
-        } else if (num === '4103') {
-          speakText('Comercial Enlace, boa tarde! Mariana falando, em que posso ajudar?', 'female', 'mariana');
-        } else {
-          speakText('Central Enlace Telecom, boa tarde! Carlos falando, como posso direcionar sua ligação?', 'male', 'carlos');
-        }
+    // Disparo real via SIP.js para o Asterisk Core
+    if (clientRef.current) {
+      try {
+        await clientRef.current.call(num, isVideoCall);
+      } catch (err: any) {
+        if (stopRingbackRef.current) stopRingbackRef.current();
+        setCallState('idle');
+        alert(`Erro na sinalização SIP: ${err.message}`);
       }
-    }, 1800);
+    }
   };
 
   const endCall = async () => {
@@ -439,12 +450,16 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     playCallEndBeep();
     setCallState('idle');
     setIsVideoCall(false);
-    setIsVideoCall(false);
     setCallType('idle');
     setShowTransferDialog(false);
     setIvrAnnouncement('');
     setQueueInfo(null);
     setExtInfo(null);
+
+    // Encerra sessão real no SIP.js
+    if (clientRef.current) {
+      await clientRef.current.hangup();
+    }
 
     // Save CDR record
     try {
@@ -712,9 +727,22 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11px] text-slate-500 font-mono">DISCADOR BRASILEIRO</span>
-                  <span className="text-[10px] text-blue-600 flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3" /> PJSIP Registrado
-                  </span>
+                  {webrtcStatus === 'REGISTERED' ? (
+                    <span className="text-[10px] text-emerald-600 flex items-center gap-1 font-semibold">
+                      <ShieldCheck className="w-3 h-3" /> PJSIP Registrado
+                    </span>
+                  ) : webrtcStatus === 'CONNECTING_WSS' || webrtcStatus === 'REGISTERING' ? (
+                    <span className="text-[10px] text-amber-600 flex items-center gap-1 font-semibold">
+                      <Radio className="w-3 h-3 animate-pulse" /> Conectando WSS...
+                    </span>
+                  ) : (
+                    <span
+                      className="text-[10px] text-rose-600 flex items-center gap-1 font-semibold cursor-help"
+                      title={webrtcStatusMsg}
+                    >
+                      <X className="w-3 h-3" /> WSS Desconectado
+                    </span>
+                  )}
                 </div>
                 <div className="relative flex items-center">
                   <input
@@ -733,6 +761,12 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
                     </button>
                   )}
                 </div>
+                {webrtcStatus !== 'REGISTERED' && (
+                  <div className="mt-2 text-[11px] px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-1.5">
+                    <Radio className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span className="truncate">{webrtcStatusMsg}</span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-2">
