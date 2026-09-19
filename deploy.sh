@@ -46,7 +46,12 @@ fi
 echo -e "\n${BOLD}[1/9] Atualizando repositórios e instalando dependências base...${NC}"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl wget git build-essential ufw nginx certbot python3-certbot-nginx jq openssl net-tools ca-certificates
+apt-get install -y curl wget git build-essential ufw nginx certbot python3-certbot-nginx \
+  jq openssl net-tools ca-certificates fail2ban wireguard-tools sngrep tcpdump
+
+# Garantir criação de diretórios de mídia, gravações e snapshots do Enlace-PBX
+mkdir -p /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
+chmod 775 /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
 
 # 4. Instalação e Validação do Node.js 20 LTS
 echo -e "\n${BOLD}[2/9] Verificando runtime Node.js 20 LTS...${NC}"

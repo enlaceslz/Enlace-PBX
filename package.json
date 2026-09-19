@@ -1,7 +1,8 @@
 {
-  "name": "react-example",
+  "name": "enlace-pbx",
+  "description": "Enlace-PBX Enterprise - Telefonia IP Asterisk 20 LTS, Hub Omnichannel e Agentes Cognitivos Google Gemini",
   "private": true,
-  "version": "0.0.0",
+  "version": "20.17.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

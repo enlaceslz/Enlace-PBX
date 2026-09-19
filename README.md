@@ -77,20 +77,28 @@ A marca do **Enlace-PBX** traz como símbolo oficial o **Polvo Tecnológico com 
                        └────────────────────────────────────────┘
 ```
 
-### 🧩 Detalhamento dos Módulos Principais
+### 🧩 Detalhamento dos Módulos do Sistema (27 Módulos Enterprise)
 
 | Módulo | Finalidade | Tecnologias Utilizadas |
 | :--- | :--- | :--- |
-| **PJSIP Core** | Gestão de ramais SIP, telefones IP físicos e softphones | Asterisk 20, Teluu PJSIP, TLS |
-| **Troncos & Rotas** | Interconexão com operadoras VoIP nacionais e plano de discagem BR | Dialplan `extensions.conf`, E.164, 0800 |
-| **URA Visual (IVR)** | Criação visual de árvores de atendimento com simulador | Canvas interativo, DTMF, Áudios MoH |
-| **Filas ACD** | Distribuição automática de chamadas (ringall, roundrobin, linear) | `queues.conf`, SLA em tempo real, Agentes |
-| **AI Gateway (MaIA)** | Agentes virtuais de voz autônomos com memória de cliente e RAG | Google Gemini Flash/Live, ARI Stasis |
-| **WhatsApp Hub** | Canal oficial de mensagens integrado ao histórico do cliente | Meta Cloud API v20.0, Webhooks na 443 |
-| **CRM Hub 360** | Gestão de clientes, negócios, funil e histórico unificado | Sincronização REST, Webhooks |
-| **Billing & Faturamento** | Tarifação por minuto, saldo pré-pago e relatórios em PDF com logo | Tarifador multinível, exportador PDF |
-| **Snapshots & Backup** | Backup instantâneo de toda a configuração com rollback seguro | Snapshots JSON/SQL, restauração 1-clique |
-| **NOC & CLI Terminal** | Console Asterisk interativo no navegador e métricas em tempo real | `asterisk -rvvvv`, WebSocket terminal |
+| **NOC & Dashboard Executivo** | Métricas em tempo real, canais ativos, MOS, CPU e gráficos de tráfego | Recharts, SSE (Server-Sent Events) |
+| **VPNs WireGuard & ZeroTier** | Túneis seguros entre matriz e filiais, monitoramento de latência e perda de pacotes | WireGuard, ZeroTier-One, Telemetria |
+| **Segurança & Firewall** | Defesa contra ataques SIP (SIPVicious), Fail2ban integrado e controle do UFW | Fail2ban, UFW, Helmet, Rate-Limit |
+| **PJSIP Core & Ramais** | Gestão de ramais SIP físicos e WebRTC, senhas dinâmicas e codecs Opus/G.711 | Asterisk 20, Teluu PJSIP, TLS |
+| **Troncos & DIDs** | Interconexão com operadoras VoIP, números virtuais de entrada e portabilidade | PJSIP Trunks, E.164, Regras DID |
+| **Rotas de Saída & LCR** | Roteamento de menor custo, planos de discagem BR (fixo, móvel, 0800, DDI) | Dialplan `extensions.conf`, LCR Engine |
+| **Filas ACD & Call Center** | Distribuição inteligente (ringall, roundrobin), agentes com pausa e SLA ao vivo | `app_queue`, Monitoramento de SLA |
+| **Campanhas de Discagem** | Discagem ativa preditiva e power dialer com controle de abandono | Motor de Discagem Asterisk, Filas |
+| **URA Visual (IVR Builder)** | Criação em fluxograma de árvores de atendimento com áudios e simulador | Canvas interativo, DTMF, Dialplan |
+| **Omnichannel & WhatsApp** | Atendimento unificado multicanal integrado à Meta Cloud API v20.0 oficial | Meta Webhooks 443, Chat unificado |
+| **CRM Hub 360 & Contatos** | Sincronização bidirecional com HubSpot, Pipedrive, RD Station e Salesforce | Webhooks REST, Customer 360 |
+| **AI Gateway (MaIA)** | Agentes cognitivos de voz com áudio em tempo real e Customer Memory | Google Gemini Flash/Live, ARI Stasis |
+| **CDR & Gravações** | Bilhetagem com filtros avançados, player WAV/MP3 e transcrição automática | Web Speech API, Storage de gravações |
+| **Billing & Tarifador** | Planos pré/pós, tarifação por minuto e relatórios de faturamento em PDF | Motor de Tarifação, JsPDF AutoTable |
+| **Asterisk CLI Terminal** | Console interativo no navegador (`asterisk -rvvvv`) e recarga de serviços | WebSocket Terminal, Asterisk AMI |
+| **Snapshots & Rollback** | Backup instantâneo de toda a configuração com restauração em 1 clique | Snapshots JSON/SQL, Motor de Rollback |
+| **Auditoria & LGPD** | Trilha imutável de acessos, escuta de gravações e logs com autor e timestamp | Logs criptografados, Auditoria SIEM |
+| **Infraestrutura & SSL** | Detecção de IP WAN/LAN, NAT Traversal e certificados Let's Encrypt | Certbot, NGINX SSL, IP Tools |
 
 ---
 

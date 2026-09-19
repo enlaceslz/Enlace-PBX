@@ -710,6 +710,134 @@ export const HelpManualView: React.FC<HelpManualViewProps> = ({ onNavigate }) =>
                       </button>
                     )}
                   </div>
+
+                  {/* Módulo 7: Campanhas de Discagem Ativa */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <Megaphone className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">7. Campanhas de Discagem Ativa</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Motor de discagem ativa para call centers e vendas. Suporte aos modos Preditivo e Power, controle de taxa de abandono, agendamento de disparos e relatórios de conversão em tempo real.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Importação de listas de contatos CSV/Excel
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Detecção de secretária eletrônica (AMD)
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Transbordo imediato para agentes livres ou URA
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('campaigns')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1"
+                      >
+                        Acessar Campanhas de Discagem →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Módulo 8: Segurança de Rede & Firewall */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-cyan-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">8. Segurança de Rede & Fail2ban</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Defesa ativa contra varreduras SIP maliciosas (SIPVicious / Friendly-Scanner), mitigação de força bruta, controle de regras do firewall UFW e telemetria de túneis WireGuard/ZeroTier.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Bloqueio automático por IP com Fail2ban
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Whitelist corporativa de operadoras VoIP
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Auditoria de tráfego RTP e portas fechadas
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('network_security')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-cyan-600 hover:text-cyan-700 flex items-center gap-1"
+                      >
+                        Acessar Segurança & Firewall →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Módulo 9: CRM Hub 360 */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <Plug className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">9. CRM Hub & Histórico 360°</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Sincronização contínua com os principais CRMs do mercado (HubSpot, Pipedrive, RD Station e Salesforce). Pop-up de tela com dados do cliente no momento em que a chamada toca no ramal.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Screen Pop no Webphone com histórico do cliente
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Registro automático de chamadas e gravações no CRM
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Webhooks bidirecionais para automação de leads
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('crm_hub')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1"
+                      >
+                        Acessar Integrações CRM Hub →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Módulo 10: Health Check do Ecossistema */}
+                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center mb-4 shadow-sm">
+                        <Activity className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">10. Diagnóstico de Saúde do Sistema</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                        Verificação em tempo real da saúde dos 5 serviços vitais: Asterisk PJSIP, API Express (BFF), banco de dados PostgreSQL, cache Redis e conectividade com a API Google Gemini.
+                      </p>
+                      <ul className="space-y-1.5 text-xs text-slate-600">
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Teste de conectividade ARI Stasis e WebSocket
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Alerta preventivo antes de degradação de chamadas
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Ação corretiva com reinicialização guiada
+                        </li>
+                      </ul>
+                    </div>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('health_check')}
+                        className="mt-4 pt-3 border-t border-slate-200 text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                      >
+                        Acessar Diagnóstico de Saúde →
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
