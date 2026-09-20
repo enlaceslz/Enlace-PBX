@@ -26,6 +26,7 @@ import {
   AiAgentRepository,
   AiKnowledgeRepository,
   AuditLogRepository,
+  CampaignRepository,
 } from './server/repositories/index.js';
 import { VpnAdapter } from './server/infrastructure/network/VpnAdapter.js';
 import { asteriskAdapter } from './server/infrastructure/asterisk/AsteriskAdapter.js';
@@ -297,22 +298,34 @@ const authenticateToken = (req: express.Request, res: express.Response, next: ex
   // -------------------------------------------------------------------------
   // Campaigns API
   // -------------------------------------------------------------------------
-  app.get('/api/v1/campaigns', (req, res) => {
-    res.json(db.outboundCampaigns);
+  app.get('/api/v1/campaigns', async (req, res) => {
+    try {
+      const tenantId = (req as any).tenantId || (req.query.tenantId as string) || 'tenant-enlace-matriz';
+      const campaigns = await CampaignRepository.listByTenant(tenantId);
+      res.json(campaigns);
+    } catch (err: any) {
+      res.json(db.outboundCampaigns);
+    }
   });
 
-  app.post('/api/v1/campaigns/:id/toggle', (req, res) => {
-    const camp = db.outboundCampaigns.find(c => c.id === req.params.id);
-    if (!camp) return res.status(404).json({ error: 'Not found' });
-    
-    if (camp.status === 'running') {
-      camp.status = 'paused';
-      camp.activeCalls = 0;
-    } else if (camp.status === 'paused' || camp.status === 'draft') {
-      camp.status = 'running';
-      camp.activeCalls = camp.type === 'ai_voicebot' ? 12 : 5; // mock active calls
+  app.post('/api/v1/campaigns/:id/toggle', async (req, res) => {
+    try {
+      const tenantId = (req as any).tenantId || (req.query.tenantId as string) || 'tenant-enlace-matriz';
+      const camp = await CampaignRepository.findById(req.params.id, tenantId) || db.outboundCampaigns.find(c => c.id === req.params.id);
+      if (!camp) return res.status(404).json({ error: 'Not found' });
+      
+      if (camp.status === 'running') {
+        camp.status = 'paused';
+        camp.activeCalls = 0;
+      } else if (camp.status === 'paused' || camp.status === 'draft') {
+        camp.status = 'running';
+        camp.activeCalls = camp.type === 'ai_voicebot' ? 12 : 5;
+      }
+      await CampaignRepository.save(camp);
+      res.json(camp);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Erro ao alternar campanha' });
     }
-    res.json(camp);
   });
 
   app.get('/api/v1/health', async (req, res) => {

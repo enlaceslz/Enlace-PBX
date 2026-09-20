@@ -10,3 +10,4 @@ export * from './cdrRepository';
 export * from './aiAgentRepository';
 export * from './aiKnowledgeRepository';
 export * from './auditRepository';
+export * from './campaignRepository';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, AlertCircle, RefreshCw } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { Sidebar, ActiveView, checkAccess } from './components/Sidebar';
 import { UserRole } from './types/pbx';
@@ -87,53 +87,52 @@ export default function App() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadAllData = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       const token = authToken || localStorage.getItem('enlace_jwt');
-      const fetchWithAuth = async (url: string) => {
-        const res = await fetch(url, {
-          headers: token ? {
-            'Authorization': `Bearer ${token}`
-          } : {}
-        });
-        if (res.status === 401) {
-          localStorage.removeItem('enlace_jwt');
-          setAuthToken(null);
-          setIsAuthenticated(false);
-          return null;
+      
+      const fetchWithAuth = async (url: string, retries = 2): Promise<any> => {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
+            const res = await fetch(url, {
+              signal: controller.signal,
+              headers: token ? {
+                'Authorization': `Bearer ${token}`
+              } : {}
+            });
+            clearTimeout(timeoutId);
+
+            if (res.status === 401) {
+              localStorage.removeItem('enlace_jwt');
+              setAuthToken(null);
+              setIsAuthenticated(false);
+              return null;
+            }
+
+            const contentType = res.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              return await res.json();
+            }
+            return null;
+          } catch (err: any) {
+            if (attempt < retries) {
+              await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+            } else {
+              console.warn(`[Enlace-PBX] Endpoint indisponível (${url}):`, err?.message || err);
+              return null;
+            }
+          }
         }
-        
-        const contentType = res.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          return res.json();
-        } else {
-          console.warn(`[App.tsx] Endpoint ${url} did not return JSON. Returning null to avoid crash.`);
-          return null;
-        }
+        return null;
       };
 
-      const [
-        metricsRes,
-        tenantsRes,
-        usersRes,
-        channelsRes,
-        extensionsRes,
-        trunksRes,
-        didsRes,
-        routesRes,
-        queuesRes,
-        ringGroupsRes,
-        ivrsRes,
-        cdrsRes,
-        agentsRes,
-        providersRes,
-        toolsRes,
-        knowledgeRes,
-        sessionsRes,
-        auditRes,
-        healthRes,
-      ] = await Promise.all([
+      const results = await Promise.allSettled([
         fetchWithAuth('/api/v1/dashboard/metrics'),
         fetchWithAuth('/api/v1/tenants'),
         fetchWithAuth('/api/v1/users'),
@@ -155,18 +154,36 @@ export default function App() {
         fetchWithAuth('/api/v1/health'),
       ]);
 
+      const [
+        metricsRes,
+        tenantsRes,
+        usersRes,
+        channelsRes,
+        extensionsRes,
+        trunksRes,
+        didsRes,
+        routesRes,
+        queuesRes,
+        ringGroupsRes,
+        ivrsRes,
+        cdrsRes,
+        agentsRes,
+        providersRes,
+        toolsRes,
+        knowledgeRes,
+        sessionsRes,
+        auditRes,
+        healthRes,
+      ] = results.map(r => r.status === 'fulfilled' ? r.value : null);
+
       if (metricsRes) setMetrics(metricsRes);
-      if (Array.isArray(tenantsRes)) {
+      if (Array.isArray(tenantsRes) && tenantsRes.length > 0) {
         setTenants(tenantsRes);
-        if (tenantsRes.length > 0 && !currentTenant) {
-          setCurrentTenant(tenantsRes[0]);
-        }
+        setCurrentTenant(prev => prev || tenantsRes[0]);
       }
-      if (Array.isArray(usersRes)) {
+      if (Array.isArray(usersRes) && usersRes.length > 0) {
         setUsers(usersRes);
-        if (usersRes.length > 0 && !currentUser) {
-          setCurrentUser(usersRes[0]);
-        }
+        setCurrentUser(prev => prev || usersRes[0]);
       }
       if (Array.isArray(channelsRes)) setChannels(channelsRes);
       if (Array.isArray(extensionsRes)) setExtensions(extensionsRes);
@@ -184,12 +201,18 @@ export default function App() {
       if (Array.isArray(sessionsRes)) setAiSessions(sessionsRes);
       if (Array.isArray(auditRes)) setAuditLogs(auditRes);
       if (healthRes) setHealth(healthRes);
-    } catch (e) {
-      console.error('Error loading PBX data:', e);
+
+      const hasCoreData = !!(metricsRes || tenantsRes || usersRes || extensionsRes);
+      if (!hasCoreData) {
+        setLoadError('Não foi possível sincronizar os dados do PBX no momento.');
+      }
+    } catch (e: any) {
+      console.warn('[Enlace-PBX] Falha ao carregar dados do PBX:', e?.message || e);
+      setLoadError('Erro de conexão ao sincronizar com o PBX.');
     } finally {
       setLoading(false);
     }
-  }, [currentTenant, currentUser]);
+  }, [authToken]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -220,7 +243,7 @@ export default function App() {
     return () => {
       eventSource.close();
     };
-  }, []);
+  }, [isAuthenticated]);
 
   const handleOpenWebphone = (number?: string) => {
     if (number) setWebphoneTarget(number);
@@ -603,6 +626,22 @@ export default function App() {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-slate-50 relative">
+          {loadError && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-amber-800 text-xs shadow-sm">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>{loadError}</span>
+              </div>
+              <button
+                onClick={() => loadAllData()}
+                className="flex items-center gap-1 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-lg transition text-xs"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Reconectar</span>
+              </button>
+            </div>
+          )}
+
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
               <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
