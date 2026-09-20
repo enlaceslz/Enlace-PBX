@@ -1,5 +1,5 @@
 ; Enlace-PBX Real Configuration Test
-; Generated at: 2026-09-19T19:53:58.490Z
+; Generated at: 2026-09-19T09:33:52.991Z
 [transport-udp]
 type=transport
 protocol=udp
