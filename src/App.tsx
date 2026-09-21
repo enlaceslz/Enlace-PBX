@@ -300,7 +300,7 @@ export default function App() {
           />
         );
       case 'operation_dashboard':
-        return <OperationDashboardView channels={channels} metrics={metrics} onOpenWebphone={handleOpenWebphone} />;
+        return <OperationDashboardView channels={channels} metrics={metrics} onOpenWebphone={handleOpenWebphone} queues={queues} trunks={trunks} />;
       case 'omnichannel':
         return <OmnichannelView />;
       case 'crm_contacts':

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Megaphone, Play, Pause, BarChart, Users, Bot, PhoneCall, CheckCircle2, AlertTriangle, Plus, Settings, TrendingUp, PhoneForwarded, BarChart3, Activity, Zap } from 'lucide-react';
+import { Megaphone, Play, Pause, BarChart, Users, Bot, PhoneCall, CheckCircle2, AlertTriangle, Plus, Settings, TrendingUp, PhoneForwarded, BarChart3, Activity, Zap, Trash2, X } from 'lucide-react';
 
 interface Campaign {
   id: string;
@@ -18,14 +18,24 @@ interface Campaign {
 export const CampaignsView: React.FC = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Form state
+  const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState<'ai_voicebot' | 'predictive' | 'power_dialer'>('ai_voicebot');
+  const [newAgent, setNewAgent] = useState('MaIA Comercial');
+  const [newTotalLeads, setNewTotalLeads] = useState(500);
 
   const fetchCampaigns = async () => {
     try {
       const res = await fetch('/api/v1/campaigns');
       const data = await res.json();
-      setCampaigns(data);
+      if (Array.isArray(data)) {
+        setCampaigns(data);
+      }
     } catch (e) {
-      console.error(e);
+      console.error('Erro ao carregar campanhas:', e);
     } finally {
       setLoading(false);
     }
@@ -33,23 +43,19 @@ export const CampaignsView: React.FC = () => {
 
   useEffect(() => {
     fetchCampaigns();
-    const interval = setInterval(() => {
-      // Simulate real-time lead processing for running campaigns
-      setCampaigns(prev => prev.map(c => {
-        if (c.status === 'running' && c.processedLeads < c.totalLeads) {
-          return {
-            ...c,
-            processedLeads: Math.min(c.totalLeads, c.processedLeads + Math.floor(Math.random() * 3) + 1),
-            successCount: c.successCount + (Math.random() > 0.6 ? 1 : 0),
-            activeCalls: c.type === 'ai_voicebot' ? 12 + Math.floor(Math.random() * 5) : 3 + Math.floor(Math.random() * 4)
-          };
-        }
-        return c;
-      }));
-    }, 2500);
-    
-    return () => clearInterval(interval);
   }, []);
+
+  // Polling em tempo real do backend apenas quando existirem campanhas em execução
+  useEffect(() => {
+    const hasRunning = campaigns.some(c => c.status === 'running');
+    if (!hasRunning) return;
+
+    const interval = setInterval(() => {
+      fetchCampaigns();
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [campaigns]);
 
   const toggleStatus = async (id: string) => {
     try {
@@ -57,7 +63,48 @@ export const CampaignsView: React.FC = () => {
       const updated = await res.json();
       setCampaigns(prev => prev.map(c => c.id === id ? updated : c));
     } catch (e) {
-      console.error(e);
+      console.error('Erro ao alternar status da campanha:', e);
+    }
+  };
+
+  const handleDeleteCampaign = async (id: string) => {
+    if (!confirm('Deseja realmente remover esta campanha do discador?')) return;
+    try {
+      await fetch(`/api/v1/campaigns/${id}`, { method: 'DELETE' });
+      setCampaigns(prev => prev.filter(c => c.id !== id));
+    } catch (e) {
+      console.error('Erro ao deletar campanha:', e);
+    }
+  };
+
+  const handleCreateCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/v1/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newName.trim(),
+          type: newType,
+          aiAgentId: newType === 'ai_voicebot' ? newAgent : undefined,
+          totalLeads: Number(newTotalLeads) || 500,
+          status: 'paused',
+        }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setCampaigns(prev => [created, ...prev]);
+        setIsCreateModalOpen(false);
+        setNewName('');
+        setNewTotalLeads(500);
+      }
+    } catch (err) {
+      console.error('Erro ao criar campanha:', err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -99,7 +146,10 @@ export const CampaignsView: React.FC = () => {
           </h2>
           <p className="text-sm text-slate-500 mt-1">Gerencie campanhas ativas, discadores preditivos e Agentes de Voz (MaIA) em massa.</p>
         </div>
-        <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 transition shadow-sm">
+        <button 
+          onClick={() => setIsCreateModalOpen(true)}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 transition shadow-sm"
+        >
           <Plus className="w-4 h-4" /> Nova Campanha
         </button>
       </div>
@@ -185,8 +235,12 @@ export const CampaignsView: React.FC = () => {
                     >
                       {camp.status === 'running' ? <><Pause className="w-4 h-4"/> Pausar Discador</> : <><Play className="w-4 h-4"/> Iniciar Motor</>}
                     </button>
-                    <button className="p-2.5 bg-slate-50 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-100 transition shadow-sm">
-                      <Settings className="w-5 h-5" />
+                    <button 
+                      onClick={() => handleDeleteCampaign(camp.id)}
+                      className="p-2.5 bg-slate-50 border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition shadow-sm"
+                      title="Excluir Campanha"
+                    >
+                      <Trash2 className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
@@ -267,6 +321,105 @@ export const CampaignsView: React.FC = () => {
           })
         )}
       </div>
+
+      {/* Modal Nova Campanha */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5 font-bold text-slate-800">
+                <Megaphone className="w-5 h-5 text-indigo-600" />
+                <span>Criar Nova Campanha de Discagem</span>
+              </div>
+              <button 
+                onClick={() => setIsCreateModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCampaign} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Nome da Campanha
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Campanha Retenção Clientes Q4"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Tipo de Discador
+                </label>
+                <select
+                  value={newType}
+                  onChange={(e) => setNewType(e.target.value as any)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
+                >
+                  <option value="ai_voicebot">Agente de Voz IA (MaIA Cognitiva)</option>
+                  <option value="predictive">Discador Preditivo (Centrais Humanas)</option>
+                  <option value="power_dialer">Power Dialer (Progressivo)</option>
+                </select>
+              </div>
+
+              {newType === 'ai_voicebot' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Agente Neural MaIA
+                  </label>
+                  <select
+                    value={newAgent}
+                    onChange={(e) => setNewAgent(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
+                  >
+                    <option value="MaIA Comercial">MaIA Comercial (Vendas & Fechamento)</option>
+                    <option value="MaIA Suporte N1">MaIA Suporte N1 (Triagem & Diagnóstico)</option>
+                    <option value="MaIA Cobrança">MaIA Cobrança Amigável (Negociação)</option>
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Quantidade Total de Leads (Mailing)
+                </label>
+                <input
+                  type="number"
+                  min="10"
+                  max="100000"
+                  value={newTotalLeads}
+                  onChange={(e) => setNewTotalLeads(parseInt(e.target.value) || 100)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !newName.trim()}
+                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition shadow-sm"
+                >
+                  {isSubmitting ? 'Criando...' : 'Salvar Campanha'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

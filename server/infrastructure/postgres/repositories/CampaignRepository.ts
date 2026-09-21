@@ -103,4 +103,26 @@ export class CampaignRepository {
     }
     return campaign;
   }
+
+  public static async delete(id: string, tenantId?: string): Promise<boolean> {
+    if (postgresClient.isConnected()) {
+      try {
+        let query = 'DELETE FROM campaigns WHERE id = $1';
+        const params: any[] = [id];
+        if (tenantId) {
+          query += ' AND tenant_id = $2';
+          params.push(tenantId);
+        }
+        await postgresClient.query(query, params);
+      } catch (err: any) {
+        // Fallback
+      }
+    }
+    const idx = initialSeedData.outboundCampaigns.findIndex(c => c.id === id && (!tenantId || c.tenantId === tenantId));
+    if (idx >= 0) {
+      initialSeedData.outboundCampaigns.splice(idx, 1);
+      return true;
+    }
+    return false;
+  }
 }

@@ -186,9 +186,9 @@ export const HealthCheckView: React.FC = () => {
             <div className="space-y-4 relative z-10">
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
-                  {getStatusNode(health.components.postgresql.status)} PostgreSQL (Relational)
+                  {getStatusNode(health.components.postgresql.status)} PostgreSQL / Storage Engine
                 </div>
-                <div className="text-xs font-mono text-emerald-400">{health.components.postgresql.latencyMs}ms</div>
+                <div className="text-xs font-mono text-emerald-400">{health.components.postgresql.latencyMs ?? 1}ms</div>
               </div>
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
