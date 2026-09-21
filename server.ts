@@ -1260,11 +1260,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Quick Setup (FASE 6)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/setup/snapshots', (req, res) => {
+  app.get(['/api/v1/setup/snapshots', '/api/v1/system/snapshots'], (req, res) => {
     res.json(db.snapshots);
   });
 
-  app.post('/api/v1/setup/preview', (req, res) => {
+  app.post(['/api/v1/setup/preview', '/api/v1/system/quick-setup/preview'], (req, res) => {
     const { prefix, quantity, startNumber, trunkName } = req.body;
     const qty = parseInt(quantity) || 10;
     const start = parseInt(startNumber) || 1;
@@ -1282,7 +1282,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   });
 
-  app.post('/api/v1/setup/apply', async (req, res) => {
+  app.post(['/api/v1/setup/apply', '/api/v1/system/quick-setup/apply'], async (req, res) => {
     const { tenantId, prefix, quantity, startNumber, trunkName } = req.body;
     const tId = tenantId || 'tenant-enlace-matriz';
     const qty = parseInt(quantity) || 10;
@@ -1354,14 +1354,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
     }
     
-    res.json({ success: true, snapshotId: snap.id, generatedCount: createdExtensions.length, trunk: createdTrunk });
+    res.json({
+      success: true,
+      snapshotId: snap.id,
+      generatedCount: createdExtensions.length,
+      stats: { extensionsCount: createdExtensions.length },
+      trunk: createdTrunk
+    });
   });
 
-  app.post('/api/v1/setup/rollback', (req, res) => {
-    const { snapshotId } = req.body;
+  app.post(['/api/v1/setup/rollback', '/api/v1/system/snapshots/:id/rollback'], (req, res) => {
+    const snapshotId = req.params.id || req.body.snapshotId;
     const success = db.rollbackSnapshot(snapshotId);
     if (success) {
-      res.json({ success: true });
+      res.json({ success: true, snapshotId });
     } else {
       res.status(400).json({ error: 'Falha no rollback. Snapshot não encontrado ou inválido.' });
     }
