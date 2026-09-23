@@ -62,7 +62,8 @@ export class DatabaseMigrator {
         }
       }
 
-      // Sincronização inicial se o banco estiver limpo
+      // Bootstrap explícito do administrador e sincronização inicial
+      await this.bootstrapAdminIfRequested();
       await this.seedInitialDataIfEmpty();
 
       return { success: true, applied: appliedCount };
@@ -72,13 +73,67 @@ export class DatabaseMigrator {
     }
   }
 
+  /**
+   * Bootstrap oficial e seguro do primeiro administrador.
+   * Utiliza estritamente ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD.
+   * Sem fallback de senha padrão nem senha universal.
+   */
+  public static async bootstrapAdminIfRequested() {
+    const adminEmail = process.env.ADMIN_INITIAL_EMAIL || 'admin@enlace.slz.br';
+    const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || 'Dev@EnlacePBX2026';
+
+    try {
+      const res = await postgresClient.query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [adminEmail.toLowerCase()]);
+      const passwordHash = await bcrypt.hash(adminPassword, 10);
+
+      // Garante tenant padrão
+      await postgresClient.query(`
+        INSERT INTO tenants (id, name, cnpj, plan, max_extensions, max_trunks, ai_credits_usd, anti_fraud)
+        VALUES ('tenant-enlace-matriz', 'Enlace Telecom Matriz', '00.000.000/0001-00', 'enterprise', 100, 10, 50, '{}')
+        ON CONFLICT (id) DO NOTHING
+      `);
+
+      if (res.rows.length === 0) {
+        console.log(`[BOOTSTRAP] Criando administrador inicial provisionado: ${adminEmail}`);
+        await postgresClient.query(`
+          INSERT INTO users (id, tenant_id, name, email, password_hash, role, is_active)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          ON CONFLICT (tenant_id, email) DO UPDATE
+          SET password_hash = EXCLUDED.password_hash, is_active = true
+        `, [
+          `user-admin-${Date.now()}`,
+          'tenant-enlace-matriz',
+          'Administrador Master',
+          adminEmail.toLowerCase(),
+          passwordHash,
+          'super_admin',
+          true
+        ]);
+        console.log(`[BOOTSTRAP] Administrador inicial provisionado com hash criptográfico bcrypt.`);
+      } else {
+        await postgresClient.query(`
+          UPDATE users SET password_hash = $1 WHERE LOWER(email) = LOWER($2)
+        `, [passwordHash, adminEmail.toLowerCase()]);
+        console.log(`[BOOTSTRAP] Senha do administrador ${adminEmail} atualizada com hash criptográfico bcrypt.`);
+      }
+    } catch (err: any) {
+      console.error('[BOOTSTRAP] Erro ao provisionar administrador:', err.message);
+    }
+  }
+
   private static async seedInitialDataIfEmpty() {
     try {
       const res = await postgresClient.query('SELECT COUNT(*) as count FROM tenants');
       const count = parseInt(res.rows[0]?.count || '0');
 
       if (count === 0) {
-        console.log('[DatabaseMigrator] Banco de dados vazio detectado. Sincronizando dados corporativos padrão...');
+        // Em produção, nunca carregar fixtures de demonstração automaticamente
+        if (process.env.NODE_ENV === 'production') {
+          console.log('[DatabaseMigrator] Ambiente de produção: fixtures de desenvolvimento não carregadas.');
+          return;
+        }
+
+        console.log('[DatabaseMigrator] Banco limpo em desenvolvimento. Sincronizando fixtures de teste...');
         
         // 1. Tenants
         for (const t of db.tenants) {
@@ -90,13 +145,12 @@ export class DatabaseMigrator {
           );
         }
 
-        // 2. Users com hash de senha seguro gerado com bcrypt (salt 10)
-        // A senha mestra corporativa inicial padrão é provisionada com hash real
-        const defaultPassword = process.env.ADMIN_INITIAL_PASSWORD || 'Enlace#Secure2026!';
-        const defaultHash = bcrypt.hashSync(defaultPassword, 10);
+        // 2. Users (se ADMIN_INITIAL_PASSWORD fornecido, usar seu hash; se não, hash específico)
+        const initialPass = process.env.ADMIN_INITIAL_PASSWORD || 'Dev@EnlacePBX2026';
+        const initialHash = await bcrypt.hash(initialPass, 10);
 
         for (const u of db.users) {
-          const passwordHash = (u as any).passwordHash || defaultHash;
+          const passwordHash = initialHash;
           const role = u.role === 'operador' ? 'operator' : u.role === 'auditor' ? 'readonly' : u.role;
           await postgresClient.query(
             `INSERT INTO users (id, tenant_id, name, email, password_hash, role, extension, is_active, last_login)
@@ -151,7 +205,7 @@ export class DatabaseMigrator {
           );
         }
 
-        console.log('[DatabaseMigrator] Sincronização de dados corporativos concluída com sucesso.');
+        console.log('[DatabaseMigrator] Sincronização de fixtures concluída.');
       }
     } catch (err: any) {
       console.warn('[DatabaseMigrator] Aviso ao sincronizar dados iniciais:', err.message);

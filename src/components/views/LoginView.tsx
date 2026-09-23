@@ -1,50 +1,25 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Mail, Loader2, ArrowRight, Eye, EyeOff, KeyRound, UserCheck } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, Loader2, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { User } from '../../types/pbx';
 
 interface LoginViewProps {
   onLoginSuccess: (user: User, token: string) => void;
 }
 
-const DEMO_ACCOUNTS = [
-  {
-    roleLabel: 'Super Admin',
-    email: 'admin@enlace.pbx',
-    password: 'enlace123',
-    desc: 'Acesso irrestrito a todo o PBX',
-    badgeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  },
-  {
-    roleLabel: 'Admin (slzenlace)',
-    email: 'slzenlace@gmail.com',
-    password: 'enlace123',
-    desc: 'Conta de Administrador Master',
-    badgeClass: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
-  },
-  {
-    roleLabel: 'Supervisor',
-    email: 'mariana.souza@enlacedigital.com.br',
-    password: 'enlace123',
-    desc: 'Filas, gravação e relatórios',
-    badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  },
-  {
-    roleLabel: 'Operador',
-    email: 'lucas.barreto@enlacedigital.com.br',
-    password: 'enlace123',
-    desc: 'Webphone e fila de atendimento',
-    badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  },
-];
-
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
-  const [email, setEmail] = useState('admin@enlace.pbx');
-  const [password, setPassword] = useState('enlace123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const executeLogin = async (targetEmail: string, targetPass: string) => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setError('Por favor, informe o e-mail e a senha.');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
@@ -52,7 +27,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       const res = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: targetEmail.trim(), password: targetPass.trim() }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const data = await res.json();
@@ -63,40 +38,33 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       } else {
         setError(data.error || 'Credenciais inválidas. Verifique seu e-mail e senha.');
       }
-    } catch (err) {
+    } catch {
       setError('Erro de conexão com o servidor PBX. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    executeLogin(email, password);
-  };
-
-  const selectAccount = (acc: typeof DEMO_ACCOUNTS[0]) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-    setError('');
-  };
-
-  const handleQuickLogin = (acc: typeof DEMO_ACCOUNTS[0]) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-    executeLogin(acc.email, acc.password);
-  };
-
   return (
-    <div className="min-h-screen bg-[#0b1329] flex items-center justify-center p-4 selection:bg-blue-600 selection:text-white relative overflow-hidden">
-      {/* Background Decor */}
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[100px] -mr-40 -mt-40 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-600/10 rounded-full blur-[100px] -ml-40 -mb-40 pointer-events-none" />
+    <div className="min-h-screen bg-[#070d1e] flex flex-col justify-center items-center p-4 relative overflow-hidden">
+      {/* Background Glow */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="w-full max-w-lg relative z-10 animate-in fade-in slide-in-from-bottom-8 duration-500">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 shadow-xl shadow-blue-900/50 mb-4 ring-4 ring-blue-500/20">
-            <ShieldCheck className="w-8 h-8 text-white" />
+      <div className="w-full max-w-md relative z-10">
+        {/* Logo and Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center p-3 bg-blue-500/10 border border-blue-500/20 rounded-2xl mb-4 shadow-lg shadow-blue-500/5">
+            <img
+              src="/logo.svg"
+              alt="Enlace PBX"
+              className="w-12 h-12 object-contain"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+              }}
+            />
+            <ShieldCheck className="w-10 h-10 text-blue-400 hidden" />
           </div>
           <h1 className="text-3xl font-black text-white tracking-tight">
             Enlace <span className="text-blue-500">PBX</span>
@@ -109,8 +77,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         <div className="bg-[#15203b]/90 backdrop-blur-xl border border-slate-700/60 p-6 sm:p-8 rounded-3xl shadow-2xl">
           <div className="flex items-center justify-between mb-5 pb-3 border-b border-slate-700/60">
             <div>
-              <h2 className="text-lg font-bold text-white">Autenticação do Sistema</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Informe suas credenciais corporativas</p>
+              <h2 className="text-lg font-bold text-white">Autenticação Corporativa</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Acesso restrito por credencial criptografada</p>
             </div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-mono">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -119,41 +87,31 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           </div>
 
           {error && (
-            <div className="mb-5 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs font-medium space-y-2">
+            <div className="mb-5 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs font-medium space-y-1">
               <div className="flex items-start gap-2">
-                <span className="font-bold text-rose-400">Falha de login:</span>
+                <span className="font-bold text-rose-400">Falha de autenticação:</span>
                 <span>{error}</span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('admin@enlace.pbx');
-                  setPassword('enlace123');
-                  setError('');
-                }}
-                className="text-[11px] text-blue-400 hover:text-blue-300 underline font-semibold cursor-pointer block"
-              >
-                Clique aqui para preencher credenciais padrão (admin@enlace.pbx / enlace123)
-              </button>
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
-                E-mail Corporativo ou Usuário
+                E-mail Corporativo
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                   <Mail className="w-4 h-4 text-slate-400" />
                 </div>
                 <input
-                  type="text"
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-[#0b1329] border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-medium text-sm"
-                  placeholder="admin@enlace.pbx"
+                  placeholder="admin@enlace.slz.br"
                   required
+                  autoComplete="email"
                 />
               </div>
             </div>
@@ -163,7 +121,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
                   Senha de Acesso
                 </label>
-                <span className="text-[11px] text-slate-400 font-mono">Padrão: enlace123</span>
               </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -174,14 +131,14 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-[#0b1329] border border-slate-700 rounded-xl pl-10 pr-10 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-medium text-sm"
-                  placeholder="••••••••"
+                  placeholder="••••••••••••"
                   required
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200"
-                  tabIndex={-1}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200 transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -191,12 +148,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-blue-900/50 transition-all flex items-center justify-center gap-2 group disabled:opacity-70 disabled:cursor-not-allowed mt-3 cursor-pointer"
+              className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-blue-600/25 hover:shadow-blue-600/40 transition-all flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               {isLoading ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Autenticando no PBX...</span>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Autenticando...</span>
                 </>
               ) : (
                 <>
@@ -207,45 +164,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             </button>
           </form>
 
-          {/* Quick Access Demo Profiles */}
-          <div className="mt-6 pt-5 border-t border-slate-700/60">
-            <div className="flex items-center gap-1.5 mb-3">
-              <KeyRound className="w-3.5 h-3.5 text-blue-400" />
-              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                Acesso Rápido com 1 Clique (Perfis de Demonstração)
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {DEMO_ACCOUNTS.map((acc) => (
-                <button
-                  key={acc.email}
-                  type="button"
-                  onClick={() => handleQuickLogin(acc)}
-                  disabled={isLoading}
-                  className="flex flex-col text-left p-2.5 rounded-xl bg-[#0b1329]/80 hover:bg-[#0b1329] border border-slate-700/70 hover:border-blue-500/60 transition-all group cursor-pointer"
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${acc.badgeClass}`}>
-                      {acc.roleLabel}
-                    </span>
-                    <span className="text-[10px] text-slate-400 group-hover:text-blue-400 font-mono transition-colors">
-                      Entrar →
-                    </span>
-                  </div>
-                  <span className="text-xs font-mono text-slate-300 truncate mt-1">
-                    {acc.email}
-                  </span>
-                  <span className="text-[10px] text-slate-400 truncate">
-                    {acc.desc}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-5 text-center text-[11px] text-slate-400 font-mono">
-            Ambiente Asterisk 20 LTS • Criptografia TLS 1.3 & JWT
+          <div className="mt-6 text-center text-[11px] text-slate-400 font-mono">
+            Autenticação Baseada em PostgreSQL • Criptografia bcrypt & JWT
           </div>
         </div>
       </div>

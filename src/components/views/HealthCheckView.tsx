@@ -186,21 +186,31 @@ export const HealthCheckView: React.FC = () => {
             <div className="space-y-4 relative z-10">
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
-                  {getStatusNode(health.components.postgresql.status)} PostgreSQL / Storage Engine
+                  {getStatusNode(health.components.postgresql.status)} Banco de Dados & Armazenamento
                 </div>
                 <div className="text-xs font-mono text-emerald-400">{health.components.postgresql.latencyMs ?? 1}ms</div>
               </div>
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
-                  {getStatusNode(health.components.redis.status)} Redis (In-Memory)
+                  <ShieldCheck className="w-4 h-4 text-blue-400" /> Modo de Operação
                 </div>
-                <div className="text-xs font-mono text-slate-400">{health.components.redis.memoryUsedMb}MB RAM</div>
+                <div className="text-xs font-mono text-blue-300 font-semibold">
+                  {health.components.postgresql.mode === 'postgresql_cluster'
+                    ? 'PostgreSQL Cluster'
+                    : 'Motor Resiliente Embutido'}
+                </div>
               </div>
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
-                  <ShieldCheck className="w-4 h-4 text-slate-500" /> Pool Status
+                  <ShieldCheck className="w-4 h-4 text-slate-500" /> Pool de Conexões
                 </div>
-                <div className="text-xs font-mono text-slate-400">{health.components.postgresql.pool}</div>
+                <div className="text-xs font-mono text-slate-400">
+                  {health.components.postgresql.pool === 'active'
+                    ? 'Ativo (Pool 20)'
+                    : health.components.postgresql.pool === 'embedded_engine'
+                    ? 'Embutido em Memória'
+                    : 'Desconectado'}
+                </div>
               </div>
             </div>
           </div>

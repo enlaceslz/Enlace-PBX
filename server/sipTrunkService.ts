@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import net from 'net';
 import { Trunk, Did } from '../src/types/pbx.js';
-import { initialSeedData as db } from './infrastructure/postgres/seedData.js';
+import { TrunkRepository, DidRepository, SystemRepository } from './infrastructure/postgres/repositories/index.js';
 
 export interface NormalizedDidResult {
   raw: string;
@@ -242,8 +242,8 @@ class SipTrunkService {
    * Se authMode === 'ip', NÃO gera REGISTER e NÃO gera auth com senha.
    * Cria identificação por IP (type=identify com match de todos os IPs autorizados).
    */
-  generatePjsipForTrunk(trunk: Trunk): string {
-    const publicIp = db.infraConfig.publicIp || '200.80.127.50';
+  generatePjsipForTrunk(trunk: Trunk, publicIpOverride?: string): string {
+    const publicIp = publicIpOverride || '200.80.127.50';
     const isIpAuth = trunk.authMode === 'ip';
     const transportName = `transport-${trunk.transport.toLowerCase()}`;
     const codecsStr = (trunk.codecs || ['pcma', 'pcmu', 'g729']).join(',');
@@ -341,9 +341,10 @@ transport = ${transportName}
    * 5. Roteamento para destino configurado
    * 6. Tratamento de DID desconhecido (404, 486, 503 ou operador)
    */
-  generateDialplanForDids(tenantId: string = 'tenant-enlace-matriz'): string {
-    const dids = db.dids.filter((d) => d.tenantId === tenantId && d.status === 'active');
-    const trunks = db.trunks.filter((t) => t.tenantId === tenantId);
+  async generateDialplanForDids(tenantId: string = 'tenant-enlace-matriz'): Promise<string> {
+    const allDids = await DidRepository.listByTenant(tenantId);
+    const dids = allDids.filter((d) => d.status === 'active');
+    const trunks = await TrunkRepository.listByTenant(tenantId);
 
     let dp = `; ====================================================================
 ; Enlace-PBX — Dialplan de Entrada (extensions.conf)
@@ -531,7 +532,7 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
    * Executa bateria completa de diagnósticos em um tronco SIP
    */
   async runTrunkDiagnostics(trunkId: string): Promise<TrunkDiagnosticReport> {
-    const trunk = db.trunks.find((t) => t.id === trunkId);
+    const trunk = await TrunkRepository.findById(trunkId);
     if (!trunk) {
       throw new Error(`Tronco SIP [${trunkId}] não encontrado`);
     }
@@ -604,7 +605,8 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
     });
 
     // 3. Verificação de IP Público e NAT Traversal
-    const infra = db.infraConfig;
+    const infraStored = await SystemRepository.getInfraConfig();
+    const infra = infraStored || { publicIp: '200.80.127.50', lanSubnet: '192.168.10.0/24' };
     const hasPublicIp = !!infra.publicIp && infra.publicIp.length > 6;
     const hasSipPort = (trunk.sipPort || trunk.port || 5060) === 5060;
 
@@ -643,7 +645,7 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
     });
 
     // 6. Verificação de Segurança e Whitelist no Firewall/Fail2ban
-    const fail2banWhitelist = db.fail2ban?.whitelist || [];
+    const fail2banWhitelist: string[] = (await SystemRepository.getSetting<string[]>('fail2ban_whitelist', [])) || [];
     const ipsInWhitelist = authorizedIps.every((ip) => fail2banWhitelist.includes(ip));
 
     checks.push({
@@ -690,17 +692,22 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
   /**
    * Simula o fluxo completo de uma chamada recebida para teste em tempo real
    */
-  simulateInboundCall(params: {
+  async simulateInboundCall(params: {
     sourceIp: string;
     rawDid: string;
     callerNumber: string;
     trunkId?: string;
-  }): CallSimulationResult {
+  }): Promise<CallSimulationResult> {
     const callId = `sim-call-${Date.now()}`;
     const timestamp = new Date().toISOString();
     const sourceIp = params.sourceIp || '200.80.127.10';
     const callerId = params.callerNumber || '11987654321';
     const rawDid = params.rawDid || '1135008000';
+
+    const infraStored = await SystemRepository.getInfraConfig();
+    const publicIp = infraStored?.publicIp || '200.80.127.50';
+    const allTrunks = await TrunkRepository.listAll();
+    const allDids = await DidRepository.listAll();
 
     const steps: CallSimulationStep[] = [];
     let stepNum = 1;
@@ -711,14 +718,14 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
       phase: 'Sinalização SIP Inbound',
       asteriskApp: 'res_pjsip.so',
       channel: `PJSIP/anon-\${RAND()}`,
-      action: `INVITE recebido de ${sourceIp}:5060 para sip:${rawDid}@${db.infraConfig.publicIp || '200.80.127.50'}`,
+      action: `INVITE recebido de ${sourceIp}:5060 para sip:${rawDid}@${publicIp}`,
       result: 'info',
       timestamp: new Date().toISOString(),
     });
 
     // Etapa 2: Identificação do Tronco por IP (PJSIP Identify)
-    const matchedTrunk = db.trunks.find((t) => this.isIpAuthorized(t, sourceIp))
-      || (params.trunkId ? db.trunks.find((t) => t.id === params.trunkId) : undefined);
+    const matchedTrunk = allTrunks.find((t) => this.isIpAuthorized(t, sourceIp))
+      || (params.trunkId ? allTrunks.find((t) => t.id === params.trunkId) : undefined);
 
     const isAuthorizedIp = !!matchedTrunk;
 
@@ -773,7 +780,7 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
     });
 
     // Etapa 4: Busca do DID na tabela de rotas
-    const matchedDid = db.dids.find((d) => {
+    const matchedDid = allDids.find((d) => {
       const dNorm = this.normalizeDid(d.did);
       return (
         d.did === rawDid ||

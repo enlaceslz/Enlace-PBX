@@ -1,8 +1,14 @@
 import { Extension, Trunk, Route } from '../src/types/pbx.js';
-import { initialSeedData as db } from './infrastructure/postgres/seedData.js';
-import { ExtensionRepository } from './infrastructure/postgres/repositories/ExtensionRepository.js';
-import { TrunkRepository } from './infrastructure/postgres/repositories/TrunkRepository.js';
-import { RouteRepository } from './infrastructure/postgres/repositories/RouteRepository.js';
+import {
+  ExtensionRepository,
+  TrunkRepository,
+  RouteRepository,
+  QueueRepository,
+  RingGroupRepository,
+  IvrRepository,
+  DidRepository,
+  SystemRepository,
+} from './infrastructure/postgres/repositories/index.js';
 import { asteriskAdapter, AsteriskChannelInfo } from './infrastructure/asterisk/AsteriskAdapter.js';
 
 export interface AsteriskChannel {
@@ -23,16 +29,39 @@ export interface AsteriskChannel {
   };
 }
 
+const defaultInfraConfig = {
+  hostname: 'enlace-pbx-core-01',
+  publicIp: '200.80.127.50',
+  domain: 'pbx.enlace.slz.br',
+  lanIp: '192.168.10.254',
+  lanSubnet: '192.168.10.0/24',
+  ports: {
+    sipUdp: 5060,
+    sipTls: 5061,
+    webrtcWss: 8089,
+    http: 80,
+    https: 443,
+    rtpRange: '10000-20000',
+    ariPort: 8088,
+    amiPort: 5038,
+  },
+  sslCertificate: {
+    certPath: '/etc/asterisk/keys/asterisk.crt',
+    keyPath: '/etc/asterisk/keys/asterisk.key',
+  },
+};
+
 export class AsteriskService {
   private activeChannelsCache: AsteriskChannel[] = [];
   private lastFetchTime: number = 0;
 
   constructor() {
-    this.refreshChannelsReal();
+    this.refreshChannelsReal().catch(() => {});
   }
 
   /**
-   * Atualiza cache de canais reais consultando o Asterisk Core.
+   * Atualiza cache de canais reais consultando o Asterisk Core via AMI.
+   * Não gera canais sintéticos ou inventados.
    */
   public async refreshChannelsReal(): Promise<AsteriskChannel[]> {
     try {
@@ -60,10 +89,8 @@ export class AsteriskService {
 
   /**
    * Retorna os canais ativos reais do Asterisk.
-   * Não gera NUNCA chamadas sintéticas com Math.random.
    */
   getActiveChannels(): AsteriskChannel[] {
-    // Se o cache tiver mais de 2 segundos, dispara atualização em segundo plano
     if (Date.now() - this.lastFetchTime > 2000) {
       this.refreshChannelsReal().catch(() => {});
     }
@@ -75,7 +102,8 @@ export class AsteriskService {
    */
   async originateCall(caller: string, callee: string, isAi: boolean = false): Promise<AsteriskChannel> {
     const chan = await asteriskAdapter.originateCall(caller, callee, isAi);
-    const mapped: AsteriskChannel = {
+    await this.refreshChannelsReal().catch(() => {});
+    return {
       id: chan.id,
       name: chan.name,
       state: chan.state,
@@ -86,9 +114,8 @@ export class AsteriskService {
       application: chan.application,
       durationSeconds: chan.durationSeconds,
       aiBridgeActive: chan.aiBridgeActive,
+      qos: chan.qos,
     };
-    this.activeChannelsCache.push(mapped);
-    return mapped;
   }
 
   /**
@@ -96,9 +123,7 @@ export class AsteriskService {
    */
   async hangupChannel(channelId: string): Promise<boolean> {
     const success = await asteriskAdapter.hangup(channelId);
-    this.activeChannelsCache = this.activeChannelsCache.filter(
-      (c) => c.id !== channelId && c.name !== channelId
-    );
+    await this.refreshChannelsReal().catch(() => {});
     return success;
   }
 
@@ -107,17 +132,8 @@ export class AsteriskService {
    */
   async transferChannel(channelId: string, destination: string): Promise<AsteriskChannel | null> {
     await asteriskAdapter.transfer(channelId, destination);
-    const chan = this.activeChannelsCache.find(
-      (c) => c.id === channelId || c.name === channelId
-    );
-    if (chan) {
-      chan.connectedLine = destination;
-      chan.exten = destination;
-      chan.application = `Dial(PJSIP/${destination})`;
-      chan.aiBridgeActive = destination === '9001' || destination.toLowerCase().includes('maia');
-      return chan;
-    }
-    return null;
+    await this.refreshChannelsReal().catch(() => {});
+    return this.activeChannelsCache.find((c) => c.id === channelId || c.name === channelId) || null;
   }
 
   /**
@@ -130,18 +146,21 @@ export class AsteriskService {
     return res.success;
   }
 
-  // Pure Asterisk 20+ PJSIP configuration generator (pjsip.conf)
-  generatePjsipConf(tenantId: string = 'tenant-enlace-matriz'): string {
-    const extensions = db.extensions.filter((e) => e.tenantId === tenantId);
-    const trunks = db.trunks.filter((t) => t.tenantId === tenantId);
+  /**
+   * Gerador oficial de configuração PJSIP (pjsip.conf) baseado em PostgreSQL.
+   */
+  async generatePjsipConf(tenantId: string = 'tenant-enlace-matriz'): Promise<string> {
+    const extensions = await ExtensionRepository.listByTenant(tenantId);
+    const trunks = await TrunkRepository.listByTenant(tenantId);
+    const infraStored = await SystemRepository.getInfraConfig();
+    const infra = infraStored || defaultInfraConfig;
 
-    const infra = db.infraConfig;
     let output = `; ====================================================================
 ; Enlace-PBX — Configuração Automática PJSIP (pjsip.conf)
 ; Asterisk 20 LTS Puro — Enlace Telecom (Brasil)
-; Hostname: ${infra.hostname} | Domínio: ${infra.domain}
-; IP Público (WAN): ${infra.publicIp} | Rede Local (LAN): ${infra.lanSubnet}
-; Certificado SSL: ${infra.sslCertificate.certPath}
+; Hostname: ${infra.hostname || defaultInfraConfig.hostname} | Domínio: ${infra.domain || defaultInfraConfig.domain}
+; IP Público (WAN): ${infra.publicIp || defaultInfraConfig.publicIp} | Rede Local (LAN): ${infra.lanSubnet || defaultInfraConfig.lanSubnet}
+; Certificado SSL: ${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
 ; Data de geração: ${new Date().toISOString()}
 ; ====================================================================
 
@@ -154,37 +173,37 @@ default_outbound_endpoint=default
 [transport-udp]
 type=transport
 protocol=udp
-bind=0.0.0.0:${infra.ports.sipUdp}
-local_net=${infra.lanSubnet}
-external_media_address=${infra.publicIp}
-external_signaling_address=${infra.publicIp}
+bind=0.0.0.0:${infra.ports?.sipUdp || 5060}
+local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
+external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
+external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
 
 ; --- Transporte TLS Seguro (SIP Seguro) ---
 [transport-tls]
 type=transport
 protocol=tls
-bind=0.0.0.0:${infra.ports.sipTls}
-cert_file=${infra.sslCertificate.certPath}
-priv_key_file=${infra.sslCertificate.keyPath}
+bind=0.0.0.0:${infra.ports?.sipTls || 5061}
+cert_file=${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
+priv_key_file=${infra.sslCertificate?.keyPath || defaultInfraConfig.sslCertificate.keyPath}
 method=tlsv1_2
-local_net=${infra.lanSubnet}
-external_media_address=${infra.publicIp}
-external_signaling_address=${infra.publicIp}
+local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
+external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
+external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
 
 ; --- Transporte WebRTC WebSocket Seguro (WSS / Webphone) ---
 [transport-wss]
 type=transport
 protocol=wss
-bind=0.0.0.0:${infra.ports.webrtcWss}
-cert_file=${infra.sslCertificate.certPath}
-priv_key_file=${infra.sslCertificate.keyPath}
-local_net=${infra.lanSubnet}
-external_media_address=${infra.publicIp}
-external_signaling_address=${infra.publicIp}
+bind=0.0.0.0:${infra.ports?.webrtcWss || 8089}
+cert_file=${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
+priv_key_file=${infra.sslCertificate?.keyPath || defaultInfraConfig.sslCertificate.keyPath}
+local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
+external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
+external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
 
 `;
 
-    // Extensions
+    // Ramais PJSIP
     for (const ext of extensions) {
       output += `; ----------------------------------------------------
 ; Ramal Enlace: ${ext.number} - ${ext.name}
@@ -224,7 +243,7 @@ qualify_frequency=30
 `;
     }
 
-    // Trunks
+    // Troncos PJSIP
     for (const trk of trunks) {
       const isIpAuth = trk.authMode === 'ip';
       const authorizedIpsList = (trk.authorizedIps && trk.authorizedIps.length > 0)
@@ -239,7 +258,7 @@ qualify_frequency=30
 type=endpoint
 context=${trk.inboundContext || trk.context || 'from-trunk'}
 disallow=all
-${trk.codecs.map((c) => `allow=${c}`).join('\n')}
+${(trk.codecs || ['opus', 'alaw', 'ulaw']).map((c) => `allow=${c}`).join('\n')}
 aors=trunk-${trk.id}-aor
 ${!isIpAuth ? `outbound_auth=trunk-${trk.id}-auth\nfrom_user=${trk.fromUser || trk.username}\nfrom_domain=${trk.fromDomain || trk.host}` : `from_domain=${trk.fromDomain || trk.host}`}
 callerid=${trk.callerId}
@@ -290,14 +309,16 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
     return output;
   }
 
-  // Pure Asterisk 20+ Dialplan generator (extensions.conf)
-  generateExtensionsConf(tenantId: string = 'tenant-enlace-matriz'): string {
-    const extensions = db.extensions.filter((e) => e.tenantId === tenantId);
-    const routes = db.routes.filter((r) => r.tenantId === tenantId);
-    const groups = db.ringGroups.filter((g) => g.tenantId === tenantId);
-    const queues = db.queues.filter((q) => q.tenantId === tenantId);
-    const ivrs = db.ivrs.filter((i) => i.tenantId === tenantId);
-    const dids = db.dids.filter((d) => d.tenantId === tenantId && d.status === 'active');
+  /**
+   * Gerador oficial de Dialplan (extensions.conf) baseado em PostgreSQL.
+   */
+  async generateExtensionsConf(tenantId: string = 'tenant-enlace-matriz'): Promise<string> {
+    const extensions = await ExtensionRepository.listByTenant(tenantId);
+    const routes = await RouteRepository.listByTenant(tenantId);
+    const groups = await RingGroupRepository.listByTenant(tenantId);
+    const queues = await QueueRepository.listByTenant(tenantId);
+    const ivrs = await IvrRepository.listByTenant(tenantId);
+    const dids = (await DidRepository.listByTenant(tenantId)).filter((d) => d.status === 'active');
 
     return `; ====================================================================
 ; Enlace-PBX — Dialplan Oficial Asterisk 20 LTS (extensions.conf)
@@ -449,7 +470,6 @@ ${routes
  same => n,Set(CALLING_EXT=\${CALLERID(num)})
  same => n,Set(TARGET_CLI=)`;
 
-      // 1. Prioridade 1: Overrides específicos definidos na própria rota
       if (r.extensionOverrides && r.extensionOverrides.length > 0) {
         for (const ov of r.extensionOverrides) {
           if (ov.extensionNumber && ov.callerId) {
@@ -458,19 +478,16 @@ ${routes
         }
       }
 
-      // 2. Prioridade 2: cliCallerId configurado no cadastro do Ramal (Extension.cliCallerId)
       for (const ext of extensions) {
         if (ext.cliCallerId) {
           lines += `\n same => n,ExecIf($["\${CALLING_EXT}" = "${ext.number}" & $[${'${LEN(${TARGET_CLI})}'} = 0]]?Set(TARGET_CLI=${ext.cliCallerId}))`;
         }
       }
 
-      // 3. Prioridade 3: Fallback para callerIdOverride da Rota
       if (r.callerIdOverride) {
         lines += `\n same => n,ExecIf($[$[${'${LEN(${TARGET_CLI})}'} = 0]]?Set(TARGET_CLI=${r.callerIdOverride}))`;
       }
 
-      // 4. Aplica no Asterisk PJSIP (CallerID num, name e P-Asserted-Identity)
       lines += `\n same => n,GotoIf($[$[${'${LEN(${TARGET_CLI})}'} > 0]?apply_cli_${safeRouteTag}:continue_dial_${safeRouteTag})
  same => n(apply_cli_${safeRouteTag}),NoOp(=== Enlace-PBX CLI/ITX: Ramal \${CALLING_EXT} binando com sucesso \${TARGET_CLI} ===)
  same => n,Set(CALLERID(num)=\${TARGET_CLI})
@@ -556,7 +573,7 @@ ${routes
         timeStr = `${r.timeSchedule.startHour || '08:00'}-${r.timeSchedule.endHour || '18:00'},${weekdays},*,*`;
       }
 
-      let afterHoursDest = 'Goto(from-gemini,s,1)'; // Default 24/7 AI MaIA
+      let afterHoursDest = 'Goto(from-gemini,s,1)';
       if (r.afterHoursDestType === 'ivr') afterHoursDest = `Goto(ivr-menus,${r.afterHoursDestId || 'ivr-principal'},1)`;
       else if (r.afterHoursDestType === 'queue') afterHoursDest = `Goto(call-queues,${r.afterHoursDestId || 'queue-suporte-n1'},1)`;
       else if (r.afterHoursDestType === 'extension') afterHoursDest = `Goto(from-internal,${r.afterHoursDestId || '4101'},1)`;
@@ -580,7 +597,6 @@ exten => _X.,1,NoOp(Chamada de tronco sem rota definida: \${EXTEN})
 `;
   }
 
-    // Official Linux Installer Script as specified in PRD Section 40
   generateInstallScript(): string {
     return `#!/usr/bin/env bash
 # ====================================================================
@@ -598,91 +614,49 @@ ENLACE_CONF_DIR="/etc/asterisk"
 ENLACE_LOG_DIR="/var/log/asterisk"
 ENLACE_SPOOL_DIR="/var/spool/asterisk"
 
-echo "======================================================"
-echo "      Enlace-PBX — Instalador Oficial Asterisk 20     "
-echo "        Telefonia inteligente, aberta e brasileira.   "
-echo "======================================================"
+echo "=== [ENLACE-PBX] Instalador do Asterisk 20 LTS Puro Iniciado ==="
 
 if [ "$EUID" -ne 0 ]; then
-    echo "ERRO: Por favor, execute como root (sudo)."
-    exit 1
+  echo "[ERRO] Este script deve ser executado como root."
+  exit 1
 fi
 
-echo "[1/7] Atualizando repositórios e instalando dependências do sistema..."
 apt-get update
-apt-get install -y \\
-    build-essential wget curl git subversion pkg-config \\
-    libxml2-dev libncurses5-dev uuid-dev libjansson-dev libssl-dev \\
-    libsqlite3-dev libedit-dev libcurl4-openssl-dev libspeexdsp-dev \\
-    libogg-dev libvorbis-dev libopus-dev libsrtp2-dev libsndfile1-dev libneon27-dev \\
-    libnewt-dev libtool autoconf automake postgresql-client ca-certificates
+apt-get install -y build-essential wget subversion libncurses5-dev libssl-dev libxml2-dev libsqlite3-dev pkg-config libjansson-dev libedit-dev uuid-dev git sox libsox-fmt-all
 
-echo "[2/7] Baixando código-fonte oficial do Asterisk \${ASTERISK_VERSION}..."
 cd /usr/src
-if [ ! -f "asterisk-\${ASTERISK_VERSION}.tar.gz" ]; then
-    wget -q --show-progress "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-\${ASTERISK_VERSION}.tar.gz"
+if [ ! -d "asterisk-\${ASTERISK_VERSION}" ]; then
+  wget "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-\${ASTERISK_VERSION}.tar.gz"
+  tar -zxvf "asterisk-\${ASTERISK_VERSION}.tar.gz"
 fi
-tar -xzf "asterisk-\${ASTERISK_VERSION}.tar.gz"
-cd "asterisk-\${ASTERISK_VERSION}"
 
-echo "[3/7] Instalando pré-requisitos adicionais..."
+cd "asterisk-\${ASTERISK_VERSION}"
 contrib/scripts/install_prereq install
 
-echo "[4/7] Configurando compilação com suporte a PJSIP, ARI, WebRTC DTLS-SRTP e AudioSocket..."
-./configure --with-jansson --with-ssl --with-opus --with-srtp --with-pjproject-bundled
-
+./configure --with-jansson --with-ssl --with-srtp --with-pjproject-bundled
 make menuselect.makeopts
-menuselect/menuselect \\
-    --enable res_pjsip \\
-    --enable res_pjsip_transport_websocket \\
-    --enable res_http_websocket \\
-    --enable res_srtp \\
-    --enable res_crypto \\
-    --enable res_ari \\
-    --enable res_ari_channels \\
-    --enable res_ari_bridges \\
-    --enable res_ari_playbacks \\
-    --enable res_ari_recordings \\
-    --enable app_audiosocket \\
-    --enable res_audiosocket \\
-    --enable codec_opus \\
-    --enable format_wav \\
-    --enable format_mp3 \\
-    menuselect.makeopts
+menuselect/menuselect --enable res_pjsip --enable res_pjsip_transport_websocket --enable res_http_websocket --enable res_srtp --enable app_audiosocket --enable codec_opus --enable format_wav menuselect.makeopts
 
-echo "[5/7] Compilando Asterisk em paralelo..."
-make -j"$(nproc)"
+make -j$(nproc)
 make install
 make samples
 make config
 ldconfig
 
-echo "[6/7] Criando usuário \${ENLACE_USER} e ajustando permissões..."
-id \${ENLACE_USER} >/dev/null 2>&1 || \\
-    useradd --system --home /var/lib/asterisk --shell /usr/sbin/nologin \${ENLACE_USER}
+if ! id "$ENLACE_USER" >/dev/null 2>&1; then
+  useradd -m -d /var/lib/asterisk -s /sbin/nologin "$ENLACE_USER"
+fi
 
-mkdir -p \${ENLACE_CONF_DIR} \${ENLACE_LOG_DIR} \${ENLACE_SPOOL_DIR} /var/lib/asterisk /var/run/asterisk
-chown -R \${ENLACE_USER}:\${ENLACE_USER} \\
-    \${ENLACE_CONF_DIR} \${ENLACE_LOG_DIR} \${ENLACE_SPOOL_DIR} /var/lib/asterisk /var/run/asterisk
+chown -R $ENLACE_USER:$ENLACE_USER $ENLACE_CONF_DIR $ENLACE_LOG_DIR $ENLACE_SPOOL_DIR /var/lib/asterisk /usr/lib/asterisk
 
-echo "[7/7] Configurando systemd e inicializando serviço..."
-systemctl daemon-reload
-systemctl enable asterisk
-systemctl restart asterisk
-
-echo "======================================================"
-echo " Enlace-PBX instalado com sucesso no Asterisk Puro!   "
-echo "======================================================"
-asterisk -rx "core show version"
-asterisk -rx "pjsip show transports"
+echo "=== [ENLACE-PBX] Instalação concluída com sucesso! ==="
 `;
   }
 
-  // ari.conf generator
   generateAriConf(): string {
     return `; ====================================================================
-; Enlace-PBX — Configuração ARI (ari.conf)
-; Asterisk REST Interface para AI Gateway & Google Gemini Live
+; Enlace-PBX — Configuração ARI (Asterisk REST Interface)
+; Asterisk 20 LTS — Enlace Telecom
 ; ====================================================================
 
 [general]
@@ -690,7 +664,7 @@ enabled = yes
 pretty = yes
 allowed_origins = *
 
-[enlace]
+[enlace_ari_admin]
 type = user
 read_only = no
 password = ENLACE_ARI_SEC_TOKEN_PROD
@@ -698,9 +672,8 @@ password_format = plain
 `;
   }
 
-  // queues.conf generator (ACD Queues)
-  generateQueuesConf(tenantId: string = 'tenant-enlace-matriz'): string {
-    const queues = db.queues.filter((q) => q.tenantId === tenantId);
+  async generateQueuesConf(tenantId: string = 'tenant-enlace-matriz'): Promise<string> {
+    const queues = await QueueRepository.listByTenant(tenantId);
 
     let output = `; ====================================================================
 ; Enlace-PBX — Configuração de Filas de Atendimento ACD (queues.conf)
@@ -731,7 +704,7 @@ announce-frequency = 30
 announce-holdtime = yes
 announce-position = yes
 `;
-      q.members.forEach((member) => {
+      (q.members || []).forEach((member) => {
         output += `member => PJSIP/${member},0,Ramal ${member}\n`;
       });
       output += '\n';
@@ -740,7 +713,6 @@ announce-position = yes
     return output;
   }
 
-  // rtp.conf generator (WebRTC, STUN/TURN, RTP Range)
   generateRtpConf(): string {
     return `; ====================================================================
 ; Enlace-PBX — Configuração RTP & WebRTC ICE/STUN (rtp.conf)
@@ -760,7 +732,6 @@ stunaddr=stun.l.google.com:19302
 `;
   }
 
-  // audiosocket.conf generator (Google Gemini Live 24kHz PCM16)
   generateAudioSocketConf(): string {
     return `; ====================================================================
 ; Enlace-PBX — Configuração AudioSocket para Google Gemini (audiosocket.conf)
@@ -769,7 +740,6 @@ stunaddr=stun.l.google.com:19302
 ; ====================================================================
 
 [general]
-; Porta do serviço local Node.js / Express AudioSocket Server
 bindaddr = 127.0.0.1
 port = 9092
 
@@ -782,133 +752,34 @@ format = slin24
 `;
   }
 
-  // Asterisk CLI Engine Execution (Simulated real Asterisk 20 console)
-  executeCliCommand(rawCmd: string): string {
-    const cmd = rawCmd.trim().toLowerCase();
-
-    if (cmd === 'core show version' || cmd === 'version') {
-      return `Asterisk 20.17.0 LTS built by root @ enlace-core-node-01 on a x86_64 running Linux on 2026-03-01 02:14:10 UTC`;
+  /**
+   * Executa comando diretamente no Asterisk Core via CLI ou AMI.
+   * Não simula saídas quando Asterisk estiver offline.
+   */
+  async executeCliCommand(rawCmd: string): Promise<string> {
+    const hasBinary = await asteriskAdapter.checkBinaryExists();
+    if (hasBinary) {
+      const res = await asteriskAdapter.executeCli(rawCmd);
+      if (res.success) {
+        return res.output || 'Comando executado com sucesso no Asterisk CLI.';
+      }
+      return `[ERRO ASTERISK CLI] ${res.error || 'Falha ao executar comando no Asterisk CLI.'}`;
     }
 
-    if (cmd === 'core show uptime' || cmd === 'uptime') {
-      return `System uptime: 4 days, 18 hours, 32 minutes, 14 seconds
-Last reload: 1 day, 6 hours, 10 minutes, 2 segundos`;
+    try {
+      const out = await asteriskAdapter.executeAmiAction('Command', { Command: rawCmd });
+      return out || 'Comando executado via AMI.';
+    } catch (err: any) {
+      return `[ERRO COMUNICAÇÃO] Asterisk Core não está em execução ou não foi possível conectar ao socket CLI/AMI: ${err.message}`;
     }
-
-    if (cmd === 'core show channels' || cmd.startsWith('core show chan')) {
-      const chans = this.activeChannelsCache;
-      const count = chans.length;
-      let out = `Channel              Location             State   Application(Data)\n`;
-      out += `--------------------------------------------------------------------------------\n`;
-      chans.forEach((c) => {
-        out += `${c.name.padEnd(20)} ${c.callerNumber.padEnd(20)} ${c.state.padEnd(7)} ${c.application}\n`;
-      });
-      out += `--------------------------------------------------------------------------------\n`;
-      out += `${count} active channel${count === 1 ? '' : 's'}\n${count} active call${count === 1 ? '' : 's'}\n`;
-      return out;
-    }
-
-    if (cmd === 'pjsip show endpoints' || cmd === 'pjsip show endpoints' || cmd === 'pjsip endpoints') {
-      let out = ` Endpoint:  <Endpoint/CID.....................................>  <State.....>  <Channels.>\n`;
-      out += `==========================================================================================\n\n`;
-      db.extensions.forEach((ext) => {
-        const state = ext.status === 'online' ? 'Available' : ext.status === 'busy' ? 'In use' : 'Unavailable';
-        out += ` Endpoint:  ${ext.number}/${ext.callerId.padEnd(35)}  ${state.padEnd(12)} 0 of 5\n`;
-        out += `     InAuth:  ${ext.number}-auth/${ext.number}\n`;
-        out += `        Aor:  ${ext.number} (Contacts: 1/5, RTT: 12.4ms)\n\n`;
-      });
-      out += `Objects found: ${db.extensions.length}\n`;
-      return out;
-    }
-
-    if (cmd === 'pjsip show registrations' || cmd.startsWith('pjsip show reg')) {
-      let out = ` <Registration/ServerURI..............................>  <Auth..........>  <Status.......>\n`;
-      out += `==========================================================================================\n`;
-      db.trunks.forEach((t) => {
-        out += ` ${t.id}/sip:${t.host}:${t.port}  ${t.username.padEnd(16)}  Registered\n`;
-      });
-      out += `\nObjects found: ${db.trunks.length}\n`;
-      return out;
-    }
-
-    if (cmd === 'queue show' || cmd.startsWith('queue show')) {
-      let out = ``;
-      db.queues.forEach((q) => {
-        out += `${q.name} has 0 calls (timeout ${q.timeoutSeconds}s) in '${q.strategy}' strategy (0s holdtime, 0s talktime), W:0, C:${q.answeredToday || 0}, A:${q.abandonedToday || 0}, SL:98.4% within 20s\n`;
-        out += `   Members:\n`;
-        q.members.forEach((m) => {
-          out += `      PJSIP/${m} (ringinuse enabled) (dynamic) (Not in use) has taken 14 calls (last was 340 secs ago)\n`;
-        });
-        out += `   No Callers\n\n`;
-      });
-      return out;
-    }
-
-    if (cmd === 'core reload' || cmd === 'reload') {
-      return `Module 'res_pjsip.so' reloaded successfully.\nModule 'app_audiosocket.so' reloaded successfully.\nModule 'res_ari.so' reloaded successfully.\nModule 'pbx_config.so' reloaded successfully.\nAsterisk configuration reloaded.`;
-    }
-
-    if (cmd === 'pjsip reload') {
-      return `PJSIP configuration reloaded successfully.\n- 0 endpoints updated\n- 0 aors updated\n- 0 auths updated`;
-    }
-
-    if (cmd.startsWith('stasis show') || cmd.includes('stasis')) {
-      return `Application: enlace_ai_bridge
-Description: Stasis ARI bridge for Enlace Google Gemini AudioSocket
-Channels subscribed: ${this.activeChannelsCache.filter(c => c.aiBridgeActive).length}
-Endpoints subscribed: PJSIP/trunk-claro-0800, PJSIP/4101
-Bridges subscribed: 1
-Device states subscribed: 4`;
-    }
-
-    if (cmd.startsWith('audiosocket') || cmd.includes('audiosocket')) {
-      return `AudioSocket Subsystem:
-Active TCP/WS streams: 1 (Port 9092)
-Format: PCM 16-bit linear 24000 Hz
-Active latency: 18.2 ms
-Packets exchanged: 48,120 (0 lost)`;
-    }
-
-    if (cmd === 'dialplan show' || cmd.startsWith('dialplan show')) {
-      return `[ Context 'from-internal' ]
-  '4101' =>          1. Dial(PJSIP/4101,30)                        [pbx_config]
-  '4102' =>          1. Dial(PJSIP/4102,30)                        [pbx_config]
-  '4103' =>          1. Dial(PJSIP/4103,30)                        [pbx_config]
-  '4104' =>          1. Dial(PJSIP/4104,30)                        [pbx_config]
-  '5000' =>          1. Stasis(enlace_ai_bridge,maia)              [pbx_config]
-  '5001' =>          1. Queue(fila_suporte_tecnico)                [pbx_config]
-  '_0[1-9]XXXXXXXXX' => 1. Set(CALLERID(num)=1140030000)           [pbx_config]
-                     2. Dial(PJSIP/\${EXTEN}@trunk-claro-0800)       [pbx_config]
-
--= 1 context, 7 extensions, 8 priors =-`;
-    }
-
-    if (cmd === 'help' || cmd === '?') {
-      return `Available Commands:
-  core show channels        - List active channels and calls
-  core show version         - Display Asterisk core release
-  core show uptime          - Display uptime and reload history
-  pjsip show endpoints      - List PJSIP endpoints (extensions)
-  pjsip show registrations  - List SIP trunk registrations
-  queue show                - ACD queues and agent status
-  dialplan show             - Inspect generated dialplan contexts
-  stasis show app           - Inspect active Stasis ARI application
-  audiosocket show          - Inspect 24kHz AudioSocket stream
-  core reload               - Reload all PBX modules
-  pjsip reload              - Reload PJSIP transport and endpoints`;
-    }
-
-    return `No such command '${rawCmd}' (type 'help' for Asterisk 20 command list)`;
   }
 
   /**
-   * Simulação e Resolução de CallerID / BINA para chamadas de saída
-   * Permite verificar exatamente como o dialplan Asterisk e os troncos CLI/ITX
-   * resolverão o número binado para qualquer ramal discando em qualquer rota.
+   * Resolução de CallerID / BINA para chamadas de saída via PostgreSQL.
    */
-  resolveCallerIdForOutboundCall(tenantId: string, extensionNumber: string, routeId: string) {
-    const ext = db.extensions.find((e) => e.tenantId === tenantId && e.number === extensionNumber);
-    const route = db.routes.find((r) => r.tenantId === tenantId && r.id === routeId);
+  async resolveCallerIdForOutboundCall(tenantId: string, extensionNumber: string, routeId: string) {
+    const ext = await ExtensionRepository.findByNumber(tenantId, extensionNumber);
+    const route = await RouteRepository.findById(routeId);
 
     if (!ext || !route) {
       return null;
@@ -919,7 +790,6 @@ Packets exchanged: 48,120 (0 lost)`;
     let explanation = `O ramal binaria seu identificador padrão interno (${ext.callerId || ext.number}).`;
 
     if (route.isCliItx) {
-      // 1. Prioridade 1: Sobrescrita explícita na própria rota
       const routeOverride = route.extensionOverrides?.find((o) => o.extensionNumber === extensionNumber);
       if (routeOverride && routeOverride.callerId) {
         resolvedCallerId = routeOverride.callerId;
@@ -940,7 +810,7 @@ Packets exchanged: 48,120 (0 lost)`;
       explanation = `Rota padrão sem CLI dinâmico com CallerID fixo configurado: ${route.callerIdOverride}.`;
     }
 
-    const trunk = db.trunks.find((t) => t.id === route.trunkId);
+    const trunk = route.trunkId ? await TrunkRepository.findById(route.trunkId) : null;
     const trunkHost = trunk ? trunk.host : 'sip.operadora.com.br';
 
     return {

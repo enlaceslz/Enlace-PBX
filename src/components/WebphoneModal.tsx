@@ -190,29 +190,35 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
     clientRef.current = client;
 
-    // Obtém ramal autenticado do usuário logado
-    const token = localStorage.getItem('enlace_token');
-    fetch('/api/v1/auth/me', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then((res) => res.json())
-      .then((user) => {
-        const ext = user?.extension || '4101';
-        const hostname = window.location.hostname || 'localhost';
-        const port = window.location.protocol === 'https:' ? '8089' : '8088';
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wssUrl = `${protocol}//${hostname}:${port}/ws`;
+    // Obtém credencial WebRTC autenticada do usuário logado via backend
+    const token = localStorage.getItem('enlace_jwt') || localStorage.getItem('enlace_token');
+    if (!token) {
+      setWebrtcStatus('WSS_DISCONNECTED');
+      setWebrtcStatusMsg('Sessão não autenticada. Faça login para registrar o Webphone.');
+      return;
+    }
 
+    fetch('/api/v1/webrtc/credential', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Erro HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((cred) => {
         client.connectAndRegister({
-          extension: ext,
-          secret: 'enlace_secret_webrtc',
-          domain: hostname,
-          wssUrl,
+          extension: cred.extension,
+          secret: cred.secret,
+          domain: cred.domain,
+          wssUrl: cred.wssUrl,
         });
       })
-      .catch(() => {
+      .catch((err) => {
         setWebrtcStatus('WSS_DISCONNECTED');
-        setWebrtcStatusMsg('Asterisk WebRTC (WSS:8089) indisponível. Serviço offline.');
+        setWebrtcStatusMsg(`WebRTC indisponível: ${err.message || 'Serviço offline'}`);
       });
 
     return () => {
@@ -258,11 +264,12 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     setTransferStatusMsg(`Enviando comando de transferência para ${dest} ao Asterisk Core...`);
 
     try {
+      const jwtToken = localStorage.getItem('enlace_jwt') || localStorage.getItem('enlace_token') || '';
       const res = await fetch('/api/v1/asterisk/channels/transfer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('enlace_token') || ''}`,
+          'Authorization': `Bearer ${jwtToken}`,
         },
         body: JSON.stringify({ destination: dest }),
       });
@@ -346,30 +353,8 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
       await clientRef.current.hangup();
     }
 
-    // Save CDR record
-    try {
-      await fetch('/api/v1/cdr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          caller: '4101',
-          callee: connectedDestination || dialNumber || '9001',
-          direction: 'outbound',
-          duration: callDuration || 12,
-          billsec: callDuration || 12,
-          aiAgentId: isAiCall ? 'agent-maia-247' : undefined,
-          isAiHandled: isAiCall,
-          isTransferred: Boolean(transferDestination),
-          transferredTo: transferDestination ? `Ramal/Fila ${transferDestination}` : undefined,
-          ivrPath: callType === 'ivr' ? 'URA Principal [6001]' : undefined,
-          sentiment: isAiCall ? 'positive' : 'neutral',
-          transcription: aiHistory.map((h) => `${h.role}: ${h.text}`).join('\n'),
-        }),
-      });
-      if (onCallEnded) onCallEnded();
-    } catch {
-      // Ignored
-    }
+    // Notifica encerramento da chamada para recarregar bilhetagem oficial originada pelo Asterisk
+    if (onCallEnded) onCallEnded();
 
     setTransferDestination('');
     setAiHistory([]);
@@ -517,11 +502,12 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
             timestamp: new Date().toLocaleTimeString('pt-BR'),
           },
         ]);
+        const jwtToken = localStorage.getItem('enlace_jwt') || localStorage.getItem('enlace_token') || '';
         fetch('/api/v1/asterisk/channels/transfer', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('enlace_token') || ''}`,
+            'Authorization': `Bearer ${jwtToken}`,
           },
           body: JSON.stringify({ destination: transferTarget }),
         })

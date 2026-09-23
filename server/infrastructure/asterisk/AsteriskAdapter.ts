@@ -245,11 +245,6 @@ export class AsteriskAdapter {
           application: app ? `${app}(${appData || ''})` : 'None',
           durationSeconds: parseInt(duration) || 0,
           aiBridgeActive: context.includes('gemini') || appData.includes('gemini') || exten === '9001',
-          qos: {
-            latencyMs: 12,
-            jitterMs: 1,
-            packetLossPercent: 0,
-          },
         });
       }
     }
@@ -562,10 +557,12 @@ export class AsteriskAdapter {
     // Tenta conectar via socket AMI no ASTERISK_HOST remoto se configurado
     try {
       const amiRes = await this.executeAmiAction('CoreStatus');
+      const versionMatch = amiRes.match(/CoreCurrentVersion:\s*([^\r\n]+)/i);
+      const realVersion = versionMatch ? versionMatch[1].trim() : 'NO_DATA';
       const channels = this.parseAmiChannels(amiRes);
       this.lastHealth = {
         status: 'UP',
-        version: 'Asterisk 20 LTS (Remoto via AMI)',
+        version: realVersion,
         uptime: 'Remoto',
         channelsCount: channels.length,
         mode: 'REMOTE_AMI',

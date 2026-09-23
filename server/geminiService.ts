@@ -1,6 +1,14 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import zlib from 'zlib';
-import { initialSeedData as db } from './infrastructure/postgres/seedData.js';
+import {
+  AiAgentRepository,
+  AiKnowledgeRepository,
+  AiToolRepository,
+  CrmRepository,
+  OmnichannelRepository,
+  ExtensionRepository,
+  QueueRepository,
+} from './infrastructure/postgres/repositories/index.js';
 import { asteriskAdapter } from './infrastructure/asterisk/AsteriskAdapter.js';
 import { CdrRepository } from './infrastructure/postgres/repositories/CdrRepository.js';
 import { AuditLogRepository } from './infrastructure/postgres/repositories/AuditLogRepository.js';
@@ -191,28 +199,37 @@ export class GeminiService {
     }
 
     // Get the conversation history for context
-    const conv = db.omnichannelConversations.find(c => c.id === conversationId);
+    const conv = await OmnichannelRepository.findById(conversationId);
     let historyContext = '';
     let memoryContext = '';
+    const tenantId = conv?.tenantId || 'tenant-enlace-matriz';
 
     if (conv) {
       // Get last 5 messages for context
-      historyContext = conv.messages.slice(-5).map(m => `${m.sender === 'user' ? 'Cliente' : 'IA'}: ${m.text}`).join('\n');
+      historyContext = conv.messages.slice(-5).map(m => `${m.sender === 'contact' ? 'Cliente' : 'IA'}: ${m.content}`).join('\n');
       
       // Customer Memory Retrieval
-      const customerContact = db.crmContacts.find(c => c.id === conv.contactId || c.phone.replace(/\D/g, '') === conv.contactId.replace(/\D/g, ''));
-      const customerMem = customerContact ? db.customerMemories.find(m => m.contactId === customerContact.id) : null;
+      const customerContact = conv.contactId ? await CrmRepository.findContactById(conv.contactId, tenantId) : null;
+      const customerMem = customerContact ? await CrmRepository.findMemoryByPhone(customerContact.phone, tenantId) : null;
       
       if (customerMem) {
         memoryContext = `\n[MEMÓRIA DO CLIENTE - ${customerContact?.name || 'Desconhecido'}]\nResumo: ${customerMem.summary}\nPreferências: ${customerMem.preferences.join(', ')}\nSentimento anterior: ${customerMem.sentimentHistory}\nRisco de Churn: ${customerMem.churnRisk}%\n`;
       }
     }
 
-    const agent = agentId ? (db.aiAgents.find((a) => a.id === agentId) || db.aiAgents[0]) : db.aiAgents[0];
+    let agent = agentId ? await AiAgentRepository.findById(agentId, tenantId) : null;
+    if (!agent) {
+      const agents = await AiAgentRepository.listByTenant(tenantId);
+      agent = agents[0];
+    }
+    if (!agent) {
+      return 'Nenhum agente de IA configurado para este tenant.';
+    }
 
     // Assemble Knowledge grounding
+    const allKnowledge = await AiKnowledgeRepository.listByTenant(tenantId);
     const knowledgeSnippets = agent.knowledgeSources
-      .map((kId) => db.aiKnowledge.find((k) => k.id === kId))
+      .map((kId) => allKnowledge.find((k) => k.id === kId))
       .filter(Boolean)
       .map((k) => `[FONTE: ${k!.title} - ${k!.category}]\n${k!.content}`)
       .join('\n\n');
@@ -257,12 +274,20 @@ ${historyContext}
   async processVoiceTurn(req: VoiceTurnRequest): Promise<VoiceTurnResponse> {
     const startTime = Date.now();
     const tenantId = req.tenantId || 'tenant-enlace-matriz';
-    const agent = db.aiAgents.find((a) => a.id === req.agentId) || db.aiAgents[0];
+    let agent = req.agentId ? await AiAgentRepository.findById(req.agentId, tenantId) : null;
+    if (!agent) {
+      const agents = await AiAgentRepository.listByTenant(tenantId);
+      agent = agents[0];
+    }
+    if (!agent) {
+      throw new Error('Nenhum agente de IA configurado.');
+    }
     const voiceConfig = resolveAgentVoice(agent);
 
     // Assemble Knowledge grounding
+    const allKnowledge = await AiKnowledgeRepository.listByTenant(tenantId);
     const knowledgeSnippets = agent.knowledgeSources
-      .map((kId) => db.aiKnowledge.find((k) => k.id === kId))
+      .map((kId) => allKnowledge.find((k) => k.id === kId))
       .filter(Boolean)
       .map((k) => `[FONTE: ${k!.title} - ${k!.category}]\n${k!.content}`)
       .join('\n\n');
@@ -300,8 +325,9 @@ ${knowledgeSnippets}`;
 
     try {
       // Build function declarations for tools authorized for this agent
+      const allTools = await AiToolRepository.listToolsByTenant(tenantId);
       const functionDeclarations = agent.tools
-        .map((tId) => db.aiTools.find((t) => t.id === tId))
+        .map((tId) => allTools.find((t) => t.id === tId))
         .filter(Boolean)
         .map((tool) => ({
           name: tool!.name,
@@ -333,17 +359,12 @@ ${knowledgeSnippets}`;
         }));
 
       // Customer Memory Retrieval
-      const customerContact = db.crmContacts.find(
-        (c) =>
-          c.phone.replace(/\D/g, '') === (req.callerNumber || '').replace(/\D/g, '') &&
-          c.tenantId === tenantId
-      );
-      const customerMem = customerContact
-        ? db.customerMemories.find((m) => m.contactId === customerContact.id)
+      const customerMem = req.callerNumber
+        ? await CrmRepository.findMemoryByPhone(req.callerNumber, tenantId)
         : null;
       let memoryContext = '';
       if (customerMem) {
-        memoryContext = `[MEMÓRIA DO CLIENTE - ${customerContact?.name || 'Desconhecido'}]\nResumo: ${customerMem.summary}\nPreferências: ${customerMem.preferences.join(', ')}\nSentimento anterior: ${customerMem.sentimentHistory}\nRisco de Churn: ${customerMem.churnRisk}%\n\n`;
+        memoryContext = `[MEMÓRIA DO CLIENTE - Telefone: ${customerMem.phone}]\nResumo: ${customerMem.summary}\nPreferências: ${customerMem.preferences.join(', ')}\nSentimento anterior: ${customerMem.sentimentHistory}\nRisco de Churn: ${customerMem.churnRisk}%\n\n`;
       }
 
       // Convert history with correct persona label
@@ -380,7 +401,7 @@ ${knowledgeSnippets}`;
       const functionCalls = response.functionCalls;
       if (functionCalls && functionCalls.length > 0) {
         const fc = functionCalls[0];
-        const toolObj = db.aiTools.find((t) => t.name === fc.name);
+        const toolObj = await AiToolRepository.findByName(fc.name, tenantId);
 
         if (!toolObj || !agent.tools.includes(toolObj.id)) {
           throw new Error(`Policy Engine Violation: Agent attempted to execute unauthorized tool ${fc.name}`);
@@ -664,7 +685,7 @@ Retorne uma análise em português no seguinte formato JSON:
       timbre: string;
     };
   }> {
-    const agent = params.agentId ? db.aiAgents.find((a) => a.id === params.agentId) : undefined;
+    const agent = params.agentId ? await AiAgentRepository.findById(params.agentId) : undefined;
     const voiceConfig = resolveAgentVoice({
       name: agent?.name,
       voice: params.voice || agent?.voice,

@@ -223,7 +223,9 @@ export default function App() {
   // Real-time SSE for channels and metrics
   useEffect(() => {
     if (!isAuthenticated) return;
-    const eventSource = new EventSource('/api/v1/events/asterisk');
+    const token = authToken || localStorage.getItem('enlace_jwt');
+    const sseUrl = '/api/v1/events/asterisk' + (token ? `?token=${encodeURIComponent(token)}` : '');
+    const eventSource = new EventSource(sseUrl);
     
     eventSource.onmessage = (event) => {
       try {
