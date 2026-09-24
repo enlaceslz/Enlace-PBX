@@ -57,16 +57,20 @@ export class UserRepository {
     }
   }
 
+  public static toSafeUser(user: User): User {
+    const { passwordHash, ...safe } = user;
+    return safe as User;
+  }
+
   public static async listAll(): Promise<User[]> {
     try {
-      const res = await postgresClient.query('SELECT * FROM users ORDER BY name ASC');
+      const res = await postgresClient.query('SELECT id, tenant_id, name, email, role, extension, is_active, last_login FROM users ORDER BY name ASC');
       return res.rows.map(row => ({
         id: row.id,
         tenantId: row.tenant_id,
         name: row.name,
         email: row.email,
         role: row.role,
-        passwordHash: row.password_hash || '',
         extension: row.extension || undefined,
         isActive: row.is_active,
         lastLogin: row.last_login ? row.last_login.toISOString() : undefined,

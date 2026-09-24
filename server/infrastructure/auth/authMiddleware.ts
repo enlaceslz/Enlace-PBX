@@ -250,3 +250,17 @@ export const requireTenant = async (req: AuthenticatedRequest, res: Response, ne
   req.tenantId = req.user.tenantId;
   next();
 };
+
+/**
+ * Retorna o tenantId autorizado estritamente a partir do contexto da sessão autenticada.
+ * Nunca confia em dados não autenticados do frontend.
+ */
+export function getAuthorizedTenantId(req: Request): string {
+  const authReq = req as AuthenticatedRequest;
+  const tenantId = authReq.tenantId || authReq.user?.tenantId;
+  if (!tenantId) {
+    throw new Error('TENANT_UNAUTHORIZED: Tenant não determinado no contexto da sessão.');
+  }
+  return tenantId;
+}
+

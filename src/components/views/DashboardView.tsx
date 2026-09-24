@@ -162,7 +162,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               Latência Média de Resposta IA
             </div>
             <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
-              {metrics?.aiLatencyAvgMs ?? 355} ms
+              {metrics?.aiLatencyAvgMs ? `${metrics.aiLatencyAvgMs} ms` : 'NO_DATA'}
             </div>
             <p className="text-[10px] text-slate-500">Gemini Live API em tempo real</p>
           </div>
@@ -177,9 +177,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               Transbordo para Humanos
             </div>
             <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
-              {metrics?.humanTransferRatePercent ?? 28}%
+              {metrics?.humanTransferRatePercent !== undefined ? `${metrics.humanTransferRatePercent}%` : 'NO_DATA'}
             </div>
-            <p className="text-[10px] text-slate-500">72% resolvidas integralmente pela IA</p>
+            <p className="text-[10px] text-slate-500">
+              {metrics?.humanTransferRatePercent !== undefined ? `${100 - metrics.humanTransferRatePercent}% resolvidas pela IA` : 'Aguardando atendimentos'}
+            </p>
           </div>
         </div>
 
@@ -192,9 +194,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               Duração Média das Chamadas
             </div>
             <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
-              {metrics?.avgCallDurationSeconds ? `${Math.floor(metrics.avgCallDurationSeconds / 60)}m ${metrics.avgCallDurationSeconds % 60}s` : '2m 45s'}
+              {metrics?.avgCallDurationSeconds ? `${Math.floor(metrics.avgCallDurationSeconds / 60)}m ${metrics.avgCallDurationSeconds % 60}s` : '0s'}
             </div>
-            <p className="text-[10px] text-slate-500">Custo médio estimado: R$ 0,18/chamada</p>
+            <p className="text-[10px] text-slate-500">
+              {metrics?.callsToday ? `Custo médio: R$ ${(metrics.costEstimateTodayBrl / (metrics.callsToday || 1)).toFixed(2)}/chamada` : 'Custo médio: R$ 0,00'}
+            </p>
           </div>
         </div>
       </div>

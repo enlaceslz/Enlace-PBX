@@ -84,7 +84,7 @@ fi
 # 6. Parâmetros de Configuração de Rede, Host e Ambiente
 echo -e "\n${BOLD}[4/9] Configuração de Rede, Domínio e Integrações${NC}"
 echo -e "${CYAN}Detectando endereço IP público (WAN)...${NC}"
-DETECTED_WAN=$(curl -s --connect-timeout 4 https://api.ipify.org || curl -s --connect-timeout 4 https://ifconfig.me || echo "UNAVAILABLE")
+DETECTED_WAN=$(curl -s --connect-timeout 4 https://api.ipify.org || curl -s --connect-timeout 4 https://ifconfig.me || echo "NOT_CONFIGURED")
 echo -e "IP Público detectado: ${GREEN}${BOLD}${DETECTED_WAN}${NC}"
 
 read -p "Confirma o IP Público para sinalização SIP e RTP [${DETECTED_WAN}]: " CONF_WAN
@@ -96,8 +96,49 @@ DOMAIN="${CONF_DOMAIN:-pbx.enlacetelecom.com.br}"
 read -p "Informe a Sub-rede LAN local para NAT Traversal [192.168.1.0/24]: " CONF_LAN
 LAN_SUBNET="${CONF_LAN:-192.168.1.0/24}"
 
-read -p "Informe o E-mail do Administrador (para avisos do SSL Let's Encrypt) [noc@enlacetelecom.com.br]: " CONF_EMAIL
+read -p "Informe o E-mail do Administrador Inicial [noc@enlacetelecom.com.br]: " CONF_EMAIL
 ADMIN_EMAIL="${CONF_EMAIL:-noc@enlacetelecom.com.br}"
+
+# Senha inicial segura do Super Admin
+read -s -p "Informe a Senha Inicial do Super Admin (deixe em branco para gerar aleatória): " CONF_ADMIN_PASS
+echo ""
+if [ -z "$CONF_ADMIN_PASS" ]; then
+  ADMIN_INITIAL_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=')
+  echo -e "${YELLOW}🔑 Senha inicial de Super Admin gerada com segurança:${NC} ${GREEN}${BOLD}${ADMIN_INITIAL_PASSWORD}${NC}"
+  echo -e "${YELLOW}⚠️ Anote esta senha! Ela será necessária para o primeiro login e não será exibida novamente.${NC}"
+else
+  ADMIN_INITIAL_PASSWORD="$CONF_ADMIN_PASS"
+fi
+
+# Chave JWT forte (256 bits)
+EXISTING_JWT=""
+if [ -f .env ]; then
+  EXISTING_JWT=$(grep "^JWT_SECRET=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+fi
+if [ -n "$EXISTING_JWT" ]; then
+  JWT_SECRET="$EXISTING_JWT"
+else
+  JWT_SECRET=$(openssl rand -hex 32)
+fi
+
+# Token seguro do Webhook do WhatsApp (nunca usar padrão previsível)
+EXISTING_WHATSAPP=""
+if [ -f .env ]; then
+  EXISTING_WHATSAPP=$(grep "^WHATSAPP_VERIFY_TOKEN=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+fi
+if [ -n "$EXISTING_WHATSAPP" ] && [ "$EXISTING_WHATSAPP" != "enlace_meta_webhook_token_2026" ]; then
+  WHATSAPP_VERIFY_TOKEN="$EXISTING_WHATSAPP"
+else
+  WHATSAPP_VERIFY_TOKEN=$(openssl rand -hex 24)
+fi
+
+# Credenciais AMI e ARI
+AMI_PASSWORD=$(openssl rand -hex 16)
+ARI_PASSWORD=$(openssl rand -hex 16)
+
+# Banco de dados PostgreSQL
+read -p "Informe a URL de conexão PostgreSQL (DATABASE_URL) [postgresql://postgres:postgres@127.0.0.1:5432/enlace_pbx]: " CONF_DB
+DATABASE_URL="${CONF_DB:-postgresql://postgres:postgres@127.0.0.1:5432/enlace_pbx}"
 
 CURRENT_GEMINI=""
 if [ -f .env ]; then
@@ -127,17 +168,39 @@ NODE_ENV=production
 PORT=3000
 HOST=0.0.0.0
 
-# Infraestrutura de Telefonia
+# Segurança e Autenticação Corporativa (Segredos de 256 bits)
+JWT_SECRET=${JWT_SECRET}
+CORS_ALLOWED_ORIGINS=https://${DOMAIN},http://127.0.0.1:3000
+
+# Bootstrap Administrativo Obrigatório (Primeiro Acesso)
+ADMIN_INITIAL_EMAIL=${ADMIN_EMAIL}
+ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD}
+
+# Persistência de Dados Relacional (PostgreSQL)
+DATABASE_URL=${DATABASE_URL}
+
+# Infraestrutura de Telefonia e Rede
 PBX_DOMAIN=${DOMAIN}
 PBX_PUBLIC_IP=${PUBLIC_IP}
 PBX_LAN_SUBNET=${LAN_SUBNET}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 
+# Asterisk AMI (Asterisk Manager Interface)
+ASTERISK_AMI_HOST=127.0.0.1
+ASTERISK_AMI_PORT=5038
+ASTERISK_AMI_USERNAME=enlace_ami
+ASTERISK_AMI_PASSWORD=${AMI_PASSWORD}
+
+# Asterisk ARI (Asterisk REST Interface)
+ASTERISK_ARI_URL=http://127.0.0.1:8088
+ASTERISK_ARI_USERNAME=enlace_ari
+ASTERISK_ARI_PASSWORD=${ARI_PASSWORD}
+
 # Inteligência Artificial (Google Gemini)
 GEMINI_API_KEY=${GEMINI_KEY}
 
-# Segurança e Webhooks
-WHATSAPP_VERIFY_TOKEN=enlace_meta_webhook_token_2026
+# Segurança e Webhooks Omnichannel
+WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
 EOF
 echo -e "${GREEN}✅ Arquivo .env gravado com sucesso.${NC}"
 

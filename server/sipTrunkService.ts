@@ -243,7 +243,7 @@ class SipTrunkService {
    * Cria identificação por IP (type=identify com match de todos os IPs autorizados).
    */
   generatePjsipForTrunk(trunk: Trunk, publicIpOverride?: string): string {
-    const publicIp = publicIpOverride || '200.80.127.50';
+    const publicIp = publicIpOverride || process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP || 'NOT_CONFIGURED';
     const isIpAuth = trunk.authMode === 'ip';
     const transportName = `transport-${trunk.transport.toLowerCase()}`;
     const codecsStr = (trunk.codecs || ['pcma', 'pcmu', 'g729']).join(',');
@@ -461,46 +461,151 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
   }
 
   /**
-   * Teste real de conectividade de rede e socket com o host SIP / SBC
-   * Elimina completamente o uso de Math.random.
+   * Teste real de conectividade de rede e handshake SIP OPTIONS com o host SIP / SBC.
+   * Separa estritamente:
+   * - Camada de Transporte: TCP_REACHABLE, TCP_UNREACHABLE, TIMEOUT
+   * - Camada SIP: SIP_OPTIONS_200, SIP_OPTIONS_401, SIP_OPTIONS_403, SIP_OPTIONS_404,
+   *               SIP_OPTIONS_408, SIP_OPTIONS_5XX, SIP_TIMEOUT, SIP_INVALID_RESPONSE
+   * Guarda evidência completa do teste e nunca converte conexão TCP simples em "200 OK".
    */
   async testSipHostSocket(
     hostOrIp: string,
     port: number = 5060,
-    timeoutMs: number = 2500
-  ): Promise<{ status: 'active' | 'inactive' | 'unreachable'; latencyMs: number; sipResponse: string }> {
+    timeoutMs: number = 2500,
+    transport: 'TCP' | 'UDP' | 'TLS' = 'TCP'
+  ): Promise<{
+    status: 'active' | 'inactive' | 'unreachable';
+    classification:
+      | 'SIP_OPTIONS_200'
+      | 'SIP_OPTIONS_401'
+      | 'SIP_OPTIONS_403'
+      | 'SIP_OPTIONS_404'
+      | 'SIP_OPTIONS_408'
+      | 'SIP_OPTIONS_5XX'
+      | 'SIP_TIMEOUT'
+      | 'SIP_INVALID_RESPONSE'
+      | 'TCP_REACHABLE'
+      | 'TCP_UNREACHABLE'
+      | 'TIMEOUT';
+    transport: 'TCP' | 'UDP' | 'TLS';
+    target: string;
+    port: number;
+    sentAt: string | null;
+    receivedAt: string | null;
+    responseCode: number | null;
+    responseReason: string | null;
+    latencyMs: number;
+    sipResponse: string;
+  }> {
     const cleanHost = hostOrIp.split('/')[0].trim();
     const start = Date.now();
+    const target = cleanHost;
 
     return new Promise((resolve) => {
       const socket = new net.Socket();
       let resolved = false;
+      let sentTimestamp: number | null = null;
+      let responseBuffer = '';
 
       const timer = setTimeout(() => {
         if (!resolved) {
           resolved = true;
           socket.destroy();
+          const latency = Date.now() - start;
+          const wasTcpConnected = sentTimestamp !== null;
           resolve({
             status: 'unreachable',
-            latencyMs: Date.now() - start,
-            sipResponse: 'Tempo limite esgotado (TIMEOUT 2500ms)',
+            classification: wasTcpConnected ? 'SIP_TIMEOUT' : 'TIMEOUT',
+            transport,
+            target,
+            port,
+            sentAt: sentTimestamp ? new Date(sentTimestamp).toISOString() : null,
+            receivedAt: null,
+            responseCode: null,
+            responseReason: wasTcpConnected ? 'SIP_TIMEOUT' : 'TIMEOUT',
+            latencyMs: latency,
+            sipResponse: wasTcpConnected
+              ? 'Conexão TCP estabelecida, mas o servidor SIP não respondeu ao pacote OPTIONS dentro do prazo (SIP_TIMEOUT).'
+              : 'Tempo limite esgotado ao tentar conectar ao host SIP (TIMEOUT).',
           });
         }
       }, timeoutMs);
 
       socket.connect(port, cleanHost, () => {
-        if (!resolved) {
+        sentTimestamp = Date.now();
+        const optionsPacket =
+          `OPTIONS sip:${cleanHost}:${port} SIP/2.0\r\n` +
+          `Via: SIP/2.0/TCP 127.0.0.1;branch=z9hG4bK-enlace-${Date.now()}\r\n` +
+          `Max-Forwards: 70\r\n` +
+          `From: <sip:ping@enlace.slz.br>;tag=ping-${Date.now()}\r\n` +
+          `To: <sip:${cleanHost}>\r\n` +
+          `Call-ID: ping-${Date.now()}@enlace.slz.br\r\n` +
+          `CSeq: 1 OPTIONS\r\n` +
+          `User-Agent: Enlace-PBX Enterprise Pure SIP\r\n` +
+          `Content-Length: 0\r\n\r\n`;
+
+        socket.write(optionsPacket);
+      });
+
+      socket.on('data', (chunk) => {
+        responseBuffer += chunk.toString();
+        const receivedTimestamp = Date.now();
+
+        // Verifica se recebeu o cabeçalho status line do SIP (ex: SIP/2.0 200 OK ou SIP/2.0 401 Unauthorized)
+        const statusMatch = responseBuffer.match(/SIP\/2\.0\s+(\d{3})\s*([^\r\n]*)/i);
+        if (statusMatch && !resolved) {
           resolved = true;
           clearTimeout(timer);
-          const latency = Date.now() - start;
-          socket.write(
-            `OPTIONS sip:${cleanHost}:${port} SIP/2.0\r\nVia: SIP/2.0/TCP 127.0.0.1;branch=z9hG4bK-enlace-ping\r\nMax-Forwards: 70\r\nFrom: <sip:ping@enlace.slz.br>;tag=ping1\r\nTo: <sip:${cleanHost}>\r\nCall-ID: ping-${Date.now()}@enlace.slz.br\r\nCSeq: 1 OPTIONS\r\nUser-Agent: Enlace-PBX Enterprise\r\nContent-Length: 0\r\n\r\n`
-          );
           socket.end();
+
+          const code = parseInt(statusMatch[1], 10);
+          const reason = (statusMatch[2] || '').trim();
+          const latency = Math.max(1, receivedTimestamp - (sentTimestamp || start));
+
+          let classification:
+            | 'SIP_OPTIONS_200'
+            | 'SIP_OPTIONS_401'
+            | 'SIP_OPTIONS_403'
+            | 'SIP_OPTIONS_404'
+            | 'SIP_OPTIONS_408'
+            | 'SIP_OPTIONS_5XX'
+            | 'SIP_INVALID_RESPONSE' = 'SIP_INVALID_RESPONSE';
+
+          let status: 'active' | 'inactive' | 'unreachable' = 'inactive';
+
+          if (code === 200) {
+            classification = 'SIP_OPTIONS_200';
+            status = 'active';
+          } else if (code === 401) {
+            classification = 'SIP_OPTIONS_401';
+            // 401 Unauthorized confirma que o PBX SIP remoto está online e respondeu na camada SIP
+            status = 'active';
+          } else if (code === 403) {
+            classification = 'SIP_OPTIONS_403';
+            status = 'active';
+          } else if (code === 404) {
+            classification = 'SIP_OPTIONS_404';
+            status = 'active';
+          } else if (code === 408) {
+            classification = 'SIP_OPTIONS_408';
+            status = 'inactive';
+          } else if (code >= 500 && code < 600) {
+            classification = 'SIP_OPTIONS_5XX';
+            status = 'inactive';
+          }
+
           resolve({
-            status: 'active',
-            latencyMs: Math.max(1, latency),
-            sipResponse: 'Conexão TCP/SIP estabelecida na porta 5060 (Reachable)',
+            status,
+            classification,
+            transport,
+            target,
+            port,
+            sentAt: sentTimestamp ? new Date(sentTimestamp).toISOString() : null,
+            receivedAt: new Date(receivedTimestamp).toISOString(),
+            responseCode: code,
+            responseReason: reason || null,
+            latencyMs: latency,
+            sipResponse: `SIP/2.0 ${code} ${reason}`.trim(),
           });
         }
       });
@@ -510,19 +615,22 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
           resolved = true;
           clearTimeout(timer);
           const latency = Date.now() - start;
-          if (err.code === 'ECONNREFUSED') {
-            resolve({
-              status: 'inactive',
-              latencyMs: latency,
-              sipResponse: 'Porta SIP remota recusou a conexão (ECONNREFUSED)',
-            });
-          } else {
-            resolve({
-              status: 'unreachable',
-              latencyMs: latency,
-              sipResponse: `Host inalcançável: ${err.message || err.code}`,
-            });
-          }
+          const isRefused = err.code === 'ECONNREFUSED';
+          resolve({
+            status: isRefused ? 'inactive' : 'unreachable',
+            classification: 'TCP_UNREACHABLE',
+            transport,
+            target,
+            port,
+            sentAt: null,
+            receivedAt: null,
+            responseCode: null,
+            responseReason: err.code || 'TCP_UNREACHABLE',
+            latencyMs: latency,
+            sipResponse: isRefused
+              ? 'Conexão TCP recusada pelo host remoto na porta SIP (ECONNREFUSED)'
+              : `Falha na camada de rede TCP: ${err.message || err.code}`,
+          });
         }
       });
     });
@@ -606,8 +714,9 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
 
     // 3. Verificação de IP Público e NAT Traversal
     const infraStored = await SystemRepository.getInfraConfig();
-    const infra = infraStored || { publicIp: '200.80.127.50', lanSubnet: '192.168.10.0/24' };
-    const hasPublicIp = !!infra.publicIp && infra.publicIp.length > 6;
+    const fallbackPublicIp = process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP || 'NOT_CONFIGURED';
+    const infra = infraStored || { publicIp: fallbackPublicIp, lanSubnet: '192.168.10.0/24' };
+    const hasPublicIp = !!infra.publicIp && infra.publicIp !== 'NOT_CONFIGURED' && infra.publicIp.length > 6;
     const hasSipPort = (trunk.sipPort || trunk.port || 5060) === 5060;
 
     checks.push({
@@ -700,12 +809,12 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
   }): Promise<CallSimulationResult> {
     const callId = `sim-call-${Date.now()}`;
     const timestamp = new Date().toISOString();
-    const sourceIp = params.sourceIp || '200.80.127.10';
-    const callerId = params.callerNumber || '11987654321';
-    const rawDid = params.rawDid || '1135008000';
+    const sourceIp = params.sourceIp || 'UNKNOWN';
+    const callerId = params.callerNumber || 'UNKNOWN';
+    const rawDid = params.rawDid || 'UNKNOWN';
 
     const infraStored = await SystemRepository.getInfraConfig();
-    const publicIp = infraStored?.publicIp || '200.80.127.50';
+    const publicIp = infraStored?.publicIp || process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP || 'NOT_CONFIGURED';
     const allTrunks = await TrunkRepository.listAll();
     const allDids = await DidRepository.listAll();
 

@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { postgresClient } from '../client';
+import { AuditLogRepository } from '../repositories/AuditLogRepository';
 
 export class DatabaseMigrator {
   public static async runMigrations(): Promise<{ success: boolean; applied: number; error?: string }> {
@@ -75,58 +76,104 @@ export class DatabaseMigrator {
   /**
    * Bootstrap oficial e seguro do primeiro administrador.
    * Utiliza estritamente ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD.
-   * Sem fallback de senha fraca ou dados fictícios.
+   * Regras:
+   * - Se já existir qualquer super_admin no PostgreSQL: NÃO cria outro, NÃO atualiza senha, NÃO sobrescreve.
+   * - Se NÃO existir super_admin:
+   *   - Valida variáveis ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD.
+   *   - Se ausentes: FAIL FAST com erro fatal claro.
+   *   - Cria tenant inicial caso necessário.
+   *   - Cria super_admin com hash bcrypt (nunca texto plano).
+   *   - NUNCA imprime a senha em log.
+   *   - Registra log de auditoria no PostgreSQL.
    */
   public static async bootstrapAdminIfRequested() {
-    const adminEmail = process.env.ADMIN_INITIAL_EMAIL || 'admin@enlace.slz.br';
-    const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-default';
-    let adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
-
-    if (!adminPassword) {
-      if (process.env.NODE_ENV === 'production') {
-        console.warn('[BOOTSTRAP] ADMIN_INITIAL_PASSWORD não definido no ambiente de produção. Provisionamento automático de admin ignorado por segurança.');
-        return;
-      }
-      adminPassword = crypto.randomBytes(12).toString('base64url');
-      console.log(`[BOOTSTRAP] ADMIN_INITIAL_PASSWORD não definido. Gerada senha inicial segura para '${adminEmail}': ${adminPassword}`);
+    if (!postgresClient.isConfigured) {
+      return;
     }
 
     try {
-      const res = await postgresClient.query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [adminEmail.toLowerCase()]);
+      // 1. Checa se já existe qualquer usuário com papel super_admin no banco de dados
+      const existingSuperAdmin = await postgresClient.query(
+        "SELECT id, email, name FROM users WHERE role = 'super_admin' LIMIT 1"
+      );
+
+      if (existingSuperAdmin.rows.length > 0) {
+        // Super admin já existe: não recriar, não alterar senha, manter integridade
+        return;
+      }
+
+      // 2. Nenhum super_admin existe: Validação obrigatória de ambiente (Fail-Fast)
+      const adminEmail = process.env.ADMIN_INITIAL_EMAIL?.trim();
+      const adminPassword = process.env.ADMIN_INITIAL_PASSWORD?.trim();
+
+      if (!adminEmail || !adminPassword) {
+        const errorMsg =
+          'FATAL BOOTSTRAP: Nenhum super_admin foi localizado no banco de dados PostgreSQL ' +
+          'e as variáveis de ambiente obrigatórias ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD não foram fornecidas. ' +
+          'Para inicializar a central Enlace-PBX com segurança, defina ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD.';
+        console.error(`[BOOTSTRAP] ${errorMsg}`);
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(errorMsg);
+        }
+        return;
+      }
+
+      if (adminPassword.length < 8) {
+        throw new Error(
+          'FATAL BOOTSTRAP: A senha fornecida em ADMIN_INITIAL_PASSWORD é fraca. ' +
+          'O Enlace-PBX exige no mínimo 8 caracteres para a conta do super_admin.'
+        );
+      }
+
+      // 3. Criar tenant inicial caso não exista
+      const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-default';
+      await postgresClient.query(
+        `INSERT INTO tenants (id, name, cnpj, plan, max_extensions, max_trunks, ai_credits_usd, anti_fraud)
+         VALUES ($1, 'Enlace Telecom Corporativo', '00.000.000/0001-00', 'enterprise', 100, 10, 50, '{}')
+         ON CONFLICT (id) DO NOTHING`,
+        [defaultTenantId]
+      );
+
+      // 4. Gerar hash bcrypt com custo de 10 rounds
       const passwordHash = await bcrypt.hash(adminPassword, 10);
+      const newAdminId = `user-admin-${Date.now()}`;
 
-      // Garante tenant padrão
-      await postgresClient.query(`
-        INSERT INTO tenants (id, name, cnpj, plan, max_extensions, max_trunks, ai_credits_usd, anti_fraud)
-        VALUES ($1, 'Enlace Telecom Corporativo', '00.000.000/0001-00', 'enterprise', 100, 10, 50, '{}')
-        ON CONFLICT (id) DO NOTHING
-      `, [defaultTenantId]);
-
-      if (res.rows.length === 0) {
-        console.log(`[BOOTSTRAP] Criando administrador inicial provisionado: ${adminEmail}`);
-        await postgresClient.query(`
-          INSERT INTO users (id, tenant_id, name, email, password_hash, role, is_active)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-          ON CONFLICT (tenant_id, email) DO UPDATE
-          SET password_hash = EXCLUDED.password_hash, is_active = true
-        `, [
-          `user-admin-${Date.now()}`,
+      await postgresClient.query(
+        `INSERT INTO users (id, tenant_id, name, email, password_hash, role, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (tenant_id, email) DO UPDATE
+         SET password_hash = EXCLUDED.password_hash, is_active = true`,
+        [
+          newAdminId,
           defaultTenantId,
           'Administrador Master',
           adminEmail.toLowerCase(),
           passwordHash,
           'super_admin',
-          true
-        ]);
-        console.log(`[BOOTSTRAP] Administrador inicial provisionado com hash criptográfico bcrypt.`);
-      } else {
-        await postgresClient.query(`
-          UPDATE users SET password_hash = $1 WHERE LOWER(email) = LOWER($2)
-        `, [passwordHash, adminEmail.toLowerCase()]);
-        console.log(`[BOOTSTRAP] Senha do administrador ${adminEmail} atualizada com hash criptográfico bcrypt.`);
-      }
+          true,
+        ]
+      );
+
+      // 5. Registrar log de auditoria oficial da criação do primeiro administrador
+      await AuditLogRepository.create({
+        tenantId: defaultTenantId,
+        userId: newAdminId,
+        userName: 'Administrador Master',
+        action: 'BOOTSTRAP_SUPER_ADMIN',
+        resource: `users/${newAdminId}`,
+        details: `Provisionamento do primeiro super_admin corporativo (${adminEmail.toLowerCase()}) concluído via bootstrap seguro.`,
+        category: 'USER_MGMT',
+        severity: 'INFO',
+        ip: '127.0.0.1',
+      });
+
+      console.log(`[BOOTSTRAP] Primeiro super_admin provisionado com sucesso: ${adminEmail.toLowerCase()}`);
     } catch (err: any) {
-      console.error('[BOOTSTRAP] Erro ao provisionar administrador:', err.message);
+      console.error('[BOOTSTRAP] Erro crítico no bootstrap administrativo:', err.message);
+      if (process.env.NODE_ENV === 'production') {
+        throw err;
+      }
     }
   }
 }
+

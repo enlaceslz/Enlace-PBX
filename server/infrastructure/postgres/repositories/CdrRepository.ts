@@ -18,7 +18,7 @@ export interface OfficialCdrPayload {
   endTime: Date;
   duration: number;
   billsec: number;
-  disposition: 'ANSWERED' | 'NO ANSWER' | 'BUSY' | 'FAILED';
+  disposition: 'ANSWERED' | 'NO ANSWER' | 'BUSY' | 'FAILED' | 'CONGESTION' | 'UNKNOWN';
   hangupCause?: number;
   recordingFile?: string;
   aiAgentId?: string;
@@ -26,46 +26,34 @@ export interface OfficialCdrPayload {
 }
 
 export class CdrRepository {
-  public static async save(record: any): Promise<CdrRecord> {
+  /**
+   * Ingestão Oficial de CDR provinda do Asterisk Core (AMI / CEL / CDR engine).
+   * Não inventa dados fictícios; caso ausente, utiliza UNKNOWN ou null.
+   */
+  public static async insertOfficialCdr(record: OfficialCdrPayload): Promise<CdrRecord> {
     if (!record.tenantId || typeof record.tenantId !== 'string' || record.tenantId.trim() === '') {
       throw new Error('CDR Rejeitado: O tenantId é obrigatório e deve ser determinado confiavelmente da infraestrutura.');
     }
-    return this.insertOfficial({
-      uniqueid: record.uniqueId || record.uniqueid || record.id || `cdr-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-      tenantId: record.tenantId.trim(),
-      caller: record.caller || 'anonymous',
-      callee: record.callee || 's',
-      direction: record.direction || 'inbound',
-      startTime: record.startTime ? new Date(record.startTime) : new Date(),
-      endTime: record.endTime ? new Date(record.endTime) : new Date(),
-      duration: record.duration || 0,
-      billsec: record.billsec || record.duration || 0,
-      disposition: record.disposition || 'ANSWERED',
-      costBrl: record.costBrl,
-      trunk: record.trunkName,
-      extension: record.extension,
-      aiAgentId: record.aiAgentId,
-      recordingFile: record.recordingUrl,
-    });
-  }
 
-  public static async insertOfficial(record: OfficialCdrPayload): Promise<CdrRecord> {
     const cdrId = `cdr-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-    const cost = record.costBrl || (record.billsec > 0 ? (record.billsec / 60) * 0.045 : 0);
+    const cost = record.costBrl !== undefined ? record.costBrl : (record.billsec > 0 ? (record.billsec / 60) * 0.045 : 0);
+    const callerClean = record.caller?.trim() || 'UNKNOWN';
+    const calleeClean = record.callee?.trim() || 'UNKNOWN';
+    const dispositionClean = record.disposition || 'UNKNOWN';
 
     const cdrItem: CdrRecord = {
       id: cdrId,
-      tenantId: record.tenantId,
+      tenantId: record.tenantId.trim(),
       uniqueId: record.uniqueid,
-      caller: record.caller,
-      callee: record.callee,
-      direction: record.direction,
-      startTime: record.startTime.toISOString(),
+      caller: callerClean,
+      callee: calleeClean,
+      direction: record.direction || 'inbound',
+      startTime: record.startTime ? record.startTime.toISOString() : new Date().toISOString(),
       answerTime: record.answerTime ? record.answerTime.toISOString() : undefined,
-      endTime: record.endTime.toISOString(),
-      duration: record.duration,
-      billsec: record.billsec,
-      disposition: record.disposition,
+      endTime: record.endTime ? record.endTime.toISOString() : new Date().toISOString(),
+      duration: Math.max(0, record.duration || 0),
+      billsec: Math.max(0, record.billsec || 0),
+      disposition: dispositionClean as any,
       recordingUrl: record.recordingFile || undefined,
       trunkName: record.trunk || undefined,
       extension: record.extension || undefined,
@@ -88,19 +76,44 @@ export class CdrRepository {
              recording_file = EXCLUDED.recording_file,
              cost_brl = EXCLUDED.cost_brl`,
         [
-          cdrId, record.uniqueid, record.linkedid || null, record.tenantId,
-          record.caller, record.callee, record.direction, record.trunk || null,
+          cdrId, record.uniqueid, record.linkedid || null, cdrItem.tenantId,
+          callerClean, calleeClean, cdrItem.direction, record.trunk || null,
           record.extension || null, record.queue || null, record.ivr || null,
           record.startTime, record.answerTime || null, record.endTime,
-          record.duration, record.billsec, record.disposition,
+          cdrItem.duration, cdrItem.billsec, dispositionClean,
           record.hangupCause || null, record.recordingFile || null,
           record.aiAgentId || null, cdrItem.costBrl
         ]
       );
       return cdrItem;
     } catch (err: any) {
-      console.error('[CdrRepository.insertOfficial] Erro no PostgreSQL:', err?.message || err);
+      console.error('[CdrRepository.insertOfficialCdr] Erro no PostgreSQL:', err?.message || err);
       throw err;
+    }
+  }
+
+  // Alias para retrocompatibilidade interna
+  public static async insertOfficial(record: OfficialCdrPayload): Promise<CdrRecord> {
+    return this.insertOfficialCdr(record);
+  }
+
+  /**
+   * Atualiza transcrição e resumo gerados por IA em um registro de CDR legítimo existente.
+   */
+  public static async updateAnalysis(cdrId: string, data: { summary?: string; transcription?: string }): Promise<boolean> {
+    try {
+      const res = await postgresClient.query(
+        `UPDATE cdr 
+         SET summary = COALESCE($1, summary),
+             transcription = COALESCE($2, transcription),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3 OR uniqueid = $3`,
+        [data.summary || null, data.transcription || null, cdrId]
+      );
+      return (res.rowCount ?? 0) > 0;
+    } catch (err: any) {
+      console.error('[CdrRepository.updateAnalysis] Erro no PostgreSQL:', err?.message || err);
+      return false;
     }
   }
 

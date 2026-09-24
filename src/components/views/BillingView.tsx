@@ -262,10 +262,10 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
       },
     };
 
-    const mockTenant: Tenant = {
-      id: didItem.tenantId || 'tenant-custom',
+    const targetTenant: Tenant = currentTenant || {
+      id: didItem.tenantId,
       name: didItem.assignedCompany || 'Cliente Assinante de Linha DID',
-      cnpj: didItem.assignedCnpj || '00.000.000/0001-00',
+      cnpj: didItem.assignedCnpj || 'NÃO INFORMADO',
       plan: 'Locação DID Receptivo',
       maxExtensions: 10,
       maxTrunks: 2,
@@ -273,7 +273,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
       createdAt: new Date().toISOString(),
     };
 
-    exportInvoicePdf(invData, summaryData, mockTenant);
+    exportInvoicePdf(invData, summaryData, targetTenant);
   };
 
   // Open Edit DID Modal from Billing Tab
@@ -1099,10 +1099,10 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                   </div>
 
                   <div className="flex items-center gap-2 bg-white p-2.5 rounded-xl border border-blue-200 font-mono text-[11px] text-slate-700 break-all select-all">
-                    <span>00020126360014BR.GOV.BCB.PIX0114123456780001905204000053039865405{selectedInvoice.amount.toFixed(2)}5802BR5925ENLACE TELECOMUNICACOES6009SAO PAULO62070503***6304</span>
+                    <span>00020126580014br.gov.bcb.pix0136slzenlace@gmail.com5204000053039865405{selectedInvoice.amount.toFixed(2)}5802BR5925ENLACE TELECOMUNICACOES6009SAO LUIS62070503***6304</span>
                     <button
                       onClick={() => {
-                        navigator.clipboard.writeText('12.345.678/0001-90');
+                        navigator.clipboard.writeText('slzenlace@gmail.com');
                         setCopiedPix(true);
                         setTimeout(() => setCopiedPix(false), 2000);
                       }}
@@ -1117,7 +1117,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                     onClick={() => handlePayInvoice(selectedInvoice.id)}
                     className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2"
                   >
-                    <CheckCircle2 className="w-4 h-4" /> Confirmar Pagamento Simulado
+                    <CheckCircle2 className="w-4 h-4" /> Confirmar Pagamento via PIX
                   </button>
                 </div>
               )}

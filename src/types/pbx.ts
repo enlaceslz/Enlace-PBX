@@ -103,9 +103,24 @@ export interface Trunk {
   outboundProxy?: string;
   callerIdMode?: 'from' | 'pai' | 'rpid';
   failoverTrunkId?: string;
-  lastPingLatencyMs?: number;
-  lastPingStatus?: '200 OK' | '401 Unauthorized' | 'Reachable' | 'Timeout' | 'Unreachable';
-  lastPingAt?: string;
+  lastPingLatencyMs?: number | null;
+  lastPingStatus?:
+    | '200 OK'
+    | '401 Unauthorized'
+    | 'Reachable'
+    | 'Timeout'
+    | 'Unreachable'
+    | 'NOT_TESTED'
+    | 'SIP_OPTIONS_200'
+    | 'SIP_OPTIONS_401'
+    | 'SIP_OPTIONS_403'
+    | 'SIP_OPTIONS_404'
+    | 'SIP_OPTIONS_408'
+    | 'SIP_OPTIONS_5XX'
+    | 'SIP_TIMEOUT'
+    | 'TCP_REACHABLE'
+    | 'TCP_UNREACHABLE';
+  lastPingAt?: string | null;
 }
 
 export interface Did {

@@ -61,22 +61,22 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
 
   // Trunk Form State
   const [formData, setFormData] = useState({
-    name: 'TIP Brasil - Tronco SIP Matriz',
-    providerName: 'TIP Brasil',
-    host: '200.80.127.10',
+    name: '',
+    providerName: '',
+    host: '',
     port: 5060,
     transport: 'UDP' as 'UDP' | 'TCP' | 'TLS',
     authMode: 'ip' as 'ip' | 'credentials',
     username: '',
     secret: '',
     register: false,
-    authorizedIpsText: '200.80.127.10, 200.80.127.11, 200.80.127.12',
-    callerId: '1135008000',
+    authorizedIpsText: '',
+    callerId: '',
     callerIdMode: 'pai' as 'pai' | 'rpid' | 'from',
     codecs: 'alaw, ulaw, g729',
-    channelsMax: 60,
+    channelsMax: 30,
     dtmfMode: 'rfc4733' as 'rfc4733' | 'info' | 'inband' | 'auto',
-    qualifyFrequency: 30,
+    qualifyFrequency: 60,
     directMedia: false,
     natEnabled: true,
     context: 'from-trunk',
@@ -589,8 +589,10 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
                   <div className="flex items-center justify-between text-slate-500 py-1">
                     <span>Latência SIP (RTT):</span>
                     <span className="text-slate-800 font-bold flex items-center gap-1">
-                      <Activity className="w-3 h-3 text-emerald-500" />
-                      {trunk.lastPingLatencyMs ? `${trunk.lastPingLatencyMs} ms (${trunk.lastPingStatus || '200 OK'})` : '18 ms (200 OK)'}
+                      <Activity className={`w-3 h-3 ${trunk.lastPingStatus === 'NOT_TESTED' || !trunk.lastPingStatus ? 'text-slate-400' : 'text-emerald-500'}`} />
+                      {trunk.lastPingLatencyMs !== null && trunk.lastPingLatencyMs !== undefined
+                        ? `${trunk.lastPingLatencyMs} ms (${trunk.lastPingStatus || 'Reachable'})`
+                        : (trunk.lastPingStatus || 'NOT_TESTED')}
                     </span>
                   </div>
                 </div>

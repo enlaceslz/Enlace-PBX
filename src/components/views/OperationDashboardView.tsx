@@ -68,39 +68,34 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
 
   // Filas ativas configuradas no PBX
   const activeQueues = queues && queues.length > 0
-    ? queues.map((q, idx) => ({
+    ? queues.map((q) => ({
         name: q.name || `Fila ${q.id}`,
-        waiting: channels.filter(c => c.state === 'Ringing' || c.application?.includes(q.name || '')).length + (idx === 0 ? 1 : 0),
-        agentsOnline: q.members?.length || (idx === 0 ? 5 : 3),
-        sla: 92 + (idx * 2) % 8,
-        longestWait: idx === 0 ? '01:15' : '00:00',
+        waiting: channels.filter(c => c.state === 'Ringing' || c.application?.includes(q.name || '')).length,
+        agentsOnline: q.members?.length || 0,
+        sla: metrics.callsToday > 0 ? slaPercent : 100,
+        longestWait: '00:00',
       }))
-    : [
-        { name: 'Suporte Técnico N1', waiting: 3, agentsOnline: 5, sla: 92, longestWait: '01:42' },
-        { name: 'Vendas & Retenção', waiting: 0, agentsOnline: 4, sla: 98, longestWait: '00:00' },
-        { name: 'Faturamento', waiting: 1, agentsOnline: 2, sla: 76, longestWait: '04:15' },
-        { name: 'Ouvidoria', waiting: 0, agentsOnline: 1, sla: 100, longestWait: '00:00' },
-      ];
+    : [];
 
   // Deep VoIP Quality Telemetry (MOS, Jitter, Packet Loss, RTT)
-  const voipTelemetryHistory = [
-    { time: '08:00', mos: 4.42, jitter: 3.1, lossPercent: 0.04, rtt: 17 },
-    { time: '09:00', mos: 4.39, jitter: 3.8, lossPercent: 0.09, rtt: 21 },
-    { time: '10:00', mos: 4.28, jitter: 5.4, lossPercent: 0.22, rtt: 28 },
-    { time: '11:00', mos: 4.35, jitter: 4.2, lossPercent: 0.12, rtt: 23 },
-    { time: '12:00', mos: 4.44, jitter: 2.9, lossPercent: 0.03, rtt: 16 },
-    { time: '13:00', mos: 4.41, jitter: 3.4, lossPercent: 0.06, rtt: 19 },
-    { time: '14:00', mos: 4.36, jitter: 4.6, lossPercent: 0.15, rtt: 24 },
-    { time: '15:00', mos: 4.45, jitter: 2.7, lossPercent: 0.02, rtt: 15 },
-  ];
+  const hasLiveQos = channels.some((c) => c.qos);
+  const voipTelemetryHistory = hasLiveQos
+    ? channels
+        .filter((c) => c.qos)
+        .map((c, idx) => ({
+          time: `C${idx + 1}`,
+          mos: Number(Math.max(1, 4.5 - (c.qos?.latencyMs || 0) / 100).toFixed(2)),
+          jitter: Number((c.qos?.jitterMs || 0).toFixed(1)),
+          lossPercent: Number((c.qos?.packetLossPercent || 0).toFixed(2)),
+          rtt: Math.round(c.qos?.latencyMs || 0),
+        }))
+    : [];
 
   // Multichannel SLA Benchmark (Target vs Real)
   const slaBenchmarkData = [
-    { channel: 'Tronco PJSIP (Voz)', realSla: 94.2, targetSla: 85, vol: 184 },
-    { channel: 'WebRTC Ramais', realSla: 89.5, targetSla: 85, vol: 72 },
-    { channel: 'WhatsApp Cloud API', realSla: 96.8, targetSla: 85, vol: 320 },
-    { channel: 'Fila Suporte N1', realSla: 91.0, targetSla: 85, vol: 110 },
-    { channel: 'Fila Financeiro', realSla: 78.4, targetSla: 85, vol: 48 },
+    { channel: 'Tronco PJSIP (Voz)', realSla: metrics.callsToday > 0 ? slaPercent : 0, targetSla: 85, vol: metrics.callsToday },
+    { channel: 'Canais Asterisk 20', realSla: channels.length > 0 ? 100 : 0, targetSla: 85, vol: channels.length },
+    { channel: 'Filas ACD', realSla: activeQueues.length > 0 ? 100 : 0, targetSla: 85, vol: activeQueues.length },
   ];
 
   return (
@@ -362,22 +357,28 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
             </h3>
           </div>
           <div className="divide-y divide-slate-800">
-            {activeQueues.map((q, idx) => (
-              <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
-                <div>
-                  <div className="font-bold text-white mb-1">{q.name}</div>
-                  <div className="flex gap-3 text-xs">
-                    <span className="text-slate-400 flex items-center gap-1"><HeadphonesIcon className="w-3 h-3" /> {q.agentsOnline} agentes</span>
-                    <span className="text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" /> Máx: {q.longestWait}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className={`text-2xl font-black ${q.waiting > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
-                    {q.waiting} <span className="text-xs text-slate-500 font-normal">na fila</span>
-                  </div>
-                </div>
+            {activeQueues.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 text-xs">
+                Nenhuma fila de atendimento configurada (NOT_CONFIGURED)
               </div>
-            ))}
+            ) : (
+              activeQueues.map((q, idx) => (
+                <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
+                  <div>
+                    <div className="font-bold text-white mb-1">{q.name}</div>
+                    <div className="flex gap-3 text-xs">
+                      <span className="text-slate-400 flex items-center gap-1"><HeadphonesIcon className="w-3 h-3" /> {q.agentsOnline} agentes</span>
+                      <span className="text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" /> Máx: {q.longestWait}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-2xl font-black ${q.waiting > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                      {q.waiting} <span className="text-xs text-slate-500 font-normal">na fila</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

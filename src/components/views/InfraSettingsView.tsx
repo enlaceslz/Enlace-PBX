@@ -60,6 +60,8 @@ export const InfraSettingsView: React.FC<InfraSettingsViewProps> = ({ onOpenWebp
   const [generatingVapid, setGeneratingVapid] = useState(false);
   const [detectingIp, setDetectingIp] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [asteriskVersion, setAsteriskVersion] = useState<string>('UNKNOWN');
+  const [asteriskStatus, setAsteriskStatus] = useState<string>('down');
 
   // Form edit state
   const [form, setForm] = useState({
@@ -97,8 +99,16 @@ export const InfraSettingsView: React.FC<InfraSettingsViewProps> = ({ onOpenWebp
   const fetchConfig = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/v1/infra/config');
+      const [res, resHealth] = await Promise.all([
+        fetch('/api/v1/infra/config'),
+        fetch('/api/v1/health').catch(() => null),
+      ]);
       const data: InfraConfig = await res.json();
+      if (resHealth && resHealth.ok) {
+        const healthData = await resHealth.json();
+        setAsteriskVersion(healthData?.components?.asterisk?.version || 'UNKNOWN');
+        setAsteriskStatus(healthData?.components?.asterisk?.status || 'down');
+      }
       setConfig(data);
       setForm({
         hostname: data.hostname || '',
@@ -435,7 +445,9 @@ export const InfraSettingsView: React.FC<InfraSettingsViewProps> = ({ onOpenWebp
             <div className="text-[11px] font-mono text-slate-400 mt-1 flex items-center gap-1.5">
               <span>Linux x86_64</span>
               <span>•</span>
-              <span className="text-emerald-600 font-semibold">Asterisk 20 LTS</span>
+              <span className={asteriskStatus === 'up' ? 'text-emerald-600 font-semibold' : 'text-slate-400 font-semibold'}>
+                {asteriskStatus === 'up' ? (asteriskVersion && asteriskVersion !== 'UNKNOWN' ? asteriskVersion : 'Asterisk (Conectado)') : 'Asterisk: UNAVAILABLE'}
+              </span>
             </div>
           </div>
         </div>

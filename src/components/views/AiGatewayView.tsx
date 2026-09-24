@@ -972,8 +972,8 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             <Clock className="w-6 h-6" />
           </div>
           <div className="relative z-10">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Latência TTY</div>
-            <div className="text-2xl font-black text-white">~355<span className="text-[10px] font-mono text-slate-500 font-normal ml-1">ms</span></div>
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Pipeline de Áudio</div>
+            <div className="text-2xl font-black text-white">&lt; 25<span className="text-[10px] font-mono text-slate-500 font-normal ml-1">ms (AudioSocket)</span></div>
           </div>
         </div>
       </div>

@@ -35,17 +35,42 @@ import {
   QualityAuditRepository,
 } from './server/repositories/index.js';
 import { QualityAudit } from './server/infrastructure/postgres/repositories/QualityAuditRepository.js';
-import { Extension } from './src/types/pbx.js';
+import { Extension, User } from './src/types/pbx.js';
 import { OmnichannelMessage } from './server/infrastructure/postgres/repositories/OmnichannelRepository.js';
 import { VpnAdapter } from './server/infrastructure/network/VpnAdapter.js';
 import { asteriskAdapter } from './server/infrastructure/asterisk/AsteriskAdapter.js';
 import { postgresClient } from './server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from './server/infrastructure/postgres/migrations/migrator.js';
-import { requireAuth, requireRole, requireTenant, getJwtSecret } from './server/infrastructure/auth/authMiddleware.js';
+import { requireAuth, requireRole, requireTenant, getJwtSecret, getAuthorizedTenantId } from './server/infrastructure/auth/authMiddleware.js';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Helper central para resolução do tenantId a partir do contexto autenticado e validado
+  function getTenantIdFromContext(req: express.Request): string {
+    const authReq = req as any;
+    if (authReq.tenantId) {
+      return authReq.tenantId;
+    }
+    const user = authReq.user;
+    if (!user) {
+      throw new Error('TENANT_UNAUTHORIZED');
+    }
+    if (user.role === 'super_admin') {
+      const requested =
+        (authReq.headers['x-tenant-id'] as string) ||
+        (req.query?.tenantId as string) ||
+        req.body?.tenantId;
+      if (requested && typeof requested === 'string' && requested.trim() !== '') {
+        return requested.trim();
+      }
+    }
+    if (user.tenantId) {
+      return user.tenantId;
+    }
+    throw new Error('TENANT_NOT_DETERMINED');
+  }
 
   // Inicialização assíncrona das migrações PostgreSQL e integridade do banco
   DatabaseMigrator.runMigrations().then(res => {
@@ -156,7 +181,7 @@ async function startServer() {
           secret,
           { expiresIn: '8h' }
         );
-        return res.json({ token, user });
+        return res.json({ token, user: UserRepository.toSafeUser(user) });
       } else {
         return res.status(401).json({ 
           error: 'Credenciais inválidas. Verifique seu e-mail e senha de acesso.' 
@@ -195,7 +220,7 @@ async function startServer() {
     if (!user) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
-    res.json(user);
+    res.json(UserRepository.toSafeUser(user));
   });
 
   // -------------------------------------------------------------------------
@@ -348,7 +373,7 @@ async function startServer() {
   // -------------------------------------------------------------------------
   app.get('/api/v1/campaigns', async (req, res) => {
     try {
-      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || (req.query.tenantId as string);
+      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
       if (!tenantId) {
         return res.status(400).json({ error: 'Tenant ID é obrigatório para consultar campanhas.' });
       }
@@ -362,12 +387,12 @@ async function startServer() {
 
   app.post('/api/v1/campaigns', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || req.body.tenantId;
+      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
       if (!tenantId) {
         return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar campanha.' });
       }
       const newCampaign = {
-        id: req.body.id || `camp-${Date.now()}`,
+        id: req.body.id || `camp-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
         tenantId,
         name: req.body.name || 'Nova Campanha Outbound',
         type: req.body.type || 'ai_voicebot',
@@ -388,7 +413,7 @@ async function startServer() {
 
   app.put('/api/v1/campaigns/:id', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || (req.query.tenantId as string) || req.body.tenantId;
+      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
       if (!tenantId) {
         return res.status(400).json({ error: 'Tenant ID é obrigatório para atualizar campanha.' });
       }
@@ -410,7 +435,7 @@ async function startServer() {
 
   app.delete('/api/v1/campaigns/:id', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || (req.query.tenantId as string) || req.body?.tenantId;
+      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
       if (!tenantId) {
         return res.status(400).json({ error: 'Tenant ID é obrigatório para excluir campanha.' });
       }
@@ -423,7 +448,7 @@ async function startServer() {
 
   app.post('/api/v1/campaigns/:id/toggle', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || (req.query.tenantId as string) || req.body?.tenantId;
+      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
       if (!tenantId) {
         return res.status(400).json({ error: 'Tenant ID é obrigatório para alternar status da campanha.' });
       }
@@ -744,8 +769,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const ztStatus = await VpnAdapter.getZeroTierStatus();
 
     // Latência e jitter medidos reais ou 0 se inativo
-    const latencyAvg = wgStatus.status === 'UP' ? 12.0 : 0;
-    const jitterAvg = wgStatus.status === 'UP' ? 1.2 : 0;
+    const latencyAvg = 0;
+    const jitterAvg = 0;
 
     telemetryBuffer.push({
       time: timeStr,
@@ -779,8 +804,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           virtualIp: p.allowedIps,
           endpoint: livePeer?.endpoint || p.endpoint || 'Dinâmico (NAT Traversal)',
           status: isUp ? p.status : ('offline' as const),
-          latencyMs: isUp ? 12.0 : 0,
-          jitterMs: isUp ? 1.2 : 0,
+          latencyMs: 0,
+          jitterMs: 0,
           packetLossPercent: 0,
           bytesRx: livePeer?.transferRxBytes || p.transferRx,
           bytesTx: livePeer?.transferTxBytes || p.transferTx,
@@ -798,8 +823,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         virtualIp: '192.168.192.x',
         endpoint: zt.physicalAddress,
         status: ztStatus.status === 'UP' ? ('connected' as const) : ('offline' as const),
-        latencyMs: zt.latencyMs,
-        jitterMs: 1.5,
+        latencyMs: zt.latencyMs || 0,
+        jitterMs: 0,
         packetLossPercent: 0,
         bytesRx: 0,
         bytesTx: 0,
@@ -1482,9 +1507,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post(['/api/v1/setup/apply', '/api/v1/system/quick-setup/apply'], requireRole('super_admin', 'admin'), async (req, res) => {
-    const { tenantId, prefix, quantity, startNumber, trunkName } = req.body;
-    const tId = tenantId || (req as any).user?.tenantId;
-    if (!tId) return res.status(400).json({ error: 'Tenant ID é obrigatório para aplicar configuração.' });
+    const { prefix, quantity, startNumber, trunkName } = req.body;
+    let tId: string;
+    try {
+      tId = getTenantIdFromContext(req);
+    } catch {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para aplicar configuração.' });
+    }
     const qty = parseInt(quantity) || 10;
     const start = parseInt(startNumber) || 1;
 
@@ -1540,7 +1569,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         codecs: ['alaw', 'ulaw'],
         context: 'from-trunk',
         register: true,
-        status: 'registered' as any,
+        status: 'unregistered' as any,
+        lastPingLatencyMs: null,
+        lastPingStatus: 'NOT_TESTED' as any,
+        lastPingAt: null,
         channelsMax: 30,
         channelsInUse: 0,
       };
@@ -1597,31 +1629,56 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const avgDuration = Math.round(totalDuration / (todayCdrs.length || 1));
     const activeChannels = asteriskService.getActiveChannels();
 
+    const sessionLatencies = aiSessions
+      .map((s: any) => s.latencyMs)
+      .filter((l: any) => typeof l === 'number' && l > 0);
+    const aiLatencyAvgMs =
+      sessionLatencies.length > 0
+        ? Math.round(sessionLatencies.reduce((acc: number, val: number) => acc + val, 0) / sessionLatencies.length)
+        : null;
+
+    const hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
+    const hourlyCounts: Record<string, { total: number; ai: number }> = {};
+    for (const h of hours) {
+      hourlyCounts[h] = { total: 0, ai: 0 };
+    }
+    for (const c of todayCdrs) {
+      try {
+        const d = new Date(c.startTime);
+        const h = `${String(d.getHours()).padStart(2, '0')}:00`;
+        if (hourlyCounts[h]) {
+          hourlyCounts[h].total += 1;
+          if (c.isAiHandled || c.aiAgentId) {
+            hourlyCounts[h].ai += 1;
+          }
+        }
+      } catch {
+        // ignore invalid date
+      }
+    }
+    const hourlyCallDistribution = hours.map((h) => ({
+      hour: h,
+      total: hourlyCounts[h].total,
+      ai: hourlyCounts[h].ai,
+    }));
+
     return {
       callsToday: todayCdrs.length,
       callsActive: activeChannels.length,
       callsAnswered: answered,
       callsMissed: missed,
-      avgCallDurationSeconds: avgDuration,
+      avgCallDurationSeconds: todayCdrs.length > 0 ? avgDuration : 0,
       extensionsOnline: extensions.filter((e) => e.status === 'online').length,
       extensionsTotal: extensions.length,
       trunksOnline: trunks.filter((t) => t.status === 'registered').length,
       trunksTotal: trunks.length,
       aiAgentsActive: aiAgents.filter((a) => a.isActive).length,
       aiSessionsCount: aiSessions.length,
-      aiLatencyAvgMs: 355,
-      humanTransferRatePercent: Math.round((transferred / (aiSessions.length || 1)) * 100),
+      aiLatencyAvgMs,
+      humanTransferRatePercent: aiSessions.length > 0 ? Math.round((transferred / aiSessions.length) * 100) : 0,
       aiTokensUsedToday: aiSessions.reduce((acc: number, s: any) => acc + (s.tokensInput || 0) + (s.tokensOutput || 0), 0),
-      costEstimateTodayBrl: Number((totalCost + 1.25).toFixed(2)),
-      hourlyCallDistribution: [
-        { hour: '08:00', total: 4, ai: 1 },
-        { hour: '09:00', total: 12, ai: 4 },
-        { hour: '10:00', total: 24, ai: 9 },
-        { hour: '11:00', total: 31, ai: 14 },
-        { hour: '12:00', total: 18, ai: 8 },
-        { hour: '13:00', total: 22, ai: 11 },
-        { hour: '14:00', total: 29, ai: 13 },
-      ],
+      costEstimateTodayBrl: Number(totalCost.toFixed(2)),
+      hourlyCallDistribution,
     };
   };
 
@@ -1629,8 +1686,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Omnichannel Status Transition & Human Transfer
   // -------------------------------------------------------------------------
   app.patch('/api/v1/omnichannel/conversations/:id/status', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.query?.tenantId as string);
-    if (!tenantId) return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    }
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
 
@@ -1676,8 +1737,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/omnichannel/conversations/:id/transfer', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.query?.tenantId as string);
-    if (!tenantId) return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    }
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
 
@@ -1705,8 +1770,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   app.get('/api/v1/system/backup', requireRole('super_admin', 'admin'), async (req, res) => {
     try {
-      const tenantId = (req as any).user?.tenantId || (req.query?.tenantId as string) || (await TenantRepository.listAll())[0]?.id;
-      if (!tenantId) return res.status(400).json({ error: 'Nenhum tenant cadastrado para efetuar backup.' });
+      let tenantId: string;
+      try {
+        tenantId = getTenantIdFromContext(req);
+      } catch {
+        return res.status(400).json({ error: 'Nenhum tenant determinado para efetuar backup.' });
+      }
       const [
         tenants,
         users,
@@ -1869,9 +1938,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Extensions (Ramais PJSIP) com Validações de Regra de Negócio e Persistência
   // -------------------------------------------------------------------------
   app.get('/api/v1/extensions', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    const authUser = (req as any).user;
+    const tenantId = (req as any).tenantId || authUser?.tenantId;
     try {
-      const list = tenantId ? await ExtensionRepository.listByTenant(tenantId) : await ExtensionRepository.listAll();
+      const list = (authUser?.role === 'super_admin' && !req.query.tenantId)
+        ? await ExtensionRepository.listAll()
+        : await ExtensionRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
       console.error('[Extensions] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -1880,7 +1952,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/extensions', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar ramal.' });
     }
@@ -2061,18 +2133,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   }) => {
     const timestamp = new Date().toISOString();
     const id = `audit-${Date.now()}-${Math.floor(Date.now() % 10000)}`;
-    const tenantId = data.tenantId || 'SYSTEM';
+    const tenantId = data.tenantId || 'UNKNOWN';
     const payloadStr = JSON.stringify(data.payload || {});
     const sha256Hash = crypto.createHash('sha256').update(`${id}|${tenantId}|${data.action}|${data.resource}|${timestamp}|${payloadStr}`).digest('hex');
 
     const logEntry = {
       id,
       tenantId,
-      userId: data.userId || 'SYSTEM',
-      userName: data.userName || 'Sistema',
+      userId: data.userId || 'UNKNOWN',
+      userName: data.userName || 'UNKNOWN',
       action: data.action,
       resource: data.resource,
-      ip: data.ip || '127.0.0.1',
+      ip: data.ip || 'UNKNOWN',
       timestamp,
       details: data.details,
       category: data.category,
@@ -2098,9 +2170,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   };
 
   app.get('/api/v1/trunks', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    const authUser = (req as any).user;
+    const tenantId = (req as any).tenantId || authUser?.tenantId;
     try {
-      const list = tenantId ? await TrunkRepository.listByTenant(tenantId) : await TrunkRepository.listAll();
+      const list = (authUser?.role === 'super_admin' && !req.query.tenantId)
+        ? await TrunkRepository.listAll()
+        : await TrunkRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
       console.error('[Trunks] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2109,7 +2184,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/trunks', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar tronco.' });
     }
@@ -2128,19 +2203,19 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       const trunk = {
+        ...req.body,
         id: `trunk-${Date.now()}`,
         tenantId,
         channelsInUse: 0,
-        status: 'registered' as const,
+        status: 'unregistered' as const,
         secretMasked: '••••••••••••',
         dtmfMode: req.body.dtmfMode || 'rfc4733',
         qualifyFrequency: req.body.qualifyFrequency || 60,
         directMedia: req.body.directMedia === true,
         callerIdMode: req.body.callerIdMode || 'pai',
-        lastPingLatencyMs: 16,
-        lastPingStatus: '200 OK' as const,
-        lastPingAt: new Date().toISOString(),
-        ...req.body,
+        lastPingLatencyMs: null,
+        lastPingStatus: 'NOT_TESTED' as const,
+        lastPingAt: null,
         name,
         host,
       };
@@ -2149,12 +2224,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       recordAuditLog({
         tenantId,
+        userId: (req as any).user?.id,
+        userName: (req as any).user?.name,
         action: 'CREATE_TRUNK',
         resource: `trunks/${trunk.id}`,
-        details: `Novo tronco SIP [${trunk.name}] (${trunk.providerName}) cadastrado no host ${trunk.host}:${trunk.port}.`,
+        details: `Novo tronco SIP [${trunk.name}] (${trunk.providerName}) cadastrado no host ${trunk.host}:${trunk.port}. Status inicial: NOT_TESTED.`,
         category: 'TELECOM_SIP',
         severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
+        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
         payload: { trunkId: trunk.id, provider: trunk.providerName, host: trunk.host, transport: trunk.transport },
       });
 
@@ -2170,17 +2247,19 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const prev = await TrunkRepository.findById(req.params.id);
       if (!prev) return res.status(404).json({ error: 'Tronco não encontrado' });
       
-      const updated = { ...prev, ...req.body };
+      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
       await TrunkRepository.save(updated);
 
       recordAuditLog({
         tenantId: updated.tenantId,
+        userId: (req as any).user?.id,
+        userName: (req as any).user?.name,
         action: 'UPDATE_TRUNK',
         resource: `trunks/${req.params.id}`,
         details: `Tronco SIP [${updated.name}] atualizado. Transporte: ${updated.transport}, Failover: ${updated.failoverTrunkId || 'Nenhum'}.`,
         category: 'TELECOM_SIP',
         severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
+        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
         payload: { trunkId: req.params.id, changes: req.body },
       });
 
@@ -2195,16 +2274,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     try {
       const trunk = await TrunkRepository.findById(req.params.id);
       if (trunk) {
-        await TrunkRepository.delete(req.params.id, trunk.tenantId);
+        await TrunkRepository.delete(trunk.tenantId, req.params.id);
 
         recordAuditLog({
           tenantId: trunk.tenantId,
+          userId: (req as any).user?.id,
+          userName: (req as any).user?.name,
           action: 'DELETE_TRUNK',
           resource: `trunks/${req.params.id}`,
           details: `Tronco SIP [${trunk.name}] excluído permanentemente da infraestrutura.`,
           category: 'TELECOM_SIP',
           severity: 'WARNING',
-          ip: req.ip || '127.0.0.1',
+          ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
           payload: { trunkId: req.params.id, name: trunk.name },
         });
       }
@@ -2216,20 +2297,25 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  // Teste de Latência Real e Conectividade SIP (SIP OPTIONS Socket Ping)
+  // Teste de Latência Real e Conectividade SIP (SIP OPTIONS Handshake)
   app.post('/api/v1/trunks/:id/ping', requireRole('super_admin', 'admin'), async (req, res) => {
     const trunk = await TrunkRepository.findById(req.params.id);
     if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
 
-    // Medição real de latência via Socket na porta do tronco SIP (padrão 5060)
+    // Teste real de handshake SIP OPTIONS (DNS -> TCP -> SIP OPTIONS -> classificação)
     const port = trunk.port || 5060;
-    const socketResult = await measureSocketLatency(trunk.host, port);
-    const latency = socketResult.latencyMs;
-    const isOnline = socketResult.reachable;
+    const sipTestResult = await sipTrunkService.testSipHostSocket(
+      trunk.host,
+      port,
+      2500,
+      (trunk.transport as any) || 'UDP'
+    );
+    const latency = sipTestResult.latencyMs;
+    const isOnline = sipTestResult.status === 'active';
     const timestamp = new Date().toISOString();
 
     trunk.lastPingLatencyMs = latency;
-    trunk.lastPingStatus = isOnline ? '200 OK' : 'Unreachable';
+    trunk.lastPingStatus = sipTestResult.classification as any;
     trunk.lastPingAt = timestamp;
     trunk.status = isOnline ? 'registered' : 'unregistered';
 
@@ -2241,13 +2327,27 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
     recordAuditLog({
       tenantId: trunk.tenantId,
+      userId: (req as any).user?.id,
+      userName: (req as any).user?.name,
       action: 'SIP_OPTIONS_PING',
       resource: `trunks/${trunk.id}`,
-      details: `Keepalive SIP OPTIONS executado em ${trunk.host}:${port}. RTT: ${latency}ms, Status: ${trunk.lastPingStatus}.`,
+      details: `Keepalive SIP OPTIONS executado em ${trunk.host}:${port}. RTT: ${latency}ms, Classificação: ${trunk.lastPingStatus}. Resposta: ${sipTestResult.sipResponse}`,
       category: 'TELECOM_SIP',
       severity: isOnline ? 'INFO' : 'WARNING',
-      ip: req.ip || '127.0.0.1',
-      payload: { trunkId: trunk.id, host: trunk.host, port, latencyMs: latency, reachable: isOnline },
+      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+      payload: {
+        trunkId: trunk.id,
+        host: trunk.host,
+        port,
+        transport: sipTestResult.transport,
+        sentAt: sipTestResult.sentAt,
+        receivedAt: sipTestResult.receivedAt,
+        responseCode: sipTestResult.responseCode,
+        responseReason: sipTestResult.responseReason,
+        classification: sipTestResult.classification,
+        latencyMs: latency,
+        status: sipTestResult.status,
+      },
     });
 
     res.json({
@@ -2257,10 +2357,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       port,
       latencyMs: latency,
       status: trunk.lastPingStatus,
+      classification: sipTestResult.classification,
+      responseCode: sipTestResult.responseCode,
+      sipResponse: sipTestResult.sipResponse,
       timestamp,
       message: isOnline
-        ? `Endpoint PJSIP ${trunk.host}:${port} respondeu com sucesso em ${latency}ms.`
-        : `Endpoint PJSIP ${trunk.host}:${port} inacessível ou tempo esgotado (${latency}ms).`,
+        ? `Endpoint PJSIP ${trunk.host}:${port} respondeu ao handshake SIP OPTIONS em ${latency}ms (${sipTestResult.sipResponse}).`
+        : `Endpoint PJSIP ${trunk.host}:${port} falhou no teste SIP OPTIONS (${sipTestResult.classification}): ${sipTestResult.sipResponse}`,
     });
   });
 
@@ -2420,10 +2523,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // DIDs / Numerações com Normalização E.164, Roteamento e Persistência PostgreSQL
   // -------------------------------------------------------------------------
   app.get('/api/v1/dids', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    const authUser = (req as any).user;
+    const tenantId = (req as any).tenantId || authUser?.tenantId;
     const trunkId = req.query.trunkId as string;
     try {
-      let list = tenantId ? await DidRepository.listByTenant(tenantId) : await DidRepository.listAll();
+      let list = (authUser?.role === 'super_admin' && !req.query.tenantId)
+        ? await DidRepository.listAll()
+        : await DidRepository.listByTenant(tenantId);
       if (trunkId && list) {
         list = list.filter((d: any) => d.trunkId === trunkId);
       }
@@ -2435,7 +2541,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/dids', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar DID.' });
     }
@@ -2594,7 +2700,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Importação em Lote de Faixas de DIDs (ex: 1135008000 a 1135008099)
   app.post('/api/v1/dids/batch', requireRole('super_admin', 'admin'), async (req, res) => {
     const { startNumber, count, trunkId, destinationType = 'extension', destinationId = '4101' } = req.body;
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
 
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para importação de DIDs.' });
@@ -2671,10 +2777,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/dids/simulate', requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const { sourceIp, rawDid, callerNumber, trunkId } = req.body;
+      if (!sourceIp || !rawDid) {
+        return res.status(400).json({ error: 'sourceIp e rawDid são campos obrigatórios para a simulação de chamada recebida.' });
+      }
       const result = await sipTrunkService.simulateInboundCall({
-        sourceIp: sourceIp || '200.80.127.10',
-        rawDid: rawDid || '1135008000',
-        callerNumber: callerNumber || '11987654321',
+        sourceIp: String(sourceIp).trim(),
+        rawDid: String(rawDid).trim(),
+        callerNumber: callerNumber ? String(callerNumber).trim() : 'UNKNOWN',
         trunkId,
       });
 
@@ -2689,9 +2798,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Routes (Rotas de Entrada e Saída com LCR, Prepend, Time Conditions e Persistência)
   // -------------------------------------------------------------------------
   app.get('/api/v1/routes', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    const authUser = (req as any).user;
+    const tenantId = (req as any).tenantId || authUser?.tenantId;
     try {
-      const list = tenantId ? await RouteRepository.listByTenant(tenantId) : await RouteRepository.listAll();
+      const list = (authUser?.role === 'super_admin' && !req.query.tenantId)
+        ? await RouteRepository.listAll()
+        : await RouteRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
       console.error('[Routes] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2700,7 +2812,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/routes', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar rota.' });
     }
@@ -2802,7 +2914,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // Simulação de Resolução de CallerID para Rotas CLI/ITX e Convencionais
   app.post('/api/v1/routes/simulate-callerid', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     const { extensionNumber, routeId } = req.body;
     if (!tenantId || !extensionNumber || !routeId) {
       return res.status(400).json({ error: 'tenantId, extensionNumber e routeId são obrigatórios para a simulação.' });
@@ -2825,9 +2937,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Ring Groups & Queues
   // -------------------------------------------------------------------------
   app.get('/api/v1/ring-groups', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    const authUser = (req as any).user;
+    const tenantId = (req as any).tenantId || authUser?.tenantId;
     try {
-      const list = tenantId ? await RingGroupRepository.listByTenant(tenantId) : await RingGroupRepository.listAll();
+      const list = (authUser?.role === 'super_admin' && !req.query.tenantId)
+        ? await RingGroupRepository.listAll()
+        : await RingGroupRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
       console.error('[RingGroups] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2836,11 +2951,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ring-groups', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar grupo de toque.' });
     }
-    const group = { id: `group-${Date.now()}`, tenantId, ...req.body };
+    const group = { id: `group-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, tenantId, ...req.body };
     try {
       await RingGroupRepository.save(group);
       res.status(201).json(group);
@@ -2854,7 +2969,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     try {
       const prev = await RingGroupRepository.findById(req.params.id);
       if (!prev) return res.status(404).json({ error: 'Grupo de toque não encontrado' });
-      const updated = { ...prev, ...req.body };
+      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
       await RingGroupRepository.save(updated);
       res.json(updated);
     } catch (e: any) {
@@ -2877,9 +2992,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/queues', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    const authUser = (req as any).user;
+    const tenantId = (req as any).tenantId || authUser?.tenantId;
     try {
-      const list = tenantId ? await QueueRepository.listByTenant(tenantId) : await QueueRepository.listAll();
+      const list = (authUser?.role === 'super_admin' && !req.query.tenantId)
+        ? await QueueRepository.listAll()
+        : await QueueRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
       console.error('[Queues] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2888,12 +3006,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/queues', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar fila.' });
     }
     const queue = {
-      id: `queue-${Date.now()}`,
+      id: `queue-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
       tenantId,
       callsWaiting: 0,
       avgWaitTimeSeconds: 0,
@@ -2949,11 +3067,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ivr', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
-    if (!tenantId) {
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar URA.' });
     }
-    const ivr = { id: `ivr-${Date.now()}`, tenantId, ...req.body };
+    const ivr = { ...req.body, id: `ivr-${Date.now()}`, tenantId };
 
     try {
       await IvrRepository.save(ivr);
@@ -3080,15 +3200,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ai/agents', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
-    if (!tenantId) {
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar agente.' });
     }
     const agent = {
+      ...req.body,
       id: `agent-${Date.now()}`,
       tenantId,
       isActive: true,
-      ...req.body,
     };
     try {
       await AiAgentRepository.save(agent);
@@ -3137,8 +3259,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ai/tools', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
-    if (!tenantId) {
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar ferramenta.' });
     }
     const newTool = {
@@ -3212,8 +3336,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ai/knowledge', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
-    if (!tenantId) {
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar documento.' });
     }
     const newDoc = {
@@ -3255,8 +3381,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/ai/knowledge/upload', requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const { fileName, fileType, base64Data, rawText, title, category, targetAgentIds } = req.body;
-      const tenantId = (req as any).user?.tenantId || req.body.tenantId;
-      if (!tenantId) {
+      let tenantId: string;
+      try {
+        tenantId = getTenantIdFromContext(req);
+      } catch {
         return res.status(400).json({ error: 'Tenant ID é obrigatório para upload na base de conhecimento.' });
       }
 
@@ -3436,12 +3564,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       if (cdrId) {
         try {
-          const record = await CdrRepository.findById(cdrId);
-          if (record) {
-            record.summary = result.summary;
-            record.transcription = transcript;
-            await CdrRepository.save(record);
-          }
+          await CdrRepository.updateAnalysis(cdrId, {
+            summary: result.summary,
+            transcription: transcript,
+          });
         } catch (err: any) {
           console.error('[CDR] Erro ao atualizar resumo do CDR:', err?.message || err);
         }
@@ -3457,40 +3583,16 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // CDR & Recordings - Bilhetagem Real com CdrRepository (PostgreSQL)
   // -------------------------------------------------------------------------
   app.get('/api/v1/cdr', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    const authUser = (req as any).user;
+    const tenantId = (req as any).tenantId || authUser?.tenantId;
     try {
-      const records = tenantId ? await CdrRepository.listByTenant(tenantId, { limit: 100 }) : await CdrRepository.listAll({ limit: 100 });
+      const records = (authUser?.role === 'super_admin' && !req.query.tenantId)
+        ? await CdrRepository.listAll({ limit: 100 })
+        : await CdrRepository.listByTenant(tenantId, { limit: 100 });
       res.json(records || []);
     } catch (e: any) {
       console.error('[CDR] Erro ao consultar CdrRepository:', e?.message || e);
       res.status(500).json({ error: 'Erro ao consultar bilhetagem no PostgreSQL' });
-    }
-  });
-
-  app.post('/api/v1/cdr', async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para registrar CDR.' });
-    }
-    const now = Date.now();
-    const duration = req.body.duration || 60;
-    const newRecord = {
-      id: `cdr-${now}`,
-      tenantId,
-      uniqueId: `${Math.floor(now / 1000)}.${now % 10000}`,
-      startTime: new Date(now - duration * 1000).toISOString(),
-      endTime: new Date(now).toISOString(),
-      disposition: (req.body.disposition || 'ANSWERED') as any,
-      costBrl: Number((duration * 0.002).toFixed(2)),
-      ...req.body,
-    };
-
-    try {
-      const saved = await CdrRepository.save(newRecord);
-      res.status(201).json(saved);
-    } catch (e: any) {
-      console.error('[CDR] Erro ao persistir no CdrRepository:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao persistir bilhetagem no PostgreSQL' });
     }
   });
 
@@ -3501,9 +3603,24 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         return res.status(404).json({ error: 'Registro CDR não encontrado.' });
       }
 
-      const transcript =
-        record.transcription ||
-        `[00:02] Atendente: Olá! Obrigado por ligar para a Enlace Telecom. Em que posso ajudar?\n[00:08] Cliente (${record.caller}): Olá, estou ligando para confirmar os dados da minha linha e o status do plano.\n[00:18] Atendente: Perfeito! Localizei aqui no sistema que a linha ${record.caller} está ativa com telefonia IP e suporte dedicado.\n[00:26] Cliente: Excelente, muito obrigado pela rápida confirmação e bom dia!\n[00:30] Atendente: A Enlace agradece seu contato. Tenha um excelente dia!`;
+      // Isolamento de tenant: operador/admin não analisa chamadas de outro tenant
+      const authUser = (req as any).user;
+      if (authUser?.role !== 'super_admin' && record.tenantId !== authUser?.tenantId) {
+        return res.status(403).json({ error: 'Acesso não autorizado a esta chamada.' });
+      }
+
+      if (!record.transcription && !record.recordingUrl) {
+        return res.status(400).json({
+          error: 'Esta chamada não possui transcrição fonética nem gravação de áudio anexada para análise (NO_DATA).'
+        });
+      }
+
+      const transcript = record.transcription;
+      if (!transcript || transcript.trim() === '') {
+        return res.status(400).json({
+          error: 'Transcrição fonética vazia ou não disponível para processamento por IA (NO_DATA).'
+        });
+      }
 
       const analysis = await geminiService.summarizeAndAnalyzeCall(
         transcript,
@@ -3512,14 +3629,15 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       );
 
       record.summary = analysis.summary;
-      record.transcription = transcript;
-
-      await CdrRepository.save(record);
+      await CdrRepository.updateAnalysis(record.id, {
+        summary: analysis.summary,
+        transcription: transcript,
+      });
 
       res.json({ success: true, analysis, cdr: record });
     } catch (e) {
       console.error('Error summarizing CDR:', e);
-      res.status(500).json({ error: 'Erro ao gerar resumo da chamada com Gemini.' });
+      res.status(500).json({ error: 'Erro ao processar análise da chamada com Gemini.' });
     }
   });
 
@@ -3682,7 +3800,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json(hooks);
   });
   app.post('/api/v1/webhooks/test', requireRole('super_admin', 'admin'), (req, res) => {
-    const tenantId = (req as any).user?.tenantId || req.body.tenantId || 'SYSTEM';
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
+      tenantId = 'UNKNOWN';
+    }
     res.json({
       event: req.body.event || 'call.started',
       deliveredAt: new Date().toISOString(),
@@ -3765,12 +3888,19 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/audit-logs', (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'SYSTEM';
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
+      tenantId = 'UNKNOWN';
+    }
     const log = recordAuditLog({
       tenantId,
+      userId: (req as any).user?.id || 'UNKNOWN',
+      userName: (req as any).user?.name || 'UNKNOWN',
       action: req.body.action || 'CUSTOM_AUDIT_EVENT',
       resource: req.body.resource || 'system',
-      ip: req.ip || '127.0.0.1',
+      ip: req.ip || (req.socket?.remoteAddress as string) || 'UNKNOWN',
       details: req.body.details || 'Evento registrado manualmente pelo console',
       category: req.body.category || 'SYSTEM',
       severity: req.body.severity || 'INFO',
@@ -3780,74 +3910,212 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/users', async (req, res) => {
-    const list = await UserRepository.listAll();
-    res.json(list);
+    const authUser = (req as any).user;
+    if (!authUser) {
+      return res.status(401).json({ error: 'Não autenticado' });
+    }
+    const tenantId = (req as any).tenantId || authUser.tenantId;
+    let list: User[] = [];
+    if (authUser.role === 'super_admin' && !req.query.tenantId) {
+      list = await UserRepository.listAll();
+    } else {
+      list = await UserRepository.listByTenant(tenantId);
+    }
+    // Remove qualquer resquício de passwordHash
+    const safeList = list.map((u) => UserRepository.toSafeUser(u));
+    res.json(safeList);
   });
 
   app.post('/api/v1/users', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { name, email, role, extension } = req.body;
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const authUser = (req as any).user;
+    const { name, email, role, extension, password } = req.body;
+
+    // Isolamento de Tenant: não-super_admin NUNCA escolhe outro tenant
+    const tenantId =
+      authUser.role === 'super_admin'
+        ? req.body.tenantId || (req as any).tenantId || authUser.tenantId
+        : authUser.tenantId;
+
     if (!name || !email) {
-      return res.status(400).json({ error: 'Nome e e-mail são obrigatórios.' });
+      return res.status(400).json({ error: 'Nome e e-mail são campos obrigatórios.' });
     }
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar usuário.' });
+
+    // Prevenção de escalada de privilégios: apenas super_admin pode criar super_admin
+    const targetRole = role || 'operador';
+    if (targetRole === 'super_admin' && authUser.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Acesso proibido. Administradores de tenant não possuem permissão para criar usuários super_admin.',
+        code: 'PRIVILEGE_ESCALATION_BLOCKED',
+      });
     }
-    const newUser = {
-      id: `user-${Date.now()}`,
+
+    // Validação de e-mail existente
+    const existing = await UserRepository.findByEmail(email.trim().toLowerCase());
+    if (existing) {
+      return res.status(409).json({ error: 'Já existe um usuário cadastrado com este e-mail.' });
+    }
+
+    // Hash de senha estritamente via bcrypt (custo 10)
+    let passwordHash = '';
+    if (password && typeof password === 'string' && password.trim().length > 0) {
+      if (password.trim().length < 6) {
+        return res.status(400).json({ error: 'A senha do usuário deve ter no mínimo 6 caracteres.' });
+      }
+      passwordHash = await bcrypt.hash(password.trim(), 10);
+    } else {
+      // Gera senha temporária criptográfica segura caso não fornecida
+      const tempPass = crypto.randomBytes(8).toString('hex');
+      passwordHash = await bcrypt.hash(tempPass, 10);
+    }
+
+    const newUser: User = {
+      id: `user-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
       tenantId,
-      name,
-      email,
-      role: role || 'operador',
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      role: targetRole,
       extension: extension || undefined,
-      isActive: true,
+      passwordHash,
+      isActive: req.body.isActive !== false,
       lastLogin: new Date().toISOString(),
     };
+
     await UserRepository.save(newUser);
+
     recordAuditLog({
       tenantId: newUser.tenantId,
+      userId: authUser.id,
+      userName: authUser.name,
       action: 'CREATE_USER',
       category: 'USER_MGMT',
       resource: `users/${newUser.id}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Criação do usuário ${newUser.name} com papel ${newUser.role}.`,
+      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+      details: `Criação do usuário ${newUser.name} (${newUser.email}) com papel '${newUser.role}' no tenant '${newUser.tenantId}'.`,
     });
-    res.status(201).json(newUser);
+
+    // NUNCA retornar passwordHash para o frontend
+    res.status(201).json(UserRepository.toSafeUser(newUser));
   });
 
   app.put('/api/v1/users/:id', requireRole('super_admin', 'admin'), async (req, res) => {
-    const user = await UserRepository.findById(req.params.id);
-    if (!user) {
+    const authUser = (req as any).user;
+    const targetUser = await UserRepository.findById(req.params.id);
+    if (!targetUser) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
-    const updated = { ...user, ...req.body };
-    await UserRepository.save(updated);
+
+    // Isolamento de Tenant: admin só pode editar usuários do seu próprio tenant
+    if (authUser.role !== 'super_admin' && targetUser.tenantId !== authUser.tenantId) {
+      return res.status(403).json({
+        error: 'Violação de Isolamento de Tenant. Você não pode alterar usuários de outro tenant.',
+        code: 'TENANT_ISOLATION_VIOLATION',
+      });
+    }
+
+    // Impedir alteração arbitrária de tenantId
+    if (req.body.tenantId && req.body.tenantId !== targetUser.tenantId) {
+      if (authUser.role !== 'super_admin') {
+        return res.status(403).json({
+          error: 'Operação não autorizada. Não é permitido transferir usuários entre tenants.',
+          code: 'TENANT_ALTERATION_BLOCKED',
+        });
+      }
+    }
+
+    // Prevenção de escalada de privilégios: não-super_admin não pode alterar para super_admin nem alterar papel de super_admin
+    if (req.body.role) {
+      if (req.body.role === 'super_admin' && authUser.role !== 'super_admin') {
+        return res.status(403).json({
+          error: 'Operação proibida. Somente super_admin pode atribuir o perfil de super_admin.',
+          code: 'PRIVILEGE_ESCALATION_BLOCKED',
+        });
+      }
+      if (targetUser.role === 'super_admin' && authUser.role !== 'super_admin') {
+        return res.status(403).json({
+          error: 'Operação proibida. Administrador de tenant não pode modificar uma conta super_admin.',
+          code: 'PRIVILEGE_ESCALATION_BLOCKED',
+        });
+      }
+    }
+
+    // Se senha foi informada: hash com bcrypt
+    let passwordHash = targetUser.passwordHash;
+    if (req.body.password && typeof req.body.password === 'string' && req.body.password.trim().length > 0) {
+      if (req.body.password.trim().length < 6) {
+        return res.status(400).json({ error: 'A senha do usuário deve possuir no mínimo 6 caracteres.' });
+      }
+      passwordHash = await bcrypt.hash(req.body.password.trim(), 10);
+    }
+
+    const updatedUser: User = {
+      ...targetUser,
+      name: req.body.name !== undefined ? req.body.name.trim() : targetUser.name,
+      email: req.body.email !== undefined ? req.body.email.trim().toLowerCase() : targetUser.email,
+      role: req.body.role || targetUser.role,
+      extension: req.body.extension !== undefined ? req.body.extension : targetUser.extension,
+      isActive: req.body.isActive !== undefined ? req.body.isActive : targetUser.isActive,
+      tenantId: authUser.role === 'super_admin' && req.body.tenantId ? req.body.tenantId : targetUser.tenantId,
+      passwordHash,
+    };
+
+    await UserRepository.save(updatedUser);
+
     recordAuditLog({
-      tenantId: updated.tenantId,
+      tenantId: updatedUser.tenantId,
+      userId: authUser.id,
+      userName: authUser.name,
       action: 'UPDATE_USER',
       category: 'USER_MGMT',
       resource: `users/${req.params.id}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Atualização de parâmetros do usuário ${updated.name}.`,
+      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+      details: `Atualização dos parâmetros do usuário ${updatedUser.name} (${updatedUser.email}).`,
     });
-    res.json(updated);
+
+    res.json(UserRepository.toSafeUser(updatedUser));
   });
 
   app.delete('/api/v1/users/:id', requireRole('super_admin', 'admin'), async (req, res) => {
-    const user = await UserRepository.findById(req.params.id);
-    if (!user) {
+    const authUser = (req as any).user;
+    const targetUser = await UserRepository.findById(req.params.id);
+    if (!targetUser) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
-    await UserRepository.delete(req.params.id);
+
+    // Não permite auto-exclusão
+    if (authUser.id === targetUser.id) {
+      return res.status(400).json({ error: 'Operação proibida. Você não pode excluir seu próprio usuário.' });
+    }
+
+    // Isolamento de Tenant
+    if (authUser.role !== 'super_admin' && targetUser.tenantId !== authUser.tenantId) {
+      return res.status(403).json({
+        error: 'Violação de Isolamento de Tenant. Você não pode excluir usuários de outro tenant.',
+        code: 'TENANT_ISOLATION_VIOLATION',
+      });
+    }
+
+    // Impedir exclusão de super_admin por administrador comum
+    if (targetUser.role === 'super_admin' && authUser.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'Operação proibida. Administrador comum não pode excluir um super_admin.',
+        code: 'PRIVILEGE_ESCALATION_BLOCKED',
+      });
+    }
+
+    await UserRepository.delete(req.params.id, targetUser.tenantId);
+
     recordAuditLog({
-      tenantId: user.tenantId,
+      tenantId: targetUser.tenantId,
+      userId: authUser.id,
+      userName: authUser.name,
       action: 'DELETE_USER',
       category: 'USER_MGMT',
       resource: `users/${req.params.id}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Exclusão do usuário ${user.name} (${user.email}).`,
+      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+      details: `Exclusão do usuário ${targetUser.name} (${targetUser.email}).`,
     });
-    res.json({ success: true });
+
+    res.json({ success: true, message: 'Usuário removido com sucesso.' });
   });
 
   app.get('/api/v1/tenants', async (req, res) => {
@@ -3900,7 +4168,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     provider.syncedAt = new Date().toISOString();
     await SystemRepository.setCrmProviders(providers);
     
-    const tenantId = (req as any).user?.tenantId || provider.tenantId || 'SYSTEM';
+    const tenantId = getTenantIdFromContext(req);
     recordAuditLog({
       tenantId,
       action: 'CRM_CONNECT',
@@ -3926,7 +4194,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/crm/contacts', async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    const authUser = (req as any).user;
+    const tenantId = authUser?.role === 'super_admin' && req.query.tenantId
+      ? (req.query.tenantId as string)
+      : authUser?.tenantId;
     if (!tenantId) {
       return res.json([]);
     }
@@ -3935,7 +4206,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/crm/memories', async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    const authUser = (req as any).user;
+    const tenantId = authUser?.role === 'super_admin' && req.query.tenantId
+      ? (req.query.tenantId as string)
+      : authUser?.tenantId;
     if (!tenantId) {
       return res.json([]);
     }
@@ -3944,8 +4218,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
   
   app.post('/api/v1/crm/contacts', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || req.body.tenantId;
-    if (!tenantId) {
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar contato.' });
     }
     const newContact = {
@@ -3962,7 +4238,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/omnichannel/conversations', async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    const authUser = (req as any).user;
+    const tenantId = authUser?.role === 'super_admin' && req.query.tenantId
+      ? (req.query.tenantId as string)
+      : authUser?.tenantId;
     if (!tenantId) {
       return res.json([]);
     }
@@ -3978,7 +4257,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/whatsapp/config', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || req.body.tenantId || 'SYSTEM';
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
+      tenantId = 'UNKNOWN';
+    }
     const current = (await SystemRepository.getWhatsappConfig()) || { tenantId };
     const updated = {
       ...current,
@@ -3992,8 +4276,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/whatsapp/conversations/:id/reply', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.body.tenantId as string);
-    if (!tenantId) return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    }
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
     
@@ -4042,8 +4330,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // Omnichannel: Operator Notes
   app.post('/api/v1/omnichannel/conversations/:id/notes', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.body.tenantId as string);
-    if (!tenantId) return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    }
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
     const { text, agentName } = req.body;
@@ -4058,7 +4350,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Omnichannel: Gemini AI Reply Suggestion
   app.post('/api/v1/omnichannel/ai-suggest', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
     const { conversationId, history } = req.body;
-    const tenantId = (req as any).user?.tenantId || (req.body.tenantId as string);
+    let tenantId: string | null = null;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
+      tenantId = null;
+    }
     const conv = conversationId && tenantId ? await OmnichannelRepository.findById(conversationId, tenantId) : null;
     const messages = history || (conv ? conv.messages : []);
     const lastUserMsg = [...messages].reverse().find((m: any) => m.sender === 'user' || m.sender === 'contact');
@@ -4080,14 +4377,19 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // AI Quality Supervisor Audits
   app.get('/api/v1/ai/quality-supervisor/audits', async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    const authUser = (req as any).user;
+    const tenantId = authUser?.role === 'super_admin' && req.query.tenantId
+      ? (req.query.tenantId as string)
+      : authUser?.tenantId;
     const list = tenantId ? await QualityAuditRepository.listByTenant(tenantId) : await QualityAuditRepository.listAll();
     res.json(list || []);
   });
 
   app.post('/api/v1/ai/quality-supervisor/evaluate', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || req.body.tenantId;
-    if (!tenantId) {
+    let tenantId: string;
+    try {
+      tenantId = getTenantIdFromContext(req);
+    } catch {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para avaliação de qualidade.' });
     }
     const { channelType, referenceId, contactName, contactNumber, agentOrBot, transcript } = req.body;
@@ -4268,7 +4570,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/health/run-diagnostic', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    const authUser = (req as any).user;
+    const tenantId = authUser?.role === 'super_admin' && req.query.tenantId
+      ? (req.query.tenantId as string)
+      : authUser?.tenantId;
     const [extensions, trunks] = await Promise.all([
       tenantId ? ExtensionRepository.listByTenant(tenantId).catch(() => []) : ExtensionRepository.listAll().catch(() => []),
       tenantId ? TrunkRepository.listByTenant(tenantId).catch(() => []) : TrunkRepository.listAll().catch(() => []),

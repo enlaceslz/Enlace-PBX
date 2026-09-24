@@ -30,11 +30,11 @@ export interface AsteriskChannel {
 }
 
 const defaultInfraConfig = {
-  hostname: 'enlace-pbx-core-01',
-  publicIp: '200.80.127.50',
-  domain: 'pbx.enlace.slz.br',
-  lanIp: '192.168.10.254',
-  lanSubnet: '192.168.10.0/24',
+  hostname: process.env.PBX_HOSTNAME || 'enlace-pbx-core',
+  publicIp: process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP || 'NOT_CONFIGURED',
+  domain: process.env.PBX_DOMAIN || 'NOT_CONFIGURED',
+  lanIp: process.env.PBX_LAN_IP || '127.0.0.1',
+  lanSubnet: process.env.PBX_LAN_SUBNET || '192.168.1.0/24',
   ports: {
     sipUdp: 5060,
     sipTls: 5061,

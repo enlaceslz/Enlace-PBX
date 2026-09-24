@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import fs from 'fs';
 
 /**
  * Validação Central de Ambiente e Segredos — Enlace-PBX Enterprise
@@ -21,10 +22,12 @@ export interface AppEnvConfig {
   GEMINI_API_KEY?: string;
   ADMIN_INITIAL_EMAIL?: string;
   ADMIN_INITIAL_PASSWORD?: string;
+  WHATSAPP_VERIFY_TOKEN?: string;
+  PBX_PUBLIC_IP?: string;
 }
 
-// Chave em memória volátil gerada dinamicamente caso o ambiente de desenvolvimento não forneça JWT_SECRET
-let ephemeralDevJwtSecret: string | null = null;
+// Arquivo para persistência de chave efêmera de desenvolvimento para evitar invalidação a cada restart
+const DEV_JWT_CACHE_PATH = '/tmp/.enlace_dev_jwt_secret';
 
 export function loadEnvConfig(): AppEnvConfig {
   const nodeEnv = (process.env.NODE_ENV || 'development') as 'development' | 'production' | 'test';
@@ -39,14 +42,26 @@ export function loadEnvConfig(): AppEnvConfig {
         'O Enlace-PBX exige uma chave JWT forte configurada em produção e não inicia com segredos padrão.'
       );
     } else {
-      // Em ambiente de desenvolvimento/preview, gerar segredo criptográfico forte e efêmero
-      if (!ephemeralDevJwtSecret) {
-        ephemeralDevJwtSecret = crypto.randomBytes(32).toString('hex');
+      // Em ambiente de desenvolvimento/preview, manter segredo estável entre restarts (nunca gerar secret diferente a cada restart)
+      try {
+        if (fs.existsSync(DEV_JWT_CACHE_PATH)) {
+          jwtSecret = fs.readFileSync(DEV_JWT_CACHE_PATH, 'utf8').trim();
+        }
+      } catch {
+        // ignora erro de leitura em sandbox
+      }
+
+      if (!jwtSecret) {
+        jwtSecret = crypto.randomBytes(32).toString('hex');
+        try {
+          fs.writeFileSync(DEV_JWT_CACHE_PATH, jwtSecret, 'utf8');
+        } catch {
+          // ignora erro de escrita em sandbox
+        }
         console.warn(
-          '[SEGURANÇA] JWT_SECRET não configurado. Gerando segredo criptográfico efêmero de 256 bits para esta sessão.'
+          '[SEGURANÇA] JWT_SECRET não configurado. Gerando segredo criptográfico persistente de 256 bits para desenvolvimento.'
         );
       }
-      jwtSecret = ephemeralDevJwtSecret;
     }
   }
 
@@ -66,8 +81,23 @@ export function loadEnvConfig(): AppEnvConfig {
   }
 
   // Validação de credenciais de telefonia Asterisk
+  const amiHost = process.env.ASTERISK_AMI_HOST || process.env.ASTERISK_HOST || '127.0.0.1';
+  const amiPort = parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10);
+  const amiUser = process.env.ASTERISK_AMI_USERNAME || process.env.ASTERISK_AMI_USER || 'enlace_ami';
   const amiPassword = process.env.ASTERISK_AMI_PASSWORD;
+
+  const ariUrl = process.env.ASTERISK_ARI_URL || 'http://127.0.0.1:8088';
+  const ariUser = process.env.ASTERISK_ARI_USERNAME || process.env.ASTERISK_ARI_USER || 'enlace_ari';
   const ariPassword = process.env.ASTERISK_ARI_PASSWORD;
+
+  // Validação de Token do WhatsApp
+  let whatsappToken = process.env.WHATSAPP_VERIFY_TOKEN;
+  if (isProd && whatsappToken === 'enlace_meta_webhook_token_2026') {
+    throw new Error(
+      'FATAL DE PRODUÇÃO: O token WHATSAPP_VERIFY_TOKEN está utilizando um valor fraco/previsível de exemplo. ' +
+      'Gere um segredo criptograficamente seguro com: openssl rand -hex 24'
+    );
+  }
 
   if (isProd && (!amiPassword || amiPassword.trim() === '')) {
     console.warn(
@@ -81,17 +111,24 @@ export function loadEnvConfig(): AppEnvConfig {
     JWT_SECRET: jwtSecret,
     CORS_ALLOWED_ORIGINS: corsOrigins,
     DATABASE_URL: process.env.DATABASE_URL,
-    ASTERISK_HOST: process.env.ASTERISK_HOST || '127.0.0.1',
-    ASTERISK_AMI_PORT: parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10),
-    ASTERISK_AMI_USER: process.env.ASTERISK_AMI_USER || 'enlace_ami',
+    ASTERISK_HOST: amiHost,
+    ASTERISK_AMI_PORT: amiPort,
+    ASTERISK_AMI_USER: amiUser,
     ASTERISK_AMI_PASSWORD: amiPassword,
-    ASTERISK_ARI_URL: process.env.ASTERISK_ARI_URL || 'http://127.0.0.1:8088',
-    ASTERISK_ARI_USER: process.env.ASTERISK_ARI_USER || 'enlace_ari',
+    ASTERISK_ARI_URL: ariUrl,
+    ASTERISK_ARI_USER: ariUser,
     ASTERISK_ARI_PASSWORD: ariPassword,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     ADMIN_INITIAL_EMAIL: process.env.ADMIN_INITIAL_EMAIL,
     ADMIN_INITIAL_PASSWORD: process.env.ADMIN_INITIAL_PASSWORD,
+    WHATSAPP_VERIFY_TOKEN: whatsappToken,
+    PBX_PUBLIC_IP: process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP,
   };
 }
 
 export const env = loadEnvConfig();
+
+export function getJwtSecret(): string {
+  return env.JWT_SECRET;
+}
+
