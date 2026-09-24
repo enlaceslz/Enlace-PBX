@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import { postgresClient } from '../client';
 import { AuditLog } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class AuditLogRepository {
   public static async create(entry: {
@@ -63,8 +62,8 @@ export class AuditLogRepository {
           auditItem.sha256Hash, JSON.stringify(auditItem.payload || {})
         ]
       );
-    } catch {
-      initialSeedData.auditLogs.unshift({ ...auditItem });
+    } catch (err: any) {
+      console.error('[AuditLogRepository.log] Erro ao gravar log de auditoria no PostgreSQL:', err?.message || err);
     }
 
     return auditItem;
@@ -124,28 +123,9 @@ export class AuditLogRepository {
       }));
 
       return { logs, total };
-    } catch {
-      let filtered = [...initialSeedData.auditLogs];
-      if (options?.category && options.category !== 'ALL') {
-        filtered = filtered.filter(l => l.category === options.category);
-      }
-      if (options?.severity && options.severity !== 'ALL') {
-        filtered = filtered.filter(l => l.severity === options.severity);
-      }
-      if (options?.search) {
-        const q = options.search.toLowerCase();
-        filtered = filtered.filter(l =>
-          l.details?.toLowerCase().includes(q) ||
-          l.action?.toLowerCase().includes(q) ||
-          l.userName?.toLowerCase().includes(q) ||
-          l.resource?.toLowerCase().includes(q) ||
-          l.ip?.toLowerCase().includes(q)
-        );
-      }
-      return {
-        logs: filtered.slice(offset, offset + limit),
-        total: filtered.length,
-      };
+    } catch (err: any) {
+      console.error('[AuditLogRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -171,9 +151,9 @@ export class AuditLogRepository {
         };
       }
       return null;
-    } catch {
-      const l = initialSeedData.auditLogs.find(log => log.id === id);
-      return l ? { ...l } : null;
+    } catch (err: any) {
+      console.error('[AuditLogRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -198,8 +178,9 @@ export class AuditLogRepository {
         sha256Hash: row.sha256_hash,
         payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload || {}),
       }));
-    } catch {
-      return initialSeedData.auditLogs.filter(l => l.tenantId === tenantId).slice(0, limit);
+    } catch (err: any) {
+      console.error('[AuditLogRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

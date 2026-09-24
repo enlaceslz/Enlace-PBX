@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { CrmContact, CustomerMemory } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class CrmRepository {
   public static async listContacts(tenantId: string): Promise<CrmContact[]> {
@@ -18,8 +17,9 @@ export class CrmRepository {
         crmId: row.crm_id || undefined,
         lastInteraction: row.last_interaction ? row.last_interaction.toISOString() : undefined,
       }));
-    } catch {
-      return initialSeedData.crmContacts.filter(c => c.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[CrmRepository.listContacts] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -45,9 +45,9 @@ export class CrmRepository {
         };
       }
       return null;
-    } catch {
-      const c = initialSeedData.crmContacts.find(item => item.id === id && (!tenantId || item.tenantId === tenantId));
-      return c ? { ...c } : null;
+    } catch (err: any) {
+      console.error('[CrmRepository.findContactById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -73,15 +73,11 @@ export class CrmRepository {
           contact.lastInteraction ? new Date(contact.lastInteraction) : null
         ]
       );
-    } catch {
-      const idx = initialSeedData.crmContacts.findIndex(c => c.id === contact.id);
-      if (idx !== -1) {
-        initialSeedData.crmContacts[idx] = { ...contact };
-      } else {
-        initialSeedData.crmContacts.push({ ...contact });
-      }
+      return contact;
+    } catch (err: any) {
+      console.error('[CrmRepository.saveContact] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return contact;
   }
 
   public static async deleteContact(id: string, tenantId?: string): Promise<boolean> {
@@ -94,13 +90,9 @@ export class CrmRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.crmContacts.findIndex(c => c.id === id && (!tenantId || c.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.crmContacts.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[CrmRepository.deleteContact] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -121,8 +113,9 @@ export class CrmRepository {
         sentimentHistory: row.sentiment_history as any,
         churnRisk: row.churn_risk || 0,
       }));
-    } catch {
-      return initialSeedData.customerMemories.filter(m => m.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[CrmRepository.listMemories] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -148,11 +141,9 @@ export class CrmRepository {
         };
       }
       return null;
-    } catch {
-      const mem = initialSeedData.customerMemories.find(
-        m => m.tenantId === tenantId && (m.phone.replace(/\D/g, '') === cleanPhone || m.phone.replace(/\D/g, '').endsWith(cleanPhone.slice(-8)))
-      );
-      return mem ? { ...mem } : null;
+    } catch (err: any) {
+      console.error('[CrmRepository.findMemoryByPhone] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -178,14 +169,10 @@ export class CrmRepository {
           memory.churnRisk || 0
         ]
       );
-    } catch {
-      const idx = initialSeedData.customerMemories.findIndex(m => m.id === memory.id);
-      if (idx !== -1) {
-        initialSeedData.customerMemories[idx] = { ...memory };
-      } else {
-        initialSeedData.customerMemories.push({ ...memory });
-      }
+      return memory;
+    } catch (err: any) {
+      console.error('[CrmRepository.saveMemory] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return memory;
   }
 }

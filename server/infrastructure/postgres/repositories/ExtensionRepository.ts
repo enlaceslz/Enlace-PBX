@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { Extension } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class ExtensionRepository {
   public static async listAll(): Promise<Extension[]> {
@@ -27,8 +26,9 @@ export class ExtensionRepository {
         ipAddress: row.ip_address || undefined,
         allowAiTransfer: row.allow_ai_transfer,
       }));
-    } catch {
-      return [...initialSeedData.extensions];
+    } catch (err: any) {
+      console.error('[ExtensionRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -57,8 +57,9 @@ export class ExtensionRepository {
         ipAddress: row.ip_address || undefined,
         allowAiTransfer: row.allow_ai_transfer,
       }));
-    } catch {
-      return initialSeedData.extensions.filter(e => e.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[ExtensionRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -91,9 +92,9 @@ export class ExtensionRepository {
         };
       }
       return null;
-    } catch {
-      const ext = initialSeedData.extensions.find(e => e.tenantId === tenantId && e.number === number);
-      return ext ? { ...ext } : null;
+    } catch (err: any) {
+      console.error('[ExtensionRepository.findByNumber] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -129,9 +130,9 @@ export class ExtensionRepository {
         };
       }
       return null;
-    } catch {
-      const ext = initialSeedData.extensions.find(e => e.id === id && (!tenantId || e.tenantId === tenantId));
-      return ext ? { ...ext } : null;
+    } catch (err: any) {
+      console.error('[ExtensionRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -164,15 +165,11 @@ export class ExtensionRepository {
           ext.status || 'offline', ext.ipAddress || null, ext.allowAiTransfer ?? true
         ]
       );
-    } catch {
-      const idx = initialSeedData.extensions.findIndex(e => e.id === ext.id);
-      if (idx !== -1) {
-        initialSeedData.extensions[idx] = { ...ext };
-      } else {
-        initialSeedData.extensions.push({ ...ext });
-      }
+      return ext;
+    } catch (err: any) {
+      console.error('[ExtensionRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return ext;
   }
 
   public static async delete(tenantId: string, id: string): Promise<boolean> {
@@ -182,13 +179,9 @@ export class ExtensionRepository {
         [tenantId, id]
       );
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.extensions.findIndex(e => e.tenantId === tenantId && (e.id === id || e.number === id));
-      if (idx !== -1) {
-        initialSeedData.extensions.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[ExtensionRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

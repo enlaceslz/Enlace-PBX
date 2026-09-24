@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { Ivr } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class IvrRepository {
   public static async listAll(): Promise<Ivr[]> {
@@ -19,8 +18,9 @@ export class IvrRepository {
         options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
         flow: typeof row.flow === 'string' ? JSON.parse(row.flow) : (row.flow || undefined),
       }));
-    } catch {
-      return [...initialSeedData.ivrs];
+    } catch (err: any) {
+      console.error('[IvrRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -41,8 +41,9 @@ export class IvrRepository {
         options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
         flow: typeof row.flow === 'string' ? JSON.parse(row.flow) : (row.flow || undefined),
       }));
-    } catch {
-      return initialSeedData.ivrs.filter(i => i.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[IvrRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -70,9 +71,9 @@ export class IvrRepository {
         };
       }
       return null;
-    } catch {
-      const ivr = initialSeedData.ivrs.find(i => i.id === id && (!tenantId || i.tenantId === tenantId));
-      return ivr ? { ...ivr } : null;
+    } catch (err: any) {
+      console.error('[IvrRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -104,15 +105,11 @@ export class IvrRepository {
           ivr.flow ? JSON.stringify(ivr.flow) : null
         ]
       );
-    } catch {
-      const idx = initialSeedData.ivrs.findIndex(i => i.id === ivr.id);
-      if (idx !== -1) {
-        initialSeedData.ivrs[idx] = { ...ivr };
-      } else {
-        initialSeedData.ivrs.push({ ...ivr });
-      }
+      return ivr;
+    } catch (err: any) {
+      console.error('[IvrRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return ivr;
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
@@ -125,13 +122,9 @@ export class IvrRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.ivrs.findIndex(i => i.id === id && (!tenantId || i.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.ivrs.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[IvrRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

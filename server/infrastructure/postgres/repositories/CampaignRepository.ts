@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { OutboundCampaign } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class CampaignRepository {
   public static async listAll(): Promise<OutboundCampaign[]> {
@@ -21,8 +20,9 @@ export class CampaignRepository {
         activeCalls: row.active_calls || 0,
         createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
       }));
-    } catch {
-      return [...initialSeedData.outboundCampaigns];
+    } catch (err: any) {
+      console.error('[CampaignRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -45,8 +45,9 @@ export class CampaignRepository {
         activeCalls: row.active_calls || 0,
         createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
       }));
-    } catch {
-      return initialSeedData.outboundCampaigns.filter(c => c.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[CampaignRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -76,9 +77,9 @@ export class CampaignRepository {
         };
       }
       return null;
-    } catch {
-      const c = initialSeedData.outboundCampaigns.find(camp => camp.id === id && (!tenantId || camp.tenantId === tenantId));
-      return c ? { ...c } : null;
+    } catch (err: any) {
+      console.error('[CampaignRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -104,15 +105,11 @@ export class CampaignRepository {
           campaign.createdAt ? new Date(campaign.createdAt) : new Date()
         ]
       );
-    } catch {
-      const idx = initialSeedData.outboundCampaigns.findIndex(c => c.id === campaign.id);
-      if (idx !== -1) {
-        initialSeedData.outboundCampaigns[idx] = { ...campaign };
-      } else {
-        initialSeedData.outboundCampaigns.push({ ...campaign });
-      }
+      return campaign;
+    } catch (err: any) {
+      console.error('[CampaignRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return campaign;
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
@@ -125,13 +122,9 @@ export class CampaignRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.outboundCampaigns.findIndex(c => c.id === id && (!tenantId || c.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.outboundCampaigns.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[CampaignRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

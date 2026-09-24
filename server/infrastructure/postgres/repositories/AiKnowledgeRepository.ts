@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { AiKnowledgeSource } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class AiKnowledgeRepository {
   public static async listAll(): Promise<AiKnowledgeSource[]> {
@@ -19,8 +18,9 @@ export class AiKnowledgeRepository {
         fileType: row.file_type || undefined,
         fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
       }));
-    } catch {
-      return [...initialSeedData.aiKnowledge];
+    } catch (err: any) {
+      console.error('[AiKnowledgeRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -41,8 +41,9 @@ export class AiKnowledgeRepository {
         fileType: row.file_type || undefined,
         fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
       }));
-    } catch {
-      return initialSeedData.aiKnowledge.filter(k => k.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[AiKnowledgeRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -70,9 +71,9 @@ export class AiKnowledgeRepository {
         };
       }
       return null;
-    } catch {
-      const k = initialSeedData.aiKnowledge.find(item => item.id === id && (!tenantId || item.tenantId === tenantId));
-      return k ? { ...k } : null;
+    } catch (err: any) {
+      console.error('[AiKnowledgeRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -102,15 +103,11 @@ export class AiKnowledgeRepository {
           source.fileSizeBytes || null
         ]
       );
-    } catch {
-      const idx = initialSeedData.aiKnowledge.findIndex(k => k.id === source.id);
-      if (idx !== -1) {
-        initialSeedData.aiKnowledge[idx] = { ...source };
-      } else {
-        initialSeedData.aiKnowledge.push({ ...source });
-      }
+      return source;
+    } catch (err: any) {
+      console.error('[AiKnowledgeRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return source;
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
@@ -123,13 +120,9 @@ export class AiKnowledgeRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.aiKnowledge.findIndex(k => k.id === id && (!tenantId || k.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.aiKnowledge.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[AiKnowledgeRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

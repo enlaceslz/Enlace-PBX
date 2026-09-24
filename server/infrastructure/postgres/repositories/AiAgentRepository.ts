@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { AiAgent } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class AiAgentRepository {
   public static async listAll(): Promise<AiAgent[]> {
@@ -33,8 +32,9 @@ export class AiAgentRepository {
         fallbackAction: (row.fallback_action || 'transfer_human') as any,
         isActive: row.is_active ?? true,
       }));
-    } catch {
-      return [...initialSeedData.aiAgents];
+    } catch (err: any) {
+      console.error('[AiAgentRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -69,8 +69,9 @@ export class AiAgentRepository {
         fallbackAction: (row.fallback_action || 'transfer_human') as any,
         isActive: row.is_active ?? true,
       }));
-    } catch {
-      return initialSeedData.aiAgents.filter(a => a.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[AiAgentRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -112,9 +113,9 @@ export class AiAgentRepository {
         };
       }
       return null;
-    } catch {
-      const a = initialSeedData.aiAgents.find(agent => agent.id === id && (!tenantId || agent.tenantId === tenantId));
-      return a ? { ...a } : null;
+    } catch (err: any) {
+      console.error('[AiAgentRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -171,15 +172,11 @@ export class AiAgentRepository {
           agent.isActive ?? true
         ]
       );
-    } catch {
-      const idx = initialSeedData.aiAgents.findIndex(a => a.id === agent.id);
-      if (idx !== -1) {
-        initialSeedData.aiAgents[idx] = { ...agent };
-      } else {
-        initialSeedData.aiAgents.push({ ...agent });
-      }
+      return agent;
+    } catch (err: any) {
+      console.error('[AiAgentRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return agent;
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
@@ -192,13 +189,9 @@ export class AiAgentRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.aiAgents.findIndex(a => a.id === id && (!tenantId || a.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.aiAgents.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[AiAgentRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

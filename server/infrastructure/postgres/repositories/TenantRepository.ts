@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { Tenant } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class TenantRepository {
   public static async findById(id: string): Promise<Tenant | null> {
@@ -21,9 +20,9 @@ export class TenantRepository {
         };
       }
       return null;
-    } catch {
-      const t = initialSeedData.tenants.find(tenant => tenant.id === id);
-      return t ? { ...t } : null;
+    } catch (err: any) {
+      console.error('[TenantRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -41,8 +40,9 @@ export class TenantRepository {
         createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
         antiFraud: typeof row.anti_fraud === 'string' ? JSON.parse(row.anti_fraud) : (row.anti_fraud || {}),
       }));
-    } catch {
-      return [...initialSeedData.tenants];
+    } catch (err: any) {
+      console.error('[TenantRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -71,28 +71,20 @@ export class TenantRepository {
           JSON.stringify(tenant.antiFraud || {})
         ]
       );
-    } catch {
-      const idx = initialSeedData.tenants.findIndex(t => t.id === tenant.id);
-      if (idx !== -1) {
-        initialSeedData.tenants[idx] = { ...tenant };
-      } else {
-        initialSeedData.tenants.push({ ...tenant });
-      }
+      return tenant;
+    } catch (err: any) {
+      console.error('[TenantRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return tenant;
   }
 
   public static async delete(id: string): Promise<boolean> {
     try {
       const res = await postgresClient.query('DELETE FROM tenants WHERE id = $1', [id]);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.tenants.findIndex(t => t.id === id);
-      if (idx !== -1) {
-        initialSeedData.tenants.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[TenantRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

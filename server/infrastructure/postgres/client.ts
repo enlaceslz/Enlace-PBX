@@ -13,7 +13,7 @@ export interface PostgresHealthStatus {
 
 class PostgresClient {
   private pool: pg.Pool | null = null;
-  private isConfigured: boolean = false;
+  public isConfigured: boolean = false;
   private lastHealth: PostgresHealthStatus = { status: 'NOT_CONFIGURED' };
 
   constructor() {

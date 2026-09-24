@@ -1,5 +1,4 @@
 import { postgresClient } from '../client.js';
-import { initialSeedData } from '../seedData.js';
 
 export class SystemRepository {
   public static async getSetting<T>(key: string, defaultValue?: T): Promise<T | null> {
@@ -28,6 +27,7 @@ export class SystemRepository {
       );
     } catch (e: any) {
       console.error(`[SystemRepository] Falha ao salvar configuração '${key}':`, e?.message || e);
+      throw e;
     }
     return value;
   }
@@ -43,7 +43,7 @@ export class SystemRepository {
   }
 
   public static async getInfraConfig(fallback?: any): Promise<any> {
-    return (await this.getSetting('infra_config')) || fallback || initialSeedData.infraConfig;
+    return (await this.getSetting('infra_config')) || fallback || null;
   }
 
   public static async setInfraConfig(config: any): Promise<any> {
@@ -51,7 +51,7 @@ export class SystemRepository {
   }
 
   public static async getWireguardConfig(fallback?: any): Promise<any> {
-    return (await this.getSetting('wireguard_config')) || fallback || initialSeedData.wireguard;
+    return (await this.getSetting('wireguard_config')) || fallback || null;
   }
 
   public static async setWireguardConfig(config: any): Promise<any> {
@@ -59,7 +59,7 @@ export class SystemRepository {
   }
 
   public static async getZerotierConfig(fallback?: any): Promise<any> {
-    return (await this.getSetting('zerotier_config')) || fallback || initialSeedData.zerotier;
+    return (await this.getSetting('zerotier_config')) || fallback || null;
   }
 
   public static async setZerotierConfig(config: any): Promise<any> {
@@ -67,7 +67,7 @@ export class SystemRepository {
   }
 
   public static async getVpnRouting(fallback?: any): Promise<any> {
-    return (await this.getSetting('vpn_routing')) || fallback || initialSeedData.vpnRouting;
+    return (await this.getSetting('vpn_routing')) || fallback || null;
   }
 
   public static async setVpnRouting(routing: any): Promise<any> {
@@ -75,7 +75,7 @@ export class SystemRepository {
   }
 
   public static async getFail2banConfig(fallback?: any): Promise<any> {
-    return (await this.getSetting('fail2ban_config')) || fallback || initialSeedData.fail2ban;
+    return (await this.getSetting('fail2ban_config')) || fallback || null;
   }
 
   public static async setFail2banConfig(config: any): Promise<any> {
@@ -83,7 +83,7 @@ export class SystemRepository {
   }
 
   public static async getSnapshots(): Promise<any[]> {
-    return (await this.getSetting<any[]>('system_snapshots')) || initialSeedData.snapshots || [];
+    return (await this.getSetting<any[]>('system_snapshots')) || [];
   }
 
   public static async setSnapshots(snapshots: any[]): Promise<any[]> {
@@ -117,7 +117,7 @@ export class SystemRepository {
   }
 
   public static async getWhatsappConfig(fallback?: any): Promise<any> {
-    return (await this.getSetting('whatsapp_config')) || fallback || initialSeedData.whatsappConfigs[0];
+    return (await this.getSetting('whatsapp_config')) || fallback || null;
   }
 
   public static async setWhatsappConfig(config: any): Promise<any> {
@@ -125,7 +125,7 @@ export class SystemRepository {
   }
 
   public static async getCrmProviders(fallback?: any[]): Promise<any[]> {
-    return (await this.getSetting<any[]>('crm_providers')) || fallback || initialSeedData.crmProviders || [];
+    return (await this.getSetting<any[]>('crm_providers')) || fallback || [];
   }
 
   public static async setCrmProviders(providers: any[]): Promise<any[]> {
@@ -133,7 +133,7 @@ export class SystemRepository {
   }
 
   public static async getEntitySchemas(fallback?: any[]): Promise<any[]> {
-    return (await this.getSetting<any[]>('entity_schemas')) || fallback || initialSeedData.entitySchemas || [];
+    return (await this.getSetting<any[]>('entity_schemas')) || fallback || [];
   }
 
   public static async setEntitySchemas(schemas: any[]): Promise<any[]> {
@@ -141,7 +141,7 @@ export class SystemRepository {
   }
 
   public static async getWebhooks(fallback?: any[]): Promise<any[]> {
-    return (await this.getSetting<any[]>('webhooks')) || fallback || initialSeedData.webhooks || [];
+    return (await this.getSetting<any[]>('webhooks')) || fallback || [];
   }
 
   public static async setWebhooks(webhooks: any[]): Promise<any[]> {
@@ -149,11 +149,10 @@ export class SystemRepository {
   }
 
   public static async getAiSessions(fallback?: any[]): Promise<any[]> {
-    return (await this.getSetting<any[]>('ai_sessions')) || fallback || initialSeedData.aiSessions || [];
+    return (await this.getSetting<any[]>('ai_sessions')) || fallback || [];
   }
 
   public static async setAiSessions(sessions: any[]): Promise<any[]> {
     return this.setSetting('ai_sessions', sessions, 'Sessões ativas de atendimento de IA MaIA');
   }
 }
-

@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { Did } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class DidRepository {
   private static mapRow(row: any): Did {
@@ -43,8 +42,9 @@ export class DidRepository {
     try {
       const res = await postgresClient.query('SELECT * FROM dids ORDER BY did ASC');
       return res.rows.map(row => this.mapRow(row));
-    } catch {
-      return [...initialSeedData.dids];
+    } catch (err: any) {
+      console.error('[DidRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -55,8 +55,9 @@ export class DidRepository {
         [tenantId]
       );
       return res.rows.map(row => this.mapRow(row));
-    } catch {
-      return initialSeedData.dids.filter(d => d.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[DidRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -71,10 +72,9 @@ export class DidRepository {
         return this.mapRow(res.rows[0]);
       }
       return null;
-    } catch {
-      const cleanNumber = didNumber.replace(/\D/g, '');
-      const d = initialSeedData.dids.find(x => x.did.replace(/\D/g, '') === cleanNumber || x.normalizedNumber?.replace(/\D/g, '') === cleanNumber);
-      return d ? { ...d } : null;
+    } catch (err: any) {
+      console.error('[DidRepository.findByDidNumber] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -97,13 +97,9 @@ export class DidRepository {
         return this.mapRow(res.rows[0]);
       }
       return null;
-    } catch {
-      const did = initialSeedData.dids.find(d => {
-        if (!arg2) return d.id === arg1;
-        if (arg1.startsWith('tenant-')) return d.tenantId === arg1 && d.id === arg2;
-        return d.id === arg1 && d.tenantId === arg2;
-      });
-      return did ? { ...did } : null;
+    } catch (err: any) {
+      console.error('[DidRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -162,15 +158,11 @@ export class DidRepository {
           did.lastCallAt ? new Date(did.lastCallAt) : null
         ]
       );
-    } catch {
-      const idx = initialSeedData.dids.findIndex(d => d.id === did.id);
-      if (idx !== -1) {
-        initialSeedData.dids[idx] = { ...did };
-      } else {
-        initialSeedData.dids.push({ ...did });
-      }
+      return did;
+    } catch (err: any) {
+      console.error('[DidRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return did;
   }
 
   public static async delete(arg1: string, arg2?: string): Promise<boolean> {
@@ -189,17 +181,9 @@ export class DidRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.dids.findIndex(d => {
-        if (!arg2) return d.id === arg1;
-        if (arg1.startsWith('tenant-')) return d.tenantId === arg1 && d.id === arg2;
-        return d.id === arg1 && d.tenantId === arg2;
-      });
-      if (idx !== -1) {
-        initialSeedData.dids.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[DidRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

@@ -1,7 +1,6 @@
 import bcrypt from 'bcrypt';
 import { postgresClient } from '../client';
 import { User } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class UserRepository {
   public static async findByEmail(email: string, tenantId?: string): Promise<User | null> {
@@ -28,9 +27,9 @@ export class UserRepository {
         };
       }
       return null;
-    } catch {
-      const user = initialSeedData.users.find(u => u.email.toLowerCase() === email.toLowerCase() && (!tenantId || u.tenantId === tenantId));
-      return user ? { ...user } : null;
+    } catch (err: any) {
+      console.error('[UserRepository.findByEmail] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -52,9 +51,9 @@ export class UserRepository {
         };
       }
       return null;
-    } catch {
-      const user = initialSeedData.users.find(u => u.id === id);
-      return user ? { ...user } : null;
+    } catch (err: any) {
+      console.error('[UserRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -72,8 +71,9 @@ export class UserRepository {
         isActive: row.is_active,
         lastLogin: row.last_login ? row.last_login.toISOString() : undefined,
       }));
-    } catch {
-      return [...initialSeedData.users];
+    } catch (err: any) {
+      console.error('[UserRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -93,8 +93,9 @@ export class UserRepository {
         isActive: row.is_active,
         lastLogin: row.last_login ? row.last_login.toISOString() : undefined,
       }));
-    } catch {
-      return initialSeedData.users.filter(u => u.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[UserRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -124,15 +125,11 @@ export class UserRepository {
           user.lastLogin ? new Date(user.lastLogin) : null
         ]
       );
-    } catch {
-      const idx = initialSeedData.users.findIndex(u => u.id === user.id);
-      if (idx !== -1) {
-        initialSeedData.users[idx] = { ...user };
-      } else {
-        initialSeedData.users.push({ ...user });
-      }
+      return user;
+    } catch (err: any) {
+      console.error('[UserRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return user;
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
@@ -145,13 +142,9 @@ export class UserRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.users.findIndex(u => u.id === id && (!tenantId || u.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.users.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[UserRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -159,21 +152,18 @@ export class UserRepository {
     try {
       const res = await postgresClient.query('SELECT COUNT(*) as count FROM users');
       return parseInt(res.rows[0]?.count || '0', 10);
-    } catch {
-      return initialSeedData.users.length;
+    } catch (err: any) {
+      console.error('[UserRepository.countAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
   public static async verifyPassword(user: User, plainPassword: string): Promise<boolean> {
-    if (!user.passwordHash) {
-      const validDefaults = ['enlace123', 'admin', 'admin123', '123456', 'enlace', 'root', 'asterisk'];
-      return validDefaults.includes(plainPassword.toLowerCase()) || plainPassword.length >= 4;
+    if (!user.passwordHash || typeof plainPassword !== 'string' || plainPassword.length === 0) {
+      return false;
     }
     try {
-      const matches = await bcrypt.compare(plainPassword, user.passwordHash);
-      if (matches) return true;
-      const validDefaults = ['enlace123', 'admin', 'admin123', '123456', 'enlace', 'root', 'asterisk'];
-      return validDefaults.includes(plainPassword.toLowerCase());
+      return await bcrypt.compare(plainPassword, user.passwordHash);
     } catch {
       return false;
     }

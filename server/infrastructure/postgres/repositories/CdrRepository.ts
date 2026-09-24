@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import { postgresClient } from '../client';
 import { CdrRecord } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export interface OfficialCdrPayload {
   uniqueid: string;
@@ -98,16 +97,11 @@ export class CdrRepository {
           record.aiAgentId || null, cdrItem.costBrl
         ]
       );
-    } catch {
-      const idx = initialSeedData.cdrs.findIndex(c => c.uniqueId === cdrItem.uniqueId);
-      if (idx !== -1) {
-        initialSeedData.cdrs[idx] = { ...cdrItem };
-      } else {
-        initialSeedData.cdrs.unshift({ ...cdrItem });
-      }
+      return cdrItem;
+    } catch (err: any) {
+      console.error('[CdrRepository.insertOfficial] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-
-    return cdrItem;
   }
 
   public static async listAll(options?: { limit?: number; offset?: number }): Promise<CdrRecord[]> {
@@ -138,8 +132,9 @@ export class CdrRepository {
         isAiHandled: !!row.ai_agent_id,
         costBrl: parseFloat(row.cost_brl || '0'),
       }));
-    } catch {
-      return initialSeedData.cdrs.slice(offset, offset + limit);
+    } catch (err: any) {
+      console.error('[CdrRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -188,10 +183,9 @@ export class CdrRepository {
         isAiHandled: !!row.ai_agent_id,
         costBrl: parseFloat(row.cost_brl || '0'),
       }));
-    } catch {
-      return initialSeedData.cdrs
-        .filter(c => c.tenantId === tenantId)
-        .slice(offset, offset + limit);
+    } catch (err: any) {
+      console.error('[CdrRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -228,9 +222,9 @@ export class CdrRepository {
         };
       }
       return null;
-    } catch {
-      const cdr = initialSeedData.cdrs.find(c => (c.id === id || c.uniqueId === id) && (!tenantId || c.tenantId === tenantId));
-      return cdr ? { ...cdr } : null;
+    } catch (err: any) {
+      console.error('[CdrRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

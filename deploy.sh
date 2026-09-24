@@ -84,7 +84,7 @@ fi
 # 6. Parâmetros de Configuração de Rede, Host e Ambiente
 echo -e "\n${BOLD}[4/9] Configuração de Rede, Domínio e Integrações${NC}"
 echo -e "${CYAN}Detectando endereço IP público (WAN)...${NC}"
-DETECTED_WAN=$(curl -s --connect-timeout 4 https://api.ipify.org || curl -s --connect-timeout 4 https://ifconfig.me || echo "177.136.210.12")
+DETECTED_WAN=$(curl -s --connect-timeout 4 https://api.ipify.org || curl -s --connect-timeout 4 https://ifconfig.me || echo "UNAVAILABLE")
 echo -e "IP Público detectado: ${GREEN}${BOLD}${DETECTED_WAN}${NC}"
 
 read -p "Confirma o IP Público para sinalização SIP e RTP [${DETECTED_WAN}]: " CONF_WAN

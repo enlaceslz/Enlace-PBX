@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { postgresClient } from '../client';
-import { initialSeedData as db } from '../seedData';
 
 export class DatabaseMigrator {
   public static async runMigrations(): Promise<{ success: boolean; applied: number; error?: string }> {
@@ -62,9 +62,8 @@ export class DatabaseMigrator {
         }
       }
 
-      // Bootstrap explícito do administrador e sincronização inicial
+      // Bootstrap explícito do administrador mestre
       await this.bootstrapAdminIfRequested();
-      await this.seedInitialDataIfEmpty();
 
       return { success: true, applied: appliedCount };
     } catch (err: any) {
@@ -76,11 +75,21 @@ export class DatabaseMigrator {
   /**
    * Bootstrap oficial e seguro do primeiro administrador.
    * Utiliza estritamente ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD.
-   * Sem fallback de senha padrão nem senha universal.
+   * Sem fallback de senha fraca ou dados fictícios.
    */
   public static async bootstrapAdminIfRequested() {
     const adminEmail = process.env.ADMIN_INITIAL_EMAIL || 'admin@enlace.slz.br';
-    const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || 'Dev@EnlacePBX2026';
+    const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-default';
+    let adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
+
+    if (!adminPassword) {
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('[BOOTSTRAP] ADMIN_INITIAL_PASSWORD não definido no ambiente de produção. Provisionamento automático de admin ignorado por segurança.');
+        return;
+      }
+      adminPassword = crypto.randomBytes(12).toString('base64url');
+      console.log(`[BOOTSTRAP] ADMIN_INITIAL_PASSWORD não definido. Gerada senha inicial segura para '${adminEmail}': ${adminPassword}`);
+    }
 
     try {
       const res = await postgresClient.query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [adminEmail.toLowerCase()]);
@@ -89,9 +98,9 @@ export class DatabaseMigrator {
       // Garante tenant padrão
       await postgresClient.query(`
         INSERT INTO tenants (id, name, cnpj, plan, max_extensions, max_trunks, ai_credits_usd, anti_fraud)
-        VALUES ('tenant-enlace-matriz', 'Enlace Telecom Matriz', '00.000.000/0001-00', 'enterprise', 100, 10, 50, '{}')
+        VALUES ($1, 'Enlace Telecom Corporativo', '00.000.000/0001-00', 'enterprise', 100, 10, 50, '{}')
         ON CONFLICT (id) DO NOTHING
-      `);
+      `, [defaultTenantId]);
 
       if (res.rows.length === 0) {
         console.log(`[BOOTSTRAP] Criando administrador inicial provisionado: ${adminEmail}`);
@@ -102,7 +111,7 @@ export class DatabaseMigrator {
           SET password_hash = EXCLUDED.password_hash, is_active = true
         `, [
           `user-admin-${Date.now()}`,
-          'tenant-enlace-matriz',
+          defaultTenantId,
           'Administrador Master',
           adminEmail.toLowerCase(),
           passwordHash,
@@ -118,97 +127,6 @@ export class DatabaseMigrator {
       }
     } catch (err: any) {
       console.error('[BOOTSTRAP] Erro ao provisionar administrador:', err.message);
-    }
-  }
-
-  private static async seedInitialDataIfEmpty() {
-    try {
-      const res = await postgresClient.query('SELECT COUNT(*) as count FROM tenants');
-      const count = parseInt(res.rows[0]?.count || '0');
-
-      if (count === 0) {
-        // Em produção, nunca carregar fixtures de demonstração automaticamente
-        if (process.env.NODE_ENV === 'production') {
-          console.log('[DatabaseMigrator] Ambiente de produção: fixtures de desenvolvimento não carregadas.');
-          return;
-        }
-
-        console.log('[DatabaseMigrator] Banco limpo em desenvolvimento. Sincronizando fixtures de teste...');
-        
-        // 1. Tenants
-        for (const t of db.tenants) {
-          await postgresClient.query(
-            `INSERT INTO tenants (id, name, cnpj, plan, max_extensions, max_trunks, ai_credits_usd, anti_fraud)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (id) DO NOTHING`,
-            [t.id, t.name, t.cnpj, t.plan, t.maxExtensions, t.maxTrunks, t.aiCreditsUsd, JSON.stringify(t.antiFraud || {})]
-          );
-        }
-
-        // 2. Users (se ADMIN_INITIAL_PASSWORD fornecido, usar seu hash; se não, hash específico)
-        const initialPass = process.env.ADMIN_INITIAL_PASSWORD || 'Dev@EnlacePBX2026';
-        const initialHash = await bcrypt.hash(initialPass, 10);
-
-        for (const u of db.users) {
-          const passwordHash = initialHash;
-          const role = u.role === 'operador' ? 'operator' : u.role === 'auditor' ? 'readonly' : u.role;
-          await postgresClient.query(
-            `INSERT INTO users (id, tenant_id, name, email, password_hash, role, extension, is_active, last_login)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             ON CONFLICT (tenant_id, email) DO NOTHING`,
-            [u.id, u.tenantId, u.name, u.email, passwordHash, role, u.extension || null, u.isActive, u.lastLogin ? new Date(u.lastLogin) : null]
-          );
-        }
-
-        // 3. Extensions
-        for (const ext of db.extensions) {
-          await postgresClient.query(
-            `INSERT INTO extensions (id, tenant_id, number, name, sip_secret, context, caller_id, cli_caller_id, codecs, nat, webrtc, recording, voicemail, dnd, status, allow_ai_transfer)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-             ON CONFLICT (tenant_id, number) DO NOTHING`,
-            [
-              ext.id, ext.tenantId, ext.number, ext.name, ext.sipSecret, ext.context, ext.callerId,
-              ext.cliCallerId || null, JSON.stringify(ext.codecs), ext.nat, ext.webrtc, ext.recording,
-              ext.voicemail, ext.dnd, ext.status, ext.allowAiTransfer
-            ]
-          );
-        }
-
-        // 4. Trunks
-        for (const trk of db.trunks) {
-          await postgresClient.query(
-            `INSERT INTO trunks (id, tenant_id, name, provider_name, host, port, username, secret_masked, transport, caller_id, codecs, context, register, status, channels_max, channels_in_use, auth_mode, authorized_ips, send_pai, send_rpid, direct_media)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-             ON CONFLICT (id) DO NOTHING`,
-            [
-              trk.id, trk.tenantId, trk.name, trk.providerName, trk.host, trk.port || 5060,
-              trk.username || '', trk.secretMasked || '', trk.transport || 'UDP', trk.callerId || '',
-              JSON.stringify(trk.codecs || []), trk.context || 'from-trunk', trk.register || false,
-              trk.status || 'unregistered', trk.channelsMax || 30, trk.channelsInUse || 0,
-              trk.authMode || 'ip', JSON.stringify(trk.authorizedIps || []), trk.sendPai || false,
-              trk.sendRpid || false, trk.directMedia || false
-            ]
-          );
-        }
-
-        // 5. DIDs
-        for (const d of db.dids) {
-          await postgresClient.query(
-            `INSERT INTO dids (id, tenant_id, did, normalized_number, presented_number, operator_name, trunk_id, description, status, destination_type, destination_id, channels_in_use, total_calls_received)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-             ON CONFLICT (tenant_id, did) DO NOTHING`,
-            [
-              d.id, d.tenantId, d.did, d.normalizedNumber, d.presentedNumber, d.operatorName,
-              d.trunkId, d.description || '', d.status || 'active', d.destinationType,
-              d.destinationId, d.channelsInUse || 0, d.totalCallsReceived || 0
-            ]
-          );
-        }
-
-        console.log('[DatabaseMigrator] Sincronização de fixtures concluída.');
-      }
-    } catch (err: any) {
-      console.warn('[DatabaseMigrator] Aviso ao sincronizar dados iniciais:', err.message);
     }
   }
 }

@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { Trunk } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class TrunkRepository {
   private static mapRow(row: any): Trunk {
@@ -44,8 +43,9 @@ export class TrunkRepository {
     try {
       const res = await postgresClient.query('SELECT * FROM trunks ORDER BY name ASC');
       return res.rows.map(row => this.mapRow(row));
-    } catch {
-      return [...initialSeedData.trunks];
+    } catch (err: any) {
+      console.error('[TrunkRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -56,8 +56,9 @@ export class TrunkRepository {
         [tenantId]
       );
       return res.rows.map(row => this.mapRow(row));
-    } catch {
-      return initialSeedData.trunks.filter(t => t.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[TrunkRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -77,9 +78,9 @@ export class TrunkRepository {
         return this.mapRow(res.rows[0]);
       }
       return null;
-    } catch {
-      const trunk = initialSeedData.trunks.find(t => (!arg2 ? t.id === arg1 : t.tenantId === arg1 && t.id === arg2));
-      return trunk ? { ...trunk } : null;
+    } catch (err: any) {
+      console.error('[TrunkRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -144,15 +145,11 @@ export class TrunkRepository {
           trunk.lastPingAt ? new Date(trunk.lastPingAt) : null
         ]
       );
-    } catch {
-      const idx = initialSeedData.trunks.findIndex(t => t.id === trunk.id);
-      if (idx !== -1) {
-        initialSeedData.trunks[idx] = { ...trunk };
-      } else {
-        initialSeedData.trunks.push({ ...trunk });
-      }
+      return trunk;
+    } catch (err: any) {
+      console.error('[TrunkRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return trunk;
   }
 
   public static async delete(tenantId: string, id: string): Promise<boolean> {
@@ -162,13 +159,9 @@ export class TrunkRepository {
         [tenantId, id]
       );
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.trunks.findIndex(t => t.tenantId === tenantId && t.id === id);
-      if (idx !== -1) {
-        initialSeedData.trunks.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[TrunkRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

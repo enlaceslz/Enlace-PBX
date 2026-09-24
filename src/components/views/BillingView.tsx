@@ -118,7 +118,11 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
 
   const fetchBilling = async () => {
     try {
-      const tenantId = currentTenant?.id || 'tenant-enlace-matriz';
+      const tenantId = currentTenant?.id;
+      if (!tenantId) {
+        setLoading(false);
+        return;
+      }
       const [resBilling, resDids] = await Promise.all([
         fetch(`/api/v1/billing/${tenantId}`),
         fetch(`/api/v1/dids?tenantId=${tenantId}`),
@@ -175,9 +179,10 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   // Handle Add Balance
   const handleConfirmRecharge = async () => {
     if (!billing) return;
+    const tenantId = currentTenant?.id;
+    if (!tenantId) return;
     setIsProcessingRecharge(true);
     try {
-      const tenantId = currentTenant?.id || 'tenant-enlace-matriz';
       const res = await fetch(`/api/v1/billing/${tenantId}/recharge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -201,8 +206,9 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   // Handle Pay Invoice Simulated
   const handlePayInvoice = async (invoiceId: string) => {
     if (!billing) return;
+    const tenantId = currentTenant?.id;
+    if (!tenantId) return;
     try {
-      const tenantId = currentTenant?.id || 'tenant-enlace-matriz';
       const res = await fetch(`/api/v1/billing/${tenantId}/invoices/${invoiceId}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -242,7 +248,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
     };
 
     const summaryData: BillingSummaryData = {
-      tenantId: didItem.tenantId || currentTenant?.id || 'tenant-enlace-matriz',
+      tenantId: didItem.tenantId || currentTenant?.id || '',
       tenantName: didItem.assignedCompany || 'Cliente Assinante de Linha DID',
       tenantCnpj: didItem.assignedCnpj || '00.000.000/0001-00',
       plan: 'Locação de Linha Telefônica DID Receptiva',

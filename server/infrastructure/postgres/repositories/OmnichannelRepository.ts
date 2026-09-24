@@ -1,5 +1,4 @@
 import { postgresClient } from '../client';
-import { initialSeedData } from '../seedData';
 
 export interface OmnichannelMessage {
   id: string;
@@ -48,8 +47,9 @@ export class OmnichannelRepository {
         messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
         createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
       }));
-    } catch {
-      return (initialSeedData.omnichannelConversations as any[]).filter(c => c.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[OmnichannelRepository.listConversations] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -80,9 +80,9 @@ export class OmnichannelRepository {
         };
       }
       return null;
-    } catch {
-      const conv = (initialSeedData.omnichannelConversations as any[]).find(c => c.id === id && (!tenantId || c.tenantId === tenantId));
-      return conv ? { ...conv } : null;
+    } catch (err: any) {
+      console.error('[OmnichannelRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -112,15 +112,10 @@ export class OmnichannelRepository {
           conv.createdAt ? new Date(conv.createdAt) : new Date()
         ]
       );
-    } catch {
-      const list = initialSeedData.omnichannelConversations as any[];
-      const idx = list.findIndex(c => c.id === conv.id);
-      if (idx !== -1) {
-        list[idx] = { ...conv };
-      } else {
-        list.push({ ...conv });
-      }
+      return conv;
+    } catch (err: any) {
+      console.error('[OmnichannelRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return conv;
   }
 }

@@ -202,7 +202,10 @@ export class GeminiService {
     const conv = await OmnichannelRepository.findById(conversationId);
     let historyContext = '';
     let memoryContext = '';
-    const tenantId = conv?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = conv?.tenantId;
+    if (!tenantId) {
+      return 'Conversa não localizada ou tenant não configurado.';
+    }
 
     if (conv) {
       // Get last 5 messages for context
@@ -273,7 +276,10 @@ ${historyContext}
 
   async processVoiceTurn(req: VoiceTurnRequest): Promise<VoiceTurnResponse> {
     const startTime = Date.now();
-    const tenantId = req.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      throw new Error('Tenant ID não configurado na requisição de voz.');
+    }
     let agent = req.agentId ? await AiAgentRepository.findById(req.agentId, tenantId) : null;
     if (!agent) {
       const agents = await AiAgentRepository.listByTenant(tenantId);

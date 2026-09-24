@@ -341,7 +341,7 @@ transport = ${transportName}
    * 5. Roteamento para destino configurado
    * 6. Tratamento de DID desconhecido (404, 486, 503 ou operador)
    */
-  async generateDialplanForDids(tenantId: string = 'tenant-enlace-matriz'): Promise<string> {
+  async generateDialplanForDids(tenantId: string): Promise<string> {
     const allDids = await DidRepository.listByTenant(tenantId);
     const dids = allDids.filter((d) => d.status === 'active');
     const trunks = await TrunkRepository.listByTenant(tenantId);
@@ -674,12 +674,12 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
       checks,
       ipChecks,
       natDetails: {
-        publicIp: infra.publicIp || '177.136.210.12',
+        publicIp: infra.publicIp || 'UNAVAILABLE',
         sipPort: trunk.sipPort || trunk.port || 5060,
         rtpRange,
-        externalSignalingAddress: infra.publicIp || '177.136.210.12:5060',
-        externalMediaAddress: infra.publicIp || '177.136.210.12',
-        localNet: infra.lanSubnet || '192.168.10.0/24',
+        externalSignalingAddress: infra.publicIp ? `${infra.publicIp}:5060` : 'UNAVAILABLE',
+        externalMediaAddress: infra.publicIp || 'UNAVAILABLE',
+        localNet: infra.lanSubnet || 'UNKNOWN',
       },
       summary: overallStatus === 'passed'
         ? `O tronco SIP [${trunk.name}] está em perfeitas condições operacionais (Score: ${score}%). Pronto para originar e receber chamadas em produção.`

@@ -52,7 +52,7 @@ const defaultInfraConfig = {
 };
 
 export class AsteriskService {
-  private activeChannelsCache: AsteriskChannel[] = [];
+  private realLiveChannels: AsteriskChannel[] = [];
   private lastFetchTime: number = 0;
 
   constructor() {
@@ -60,13 +60,13 @@ export class AsteriskService {
   }
 
   /**
-   * Atualiza cache de canais reais consultando o Asterisk Core via AMI.
+   * Atualiza canais reais consultando o Asterisk Core via AMI.
    * Não gera canais sintéticos ou inventados.
    */
   public async refreshChannelsReal(): Promise<AsteriskChannel[]> {
     try {
       const realChannels = await asteriskAdapter.getChannels();
-      this.activeChannelsCache = realChannels.map((c) => ({
+      this.realLiveChannels = realChannels.map((c) => ({
         id: c.id,
         name: c.name,
         state: c.state,
@@ -80,9 +80,9 @@ export class AsteriskService {
         qos: c.qos,
       }));
       this.lastFetchTime = Date.now();
-      return this.activeChannelsCache;
+      return this.realLiveChannels;
     } catch {
-      this.activeChannelsCache = [];
+      this.realLiveChannels = [];
       return [];
     }
   }
@@ -94,7 +94,7 @@ export class AsteriskService {
     if (Date.now() - this.lastFetchTime > 2000) {
       this.refreshChannelsReal().catch(() => {});
     }
-    return this.activeChannelsCache;
+    return this.realLiveChannels;
   }
 
   /**
@@ -133,7 +133,7 @@ export class AsteriskService {
   async transferChannel(channelId: string, destination: string): Promise<AsteriskChannel | null> {
     await asteriskAdapter.transfer(channelId, destination);
     await this.refreshChannelsReal().catch(() => {});
-    return this.activeChannelsCache.find((c) => c.id === channelId || c.name === channelId) || null;
+    return this.realLiveChannels.find((c) => c.id === channelId || c.name === channelId) || null;
   }
 
   /**
@@ -149,7 +149,7 @@ export class AsteriskService {
   /**
    * Gerador oficial de configuração PJSIP (pjsip.conf) baseado em PostgreSQL.
    */
-  async generatePjsipConf(tenantId: string = 'tenant-enlace-matriz'): Promise<string> {
+  async generatePjsipConf(tenantId: string): Promise<string> {
     const extensions = await ExtensionRepository.listByTenant(tenantId);
     const trunks = await TrunkRepository.listByTenant(tenantId);
     const infraStored = await SystemRepository.getInfraConfig();
@@ -312,7 +312,7 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
   /**
    * Gerador oficial de Dialplan (extensions.conf) baseado em PostgreSQL.
    */
-  async generateExtensionsConf(tenantId: string = 'tenant-enlace-matriz'): Promise<string> {
+  async generateExtensionsConf(tenantId: string): Promise<string> {
     const extensions = await ExtensionRepository.listByTenant(tenantId);
     const routes = await RouteRepository.listByTenant(tenantId);
     const groups = await RingGroupRepository.listByTenant(tenantId);
@@ -672,7 +672,7 @@ password_format = plain
 `;
   }
 
-  async generateQueuesConf(tenantId: string = 'tenant-enlace-matriz'): Promise<string> {
+  async generateQueuesConf(tenantId: string): Promise<string> {
     const queues = await QueueRepository.listByTenant(tenantId);
 
     let output = `; ====================================================================

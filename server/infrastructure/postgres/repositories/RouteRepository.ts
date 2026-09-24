@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { Route } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class RouteRepository {
   public static async listAll(): Promise<Route[]> {
@@ -27,8 +26,9 @@ export class RouteRepository {
         destinationType: (row.destination_type || 'trunk') as any,
         destinationId: row.destination_id || (row.trunk_id || ''),
       }));
-    } catch {
-      return [...initialSeedData.routes];
+    } catch (err: any) {
+      console.error('[RouteRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -57,8 +57,9 @@ export class RouteRepository {
         destinationType: (row.destination_type || 'trunk') as any,
         destinationId: row.destination_id || (row.trunk_id || ''),
       }));
-    } catch {
-      return initialSeedData.routes.filter(r => r.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[RouteRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -94,9 +95,9 @@ export class RouteRepository {
         };
       }
       return null;
-    } catch {
-      const r = initialSeedData.routes.find(route => route.id === id && (!tenantId || route.tenantId === tenantId));
-      return r ? { ...r } : null;
+    } catch (err: any) {
+      console.error('[RouteRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -137,15 +138,11 @@ export class RouteRepository {
           true
         ]
       );
-    } catch {
-      const idx = initialSeedData.routes.findIndex(r => r.id === route.id);
-      if (idx !== -1) {
-        initialSeedData.routes[idx] = { ...route };
-      } else {
-        initialSeedData.routes.push({ ...route });
-      }
+      return route;
+    } catch (err: any) {
+      console.error('[RouteRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return route;
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
@@ -158,13 +155,9 @@ export class RouteRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.routes.findIndex(r => r.id === id && (!tenantId || r.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.routes.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[RouteRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { Queue } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class QueueRepository {
   public static async listAll(): Promise<Queue[]> {
@@ -24,8 +23,9 @@ export class QueueRepository {
         abandonedToday: row.abandoned_today || 0,
         answeredToday: row.answered_today || 0,
       }));
-    } catch {
-      return [...initialSeedData.queues];
+    } catch (err: any) {
+      console.error('[QueueRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -51,8 +51,9 @@ export class QueueRepository {
         abandonedToday: row.abandoned_today || 0,
         answeredToday: row.answered_today || 0,
       }));
-    } catch {
-      return initialSeedData.queues.filter(q => q.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[QueueRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -85,9 +86,9 @@ export class QueueRepository {
         };
       }
       return null;
-    } catch {
-      const q = initialSeedData.queues.find(queue => queue.id === id && (!tenantId || queue.tenantId === tenantId));
-      return q ? { ...q } : null;
+    } catch (err: any) {
+      console.error('[QueueRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -126,15 +127,11 @@ export class QueueRepository {
           queue.answeredToday || 0
         ]
       );
-    } catch {
-      const idx = initialSeedData.queues.findIndex(q => q.id === queue.id);
-      if (idx !== -1) {
-        initialSeedData.queues[idx] = { ...queue };
-      } else {
-        initialSeedData.queues.push({ ...queue });
-      }
+      return queue;
+    } catch (err: any) {
+      console.error('[QueueRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return queue;
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
@@ -147,13 +144,9 @@ export class QueueRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.queues.findIndex(q => q.id === id && (!tenantId || q.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.queues.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[QueueRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

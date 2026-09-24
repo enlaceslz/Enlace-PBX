@@ -75,11 +75,24 @@ async function startServer() {
     crossOriginEmbedderPolicy: false,
   }));
 
-  // CORS - Restrição de origens
+  // CORS - Restrição de origens controlada por ambiente
+  const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+    ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+
   app.use(cors({
-    origin: '*', // Em produção física, deve ser restrito ao domínio oficial do PBX
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin || process.env.NODE_ENV !== 'production') {
+        return callback(null, true);
+      }
+      if (allowedOrigins.length > 0 && allowedOrigins.includes(requestOrigin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Origem não permitida pela política CORS do Enlace-PBX.'));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
+    credentials: true,
   }));
 
   // Rate Limiting - Prevenção contra DDoS e Brute Force
@@ -116,40 +129,18 @@ async function startServer() {
         return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
       }
 
-      // Busca usuário no PostgreSQL através do repositório
-      let user = await UserRepository.findByEmail(rawEmail);
-      if (!user && (rawEmail === 'admin' || rawEmail.includes('admin') || rawEmail === 'slzenlace@gmail.com')) {
-        user = await UserRepository.findByEmail('admin@enlace.pbx');
-        if (!user) {
-          user = await UserRepository.findByEmail('admin@enlace.slz.br');
-        }
-      }
-
-      // Se o usuário ainda não existir no banco (primeira inicialização do sistema)
-      if (!user) {
-        if (rawEmail === 'admin@enlace.pbx' || rawEmail === 'admin' || rawEmail.includes('admin') || rawEmail === 'slzenlace@gmail.com') {
-          const defaultTenant = (await TenantRepository.findById('tenant-enlace-matriz')) || (await TenantRepository.listAll())[0];
-          const tenantId = defaultTenant ? defaultTenant.id : 'tenant-enlace-matriz';
-          const saltRounds = 10;
-          const initialHash = await bcrypt.hash('enlace123', saltRounds);
-          user = {
-            id: 'user-admin-master',
-            tenantId,
-            name: rawEmail === 'slzenlace@gmail.com' ? 'Administrador (slzenlace)' : 'Administrador Enlace',
-            email: rawEmail.includes('@') ? rawEmail : 'admin@enlace.pbx',
-            passwordHash: initialHash,
-            role: 'super_admin',
-            extension: '4100',
-            isActive: true,
-            lastLogin: new Date().toISOString(),
-          };
-          await UserRepository.save(user);
-        }
-      }
+      // Busca usuário exclusivamente no PostgreSQL através do repositório
+      const user = await UserRepository.findByEmail(rawEmail);
 
       if (!user) {
         return res.status(401).json({ 
-          error: 'Usuário não encontrado. Utilize o e-mail admin@enlace.pbx ou selecione uma conta corporativa.' 
+          error: 'Credenciais inválidas. Verifique seu e-mail e senha de acesso.' 
+        });
+      }
+
+      if (!user.isActive) {
+        return res.status(403).json({
+          error: 'Usuário inativo. Contate o administrador corporativo.'
         });
       }
 
@@ -161,14 +152,14 @@ async function startServer() {
 
         const secret = getJwtSecret();
         const token = jwt.sign(
-          { id: user.id, role: user.role, email: user.email, tenantId: user.tenantId },
+          { id: user.id, role: user.role, email: user.email, tenantId: user.tenantId, name: user.name },
           secret,
           { expiresIn: '8h' }
         );
         return res.json({ token, user });
       } else {
         return res.status(401).json({ 
-          error: 'Senha incorreta. A senha padrão do sistema é enlace123.' 
+          error: 'Credenciais inválidas. Verifique seu e-mail e senha de acesso.' 
         });
       }
     } catch (err: any) {
@@ -216,7 +207,10 @@ async function startServer() {
     const wgHealth = await VpnAdapter.getWireguardStatus();
     const ztHealth = await VpnAdapter.getZeroTierStatus();
 
-    const isHealthy = (asteriskHealth.status === 'UP' || asteriskHealth.status === 'NOT_INSTALLED') && (pgHealth.status === 'UP' || pgHealth.status === 'NOT_CONFIGURED');
+    const isHealthy = asteriskHealth.status === 'UP' && pgHealth.status === 'UP';
+
+    const allExtensions = await ExtensionRepository.listAll().catch(() => []);
+    const allTrunks = await TrunkRepository.listAll().catch(() => []);
 
     return {
       status: isHealthy ? 'healthy' : 'degraded',
@@ -226,18 +220,18 @@ async function startServer() {
       components: {
         asterisk: {
           status: asteriskHealth.status === 'UP' ? 'up' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'not_installed' : 'down'),
-          version: asteriskHealth.version || 'Não detectado',
-          uptime: asteriskHealth.uptime || 'N/A',
-          channelsCount: asteriskHealth.channelsCount,
-          mode: asteriskHealth.mode,
-          error: asteriskHealth.error,
+          version: asteriskHealth.version || 'UNKNOWN',
+          uptime: asteriskHealth.uptime || 'NO_DATA',
+          channelsCount: asteriskHealth.channelsCount ?? 0,
+          mode: asteriskHealth.mode || 'UNKNOWN',
+          error: asteriskHealth.error || null,
         },
         postgresql: {
-          status: pgHealth.status === 'UP' ? 'up' : (pgHealth.status === 'NOT_CONFIGURED' ? 'up' : 'down'),
-          latencyMs: pgHealth.latencyMs ?? 1,
-          pool: pgHealth.status === 'UP' ? 'active' : (pgHealth.status === 'NOT_CONFIGURED' ? 'embedded_engine' : 'disconnected'),
-          mode: pgHealth.status === 'UP' ? 'postgresql_cluster' : 'embedded_storage_engine',
-          error: pgHealth.error,
+          status: pgHealth.status === 'UP' ? 'up' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'down'),
+          latencyMs: pgHealth.latencyMs ?? null,
+          pool: pgHealth.status === 'UP' ? 'active' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'disconnected'),
+          mode: pgHealth.status === 'UP' ? 'postgresql_cluster' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'disconnected'),
+          error: pgHealth.error || null,
         },
         wireguard: {
           status: wgHealth.status.toLowerCase(),
@@ -256,15 +250,15 @@ async function startServer() {
         ari: { status: asteriskHealth.status === 'UP' ? 'up' : 'down', port: 8088, apps: ['enlace-gemini'] },
         pjsip: {
           status: asteriskHealth.status === 'UP' ? 'up' : 'down',
-          endpointsOnline: (await ExtensionRepository.listByTenant('tenant-enlace-matriz').catch(() => [])).filter((e) => e.status === 'online').length,
-          trunksRegistered: (await TrunkRepository.listByTenant('tenant-enlace-matriz').catch(() => [])).filter((t) => t.status === 'registered').length,
+          endpointsOnline: allExtensions.filter((e) => e.status === 'online').length,
+          trunksRegistered: allTrunks.filter((t) => t.status === 'registered').length,
         },
         aiGateway: {
           status: process.env.GEMINI_API_KEY ? 'up' : 'not_configured',
           activeSessions: 0,
         },
         geminiApi: {
-          status: process.env.GEMINI_API_KEY ? 'connected' : 'configured-local-mode',
+          status: process.env.GEMINI_API_KEY ? 'connected' : 'not_configured',
           model: 'gemini-flash-latest',
           liveVoiceModel: 'gemini-3.1-flash-live-preview',
           defaultVoice: 'pt-BR-Wavenet-A',
@@ -302,7 +296,7 @@ async function startServer() {
 
       await recordAuditLog({
         tenantId,
-        userId: (req as any).user?.id || 'user-1',
+        userId: (req as any).user?.id || 'SYSTEM',
         userName: (req as any).user?.name || 'Administrador',
         action: 'BILLING_RECHARGE',
         resource: `billing/${tenantId}`,
@@ -332,7 +326,7 @@ async function startServer() {
 
       await recordAuditLog({
         tenantId,
-        userId: (req as any).user?.id || 'user-1',
+        userId: (req as any).user?.id || 'SYSTEM',
         userName: (req as any).user?.name || 'Administrador',
         action: 'BILLING_INVOICE_PAY',
         resource: `billing/${tenantId}/invoices/${invoiceId}`,
@@ -354,7 +348,10 @@ async function startServer() {
   // -------------------------------------------------------------------------
   app.get('/api/v1/campaigns', async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId || (req.query.tenantId as string) || 'tenant-enlace-matriz';
+      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || (req.query.tenantId as string);
+      if (!tenantId) {
+        return res.status(400).json({ error: 'Tenant ID é obrigatório para consultar campanhas.' });
+      }
       const campaigns = await CampaignRepository.listByTenant(tenantId);
       res.json(campaigns || []);
     } catch (err: any) {
@@ -365,7 +362,10 @@ async function startServer() {
 
   app.post('/api/v1/campaigns', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId || req.body.tenantId || 'tenant-enlace-matriz';
+      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || req.body.tenantId;
+      if (!tenantId) {
+        return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar campanha.' });
+      }
       const newCampaign = {
         id: req.body.id || `camp-${Date.now()}`,
         tenantId,
@@ -373,10 +373,10 @@ async function startServer() {
         type: req.body.type || 'ai_voicebot',
         status: req.body.status || 'paused',
         aiAgentId: req.body.aiAgentId || 'MaIA Comercial',
-        totalLeads: Number(req.body.totalLeads) || 500,
+        totalLeads: Number(req.body.totalLeads) || 0,
         processedLeads: Number(req.body.processedLeads) || 0,
         successCount: Number(req.body.successCount) || 0,
-        activeCalls: req.body.status === 'running' ? (req.body.type === 'ai_voicebot' ? 12 : 4) : 0,
+        activeCalls: 0,
         createdAt: new Date().toISOString(),
       };
       await CampaignRepository.save(newCampaign);
@@ -388,7 +388,10 @@ async function startServer() {
 
   app.put('/api/v1/campaigns/:id', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId || (req.query.tenantId as string) || 'tenant-enlace-matriz';
+      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || (req.query.tenantId as string) || req.body.tenantId;
+      if (!tenantId) {
+        return res.status(400).json({ error: 'Tenant ID é obrigatório para atualizar campanha.' });
+      }
       let camp = await CampaignRepository.findById(req.params.id, tenantId);
       if (!camp) return res.status(404).json({ error: 'Campanha não encontrada' });
 
@@ -407,7 +410,10 @@ async function startServer() {
 
   app.delete('/api/v1/campaigns/:id', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId || (req.query.tenantId as string) || 'tenant-enlace-matriz';
+      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || (req.query.tenantId as string) || req.body?.tenantId;
+      if (!tenantId) {
+        return res.status(400).json({ error: 'Tenant ID é obrigatório para excluir campanha.' });
+      }
       await CampaignRepository.delete(req.params.id, tenantId);
       res.json({ success: true, message: 'Campanha removida com sucesso' });
     } catch (err: any) {
@@ -417,16 +423,18 @@ async function startServer() {
 
   app.post('/api/v1/campaigns/:id/toggle', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId || (req.query.tenantId as string) || 'tenant-enlace-matriz';
+      const tenantId = (req as any).user?.tenantId || (req as any).tenantId || (req.query.tenantId as string) || req.body?.tenantId;
+      if (!tenantId) {
+        return res.status(400).json({ error: 'Tenant ID é obrigatório para alternar status da campanha.' });
+      }
       const camp = await CampaignRepository.findById(req.params.id, tenantId);
-      if (!camp) return res.status(404).json({ error: 'Not found' });
+      if (!camp) return res.status(404).json({ error: 'Campanha não encontrada' });
       
       if (camp.status === 'running') {
         camp.status = 'paused';
         camp.activeCalls = 0;
       } else if (camp.status === 'paused' || camp.status === 'draft') {
         camp.status = 'running';
-        camp.activeCalls = camp.type === 'ai_voicebot' ? 12 : 5;
       }
       await CampaignRepository.save(camp);
       res.json(camp);
@@ -434,31 +442,6 @@ async function startServer() {
       res.status(500).json({ error: err.message || 'Erro ao alternar campanha' });
     }
   });
-
-  // Motor de Processamento em Background de Campanhas Ativas
-  setInterval(async () => {
-    try {
-      const allCampaigns = await CampaignRepository.listAll();
-      const running = allCampaigns.filter(c => c.status === 'running');
-      for (const c of running) {
-        if (c.processedLeads < c.totalLeads) {
-          const step = Math.min(c.totalLeads - c.processedLeads, c.type === 'ai_voicebot' ? 3 : 2);
-          c.processedLeads += step;
-          if (Math.random() > 0.4) {
-            c.successCount += 1;
-          }
-          c.activeCalls = c.type === 'ai_voicebot' ? 12 : 4;
-          if (c.processedLeads >= c.totalLeads) {
-            c.status = 'completed';
-            c.activeCalls = 0;
-          }
-          await CampaignRepository.save(c);
-        }
-      }
-    } catch (err) {
-      // Ignora falha transitória do worker
-    }
-  }, 3500);
 
   app.get('/api/v1/health', async (req, res) => {
     res.json(await getHealthStatus());
@@ -561,9 +544,9 @@ async function startServer() {
 
     // Log audit
     await AuditLogRepository.create({
-      tenantId: 'tenant-enlace-matriz',
-      userId: 'user-1',
-      userName: 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Administrador',
       action: 'WIREGUARD_PEER_CREATE',
       resource: `network/wireguard/${newPeer.id}`,
       ip: req.ip || '127.0.0.1',
@@ -682,9 +665,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     await SystemRepository.setZerotierConfig(ztConfig);
 
     await AuditLogRepository.create({
-      tenantId: 'tenant-enlace-matriz',
-      userId: 'user-1',
-      userName: 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Administrador',
       action: 'ZEROTIER_JOIN_NETWORK',
       resource: `network/zerotier/${networkId}`,
       ip: req.ip || '127.0.0.1',
@@ -870,9 +853,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     await SystemRepository.setVpnRouting(vpnRouting);
 
     await AuditLogRepository.create({
-      tenantId: 'tenant-enlace-matriz',
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Administrador',
       action: 'VPN_TUNNEL_SWITCH',
       resource: 'network/routing',
       ip: req.ip || '127.0.0.1',
@@ -994,9 +977,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     await SystemRepository.setInfraConfig(infraConfig);
 
     await AuditLogRepository.create({
-      tenantId: 'tenant-enlace-matriz',
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Administrador',
       action: 'INFRA_CONFIG_UPDATE',
       resource: 'infra/config',
       ip: req.ip || '127.0.0.1',
@@ -1008,8 +991,27 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // Auto-detectar IP público do servidor
   app.post('/api/v1/infra/auto-detect-ip', requireRole('super_admin', 'admin'), async (req, res) => {
-    // Simula a detecção via STUN ou consulta de egress pública
-    const detectedIp = '177.136.210.12';
+    let detectedIp: string | null = process.env.PUBLIC_IP || process.env.WAN_IP || null;
+    if (!detectedIp) {
+      try {
+        const fetchRes = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(3000) });
+        if (fetchRes.ok) {
+          const data = (await fetchRes.json()) as any;
+          detectedIp = data?.ip || null;
+        }
+      } catch {
+        detectedIp = null;
+      }
+    }
+
+    if (!detectedIp) {
+      return res.status(503).json({
+        success: false,
+        error: 'Não foi possível detectar o IP público automaticamente (serviço externo inacessível ou sem internet). Configure manualmente.',
+        status: 'UNAVAILABLE',
+      });
+    }
+
     const infraConfig = await SystemRepository.getInfraConfig();
     infraConfig.publicIp = detectedIp;
     infraConfig.updatedAt = new Date().toISOString();
@@ -1018,8 +1020,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({
       success: true,
       detectedIp,
-      method: 'STUN (stun.l.google.com:19302)',
-      natType: 'Full Cone NAT / Port Restricted',
+      method: 'Egress Resolution (api.ipify.org)',
+      natType: 'UNKNOWN',
     });
   });
 
@@ -1256,9 +1258,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }, 400);
 
     await AuditLogRepository.create({
-      tenantId: 'tenant-enlace-matriz',
-      userId: 'user-1',
-      userName: 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Administrador',
       action: 'FAIL2BAN_RELOAD',
       resource: 'security/fail2ban',
       ip: req.ip || '127.0.0.1',
@@ -1305,9 +1307,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     await SystemRepository.setFail2banConfig(config);
 
     await AuditLogRepository.create({
-      tenantId: 'tenant-enlace-matriz',
-      userId: 'user-1',
-      userName: 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Administrador',
       action: 'FAIL2BAN_MANUAL_BAN',
       resource: `security/fail2ban/${ip}`,
       ip: req.ip || '127.0.0.1',
@@ -1335,9 +1337,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await SystemRepository.setFail2banConfig(config);
 
       await AuditLogRepository.create({
-        tenantId: 'tenant-enlace-matriz',
-        userId: 'user-1',
-        userName: 'Carlos Henrique Silva',
+        tenantId: (req as any).user?.tenantId || 'SYSTEM',
+        userId: (req as any).user?.id || 'SYSTEM',
+        userName: (req as any).user?.name || 'Administrador',
         action: 'FAIL2BAN_UNBAN',
         resource: `security/fail2ban/${ip}`,
         ip: req.ip || '127.0.0.1',
@@ -1369,9 +1371,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     await SystemRepository.setFail2banConfig(config);
 
     await AuditLogRepository.create({
-      tenantId: 'tenant-enlace-matriz',
-      userId: 'user-1',
-      userName: 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Administrador',
       action: 'FAIL2BAN_RULES_UPDATE',
       resource: 'security/fail2ban/rules',
       ip: req.ip || '127.0.0.1',
@@ -1432,9 +1434,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     await SystemRepository.setFail2banConfig(config);
 
     await AuditLogRepository.create({
-      tenantId: 'tenant-enlace-matriz',
-      userId: 'user-1',
-      userName: 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Administrador',
       action: 'FAIL2BAN_SIMULATED_ATTACK',
       resource: `security/fail2ban/${attackerIp}`,
       ip: req.ip || '127.0.0.1',
@@ -1481,7 +1483,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   app.post(['/api/v1/setup/apply', '/api/v1/system/quick-setup/apply'], requireRole('super_admin', 'admin'), async (req, res) => {
     const { tenantId, prefix, quantity, startNumber, trunkName } = req.body;
-    const tId = tenantId || 'tenant-enlace-matriz';
+    const tId = tenantId || (req as any).user?.tenantId;
+    if (!tId) return res.status(400).json({ error: 'Tenant ID é obrigatório para aplicar configuração.' });
     const qty = parseInt(quantity) || 10;
     const start = parseInt(startNumber) || 1;
 
@@ -1571,13 +1574,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Dashboard Metrics (PRD Section 36) & Real-time SSE
   // -------------------------------------------------------------------------
-  const getDashboardMetrics = async () => {
-    const tenantId = 'tenant-enlace-matriz';
+  const getDashboardMetrics = async (targetTenantId?: string) => {
+    const tenantId = targetTenantId || (await TenantRepository.listAll())[0]?.id;
     const [cdrs, extensions, trunks, aiAgents, aiSessions] = await Promise.all([
-      CdrRepository.listByTenant(tenantId).catch(() => []),
-      ExtensionRepository.listByTenant(tenantId).catch(() => []),
-      TrunkRepository.listByTenant(tenantId).catch(() => []),
-      AiAgentRepository.listByTenant(tenantId).catch(() => []),
+      tenantId ? CdrRepository.listByTenant(tenantId).catch(() => []) : CdrRepository.listAll().catch(() => []),
+      tenantId ? ExtensionRepository.listByTenant(tenantId).catch(() => []) : ExtensionRepository.listAll().catch(() => []),
+      tenantId ? TrunkRepository.listByTenant(tenantId).catch(() => []) : TrunkRepository.listAll().catch(() => []),
+      tenantId ? AiAgentRepository.listByTenant(tenantId).catch(() => []) : AiAgentRepository.listAll().catch(() => []),
       SystemRepository.getAiSessions().catch(() => []),
     ]);
 
@@ -1626,7 +1629,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Omnichannel Status Transition & Human Transfer
   // -------------------------------------------------------------------------
   app.patch('/api/v1/omnichannel/conversations/:id/status', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || (req.query?.tenantId as string);
+    if (!tenantId) return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
 
@@ -1657,9 +1661,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     await OmnichannelRepository.save(conv);
 
     recordAuditLog({
-      tenantId: conv.tenantId || 'tenant-enlace-matriz',
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Carlos Henrique Silva',
+      tenantId: conv.tenantId,
+      userId: (req as any).user?.id || 'SYSTEM',
+      userName: (req as any).user?.name || 'Sistema',
       action: 'OMNICHANNEL_STATUS_CHANGE',
       resource: `omnichannel/${conv.id}`,
       ip: req.ip || '127.0.0.1',
@@ -1672,7 +1676,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/omnichannel/conversations/:id/transfer', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || (req.query?.tenantId as string);
+    if (!tenantId) return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
 
@@ -1700,7 +1705,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   app.get('/api/v1/system/backup', requireRole('super_admin', 'admin'), async (req, res) => {
     try {
-      const tenantId = 'tenant-enlace-matriz';
+      const tenantId = (req as any).user?.tenantId || (req.query?.tenantId as string) || (await TenantRepository.listAll())[0]?.id;
+      if (!tenantId) return res.status(400).json({ error: 'Nenhum tenant cadastrado para efetuar backup.' });
       const [
         tenants,
         users,
@@ -1804,9 +1810,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       await recordAuditLog({
-        tenantId: 'tenant-enlace-matriz',
-        userId: (req as any).user?.id || 'user-1',
-        userName: (req as any).user?.name || 'Carlos Henrique Silva',
+        tenantId: (req as any).user?.tenantId || 'SYSTEM',
+        userId: (req as any).user?.id || 'SYSTEM',
+        userName: (req as any).user?.name || 'Administrador',
         action: 'SYSTEM_RESTORE',
         resource: 'system/restore',
         ip: req.ip || '127.0.0.1',
@@ -1863,9 +1869,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Extensions (Ramais PJSIP) com Validações de Regra de Negócio e Persistência
   // -------------------------------------------------------------------------
   app.get('/api/v1/extensions', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
     try {
-      const list = await ExtensionRepository.listByTenant(tenantId);
+      const list = tenantId ? await ExtensionRepository.listByTenant(tenantId) : await ExtensionRepository.listAll();
       res.json(list || []);
     } catch (e: any) {
       console.error('[Extensions] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -1874,7 +1880,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/extensions', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar ramal.' });
+    }
     const number = String(req.body.number || '').trim();
     const name = String(req.body.name || '').trim();
 
@@ -2052,18 +2061,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   }) => {
     const timestamp = new Date().toISOString();
     const id = `audit-${Date.now()}-${Math.floor(Date.now() % 10000)}`;
-    const tenantId = data.tenantId || 'tenant-enlace-matriz';
+    const tenantId = data.tenantId || 'SYSTEM';
     const payloadStr = JSON.stringify(data.payload || {});
     const sha256Hash = crypto.createHash('sha256').update(`${id}|${tenantId}|${data.action}|${data.resource}|${timestamp}|${payloadStr}`).digest('hex');
 
     const logEntry = {
       id,
       tenantId,
-      userId: data.userId || 'user-1',
-      userName: data.userName || 'Carlos Henrique Silva',
+      userId: data.userId || 'SYSTEM',
+      userName: data.userName || 'Sistema',
       action: data.action,
       resource: data.resource,
-      ip: data.ip || '189.40.122.14',
+      ip: data.ip || '127.0.0.1',
       timestamp,
       details: data.details,
       category: data.category,
@@ -2089,9 +2098,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   };
 
   app.get('/api/v1/trunks', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
     try {
-      const list = await TrunkRepository.listByTenant(tenantId);
+      const list = tenantId ? await TrunkRepository.listByTenant(tenantId) : await TrunkRepository.listAll();
       res.json(list || []);
     } catch (e: any) {
       console.error('[Trunks] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2100,7 +2109,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/trunks', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar tronco.' });
+    }
     const name = String(req.body.name || '').trim();
     const host = String(req.body.host || '').trim();
 
@@ -2142,7 +2154,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         details: `Novo tronco SIP [${trunk.name}] (${trunk.providerName}) cadastrado no host ${trunk.host}:${trunk.port}.`,
         category: 'TELECOM_SIP',
         severity: 'INFO',
-        ip: req.ip || '189.40.122.14',
+        ip: req.ip || '127.0.0.1',
         payload: { trunkId: trunk.id, provider: trunk.providerName, host: trunk.host, transport: trunk.transport },
       });
 
@@ -2168,7 +2180,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         details: `Tronco SIP [${updated.name}] atualizado. Transporte: ${updated.transport}, Failover: ${updated.failoverTrunkId || 'Nenhum'}.`,
         category: 'TELECOM_SIP',
         severity: 'INFO',
-        ip: req.ip || '189.40.122.14',
+        ip: req.ip || '127.0.0.1',
         payload: { trunkId: req.params.id, changes: req.body },
       });
 
@@ -2192,7 +2204,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           details: `Tronco SIP [${trunk.name}] excluído permanentemente da infraestrutura.`,
           category: 'TELECOM_SIP',
           severity: 'WARNING',
-          ip: req.ip || '189.40.122.14',
+          ip: req.ip || '127.0.0.1',
           payload: { trunkId: req.params.id, name: trunk.name },
         });
       }
@@ -2256,9 +2268,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/trunks/:id/diagnostics', requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const report = await sipTrunkService.runTrunkDiagnostics(req.params.id);
+      const tenantId = (req as any).user?.tenantId || (await TrunkRepository.findById(req.params.id))?.tenantId || 'SYSTEM';
       
       recordAuditLog({
-        tenantId: 'tenant-enlace-matriz',
+        tenantId,
         action: 'TRUNK_DIAGNOSTICS_RUN',
         resource: `trunks/${req.params.id}/diagnostics`,
         details: `Diagnóstico executado no tronco ${report.trunkName}. Score: ${report.score}%, Status: ${report.overallStatus.toUpperCase()}.`,
@@ -2326,7 +2339,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Aplicar Configuração PJSIP com Backup Automático e Hot Reload Real
   app.post('/api/v1/trunks/apply-pjsip', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
-      const tenantId = (req as any).user?.tenantId || req.body.tenantId || 'tenant-enlace-matriz';
+      const tenantId = (req as any).user?.tenantId || req.body.tenantId;
+      if (!tenantId) {
+        return res.status(400).json({ error: 'Tenant ID é obrigatório para aplicar configuração PJSIP.' });
+      }
       const snapshotName = `Pre-PJSIP-Apply-${new Date().toISOString().slice(0, 19)}`;
       const snapshot = await SystemRepository.takeSnapshot(tenantId, snapshotName);
 
@@ -2380,8 +2396,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(500).json({ error: 'Falha ao restaurar dados do snapshot.' });
     }
 
+    const tenantId = (req as any).user?.tenantId || 'SYSTEM';
+
     recordAuditLog({
-      tenantId: 'tenant-enlace-matriz',
+      tenantId,
       action: 'ROLLBACK_PJSIP_CONFIG',
       resource: `snapshots/${targetSnapshotId}`,
       details: `Rollback de emergência executado com sucesso para o snapshot [${targetSnapshotId}].`,
@@ -2402,10 +2420,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // DIDs / Numerações com Normalização E.164, Roteamento e Persistência PostgreSQL
   // -------------------------------------------------------------------------
   app.get('/api/v1/dids', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
     const trunkId = req.query.trunkId as string;
     try {
-      let list = await DidRepository.listByTenant(tenantId);
+      let list = tenantId ? await DidRepository.listByTenant(tenantId) : await DidRepository.listAll();
       if (trunkId && list) {
         list = list.filter((d: any) => d.trunkId === trunkId);
       }
@@ -2417,7 +2435,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/dids', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar DID.' });
+    }
     const rawDid = String(req.body.did || '').trim();
     const trunkId = req.body.trunkId;
     const destinationType = req.body.destinationType || 'extension';
@@ -2572,8 +2593,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // Importação em Lote de Faixas de DIDs (ex: 1135008000 a 1135008099)
   app.post('/api/v1/dids/batch', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { startNumber, count, trunkId, tenantId = 'tenant-enlace-matriz', destinationType = 'extension', destinationId = '4101' } = req.body;
+    const { startNumber, count, trunkId, destinationType = 'extension', destinationId = '4101' } = req.body;
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
 
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para importação de DIDs.' });
+    }
     if (!startNumber || !count || count <= 0) {
       return res.status(400).json({ error: 'startNumber e count (> 0) são obrigatórios.' });
     }
@@ -2664,9 +2689,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Routes (Rotas de Entrada e Saída com LCR, Prepend, Time Conditions e Persistência)
   // -------------------------------------------------------------------------
   app.get('/api/v1/routes', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
     try {
-      const list = await RouteRepository.listByTenant(tenantId);
+      const list = tenantId ? await RouteRepository.listByTenant(tenantId) : await RouteRepository.listAll();
       res.json(list || []);
     } catch (e: any) {
       console.error('[Routes] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2675,7 +2700,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/routes', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar rota.' });
+    }
     const name = String(req.body.name || '').trim();
     const pattern = String(req.body.pattern || '').trim();
     const type = req.body.type || 'outbound';
@@ -2710,7 +2738,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         details: `Nova rota de ${route.type === 'outbound' ? 'Saída' : 'Entrada'} [${route.name}] criada com padrão [${route.pattern}].`,
         category: 'ROUTING',
         severity: 'INFO',
-        ip: req.ip || '189.40.122.14',
+        ip: req.ip || '127.0.0.1',
         payload: { routeId: route.id, pattern: route.pattern, type: route.type, trunkId: route.trunkId, failoverTrunkId: route.failoverTrunkId },
       });
 
@@ -2736,7 +2764,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         details: `Rota [${updated.name}] atualizada. LCR Contingência: ${updated.failoverTrunkId || 'Desativado'}, Horário: ${updated.timeConditionEnabled ? 'Ativo' : 'Livre'}.`,
         category: 'ROUTING',
         severity: 'INFO',
-        ip: req.ip || '189.40.122.14',
+        ip: req.ip || '127.0.0.1',
         payload: { routeId: req.params.id, changes: req.body },
       });
 
@@ -2760,7 +2788,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           details: `Rota [${route.name}] (${route.pattern}) removida do plano de discagem.`,
           category: 'ROUTING',
           severity: 'WARNING',
-          ip: req.ip || '189.40.122.14',
+          ip: req.ip || '127.0.0.1',
           payload: { routeId: req.params.id, name: route.name, pattern: route.pattern },
         });
       }
@@ -2774,9 +2802,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // Simulação de Resolução de CallerID para Rotas CLI/ITX e Convencionais
   app.post('/api/v1/routes/simulate-callerid', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { tenantId = 'tenant-enlace-matriz', extensionNumber, routeId } = req.body;
-    if (!extensionNumber || !routeId) {
-      return res.status(400).json({ error: 'extensionNumber e routeId são obrigatórios para a simulação.' });
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    const { extensionNumber, routeId } = req.body;
+    if (!tenantId || !extensionNumber || !routeId) {
+      return res.status(400).json({ error: 'tenantId, extensionNumber e routeId são obrigatórios para a simulação.' });
     }
 
     try {
@@ -2796,9 +2825,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Ring Groups & Queues
   // -------------------------------------------------------------------------
   app.get('/api/v1/ring-groups', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
     try {
-      const list = await RingGroupRepository.listByTenant(tenantId);
+      const list = tenantId ? await RingGroupRepository.listByTenant(tenantId) : await RingGroupRepository.listAll();
       res.json(list || []);
     } catch (e: any) {
       console.error('[RingGroups] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2807,7 +2836,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ring-groups', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar grupo de toque.' });
+    }
     const group = { id: `group-${Date.now()}`, tenantId, ...req.body };
     try {
       await RingGroupRepository.save(group);
@@ -2845,9 +2877,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/queues', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
     try {
-      const list = await QueueRepository.listByTenant(tenantId);
+      const list = tenantId ? await QueueRepository.listByTenant(tenantId) : await QueueRepository.listAll();
       res.json(list || []);
     } catch (e: any) {
       console.error('[Queues] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2856,7 +2888,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/queues', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar fila.' });
+    }
     const queue = {
       id: `queue-${Date.now()}`,
       tenantId,
@@ -2903,9 +2938,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/ivr', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
     try {
-      const list = await IvrRepository.listByTenant(tenantId);
+      const list = tenantId ? await IvrRepository.listByTenant(tenantId) : await IvrRepository.listAll();
       res.json(list || []);
     } catch (e: any) {
       console.error('[IVR] Erro ao listar do PostgreSQL:', e?.message || e);
@@ -2914,7 +2949,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ivr', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar URA.' });
+    }
     const ivr = { id: `ivr-${Date.now()}`, tenantId, ...req.body };
 
     try {
@@ -3042,7 +3080,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ai/agents', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar agente.' });
+    }
     const agent = {
       id: `agent-${Date.now()}`,
       tenantId,
@@ -3096,7 +3137,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ai/tools', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar ferramenta.' });
+    }
     const newTool = {
       id: `tool-${Date.now()}`,
       tenantId,
@@ -3168,7 +3212,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/ai/knowledge', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar documento.' });
+    }
     const newDoc = {
       id: `kb-${Date.now()}`,
       tenantId,
@@ -3208,7 +3255,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/ai/knowledge/upload', requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const { fileName, fileType, base64Data, rawText, title, category, targetAgentIds } = req.body;
-      const tenantId = (req as any).user?.tenantId || req.body.tenantId || 'tenant-enlace-matriz';
+      const tenantId = (req as any).user?.tenantId || req.body.tenantId;
+      if (!tenantId) {
+        return res.status(400).json({ error: 'Tenant ID é obrigatório para upload na base de conhecimento.' });
+      }
 
       if (!fileName && !rawText) {
         return res.status(400).json({ error: 'Nenhum arquivo ou texto fornecido.' });
@@ -3407,9 +3457,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // CDR & Recordings - Bilhetagem Real com CdrRepository (PostgreSQL)
   // -------------------------------------------------------------------------
   app.get('/api/v1/cdr', async (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
     try {
-      const records = await CdrRepository.listByTenant(tenantId, { limit: 100 });
+      const records = tenantId ? await CdrRepository.listByTenant(tenantId, { limit: 100 }) : await CdrRepository.listAll({ limit: 100 });
       res.json(records || []);
     } catch (e: any) {
       console.error('[CDR] Erro ao consultar CdrRepository:', e?.message || e);
@@ -3418,7 +3468,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/cdr', async (req, res) => {
-    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para registrar CDR.' });
+    }
     const now = Date.now();
     const duration = req.body.duration || 60;
     const newRecord = {
@@ -3507,12 +3560,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/asterisk/channels/:id/hangup', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
     const success = await asteriskService.hangupChannel(req.params.id);
     recordAuditLog({
-      tenantId: (req as any).user?.tenantId || 'tenant-enlace-matriz',
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
       action: 'HANGUP_CHANNEL',
       resource: `channels/${req.params.id}`,
-      ip: req.ip || '189.40.122.14',
+      ip: req.ip || '127.0.0.1',
       details: `Canal ${req.params.id} desconectado manualmente via comando ARI/CLI.`,
       category: 'TELECOM_SIP',
       severity: 'WARNING',
@@ -3527,12 +3578,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(404).json({ error: 'Canal não encontrado para transferência.' });
     }
     recordAuditLog({
-      tenantId: (req as any).user?.tenantId || 'tenant-enlace-matriz',
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
       action: 'TRANSFER_CHANNEL',
       resource: `channels/${req.params.id}`,
-      ip: req.ip || '189.40.122.14',
+      ip: req.ip || '127.0.0.1',
       details: `Transferência cega/assistida do canal ${chan.name} para destino ${destination}.`,
       category: 'TELECOM_SIP',
       severity: 'INFO',
@@ -3544,12 +3593,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const supervisorExt = (req.body.supervisorExt || '4101').trim();
     const spyChan = await asteriskService.spyChannel(req.params.id, supervisorExt);
     recordAuditLog({
-      tenantId: (req as any).user?.tenantId || 'tenant-enlace-matriz',
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
       action: 'CHANSPY_CHANNEL',
       resource: `channels/${req.params.id}`,
-      ip: req.ip || '189.40.122.14',
+      ip: req.ip || '127.0.0.1',
       details: `Originação de ChanSpy no ramal supervisor ${supervisorExt} para monitoramento silencioso do canal ${req.params.id}.`,
       category: 'TELECOM_SIP',
       severity: 'WARNING',
@@ -3558,7 +3605,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/asterisk/configs', (req, res) => {
-    const tenantId = (req.query.tenantId as string) || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para gerar configurações do Asterisk.' });
+    }
     res.json({
       pjsipConf: asteriskService.generatePjsipConf(tenantId),
       extensionsConf: asteriskService.generateExtensionsConf(tenantId),
@@ -3571,7 +3621,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/asterisk/configs/:file', (req, res) => {
-    const tenantId = (req.query.tenantId as string) || 'tenant-enlace-matriz';
+    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
+    }
     const { file } = req.params;
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
 
@@ -3604,12 +3657,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/asterisk/reload', requireRole('super_admin', 'admin'), (req, res) => {
     const output = asteriskService.executeCliCommand('core reload');
     recordAuditLog({
-      tenantId: (req as any).user?.tenantId || 'tenant-enlace-matriz',
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Carlos Henrique Silva',
+      tenantId: (req as any).user?.tenantId || 'SYSTEM',
       action: 'RELOAD_ASTERISK_CORE',
       resource: 'asterisk/core',
-      ip: req.ip || '189.40.122.14',
+      ip: req.ip || '127.0.0.1',
       details: 'Recarregamento total dos módulos do Asterisk (PJSIP, Dialplan, AudioSocket e ARI).',
       category: 'TELECOM_SIP',
       severity: 'WARNING',
@@ -3631,13 +3682,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json(hooks);
   });
   app.post('/api/v1/webhooks/test', requireRole('super_admin', 'admin'), (req, res) => {
+    const tenantId = (req as any).user?.tenantId || req.body.tenantId || 'SYSTEM';
     res.json({
       event: req.body.event || 'call.started',
       deliveredAt: new Date().toISOString(),
       httpStatus: 200,
       responseTimeMs: 142,
       payload: {
-        tenant_id: 'tenant-enlace-matriz',
+        tenant_id: tenantId,
         call_id: 'call-test-9981',
         caller: '4101',
         callee: '08007702020',
@@ -3713,13 +3765,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/audit-logs', (req, res) => {
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId || 'SYSTEM';
     const log = recordAuditLog({
-      tenantId: req.body.tenantId || 'tenant-enlace-matriz',
-      userId: req.body.userId || 'user-1',
-      userName: req.body.userName || 'Administrador',
+      tenantId,
       action: req.body.action || 'CUSTOM_AUDIT_EVENT',
       resource: req.body.resource || 'system',
-      ip: req.ip || '189.40.122.14',
+      ip: req.ip || '127.0.0.1',
       details: req.body.details || 'Evento registrado manualmente pelo console',
       category: req.body.category || 'SYSTEM',
       severity: req.body.severity || 'INFO',
@@ -3734,13 +3785,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/users', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { name, email, role, extension, tenantId } = req.body;
+    const { name, email, role, extension } = req.body;
+    const tenantId = req.body.tenantId || (req as any).user?.tenantId;
     if (!name || !email) {
       return res.status(400).json({ error: 'Nome e e-mail são obrigatórios.' });
     }
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar usuário.' });
+    }
     const newUser = {
       id: `user-${Date.now()}`,
-      tenantId: tenantId || 'tenant-enlace-matriz',
+      tenantId,
       name,
       email,
       role: role || 'operador',
@@ -3749,11 +3804,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       lastLogin: new Date().toISOString(),
     };
     await UserRepository.save(newUser);
-    await AuditLogRepository.create({
+    recordAuditLog({
       tenantId: newUser.tenantId,
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Administrador',
       action: 'CREATE_USER',
+      category: 'USER_MGMT',
       resource: `users/${newUser.id}`,
       ip: req.ip || '127.0.0.1',
       details: `Criação do usuário ${newUser.name} com papel ${newUser.role}.`,
@@ -3768,11 +3822,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
     const updated = { ...user, ...req.body };
     await UserRepository.save(updated);
-    await AuditLogRepository.create({
+    recordAuditLog({
       tenantId: updated.tenantId,
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Administrador',
       action: 'UPDATE_USER',
+      category: 'USER_MGMT',
       resource: `users/${req.params.id}`,
       ip: req.ip || '127.0.0.1',
       details: `Atualização de parâmetros do usuário ${updated.name}.`,
@@ -3786,11 +3839,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
     await UserRepository.delete(req.params.id);
-    await AuditLogRepository.create({
+    recordAuditLog({
       tenantId: user.tenantId,
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Administrador',
       action: 'DELETE_USER',
+      category: 'USER_MGMT',
       resource: `users/${req.params.id}`,
       ip: req.ip || '127.0.0.1',
       details: `Exclusão do usuário ${user.name} (${user.email}).`,
@@ -3819,11 +3871,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       createdAt: new Date().toISOString(),
     };
     await TenantRepository.save(newTenant);
-    await AuditLogRepository.create({
+    recordAuditLog({
       tenantId: newTenant.id,
-      userId: (req as any).user?.id || 'user-1',
-      userName: (req as any).user?.name || 'Administrador',
       action: 'CREATE_TENANT',
+      category: 'USER_MGMT',
       resource: `tenants/${newTenant.id}`,
       ip: req.ip || '127.0.0.1',
       details: `Provisionamento de nova empresa multi-tenant ${newTenant.name} (CNPJ: ${newTenant.cnpj}).`,
@@ -3849,11 +3900,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     provider.syncedAt = new Date().toISOString();
     await SystemRepository.setCrmProviders(providers);
     
-    await AuditLogRepository.create({
-      tenantId: provider.tenantId || 'tenant-enlace-matriz',
-      userId: (req as any).user?.id || 'system',
-      userName: (req as any).user?.name || 'Enlace System',
+    const tenantId = (req as any).user?.tenantId || provider.tenantId || 'SYSTEM';
+    recordAuditLog({
+      tenantId,
       action: 'CRM_CONNECT',
+      category: 'SYSTEM',
       resource: `crm_providers/${provider.id}`,
       ip: req.ip || '127.0.0.1',
       details: `Integração autorizada via OAuth com ${provider.name}.`,
@@ -3875,19 +3926,28 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/crm/contacts', async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    if (!tenantId) {
+      return res.json([]);
+    }
     const contacts = await CrmRepository.listContacts(tenantId);
     res.json(contacts);
   });
 
   app.get('/api/v1/crm/memories', async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    if (!tenantId) {
+      return res.json([]);
+    }
     const memories = await CrmRepository.listMemories(tenantId);
     res.json(memories);
   });
   
   app.post('/api/v1/crm/contacts', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || req.body.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || req.body.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar contato.' });
+    }
     const newContact = {
       id: `contact-${Date.now()}`,
       tenantId,
@@ -3902,7 +3962,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/omnichannel/conversations', async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    if (!tenantId) {
+      return res.json([]);
+    }
     const conversations = await OmnichannelRepository.listConversations(tenantId);
     res.json(conversations);
   });
@@ -3915,7 +3978,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/whatsapp/config', requireRole('super_admin', 'admin'), async (req, res) => {
-    const current = (await SystemRepository.getWhatsappConfig()) || { tenantId: 'tenant-enlace-matriz' };
+    const tenantId = (req as any).user?.tenantId || req.body.tenantId || 'SYSTEM';
+    const current = (await SystemRepository.getWhatsappConfig()) || { tenantId };
     const updated = {
       ...current,
       phoneNumberId: req.body.phoneNumberId,
@@ -3928,7 +3992,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/whatsapp/conversations/:id/reply', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || (req.body.tenantId as string);
+    if (!tenantId) return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
     
@@ -3977,7 +4042,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // Omnichannel: Operator Notes
   app.post('/api/v1/omnichannel/conversations/:id/notes', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || (req.body.tenantId as string);
+    if (!tenantId) return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
     const { text, agentName } = req.body;
@@ -3992,8 +4058,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Omnichannel: Gemini AI Reply Suggestion
   app.post('/api/v1/omnichannel/ai-suggest', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
     const { conversationId, history } = req.body;
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
-    const conv = conversationId ? await OmnichannelRepository.findById(conversationId, tenantId) : null;
+    const tenantId = (req as any).user?.tenantId || (req.body.tenantId as string);
+    const conv = conversationId && tenantId ? await OmnichannelRepository.findById(conversationId, tenantId) : null;
     const messages = history || (conv ? conv.messages : []);
     const lastUserMsg = [...messages].reverse().find((m: any) => m.sender === 'user' || m.sender === 'contact');
     const userText = lastUserMsg?.content || lastUserMsg?.text || '';
@@ -4014,12 +4080,16 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // AI Quality Supervisor Audits
   app.get('/api/v1/ai/quality-supervisor/audits', async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
-    const list = await QualityAuditRepository.listByTenant(tenantId);
+    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
+    const list = tenantId ? await QualityAuditRepository.listByTenant(tenantId) : await QualityAuditRepository.listAll();
     res.json(list || []);
   });
 
   app.post('/api/v1/ai/quality-supervisor/evaluate', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
+    const tenantId = (req as any).user?.tenantId || req.body.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID é obrigatório para avaliação de qualidade.' });
+    }
     const { channelType, referenceId, contactName, contactNumber, agentOrBot, transcript } = req.body;
     const text = transcript || '';
     const hasGreeting = /olá|bom dia|boa tarde|boa noite|enlace/i.test(text);
@@ -4034,7 +4104,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
     const newAudit: QualityAudit = {
       id: `audit-${Date.now()}`,
-      tenantId: (req as any).user?.tenantId || 'tenant-enlace-matriz',
+      tenantId,
       callId: referenceId || `call-${Date.now()}`,
       agentId: agentOrBot || 'MaIA (IA)',
       score,
@@ -4120,8 +4190,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
            return res.sendStatus(200); // Ignore non-text for now
         }
 
-        // Find or create conversation
-        const tenantId = 'tenant-enlace-matriz';
+        const config = await SystemRepository.getWhatsappConfig();
+        const tenantId = config?.tenantId || 'SYSTEM';
         const conversations = await OmnichannelRepository.listConversations(tenantId);
         let conv = conversations.find(c => c.contactId === from && c.channel === 'whatsapp');
         if (!conv) {
@@ -4169,7 +4239,6 @@ PersistentKeepalive = ${peer.persistentKeepalive}
            conv.messages.push(aiMsg);
 
            // Actually send it via Meta API
-           const config = await SystemRepository.getWhatsappConfig();
            if (config && config.isActive && config.accessToken) {
              try {
                await fetch(`https://graph.facebook.com/v17.0/${config.phoneNumberId}/messages`, {
@@ -4199,10 +4268,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.post('/api/v1/health/run-diagnostic', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'tenant-enlace-matriz';
+    const tenantId = (req as any).user?.tenantId || (req.query.tenantId as string);
     const [extensions, trunks] = await Promise.all([
-      ExtensionRepository.listByTenant(tenantId).catch(() => []),
-      TrunkRepository.listByTenant(tenantId).catch(() => []),
+      tenantId ? ExtensionRepository.listByTenant(tenantId).catch(() => []) : ExtensionRepository.listAll().catch(() => []),
+      tenantId ? TrunkRepository.listByTenant(tenantId).catch(() => []) : TrunkRepository.listAll().catch(() => []),
     ]);
 
     const tAst = performance.now();

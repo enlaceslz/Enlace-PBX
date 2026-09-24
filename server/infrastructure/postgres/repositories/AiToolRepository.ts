@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { AiTool, AiProvider } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class AiToolRepository {
   public static async listAll(): Promise<AiTool[]> {
@@ -23,8 +22,9 @@ export class AiToolRepository {
         schemaJson: typeof row.schema_json === 'string' ? JSON.parse(row.schema_json) : (row.schema_json || {}),
         mockResponse: typeof row.mock_response === 'string' ? JSON.parse(row.mock_response) : (row.mock_response || {}),
       }));
-    } catch {
-      return [...initialSeedData.aiTools];
+    } catch (err: any) {
+      console.error('[AiToolRepository.listAllTools] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -48,8 +48,9 @@ export class AiToolRepository {
         isActive: row.is_active ?? true,
         updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
       }));
-    } catch {
-      return [...initialSeedData.aiProviders];
+    } catch (err: any) {
+      console.error('[AiToolRepository.listAllProviders] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -58,7 +59,10 @@ export class AiToolRepository {
   }
 
   public static async save(tool: any, tenantId?: string): Promise<AiTool> {
-    const tId = tool.tenantId || tenantId || 'tenant-enlace-matriz';
+    const tId = tool.tenantId || tenantId;
+    if (!tId) {
+      throw new Error('Tenant ID é obrigatório para salvar AiTool.');
+    }
     return this.saveTool(tId, { ...tool, tenantId: tId });
   }
 
@@ -69,13 +73,9 @@ export class AiToolRepository {
     try {
       const res = await postgresClient.query('DELETE FROM ai_tools WHERE id = $1', [id]);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.aiTools.findIndex(t => t.id === id);
-      if (idx !== -1) {
-        initialSeedData.aiTools.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[AiToolRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -96,8 +96,9 @@ export class AiToolRepository {
         schemaJson: typeof row.schema_json === 'string' ? JSON.parse(row.schema_json) : (row.schema_json || {}),
         mockResponse: typeof row.mock_response === 'string' ? JSON.parse(row.mock_response) : (row.mock_response || {}),
       }));
-    } catch {
-      return initialSeedData.aiTools.filter(t => t.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[AiToolRepository.listToolsByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -124,15 +125,11 @@ export class AiToolRepository {
           JSON.stringify(tool.schemaJson || {})
         ]
       );
-    } catch {
-      const idx = initialSeedData.aiTools.findIndex(t => t.id === tool.id);
-      if (idx !== -1) {
-        initialSeedData.aiTools[idx] = { ...tool, tenantId };
-      } else {
-        initialSeedData.aiTools.push({ ...tool, tenantId });
-      }
+      return tool;
+    } catch (err: any) {
+      console.error('[AiToolRepository.saveTool] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return tool;
   }
 
   public static async deleteTool(id: string, tenantId: string): Promise<boolean> {
@@ -142,13 +139,9 @@ export class AiToolRepository {
         [id, tenantId]
       );
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.aiTools.findIndex(t => t.id === id && t.tenantId === tenantId);
-      if (idx !== -1) {
-        initialSeedData.aiTools.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[AiToolRepository.deleteTool] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -176,9 +169,9 @@ export class AiToolRepository {
         };
       }
       return null;
-    } catch {
-      const t = initialSeedData.aiTools.find(item => item.id === id && (!tenantId || item.tenantId === tenantId));
-      return t ? { ...t } : null;
+    } catch (err: any) {
+      console.error('[AiToolRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -206,9 +199,9 @@ export class AiToolRepository {
         };
       }
       return null;
-    } catch {
-      const t = initialSeedData.aiTools.find(item => item.name === name && (!tenantId || item.tenantId === tenantId));
-      return t ? { ...t } : null;
+    } catch (err: any) {
+      console.error('[AiToolRepository.findByName] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -234,8 +227,9 @@ export class AiToolRepository {
         isActive: row.is_active ?? true,
         updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
       }));
-    } catch {
-      return initialSeedData.aiProviders.filter(p => p.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[AiToolRepository.listProviders] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -271,14 +265,10 @@ export class AiToolRepository {
           provider.isActive ?? true
         ]
       );
-    } catch {
-      const idx = initialSeedData.aiProviders.findIndex(p => p.id === provider.id);
-      if (idx !== -1) {
-        initialSeedData.aiProviders[idx] = { ...provider };
-      } else {
-        initialSeedData.aiProviders.push({ ...provider });
-      }
+      return provider;
+    } catch (err: any) {
+      console.error('[AiToolRepository.saveProvider] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return provider;
   }
 }

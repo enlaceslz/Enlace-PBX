@@ -1,6 +1,5 @@
 import { postgresClient } from '../client';
 import { RingGroup } from '../../../../src/types/pbx';
-import { initialSeedData } from '../seedData';
 
 export class RingGroupRepository {
   public static async listAll(): Promise<RingGroup[]> {
@@ -18,8 +17,9 @@ export class RingGroupRepository {
         members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
         failoverDestination: row.fallback_target || 'voicemail',
       }));
-    } catch {
-      return [...initialSeedData.ringGroups];
+    } catch (err: any) {
+      console.error('[RingGroupRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -39,8 +39,9 @@ export class RingGroupRepository {
         members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
         failoverDestination: row.fallback_target || 'voicemail',
       }));
-    } catch {
-      return initialSeedData.ringGroups.filter(g => g.tenantId === tenantId);
+    } catch (err: any) {
+      console.error('[RingGroupRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -67,9 +68,9 @@ export class RingGroupRepository {
         };
       }
       return null;
-    } catch {
-      const g = initialSeedData.ringGroups.find(group => group.id === id && (!tenantId || group.tenantId === tenantId));
-      return g ? { ...g } : null;
+    } catch (err: any) {
+      console.error('[RingGroupRepository.findById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -101,15 +102,11 @@ export class RingGroupRepository {
           group.failoverDestination || 'voicemail'
         ]
       );
-    } catch {
-      const idx = initialSeedData.ringGroups.findIndex(g => g.id === group.id);
-      if (idx !== -1) {
-        initialSeedData.ringGroups[idx] = { ...group };
-      } else {
-        initialSeedData.ringGroups.push({ ...group });
-      }
+      return group;
+    } catch (err: any) {
+      console.error('[RingGroupRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
-    return group;
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
@@ -122,13 +119,9 @@ export class RingGroupRepository {
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const idx = initialSeedData.ringGroups.findIndex(g => g.id === id && (!tenantId || g.tenantId === tenantId));
-      if (idx !== -1) {
-        initialSeedData.ringGroups.splice(idx, 1);
-        return true;
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[RingGroupRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

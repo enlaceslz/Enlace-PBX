@@ -196,8 +196,8 @@ export const HealthCheckView: React.FC = () => {
                 </div>
                 <div className="text-xs font-mono text-blue-300 font-semibold">
                   {health.components.postgresql.mode === 'postgresql_cluster'
-                    ? 'PostgreSQL Cluster'
-                    : 'Motor Resiliente Embutido'}
+                    ? 'PostgreSQL Corporativo'
+                    : 'Indisponível / Desconectado'}
                 </div>
               </div>
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
@@ -206,9 +206,7 @@ export const HealthCheckView: React.FC = () => {
                 </div>
                 <div className="text-xs font-mono text-slate-400">
                   {health.components.postgresql.pool === 'active'
-                    ? 'Ativo (Pool 20)'
-                    : health.components.postgresql.pool === 'embedded_engine'
-                    ? 'Embutido em Memória'
+                    ? 'Ativo (Pool Conectado)'
                     : 'Desconectado'}
                 </div>
               </div>

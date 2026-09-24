@@ -1,15 +1,7 @@
 import { postgresClient } from '../client';
-import { initialSeedData, TenantBilling, BillingInvoice, BillingTransaction } from '../seedData';
+import { TenantBilling, BillingInvoice, BillingTransaction, BillingInvoiceItem } from '../../../types/billing';
 
-export type { TenantBilling, BillingInvoice, BillingTransaction };
-
-export interface BillingInvoiceItem {
-  description: string;
-  category: string;
-  qty: string | number;
-  unitPrice: number;
-  total: number;
-}
+export type { TenantBilling, BillingInvoice, BillingTransaction, BillingInvoiceItem };
 
 export class BillingRepository {
   public static async getByTenant(tenantId: string): Promise<TenantBilling | null> {
@@ -41,13 +33,9 @@ export class BillingRepository {
           billing.currentMonthCosts?.licenses || 0,
         ]
       );
-    } catch {
-      const idx = initialSeedData.billing.findIndex(b => b.tenantId === billing.tenantId);
-      if (idx !== -1) {
-        initialSeedData.billing[idx] = { ...billing };
-      } else {
-        initialSeedData.billing.push({ ...billing });
-      }
+    } catch (err: any) {
+      console.error('[BillingRepository.save] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
     return billing;
   }
@@ -56,8 +44,7 @@ export class BillingRepository {
     try {
       const res = await postgresClient.query('SELECT * FROM billing WHERE tenant_id = $1', [tenantId]);
       if (res.rows.length === 0) {
-        const fb = initialSeedData.billing.find(b => b.tenantId === tenantId);
-        return fb ? { ...fb } : null;
+        return null;
       }
       const row = res.rows[0];
 
@@ -78,7 +65,7 @@ export class BillingRepository {
           balanceAfter: parseFloat(tx.balance_after || '0'),
         }));
       } catch {
-        // If table not yet populated
+        // Table not ready or empty
       }
 
       // Fetch invoices
@@ -98,7 +85,7 @@ export class BillingRepository {
           paymentMethod: inv.payment_method || undefined,
         }));
       } catch {
-        // If table not yet populated
+        // Table not ready or empty
       }
 
       return {
@@ -115,9 +102,9 @@ export class BillingRepository {
         recentInvoices,
         transactions,
       };
-    } catch {
-      const fb = initialSeedData.billing.find(b => b.tenantId === tenantId);
-      return fb ? { ...fb } : null;
+    } catch (err: any) {
+      console.error('[BillingRepository.getByTenantId] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 
@@ -134,10 +121,9 @@ export class BillingRepository {
            updated_at = CURRENT_TIMESTAMP`,
         [tenantId, amount]
       );
-    } catch {
-      if (current) {
-        current.balance = newBalance;
-      }
+    } catch (err: any) {
+      console.error('[BillingRepository.recharge] Erro no PostgreSQL ao atualizar saldo:', err?.message || err);
+      throw err;
     }
 
     const txId = `tx-${Date.now()}`;
@@ -158,10 +144,8 @@ export class BillingRepository {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [tx.id, tenantId, tx.date, tx.description, tx.category, tx.type, tx.amount, tx.balanceAfter]
       );
-    } catch {
-      if (current && current.transactions) {
-        current.transactions.unshift(tx);
-      }
+    } catch (err: any) {
+      console.warn('[BillingRepository.recharge] Falha ao registrar transação:', err?.message || err);
     }
 
     return { balance: newBalance, transaction: tx };
@@ -176,18 +160,9 @@ export class BillingRepository {
         [tenantId, invoiceId, paymentMethod]
       );
       return (res.rowCount ?? 0) > 0;
-    } catch {
-      const b = initialSeedData.billing.find(x => x.tenantId === tenantId);
-      if (b && b.recentInvoices) {
-        const inv = b.recentInvoices.find(i => i.id === invoiceId);
-        if (inv) {
-          inv.status = 'paid';
-          inv.paidAt = new Date().toISOString();
-          inv.paymentMethod = paymentMethod;
-          return true;
-        }
-      }
-      return false;
+    } catch (err: any) {
+      console.error('[BillingRepository.payInvoice] Erro no PostgreSQL:', err?.message || err);
+      throw err;
     }
   }
 }

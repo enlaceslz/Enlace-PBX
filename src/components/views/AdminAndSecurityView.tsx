@@ -68,7 +68,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
     email: '',
     role: 'operador' as User['role'],
     extension: '',
-    tenantId: 'tenant-enlace-matriz',
+    tenantId: tenants[0]?.id || '',
   });
 
   // Tenant management modal
@@ -125,7 +125,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
         email: '',
         role: 'operador',
         extension: '',
-        tenantId: tenants[0]?.id || 'tenant-enlace-matriz',
+        tenantId: tenants[0]?.id || '',
       });
     }
     setIsUserModalOpen(true);
