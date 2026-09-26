@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Video,
   Users,
@@ -35,6 +35,8 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedExtForCreds, setSelectedExtForCreds] = useState<Extension | null>(null);
+  const [loadedProvisionSecret, setLoadedProvisionSecret] = useState<string | null>(null);
+  const [loadingProvisionSecret, setLoadingProvisionSecret] = useState(false);
   const [editingExt, setEditingExt] = useState<Extension | null>(null);
   const [copiedCreds, setCopiedCreds] = useState(false);
   const [formData, setFormData] = useState({
@@ -56,6 +58,24 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (selectedExtForCreds) {
+      setLoadingProvisionSecret(true);
+      setLoadedProvisionSecret(null);
+      fetch(`/api/v1/extensions/${selectedExtForCreds.id}/provision-credential`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.sipSecret) {
+            setLoadedProvisionSecret(data.sipSecret);
+          } else {
+            setLoadedProvisionSecret('(Credencial protegida no servidor)');
+          }
+        })
+        .catch(() => setLoadedProvisionSecret('(Erro ao consultar)'))
+        .finally(() => setLoadingProvisionSecret(false));
+    }
+  }, [selectedExtForCreds]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.number || !formData.name) return;
@@ -71,7 +91,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
           name: formData.name,
           callerId: formData.callerId || `"${formData.name}" <${formData.number}>`,
           cliCallerId: formData.cliCallerId ? formData.cliCallerId.trim() : undefined,
-          sipSecret: formData.sipSecret || `Enlace@${formData.number}#Sec`,
+          sipSecret: formData.sipSecret && formData.sipSecret.trim().length >= 8 ? formData.sipSecret.trim() : undefined,
           context: formData.context,
           codecs: formData.codecs.split(',').map((c) => c.trim()),
           nat: formData.nat,
@@ -553,8 +573,8 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                 </div>
                 <div>
                   <span className="text-slate-500 block text-[10px] uppercase">Senha SIP (Secret):</span>
-                  <span className="text-slate-900 font-bold bg-white px-2 py-0.5 rounded border border-slate-200 select-all">
-                    {selectedExtForCreds.sipSecret}
+                  <span className="text-slate-900 font-bold bg-white px-2 py-0.5 rounded border border-slate-200 select-all font-mono">
+                    {loadingProvisionSecret ? 'Carregando credencial criptográfica...' : (loadedProvisionSecret || '••••••••••••')}
                   </span>
                 </div>
                 <div>
@@ -613,7 +633,7 @@ ${selectedExtForCreds.webrtc ? `webrtc=yes\nmedia_encryption=dtls\ndtls_verify=f
 type=auth
 auth_type=userpass
 username=${selectedExtForCreds.number}
-password=${selectedExtForCreds.sipSecret}
+password=${loadedProvisionSecret || '••••••••••••'}
 
 [${selectedExtForCreds.number}]
 type=aor
@@ -645,7 +665,7 @@ ${selectedExtForCreds.webrtc ? `webrtc=yes\nmedia_encryption=dtls\ndtls_verify=f
 type=auth
 auth_type=userpass
 username=${selectedExtForCreds.number}
-password=${selectedExtForCreds.sipSecret}
+password=${loadedProvisionSecret || '••••••••••••'}
 
 [${selectedExtForCreds.number}]
 type=aor

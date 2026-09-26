@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoString } from '../dateUtils';
 import { Trunk } from '../../../../src/types/pbx';
 
 export class TrunkRepository {
@@ -35,7 +36,7 @@ export class TrunkRepository {
       failoverTrunkId: row.failover_trunk_id,
       lastPingLatencyMs: row.last_ping_latency_ms,
       lastPingStatus: row.last_ping_status,
-      lastPingAt: row.last_ping_at ? row.last_ping_at.toISOString() : undefined,
+      lastPingAt: toSafeIsoString(row.last_ping_at),
     };
   }
 
@@ -62,16 +63,13 @@ export class TrunkRepository {
     }
   }
 
-  public static async findById(arg1: string, arg2?: string): Promise<Trunk | null> {
+  public static async findById(id: string, tenantId?: string): Promise<Trunk | null> {
     try {
-      let query = 'SELECT * FROM trunks WHERE ';
-      const params: any[] = [];
-      if (!arg2) {
-        query += 'id = $1';
-        params.push(arg1);
-      } else {
-        query += 'tenant_id = $1 AND id = $2';
-        params.push(arg1, arg2);
+      let query = 'SELECT * FROM trunks WHERE id = $1';
+      const params: any[] = [id];
+      if (tenantId && tenantId.trim() !== '') {
+        query += ' AND tenant_id = $2';
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -82,6 +80,10 @@ export class TrunkRepository {
       console.error('[TrunkRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<Trunk | null> {
+    return this.findById(id);
   }
 
   public static async save(trunk: Trunk): Promise<Trunk> {
@@ -152,12 +154,15 @@ export class TrunkRepository {
     }
   }
 
-  public static async delete(tenantId: string, id: string): Promise<boolean> {
+  public static async delete(id: string, tenantId?: string): Promise<boolean> {
     try {
-      const res = await postgresClient.query(
-        'DELETE FROM trunks WHERE tenant_id = $1 AND id = $2',
-        [tenantId, id]
-      );
+      let query = 'DELETE FROM trunks WHERE id = $1';
+      const params: any[] = [id];
+      if (tenantId && tenantId.trim() !== '') {
+        query += ' AND tenant_id = $2';
+        params.push(tenantId.trim());
+      }
+      const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
       console.error('[TrunkRepository.delete] Erro no PostgreSQL:', err?.message || err);

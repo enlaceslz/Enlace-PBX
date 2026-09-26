@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoStringOrNow } from '../dateUtils';
 import { AiKnowledgeSource } from '../../../../src/types/pbx';
 
 export class AiKnowledgeRepository {
@@ -13,7 +14,7 @@ export class AiKnowledgeRepository {
         title: row.title,
         category: row.category,
         content: row.content,
-        updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
+        updatedAt: toSafeIsoStringOrNow(row.updated_at),
         fileName: row.file_name || undefined,
         fileType: row.file_type || undefined,
         fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
@@ -36,7 +37,7 @@ export class AiKnowledgeRepository {
         title: row.title,
         category: row.category,
         content: row.content,
-        updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
+        updatedAt: toSafeIsoStringOrNow(row.updated_at),
         fileName: row.file_name || undefined,
         fileType: row.file_type || undefined,
         fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
@@ -51,9 +52,9 @@ export class AiKnowledgeRepository {
     try {
       let query = 'SELECT * FROM ai_knowledge WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -64,7 +65,7 @@ export class AiKnowledgeRepository {
           title: row.title,
           category: row.category,
           content: row.content,
-          updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
+          updatedAt: toSafeIsoStringOrNow(row.updated_at),
           fileName: row.file_name || undefined,
           fileType: row.file_type || undefined,
           fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
@@ -75,6 +76,10 @@ export class AiKnowledgeRepository {
       console.error('[AiKnowledgeRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<AiKnowledgeSource | null> {
+    return this.findById(id);
   }
 
   public static async save(source: AiKnowledgeSource): Promise<AiKnowledgeSource> {
@@ -114,9 +119,9 @@ export class AiKnowledgeRepository {
     try {
       let query = 'DELETE FROM ai_knowledge WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;

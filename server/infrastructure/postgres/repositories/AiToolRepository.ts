@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoStringOrNow } from '../dateUtils';
 import { AiTool, AiProvider } from '../../../../src/types/pbx';
 
 export class AiToolRepository {
@@ -46,7 +47,7 @@ export class AiToolRepository {
         defaultVoice: row.default_voice,
         defaultTemperature: parseFloat(row.default_temperature || '0.7'),
         isActive: row.is_active ?? true,
-        updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
+        updatedAt: toSafeIsoStringOrNow(row.updated_at),
       }));
     } catch (err: any) {
       console.error('[AiToolRepository.listAllProviders] Erro no PostgreSQL:', err?.message || err);
@@ -149,9 +150,9 @@ export class AiToolRepository {
     try {
       let query = 'SELECT * FROM ai_tools WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -175,15 +176,19 @@ export class AiToolRepository {
     }
   }
 
-  public static async findByName(name: string, tenantId?: string): Promise<AiTool | null> {
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<AiTool | null> {
+    return this.findById(id);
+  }
+
+  public static async findByName(name: string, tenantId: string): Promise<AiTool | null> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: tenantId é obrigatório para consultar ferramenta por nome.');
+    }
     try {
-      let query = 'SELECT * FROM ai_tools WHERE name = $1';
-      const params: any[] = [name];
-      if (tenantId) {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId);
-      }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM ai_tools WHERE name = $1 AND tenant_id = $2',
+        [name, tenantId]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -225,7 +230,7 @@ export class AiToolRepository {
         defaultVoice: row.default_voice,
         defaultTemperature: parseFloat(row.default_temperature || '0.7'),
         isActive: row.is_active ?? true,
-        updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
+        updatedAt: toSafeIsoStringOrNow(row.updated_at),
       }));
     } catch (err: any) {
       console.error('[AiToolRepository.listProviders] Erro no PostgreSQL:', err?.message || err);

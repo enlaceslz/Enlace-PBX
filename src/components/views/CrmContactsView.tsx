@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Phone, Mail, Search, BrainCircuit, Activity, Heart, ShieldAlert, Sparkles, Filter, ChevronRight, X, User, MessageSquare } from 'lucide-react';
 import { CrmContact, CustomerMemory } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 
 export const CrmContactsView: React.FC = () => {
   const [contacts, setContacts] = useState<CrmContact[]>([]);
@@ -10,25 +11,35 @@ export const CrmContactsView: React.FC = () => {
   const [selectedContact, setSelectedContact] = useState<CrmContact | null>(null);
 
   useEffect(() => {
+    const headers = getAuthHeaders();
     Promise.all([
-      fetch('/api/v1/crm/contacts').then((r) => r.json()),
-      fetch('/api/v1/crm/memories').then((r) => r.json())
+      fetch('/api/v1/crm/contacts', { headers })
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+      fetch('/api/v1/crm/memories', { headers })
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => [])
     ]).then(([contactsData, memoriesData]) => {
-      setContacts(contactsData);
-      setMemories(memoriesData);
+      setContacts(Array.isArray(contactsData) ? contactsData : []);
+      setMemories(Array.isArray(memoriesData) ? memoriesData : []);
       setIsLoading(false);
     }).catch(err => {
-      console.error(err);
+      console.error('Erro ao carregar contatos do CRM:', err);
+      setContacts([]);
+      setMemories([]);
       setIsLoading(false);
     });
   }, []);
 
-  const filteredContacts = contacts.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.phone.includes(search)
+  const safeContacts = Array.isArray(contacts) ? contacts : [];
+  const safeMemories = Array.isArray(memories) ? memories : [];
+
+  const filteredContacts = safeContacts.filter(c => 
+    (c?.name || '').toLowerCase().includes(search.toLowerCase()) || 
+    (c?.phone || '').includes(search)
   );
 
-  const activeMemory = selectedContact ? memories.find(m => m.contactId === selectedContact.id) : null;
+  const activeMemory = selectedContact ? safeMemories.find(m => m?.contactId === selectedContact.id) : null;
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-6 pb-12">

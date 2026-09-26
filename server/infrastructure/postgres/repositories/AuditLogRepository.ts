@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { postgresClient } from '../client';
+import { toSafeIsoStringOrNow } from '../dateUtils';
 import { AuditLog } from '../../../../src/types/pbx';
 
 export class AuditLogRepository {
@@ -114,7 +115,7 @@ export class AuditLogRepository {
         action: row.action,
         resource: row.resource,
         ip: row.ip,
-        timestamp: row.timestamp ? row.timestamp.toISOString() : new Date().toISOString(),
+        timestamp: toSafeIsoStringOrNow(row.timestamp),
         details: row.details,
         category: row.category,
         severity: row.severity,
@@ -129,9 +130,15 @@ export class AuditLogRepository {
     }
   }
 
-  public static async findById(id: string): Promise<AuditLog | null> {
+  public static async findById(id: string, tenantId?: string): Promise<AuditLog | null> {
     try {
-      const res = await postgresClient.query('SELECT * FROM audit_logs WHERE id = $1', [id]);
+      let query = 'SELECT * FROM audit_logs WHERE id = $1';
+      const params: any[] = [id];
+      if (tenantId) {
+        query += ' AND tenant_id = $2';
+        params.push(tenantId);
+      }
+      const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -142,7 +149,7 @@ export class AuditLogRepository {
           action: row.action,
           resource: row.resource,
           ip: row.ip,
-          timestamp: row.timestamp ? row.timestamp.toISOString() : new Date().toISOString(),
+          timestamp: toSafeIsoStringOrNow(row.timestamp),
           details: row.details,
           category: row.category,
           severity: row.severity,
@@ -171,7 +178,7 @@ export class AuditLogRepository {
         action: row.action,
         resource: row.resource,
         ip: row.ip,
-        timestamp: row.timestamp ? row.timestamp.toISOString() : new Date().toISOString(),
+        timestamp: toSafeIsoStringOrNow(row.timestamp),
         details: row.details,
         category: row.category,
         severity: row.severity,

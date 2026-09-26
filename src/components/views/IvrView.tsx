@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Ivr, IvrOption } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 import { IvrFlowEditor } from '../ivr/IvrFlowEditor';
 
 interface IvrViewProps {
@@ -62,11 +63,11 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
   });
 
   const handleAddOption = () => {
-    const nextDigit = String(formData.options.length + 1);
+    const nextDigit = String((formData.options?.length || 0) + 1);
     setFormData({
       ...formData,
       options: [
-        ...formData.options,
+        ...(formData.options || []),
         { digit: nextDigit, label: 'Nova Opção', destinationType: 'extension', destinationTarget: '4101' },
       ],
     });
@@ -92,7 +93,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
     try {
       const res = await fetch('/api/v1/ivr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(formData),
       });
       const created = await res.json();
@@ -113,7 +114,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
     try {
       const res = await fetch(`/api/v1/ivr/${updatedIvr.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(updatedIvr),
       });
       if (res.ok) {
@@ -130,7 +131,10 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
   const handleDeleteIvr = async (id: string, name: string) => {
     if (!confirm(`Deseja realmente excluir a URA "${name}"?`)) return;
     try {
-      await fetch(`/api/v1/ivr/${id}`, { method: 'DELETE' });
+      await fetch(`/api/v1/ivr/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       if (onRefresh) onRefresh();
     } catch (err) {
       console.error('Erro ao excluir URA:', err);
@@ -280,7 +284,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
                           <>
                             <span>•</span>
                             <span className="text-blue-600 font-medium">
-                              Fluxo Visual ({ivr.flow.nodes.length} nós)
+                              Fluxo Visual ({ivr.flow.nodes?.length || 0} nós)
                             </span>
                           </>
                         )}
@@ -479,7 +483,7 @@ export const IvrView: React.FC<IvrViewProps> = ({ ivrs, onOpenWebphone, onRefres
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-slate-700 block">
-                    Opções Iniciais DTMF ({formData.options.length}):
+                    Opções Iniciais DTMF ({formData.options?.length || 0}):
                   </label>
                   <button
                     type="button"

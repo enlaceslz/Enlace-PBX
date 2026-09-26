@@ -38,6 +38,7 @@ import {
   SystemLogService,
   SystemLogStats,
 } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 
 interface SystemLogsViewProps {
   initialService?: SystemLogService | 'all';
@@ -100,7 +101,9 @@ export const SystemLogsView: React.FC<SystemLogsViewProps> = ({ initialService =
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
       params.append('limit', '250');
 
-      const res = await fetch(`/api/v1/system/logs?${params.toString()}`);
+      const res = await fetch(`/api/v1/system/logs?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
       if (!res.ok) throw new Error('Falha ao obter logs do sistema');
       const data = await res.json();
 
@@ -144,7 +147,10 @@ export const SystemLogsView: React.FC<SystemLogsViewProps> = ({ initialService =
   // Limpar logs
   const handleClearLogs = async () => {
     try {
-      const res = await fetch('/api/v1/system/logs/clear', { method: 'POST' });
+      const res = await fetch('/api/v1/system/logs/clear', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         showAlert('Buffer de logs limpo com sucesso.');
         fetchLogs(false);
@@ -186,7 +192,7 @@ export const SystemLogsView: React.FC<SystemLogsViewProps> = ({ initialService =
     try {
       const res = await fetch('/api/v1/system/logs/simulate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           service: simService,
           level: simLevel,
@@ -407,30 +413,30 @@ export const SystemLogsView: React.FC<SystemLogsViewProps> = ({ initialService =
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mt-4 pt-4 border-t border-slate-100">
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
               <span className="text-[10px] text-slate-500 uppercase font-semibold">Total no Buffer</span>
-              <div className="text-base font-bold text-slate-900 mt-0.5">{stats.total}</div>
+              <div className="text-base font-bold text-slate-900 mt-0.5">{stats.total ?? 0}</div>
             </div>
             <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-100">
               <span className="text-[10px] text-rose-600 uppercase font-semibold">Erros & Críticos</span>
               <div className="text-base font-bold text-rose-700 mt-0.5">
-                {(stats.byLevel.ERROR || 0) + (stats.byLevel.CRITICAL || 0)}
+                {(stats?.byLevel?.ERROR || 0) + (stats?.byLevel?.CRITICAL || 0)}
               </div>
             </div>
             <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-100">
               <span className="text-[10px] text-amber-700 uppercase font-semibold">Alertas (Warning)</span>
-              <div className="text-base font-bold text-amber-800 mt-0.5">{stats.byLevel.WARNING || 0}</div>
+              <div className="text-base font-bold text-amber-800 mt-0.5">{stats?.byLevel?.WARNING || 0}</div>
             </div>
             <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-100">
               <span className="text-[10px] text-indigo-600 uppercase font-semibold">Notices / Registros</span>
-              <div className="text-base font-bold text-indigo-700 mt-0.5">{stats.byLevel.NOTICE || 0}</div>
+              <div className="text-base font-bold text-indigo-700 mt-0.5">{stats?.byLevel?.NOTICE || 0}</div>
             </div>
             <div className="p-2.5 rounded-xl bg-cyan-50/70 border border-cyan-100">
               <span className="text-[10px] text-cyan-700 uppercase font-semibold">Informativos (Info)</span>
-              <div className="text-base font-bold text-cyan-800 mt-0.5">{stats.byLevel.INFO || 0}</div>
+              <div className="text-base font-bold text-cyan-800 mt-0.5">{stats?.byLevel?.INFO || 0}</div>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200">
               <span className="text-[10px] text-slate-500 uppercase font-semibold">Taxa de Eventos</span>
               <div className="text-base font-bold text-slate-800 mt-0.5 flex items-center gap-1">
-                <span>~{stats.eventsPerMinute}</span>
+                <span>~{stats.eventsPerMinute ?? 0}</span>
                 <span className="text-[10px] font-normal text-slate-500">/min</span>
               </div>
             </div>

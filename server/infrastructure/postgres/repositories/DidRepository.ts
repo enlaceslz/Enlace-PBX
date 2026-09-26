@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoString, toSafeIsoStringOrNow } from '../dateUtils';
 import { Did } from '../../../../src/types/pbx';
 
 export class DidRepository {
@@ -32,9 +33,9 @@ export class DidRepository {
       unknownDidAction: row.unknown_did_action || 'reject_404',
       channelsInUse: row.channels_in_use || 0,
       totalCallsReceived: row.total_calls_received || 0,
-      lastCallAt: row.last_call_at ? row.last_call_at.toISOString() : undefined,
-      createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
-      updatedAt: row.updated_at ? row.updated_at.toISOString() : new Date().toISOString(),
+      lastCallAt: toSafeIsoString(row.last_call_at),
+      createdAt: toSafeIsoStringOrNow(row.created_at),
+      updatedAt: toSafeIsoStringOrNow(row.updated_at),
     };
   }
 
@@ -78,19 +79,13 @@ export class DidRepository {
     }
   }
 
-  public static async findById(arg1: string, arg2?: string): Promise<Did | null> {
+  public static async findById(id: string, tenantId?: string): Promise<Did | null> {
     try {
-      let query = 'SELECT * FROM dids WHERE ';
-      const params: any[] = [];
-      if (!arg2) {
-        query += 'id = $1';
-        params.push(arg1);
-      } else if (arg1.startsWith('tenant-')) {
-        query += 'tenant_id = $1 AND id = $2';
-        params.push(arg1, arg2);
-      } else {
-        query += 'id = $1 AND tenant_id = $2';
-        params.push(arg1, arg2);
+      let query = 'SELECT * FROM dids WHERE id = $1';
+      const params: any[] = [id];
+      if (tenantId && tenantId.trim() !== '') {
+        query += ' AND tenant_id = $2';
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -101,6 +96,10 @@ export class DidRepository {
       console.error('[DidRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<Did | null> {
+    return this.findById(id);
   }
 
   public static async save(did: Did): Promise<Did> {
@@ -165,19 +164,13 @@ export class DidRepository {
     }
   }
 
-  public static async delete(arg1: string, arg2?: string): Promise<boolean> {
+  public static async delete(id: string, tenantId?: string): Promise<boolean> {
     try {
-      let query = 'DELETE FROM dids WHERE ';
-      const params: any[] = [];
-      if (!arg2) {
-        query += 'id = $1';
-        params.push(arg1);
-      } else if (arg1.startsWith('tenant-')) {
-        query += 'tenant_id = $1 AND id = $2';
-        params.push(arg1, arg2);
-      } else {
-        query += 'id = $1 AND tenant_id = $2';
-        params.push(arg1, arg2);
+      let query = 'DELETE FROM dids WHERE id = $1';
+      const params: any[] = [id];
+      if (tenantId && tenantId.trim() !== '') {
+        query += ' AND tenant_id = $2';
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;

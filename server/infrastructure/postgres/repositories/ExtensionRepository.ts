@@ -1,7 +1,15 @@
 import { postgresClient } from '../client';
-import { Extension } from '../../../../src/types/pbx';
+import { Extension, SafeExtension } from '../../../../src/types/pbx';
 
 export class ExtensionRepository {
+  public static toSafeExtension(ext: Extension): SafeExtension {
+    const { sipSecret, ...safe } = ext;
+    return {
+      ...safe,
+      hasSipSecret: Boolean(sipSecret && sipSecret.trim() !== ''),
+    };
+  }
+
   public static async listAll(): Promise<Extension[]> {
     try {
       const res = await postgresClient.query(
@@ -102,9 +110,9 @@ export class ExtensionRepository {
     try {
       let query = 'SELECT * FROM extensions WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -134,6 +142,10 @@ export class ExtensionRepository {
       console.error('[ExtensionRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<Extension | null> {
+    return this.findById(id);
   }
 
   public static async save(ext: Extension): Promise<Extension> {
@@ -172,12 +184,15 @@ export class ExtensionRepository {
     }
   }
 
-  public static async delete(tenantId: string, id: string): Promise<boolean> {
+  public static async delete(id: string, tenantId?: string): Promise<boolean> {
     try {
-      const res = await postgresClient.query(
-        'DELETE FROM extensions WHERE tenant_id = $1 AND (id = $2 OR number = $2)',
-        [tenantId, id]
-      );
+      let query = 'DELETE FROM extensions WHERE (id = $1 OR number = $1)';
+      const params: any[] = [id];
+      if (tenantId && tenantId.trim() !== '') {
+        query = 'DELETE FROM extensions WHERE tenant_id = $1 AND (id = $2 OR number = $2)';
+        params.unshift(tenantId.trim());
+      }
+      const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
       console.error('[ExtensionRepository.delete] Erro no PostgreSQL:', err?.message || err);

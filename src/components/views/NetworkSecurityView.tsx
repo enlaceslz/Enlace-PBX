@@ -40,6 +40,7 @@ import {
   BannedIp,
   Fail2banJail,
 } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 import { VpnMonitoringDashboard } from './VpnMonitoringDashboard';
 
 export const NetworkSecurityView: React.FC = () => {
@@ -97,15 +98,16 @@ export const NetworkSecurityView: React.FC = () => {
     else setRefreshing(true);
 
     try {
+      const authHeaders = getAuthHeaders();
       const [wgRes, ztRes, f2bRes] = await Promise.all([
-        fetch('/api/v1/network/wireguard').then((r) => r.json()),
-        fetch('/api/v1/network/zerotier').then((r) => r.json()),
-        fetch('/api/v1/security/fail2ban').then((r) => r.json()),
+        fetch('/api/v1/network/wireguard', { headers: authHeaders }).then((r) => (r.ok ? r.json() : null)),
+        fetch('/api/v1/network/zerotier', { headers: authHeaders }).then((r) => (r.ok ? r.json() : null)),
+        fetch('/api/v1/security/fail2ban', { headers: authHeaders }).then((r) => (r.ok ? r.json() : null)),
       ]);
 
-      setWireguard(wgRes);
-      setZerotier(ztRes);
-      setFail2ban(f2bRes);
+      if (wgRes && !wgRes.error) setWireguard(wgRes);
+      if (ztRes && !ztRes.error) setZerotier(ztRes);
+      if (f2bRes && !f2bRes.error) setFail2ban(f2bRes);
     } catch (e) {
       console.error('Erro ao carregar dados de rede e segurança:', e);
       showToast('Falha ao comunicar com os serviços de rede.', 'error');
@@ -143,7 +145,10 @@ export const NetworkSecurityView: React.FC = () => {
   // WireGuard Handlers
   const handleToggleWg = async () => {
     try {
-      const res = await fetch('/api/v1/network/wireguard/toggle', { method: 'POST' });
+      const res = await fetch('/api/v1/network/wireguard/toggle', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.success) {
         showToast(`Interface WireGuard ${data.status === 'active' ? 'ativada' : 'desativada'}.`);
@@ -161,7 +166,7 @@ export const NetworkSecurityView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/network/wireguard/peers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newPeerForm),
       });
       const data = await res.json();
@@ -187,10 +192,13 @@ export const NetworkSecurityView: React.FC = () => {
 
   const handleTogglePeer = async (peerId: string) => {
     try {
-      const res = await fetch(`/api/v1/network/wireguard/peers/${peerId}/toggle`, { method: 'POST' });
+      const res = await fetch(`/api/v1/network/wireguard/peers/${peerId}/toggle`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.success) {
-        showToast(`Peer ${data.peer.enabled ? 'habilitado' : 'desabilitado'}.`);
+        showToast(`Peer ${data.peer?.enabled ? 'habilitado' : 'desabilitado'}.`);
         loadData();
       }
     } catch {
@@ -201,7 +209,10 @@ export const NetworkSecurityView: React.FC = () => {
   const handleDeletePeer = async (peerId: string, peerName: string) => {
     if (!confirm(`Deseja realmente remover o peer "${peerName}"?`)) return;
     try {
-      const res = await fetch(`/api/v1/network/wireguard/peers/${peerId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/network/wireguard/peers/${peerId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.success) {
         showToast(`Peer "${peerName}" removido.`);
@@ -214,7 +225,9 @@ export const NetworkSecurityView: React.FC = () => {
 
   const handleOpenClientConfig = async (peer: WireGuardPeer) => {
     try {
-      const res = await fetch(`/api/v1/network/wireguard/peers/${peer.id}/client-config`);
+      const res = await fetch(`/api/v1/network/wireguard/peers/${peer.id}/client-config`, {
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.success) {
         setSelectedPeerConfig({
@@ -252,7 +265,10 @@ export const NetworkSecurityView: React.FC = () => {
   // ZeroTier Handlers
   const handleToggleZt = async () => {
     try {
-      const res = await fetch('/api/v1/network/zerotier/toggle', { method: 'POST' });
+      const res = await fetch('/api/v1/network/zerotier/toggle', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.success) {
         showToast(`ZeroTier One ${data.status === 'online' ? 'conectado' : 'desconectado'}.`);
@@ -270,7 +286,7 @@ export const NetworkSecurityView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/network/zerotier/join', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(newZtForm),
       });
       const data = await res.json();
@@ -292,7 +308,7 @@ export const NetworkSecurityView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/network/zerotier/leave', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ networkId }),
       });
       const data = await res.json();
@@ -308,7 +324,10 @@ export const NetworkSecurityView: React.FC = () => {
   // Fail2ban Handlers
   const handleReloadFail2ban = async () => {
     try {
-      const res = await fetch('/api/v1/security/fail2ban/reload', { method: 'POST' });
+      const res = await fetch('/api/v1/security/fail2ban/reload', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.success) {
         showToast('Daemon Fail2ban recarregado com sucesso!');
@@ -323,7 +342,7 @@ export const NetworkSecurityView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/security/fail2ban/unban', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ip, jail }),
       });
       const data = await res.json();
@@ -345,7 +364,7 @@ export const NetworkSecurityView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/security/fail2ban/ban', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(manualBanForm),
       });
       const data = await res.json();
@@ -364,7 +383,10 @@ export const NetworkSecurityView: React.FC = () => {
 
   const handleSimulateAttack = async () => {
     try {
-      const res = await fetch('/api/v1/security/fail2ban/simulate-attack', { method: 'POST' });
+      const res = await fetch('/api/v1/security/fail2ban/simulate-attack', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.success) {
         showToast(`[TESTE] Ataque simulado detectado! IP ${data.simulatedBan.ip} bloqueado na jail asterisk-pjsip.`);
@@ -382,7 +404,7 @@ export const NetworkSecurityView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/security/fail2ban/whitelist', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ipOrSubnet: newWhitelistIp, action: 'add' }),
       });
       const data = await res.json();
@@ -400,7 +422,7 @@ export const NetworkSecurityView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/security/fail2ban/whitelist', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ipOrSubnet, action: 'remove' }),
       });
       const data = await res.json();
@@ -415,12 +437,13 @@ export const NetworkSecurityView: React.FC = () => {
 
   const handleUpdateJailRules = async (jail: Fail2banJail, field: 'maxRetry' | 'findTime' | 'banTime', val: number) => {
     if (!fail2ban) return;
-    const updatedJails = fail2ban.jails.map((j) => (j.name === jail.name ? { ...j, [field]: val } : j));
+    const currentJails = fail2ban.jails || [];
+    const updatedJails = currentJails.map((j) => (j.name === jail.name ? { ...j, [field]: val } : j));
 
     try {
       const res = await fetch('/api/v1/security/fail2ban/rules', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ jails: updatedJails }),
       });
       const data = await res.json();
@@ -435,11 +458,12 @@ export const NetworkSecurityView: React.FC = () => {
 
   // Filtered Banned IPs
   const filteredBannedIps = (fail2ban?.bannedIps || []).filter((item) => {
+    const q = (ipFilterQuery || '').toLowerCase();
     const matchesQuery =
-      item.ip.toLowerCase().includes(ipFilterQuery.toLowerCase()) ||
-      item.reason.toLowerCase().includes(ipFilterQuery.toLowerCase()) ||
-      item.country.toLowerCase().includes(ipFilterQuery.toLowerCase()) ||
-      (item.reverseDns && item.reverseDns.toLowerCase().includes(ipFilterQuery.toLowerCase()));
+      (item.ip || '').toLowerCase().includes(q) ||
+      (item.reason || '').toLowerCase().includes(q) ||
+      (item.country || '').toLowerCase().includes(q) ||
+      (item.reverseDns ? item.reverseDns.toLowerCase().includes(q) : false);
 
     const matchesJail = selectedJailFilter === 'all' || item.jail === selectedJailFilter;
 
@@ -573,7 +597,7 @@ export const NetworkSecurityView: React.FC = () => {
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-extrabold text-slate-900">
-              {zerotier?.networks.length || 0}
+              {zerotier?.networks?.length || 0}
               <span className="text-xs font-normal text-slate-500 ml-1">redes mesh</span>
             </span>
             <span className="text-xs font-mono font-semibold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md">
@@ -660,7 +684,7 @@ export const NetworkSecurityView: React.FC = () => {
           <Shield className="w-4 h-4" />
           <span>WireGuard VPN (Túneis &amp; Ramais)</span>
           <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'wireguard' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
-            {wireguard?.peers.length}
+            {wireguard?.peers?.length || 0}
           </span>
         </button>
 
@@ -675,7 +699,7 @@ export const NetworkSecurityView: React.FC = () => {
           <Globe className="w-4 h-4" />
           <span>ZeroTier One (SD-WAN Mesh)</span>
           <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'zerotier' ? 'bg-orange-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
-            {zerotier?.networks.length}
+            {zerotier?.networks?.length || 0}
           </span>
         </button>
 
@@ -787,12 +811,12 @@ export const NetworkSecurityView: React.FC = () => {
                 <p className="text-xs text-slate-500">Dispositivos com acesso direto à sub-rede SIP e Dialplan Asterisk.</p>
               </div>
               <span className="text-xs font-semibold text-slate-500">
-                Total: <strong className="text-slate-800">{wireguard?.peers.length}</strong> peers
+                Total: <strong className="text-slate-800">{wireguard?.peers?.length || 0}</strong> peers
               </span>
             </div>
 
             <div className="divide-y divide-slate-100">
-              {wireguard?.peers.map((peer) => (
+              {(wireguard?.peers || []).map((peer) => (
                 <div key={peer.id} className="p-4 hover:bg-slate-50/70 transition flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   <div className="flex items-start gap-3 min-w-0">
                     <div
@@ -955,12 +979,12 @@ export const NetworkSecurityView: React.FC = () => {
           <div className="space-y-4">
             <h3 className="text-sm font-bold text-slate-900">Redes ZeroTier Conectadas</h3>
 
-            {zerotier?.networks.length === 0 ? (
+            {(!zerotier?.networks || (zerotier?.networks?.length || 0) === 0) ? (
               <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500">
                 Nenhuma rede conectada. Clique em "Conectar a uma Rede (Join)" para associar este PBX a uma malha.
               </div>
             ) : (
-              zerotier?.networks.map((net) => (
+              (zerotier?.networks || []).map((net) => (
                 <div key={net.id} className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-sm space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
@@ -1033,7 +1057,7 @@ export const NetworkSecurityView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {zerotier?.peers.map((peer) => (
+                  {(zerotier?.peers || []).map((peer) => (
                     <tr key={peer.nodeId} className="hover:bg-slate-50/70">
                       <td className="px-4 py-3 font-mono font-bold text-slate-900">{peer.nodeId}</td>
                       <td className="px-4 py-3">
@@ -1070,7 +1094,7 @@ export const NetworkSecurityView: React.FC = () => {
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Monitoramento Ativo de Intrusão</h3>
                 <p className="text-xs text-slate-500">
-                  Total de <strong>{fail2ban?.bannedIps.length}</strong> IPs bloqueados atualmente no firewall iptables/nftables.
+                  Total de <strong>{fail2ban?.bannedIps?.length || 0}</strong> IPs bloqueados atualmente no firewall iptables/nftables.
                 </p>
               </div>
             </div>
@@ -1097,7 +1121,7 @@ export const NetworkSecurityView: React.FC = () => {
 
           {/* Jails Status Cards Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {fail2ban?.jails.map((jail) => (
+            {(fail2ban?.jails || []).map((jail) => (
               <div key={jail.name} className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-sm space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-xs font-bold text-slate-900 truncate" title={jail.name}>
@@ -1134,8 +1158,8 @@ export const NetworkSecurityView: React.FC = () => {
               onChange={(e) => setSelectedJailFilter(e.target.value)}
               className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500/20 shadow-sm"
             >
-              <option value="all">Todas as Jails ({fail2ban?.bannedIps.length})</option>
-              {fail2ban?.jails.map((j) => (
+              <option value="all">Todas as Jails ({fail2ban?.bannedIps?.length || 0})</option>
+              {(fail2ban?.jails || []).map((j) => (
                 <option key={j.name} value={j.name}>
                   {j.name}
                 </option>
@@ -1151,7 +1175,7 @@ export const NetworkSecurityView: React.FC = () => {
                 <p className="text-xs text-slate-500">Tentativas que violaram o limite de falhas de autenticação SIP ou varredura de portas.</p>
               </div>
               <span className="text-xs font-semibold text-slate-500">
-                Mostrando <strong>{filteredBannedIps.length}</strong> de {fail2ban?.bannedIps.length}
+                Mostrando <strong>{filteredBannedIps.length}</strong> de {fail2ban?.bannedIps?.length || 0}
               </span>
             </div>
 
@@ -1261,7 +1285,7 @@ export const NetworkSecurityView: React.FC = () => {
 
             {/* Badges of Whitelisted IPs */}
             <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-              {fail2ban?.whitelist.map((ip) => {
+              {(fail2ban?.whitelist || []).map((ip) => {
                 const isVpnSubnet = ip.includes('10.10.0') || ip.includes('192.168.192');
                 return (
                   <div
@@ -1302,7 +1326,7 @@ export const NetworkSecurityView: React.FC = () => {
             </div>
 
             <div className="space-y-4 divide-y divide-slate-100">
-              {fail2ban?.jails.map((jail) => (
+              {(fail2ban?.jails || []).map((jail) => (
                 <div key={jail.name} className="pt-4 first:pt-0 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>

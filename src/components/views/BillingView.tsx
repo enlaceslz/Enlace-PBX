@@ -51,6 +51,7 @@ import {
   FinancialTransaction,
 } from '../../utils/pdfExportHelper';
 import { Tenant, Did } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 
 interface BillingViewProps {
   currentTenant?: Tenant | null;
@@ -118,22 +119,23 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
 
   const fetchBilling = async () => {
     try {
-      const tenantId = currentTenant?.id;
-      if (!tenantId) {
-        setLoading(false);
-        return;
-      }
+      const tenantId = currentTenant?.id || 'tenant-default';
+      const authHeaders = getAuthHeaders();
       const [resBilling, resDids] = await Promise.all([
-        fetch(`/api/v1/billing/${tenantId}`),
-        fetch(`/api/v1/dids?tenantId=${tenantId}`),
+        fetch(`/api/v1/billing/${tenantId}`, { headers: authHeaders }),
+        fetch(`/api/v1/dids?tenantId=${tenantId}`, { headers: authHeaders }),
       ]);
       if (resBilling.ok) {
         const data = await resBilling.json();
-        setBilling(data);
+        setBilling({
+          ...data,
+          recentInvoices: Array.isArray(data.recentInvoices) ? data.recentInvoices : [],
+          transactions: Array.isArray(data.transactions) ? data.transactions : [],
+        });
       }
       if (resDids.ok) {
         const didsData = await resDids.json();
-        setDidsList(didsData);
+        setDidsList(Array.isArray(didsData) ? didsData : []);
       }
     } catch (e) {
       console.error('Error loading billing data:', e);
@@ -154,12 +156,12 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   };
 
   const totalCurrentCost = useMemo(() => {
-    if (!billing) return 0;
+    if (!billing || !billing.currentMonthCosts) return 0;
     return (
-      billing.currentMonthCosts.telephony +
-      billing.currentMonthCosts.aiTokens +
-      billing.currentMonthCosts.omnichannel +
-      billing.currentMonthCosts.licenses
+      (billing.currentMonthCosts.telephony || 0) +
+      (billing.currentMonthCosts.aiTokens || 0) +
+      (billing.currentMonthCosts.omnichannel || 0) +
+      (billing.currentMonthCosts.licenses || 0)
     );
   }, [billing]);
 
@@ -179,13 +181,12 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   // Handle Add Balance
   const handleConfirmRecharge = async () => {
     if (!billing) return;
-    const tenantId = currentTenant?.id;
-    if (!tenantId) return;
+    const tenantId = currentTenant?.id || 'tenant-default';
     setIsProcessingRecharge(true);
     try {
       const res = await fetch(`/api/v1/billing/${tenantId}/recharge`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ amount: rechargeAmount, paymentMethod: 'PIX Instantâneo' }),
       });
       if (res.ok) {
@@ -206,12 +207,11 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   // Handle Pay Invoice Simulated
   const handlePayInvoice = async (invoiceId: string) => {
     if (!billing) return;
-    const tenantId = currentTenant?.id;
-    if (!tenantId) return;
+    const tenantId = currentTenant?.id || 'tenant-default';
     try {
       const res = await fetch(`/api/v1/billing/${tenantId}/invoices/${invoiceId}/pay`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ paymentMethod: 'PIX' }),
       });
       if (res.ok) {
@@ -295,7 +295,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
     try {
       const res = await fetch(`/api/v1/dids/${editingDid.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           ...editingDid,
           assignedCompany: didEditForm.assignedCompany,
@@ -403,13 +403,13 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
           }`}
         >
           <Receipt className="w-4 h-4" />
-          Faturas & Boletos ({billing.recentInvoices.length})
+          Faturas & Boletos ({billing.recentInvoices?.length || 0})
         </button>
         <button
           onClick={() => setActiveSubTab('statement')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
             activeSubTab === 'statement'
-              ? 'bg-slate-900 text-white shadow-xs'
+               ? 'bg-slate-900 text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -425,7 +425,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
           }`}
         >
           <Building2 className="w-4 h-4" />
-          DIDs por Empresa & Mensalidades ({didsList.length})
+          DIDs por Empresa & Mensalidades ({didsList?.length || 0})
         </button>
       </div>
 
@@ -653,12 +653,12 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
               </p>
             </div>
             <div className="text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-              Total emitido: {billing.recentInvoices.length} faturas
+              Total emitido: {billing.recentInvoices?.length || 0} faturas
             </div>
           </div>
 
           <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl overflow-hidden">
-            {billing.recentInvoices.map((invoice) => (
+            {(billing.recentInvoices || []).map((invoice) => (
               <div
                 key={invoice.id}
                 className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
@@ -811,7 +811,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                 </div>
               </div>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-2xl font-black text-slate-900">{didsList.length}</span>
+                <span className="text-2xl font-black text-slate-900">{didsList?.length || 0}</span>
                 <span className="text-xs text-slate-400 font-medium">números ativos</span>
               </div>
             </div>

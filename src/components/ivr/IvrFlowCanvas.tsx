@@ -273,12 +273,13 @@ export const IvrFlowCanvas: React.FC<IvrFlowCanvasProps> = ({
     }
 
     // Remove any existing connection from this exact same port
-    const filteredConnections = flow.connections.filter(
+    const connections = flow.connections || [];
+    const filteredConnections = connections.filter(
       (c) => !(c.fromNodeId === isConnecting.fromNodeId && c.fromPort === isConnecting.fromPort)
     );
 
     const newConnection: IvrFlowConnection = {
-      id: `conn-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: `conn-${Date.now()}-${(connections.length + 1).toString().padStart(4, '0')}`,
       fromNodeId: isConnecting.fromNodeId,
       fromPort: isConnecting.fromPort,
       toNodeId,
@@ -397,7 +398,7 @@ export const IvrFlowCanvas: React.FC<IvrFlowCanvasProps> = ({
             <Layers className="w-4 h-4 text-blue-600" />
             <span>Fluxo Visual da URA</span>
             <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
-              {flow.nodes.length} nós • {flow.connections.length} conexões
+              {flow.nodes?.length || 0} nós • {flow.connections?.length || 0} conexões
             </span>
           </div>
 
@@ -857,10 +858,11 @@ export const IvrFlowCanvas: React.FC<IvrFlowCanvasProps> = ({
                     if (canvasRef.current) {
                       const scrollLeft = canvasRef.current.scrollLeft || 0;
                       const scrollTop = canvasRef.current.scrollTop || 0;
+                      const offsetIdx = ((flow.nodes?.length || 0) % 5) * 20;
                       addNodeAtPosition(
                         item.type,
-                        scrollLeft + 350 + Math.random() * 60,
-                        scrollTop + 200 + Math.random() * 60
+                        scrollLeft + 350 + offsetIdx,
+                        scrollTop + 200 + offsetIdx
                       );
                     }
                   }}

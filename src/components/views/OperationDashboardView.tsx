@@ -51,7 +51,7 @@ interface OperationDashboardViewProps {
   trunks?: Trunk[];
 }
 
-export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ channels, metrics, onOpenWebphone, queues, trunks }) => {
+export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ channels = [], metrics, onOpenWebphone, queues = [], trunks = [] }) => {
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -63,40 +63,59 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
     return <div className="p-8 text-center text-slate-500">Aguardando telemetria do PBX...</div>;
   }
 
-  const slaPercent = Math.round((metrics.callsAnswered / Math.max(metrics.callsToday, 1)) * 100);
-  const slaColor = slaPercent >= 85 ? 'text-emerald-400' : slaPercent >= 70 ? 'text-amber-400' : 'text-rose-400';
+  const hasCallsToday = (metrics.callsToday || 0) > 0;
+  const slaPercent = hasCallsToday ? Math.round(((metrics.callsAnswered || 0) / metrics.callsToday) * 100) : null;
+  const slaText = slaPercent !== null ? `${slaPercent}%` : 'NO_DATA';
+  const slaColor = slaPercent !== null
+    ? (slaPercent >= 85 ? 'text-emerald-400' : slaPercent >= 70 ? 'text-amber-400' : 'text-rose-400')
+    : 'text-slate-400';
 
   // Filas ativas configuradas no PBX
-  const activeQueues = queues && queues.length > 0
-    ? queues.map((q) => ({
+  const activeQueues = (queues || []).length > 0
+    ? (queues || []).map((q) => ({
         name: q.name || `Fila ${q.id}`,
-        waiting: channels.filter(c => c.state === 'Ringing' || c.application?.includes(q.name || '')).length,
+        waiting: (channels || []).filter(c => c.state === 'Ringing' || c.application?.includes(q.name || '')).length,
         agentsOnline: q.members?.length || 0,
-        sla: metrics.callsToday > 0 ? slaPercent : 100,
+        sla: slaPercent !== null ? slaPercent : 100,
         longestWait: '00:00',
       }))
     : [];
 
   // Deep VoIP Quality Telemetry (MOS, Jitter, Packet Loss, RTT)
-  const hasLiveQos = channels.some((c) => c.qos);
-  const voipTelemetryHistory = hasLiveQos
-    ? channels
-        .filter((c) => c.qos)
-        .map((c, idx) => ({
-          time: `C${idx + 1}`,
-          mos: Number(Math.max(1, 4.5 - (c.qos?.latencyMs || 0) / 100).toFixed(2)),
-          jitter: Number((c.qos?.jitterMs || 0).toFixed(1)),
-          lossPercent: Number((c.qos?.packetLossPercent || 0).toFixed(2)),
-          rtt: Math.round(c.qos?.latencyMs || 0),
-        }))
-    : [];
+  const channelsWithQos = (channels || []).filter((c) => c.qos && c.qos.latencyMs !== undefined);
+  const voipTelemetryHistory = channelsWithQos.map((c, idx) => ({
+    time: `C${idx + 1}`,
+    mos: Number(Math.max(1, 4.5 - (c.qos?.latencyMs || 0) / 100).toFixed(2)),
+    jitter: Number((c.qos?.jitterMs || 0).toFixed(1)),
+    lossPercent: Number((c.qos?.packetLossPercent || 0).toFixed(2)),
+    rtt: Math.round(c.qos?.latencyMs || 0),
+  }));
+
+  const avgMos = voipTelemetryHistory.length > 0
+    ? (voipTelemetryHistory.reduce((acc, cur) => acc + cur.mos, 0) / voipTelemetryHistory.length).toFixed(2)
+    : null;
+  const avgJitter = voipTelemetryHistory.length > 0
+    ? (voipTelemetryHistory.reduce((acc, cur) => acc + cur.jitter, 0) / voipTelemetryHistory.length).toFixed(1)
+    : null;
+  const avgLoss = voipTelemetryHistory.length > 0
+    ? (voipTelemetryHistory.reduce((acc, cur) => acc + cur.lossPercent, 0) / voipTelemetryHistory.length).toFixed(2)
+    : null;
 
   // Multichannel SLA Benchmark (Target vs Real)
   const slaBenchmarkData = [
-    { channel: 'Tronco PJSIP (Voz)', realSla: metrics.callsToday > 0 ? slaPercent : 0, targetSla: 85, vol: metrics.callsToday },
+    { channel: 'Tronco PJSIP (Voz)', realSla: slaPercent !== null ? slaPercent : 0, targetSla: 85, vol: metrics.callsToday },
     { channel: 'Canais Asterisk 20', realSla: channels.length > 0 ? 100 : 0, targetSla: 85, vol: channels.length },
     { channel: 'Filas ACD', realSla: activeQueues.length > 0 ? 100 : 0, targetSla: 85, vol: activeQueues.length },
   ];
+
+  const totalActiveBench = slaBenchmarkData.filter((d) => d.vol > 0);
+  const channelsOnTarget = totalActiveBench.filter((d) => d.realSla >= d.targetSla).length;
+  const bestBench = totalActiveBench.length > 0
+    ? [...totalActiveBench].sort((a, b) => b.realSla - a.realSla)[0]
+    : null;
+  const worstBench = totalActiveBench.length > 0
+    ? [...totalActiveBench].sort((a, b) => a.realSla - b.realSla)[0]
+    : null;
 
   return (
     <div className="bg-slate-950 min-h-full rounded-2xl p-4 sm:p-6 text-slate-300 font-sans shadow-2xl border border-slate-800">
@@ -142,7 +161,7 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
             <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg"><CheckCircle2 className="w-5 h-5" /></div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className={`text-5xl font-black ${slaColor}`}>{slaPercent}%</span>
+            <span className={`text-5xl font-black ${slaColor}`}>{slaText}</span>
           </div>
         </div>
 
@@ -154,7 +173,11 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
             <div className="p-2 bg-purple-500/20 text-purple-400 rounded-lg"><Bot className="w-5 h-5" /></div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-5xl font-black text-purple-400">{100 - metrics.humanTransferRatePercent}%</span>
+            <span className="text-5xl font-black text-purple-400">
+              {metrics.humanTransferRatePercent !== null && metrics.humanTransferRatePercent !== undefined
+                ? `${100 - metrics.humanTransferRatePercent}%`
+                : 'NO_DATA'}
+            </span>
             <span className="text-sm text-slate-500">resolvidos sem humano</span>
           </div>
         </div>
@@ -179,17 +202,25 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
             <div className="text-xs text-slate-500 font-bold uppercase mb-1">Transbordo (Humano)</div>
-            <div className="text-2xl font-black text-amber-400">{metrics.humanTransferRatePercent}%</div>
+            <div className="text-2xl font-black text-amber-400">
+              {metrics.humanTransferRatePercent !== null && metrics.humanTransferRatePercent !== undefined
+                ? `${metrics.humanTransferRatePercent}%`
+                : 'NO_DATA'}
+            </div>
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
             <div className="text-xs text-slate-500 font-bold uppercase mb-1">TMO Médio</div>
             <div className="text-2xl font-black text-slate-300">
-              {Math.floor(metrics.avgCallDurationSeconds / 60)}m {metrics.avgCallDurationSeconds % 60}s
+              {metrics.callsToday > 0
+                ? `${Math.floor(metrics.avgCallDurationSeconds / 60)}m ${metrics.avgCallDurationSeconds % 60}s`
+                : '0m 0s'}
             </div>
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
             <div className="text-xs text-slate-500 font-bold uppercase mb-1">Tokens IA Usados</div>
-            <div className="text-2xl font-black text-blue-400">{(metrics.aiTokensUsedToday / 1000).toFixed(1)}k</div>
+            <div className="text-2xl font-black text-blue-400">
+              {metrics.aiTokensUsedToday > 0 ? `${(metrics.aiTokensUsedToday / 1000).toFixed(1)}k` : '0'}
+            </div>
           </div>
         </div>
 
@@ -276,19 +307,33 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
           <div className="grid grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-800 text-center">
             <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
               <div className="text-[10px] text-slate-400 uppercase font-bold">MOS Médio</div>
-              <div className="text-base font-black text-emerald-400 mt-0.5">4.42 <span className="text-[10px] font-normal text-slate-500">/ 5.0</span></div>
+              <div className="text-base font-black text-emerald-400 mt-0.5">
+                {avgMos !== null ? (
+                  <>
+                    {avgMos} <span className="text-[10px] font-normal text-slate-500">/ 5.0</span>
+                  </>
+                ) : (
+                  <span className="text-slate-500 font-mono text-xs">NO_DATA</span>
+                )}
+              </div>
             </div>
             <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
               <div className="text-[10px] text-slate-400 uppercase font-bold">Jitter Médio</div>
-              <div className="text-base font-black text-sky-400 mt-0.5">3.4 ms</div>
+              <div className="text-base font-black text-sky-400 mt-0.5">
+                {avgJitter !== null ? `${avgJitter} ms` : <span className="text-slate-500 font-mono text-xs">NO_DATA</span>}
+              </div>
             </div>
             <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
               <div className="text-[10px] text-slate-400 uppercase font-bold">Perda Pacotes</div>
-              <div className="text-base font-black text-emerald-400 mt-0.5">0.05%</div>
+              <div className="text-base font-black text-emerald-400 mt-0.5">
+                {avgLoss !== null ? `${avgLoss}%` : <span className="text-slate-500 font-mono text-xs">NO_DATA</span>}
+              </div>
             </div>
             <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
               <div className="text-[10px] text-slate-400 uppercase font-bold">QoS DSCP</div>
-              <div className="text-base font-mono font-bold text-purple-400 mt-0.5">EF (46)</div>
+              <div className="text-base font-mono font-bold text-purple-400 mt-0.5">
+                {channelsWithQos.length > 0 ? 'EF (46)' : <span className="text-slate-500 font-mono text-xs">NO_DATA</span>}
+              </div>
             </div>
           </div>
         </div>
@@ -331,15 +376,37 @@ export const OperationDashboardView: React.FC<OperationDashboardViewProps> = ({ 
           <div className="grid grid-cols-3 gap-3 mt-3 pt-3 border-t border-slate-800 text-center">
             <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
               <div className="text-[10px] text-slate-400 uppercase font-bold">Canais em Meta</div>
-              <div className="text-base font-black text-emerald-400 mt-0.5">4 de 5 <span className="text-xs text-slate-500 font-normal">(80%)</span></div>
+              <div className="text-base font-black text-emerald-400 mt-0.5">
+                {totalActiveBench.length > 0 ? (
+                  `${channelsOnTarget} de ${totalActiveBench.length} (${Math.round((channelsOnTarget / totalActiveBench.length) * 100)}%)`
+                ) : (
+                  <span className="text-slate-500 font-mono text-xs">NO_DATA</span>
+                )}
+              </div>
             </div>
             <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
               <div className="text-[10px] text-slate-400 uppercase font-bold">Melhor Canal</div>
-              <div className="text-base font-black text-blue-400 mt-0.5">WhatsApp <span className="text-xs text-emerald-400 font-normal">96.8%</span></div>
+              <div className="text-base font-black text-blue-400 mt-0.5">
+                {bestBench ? (
+                  <>
+                    {bestBench.channel.split(' ')[0]} <span className="text-xs text-emerald-400 font-normal">{bestBench.realSla}%</span>
+                  </>
+                ) : (
+                  <span className="text-slate-500 font-mono text-xs">NO_DATA</span>
+                )}
+              </div>
             </div>
             <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
               <div className="text-[10px] text-slate-400 uppercase font-bold">Atenção Prioritária</div>
-              <div className="text-base font-black text-amber-400 mt-0.5">Financeiro <span className="text-xs text-amber-400 font-normal">78.4%</span></div>
+              <div className="text-base font-black text-amber-400 mt-0.5">
+                {worstBench && worstBench.realSla < 85 ? (
+                  <>
+                    {worstBench.channel.split(' ')[0]} <span className="text-xs text-amber-400 font-normal">{worstBench.realSla}%</span>
+                  </>
+                ) : (
+                  <span className="text-emerald-400 text-xs font-semibold">Em conformidade</span>
+                )}
+              </div>
             </div>
           </div>
         </div>

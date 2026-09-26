@@ -53,6 +53,7 @@ import {
   QualityAuditRecord,
   EntityExtractionSchema,
 } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 import { speakHumanized, stopSpeaking } from '../../utils/speechVoiceHelper';
 
 export interface VoiceOptionMetadata {
@@ -827,12 +828,16 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
   const fetchAudits = async () => {
     try {
-      const res = await fetch('/api/v1/ai/quality-supervisor/audits');
+      const res = await fetch('/api/v1/ai/quality-supervisor/audits', {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
-        setQualityAudits(data);
-        if (data.length > 0 && !selectedAudit) {
-          setSelectedAudit(data[0]);
+        if (Array.isArray(data)) {
+          setQualityAudits(data);
+          if (data.length > 0 && !selectedAudit) {
+            setSelectedAudit(data[0]);
+          }
         }
       }
     } catch (e) {
@@ -842,12 +847,16 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
   const fetchSchemas = async () => {
     try {
-      const res = await fetch('/api/v1/ai/entity-extraction/schemas');
+      const res = await fetch('/api/v1/ai/entity-extraction/schemas', {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
-        setEntitySchemas(data);
-        if (data.length > 0 && !selectedSchema) {
-          setSelectedSchema(data[0]);
+        if (Array.isArray(data)) {
+          setEntitySchemas(data);
+          if (data.length > 0 && !selectedSchema) {
+            setSelectedSchema(data[0]);
+          }
         }
       }
     } catch (e) {
@@ -2404,7 +2413,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-bold text-xs text-slate-900">{sch.name}</span>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold">
-                          {sch.targetFields.length} campos
+                          {sch.targetFields?.length || 0} campos
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-500 line-clamp-2">{sch.description}</p>
@@ -3100,8 +3109,8 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                     Conteúdo Textual para Grounding *
                   </label>
                   <span className="text-[11px] text-slate-400 font-mono">
-                    {docFormData.content.length} caracteres • ~
-                    {Math.round(docFormData.content.split(/\s+/).filter(Boolean).length)} palavras
+                    {(docFormData.content || '').length} caracteres • ~
+                    {Math.round((docFormData.content || '').split(/\s+/).filter(Boolean).length)} palavras
                   </span>
                 </div>
                 <textarea
@@ -3185,8 +3194,8 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             {/* Footer */}
             <div className="p-4 border-t border-slate-200 flex items-center justify-between">
               <div className="text-[11px] text-slate-400">
-                {viewingDoc.content.length} caracteres • ~
-                {Math.round(viewingDoc.content.split(/\s+/).filter(Boolean).length)} palavras
+                {(viewingDoc.content || '').length} caracteres • ~
+                {Math.round((viewingDoc.content || '').split(/\s+/).filter(Boolean).length)} palavras
               </div>
               <button
                 type="button"

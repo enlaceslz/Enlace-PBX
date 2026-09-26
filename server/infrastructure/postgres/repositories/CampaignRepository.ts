@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoStringOrNow } from '../dateUtils';
 import { OutboundCampaign } from '../../../../src/types/pbx';
 
 export class CampaignRepository {
@@ -18,7 +19,7 @@ export class CampaignRepository {
         processedLeads: row.processed_leads || 0,
         successCount: row.success_count || 0,
         activeCalls: row.active_calls || 0,
-        createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+        createdAt: toSafeIsoStringOrNow(row.created_at),
       }));
     } catch (err: any) {
       console.error('[CampaignRepository.listAll] Erro no PostgreSQL:', err?.message || err);
@@ -43,7 +44,7 @@ export class CampaignRepository {
         processedLeads: row.processed_leads || 0,
         successCount: row.success_count || 0,
         activeCalls: row.active_calls || 0,
-        createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+        createdAt: toSafeIsoStringOrNow(row.created_at),
       }));
     } catch (err: any) {
       console.error('[CampaignRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
@@ -55,9 +56,9 @@ export class CampaignRepository {
     try {
       let query = 'SELECT * FROM campaigns WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -73,7 +74,7 @@ export class CampaignRepository {
           processedLeads: row.processed_leads || 0,
           successCount: row.success_count || 0,
           activeCalls: row.active_calls || 0,
-          createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+          createdAt: toSafeIsoStringOrNow(row.created_at),
         };
       }
       return null;
@@ -81,6 +82,10 @@ export class CampaignRepository {
       console.error('[CampaignRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<OutboundCampaign | null> {
+    return this.findById(id);
   }
 
   public static async save(campaign: OutboundCampaign): Promise<OutboundCampaign> {
@@ -116,9 +121,9 @@ export class CampaignRepository {
     try {
       let query = 'DELETE FROM campaigns WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;

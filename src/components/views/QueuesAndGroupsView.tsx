@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { Queue, RingGroup } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 
 interface QueuesAndGroupsProps {
   queues: Queue[];
@@ -71,7 +72,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
 
       await fetch('/api/v1/queues', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: queueForm.name,
           number: queueForm.number,
@@ -102,7 +103,7 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
 
       await fetch('/api/v1/ring-groups', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: rgForm.name,
           number: rgForm.number,
@@ -124,7 +125,10 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
   const handleDeleteQueue = async (id: string, name: string) => {
     if (!confirm(`Deseja realmente excluir a fila "${name}"?`)) return;
     try {
-      await fetch(`/api/v1/queues/${id}`, { method: 'DELETE' });
+      await fetch(`/api/v1/queues/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       if (onRefresh) onRefresh();
     } catch (err) {
       console.error('Erro ao excluir fila:', err);
@@ -134,7 +138,10 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
   const handleDeleteRingGroup = async (id: string, name: string) => {
     if (!confirm(`Deseja realmente excluir o grupo "${name}"?`)) return;
     try {
-      await fetch(`/api/v1/ring-groups/${id}`, { method: 'DELETE' });
+      await fetch(`/api/v1/ring-groups/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       if (onRefresh) onRefresh();
     } catch (err) {
       console.error('Erro ao excluir grupo:', err);
@@ -271,10 +278,10 @@ export const QueuesAndGroupsView: React.FC<QueuesAndGroupsProps> = ({
                 {/* Members */}
                 <div className="pt-2">
                   <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-2">
-                    Agentes / Ramais Vinculados ({q.members.length}):
+                    Agentes / Ramais Vinculados ({q.members?.length || 0}):
                   </span>
                   <div className="flex flex-wrap gap-2">
-                    {q.members.map((mem) => (
+                    {(q.members || []).map((mem) => (
                       <span
                         key={mem}
                         className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-mono text-slate-700"

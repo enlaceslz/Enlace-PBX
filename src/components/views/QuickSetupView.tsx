@@ -4,11 +4,14 @@ import {
   Server, PhoneCall, Bot, Building2, Headset, HardDrive, Cpu, Blocks,
   AlertTriangle, RotateCcw
 } from 'lucide-react';
+import { getAuthHeaders } from '../../utils/api';
 
 interface Snapshot {
   id: string;
-  name: string;
-  createdAt: string;
+  name?: string;
+  description?: string;
+  createdAt?: string;
+  timestamp?: string;
 }
 
 export const QuickSetupView: React.FC = () => {
@@ -30,11 +33,16 @@ export const QuickSetupView: React.FC = () => {
 
   const fetchSnapshots = async () => {
     try {
-      const res = await fetch('/api/v1/system/snapshots');
+      const res = await fetch('/api/v1/system/snapshots', { headers: getAuthHeaders() });
+      if (!res.ok) {
+        setSnapshots([]);
+        return;
+      }
       const data = await res.json();
-      setSnapshots(data);
+      setSnapshots(Array.isArray(data) ? data : []);
     } catch (e) {
-      console.error(e);
+      console.error('Erro ao buscar snapshots:', e);
+      setSnapshots([]);
     }
   };
 
@@ -46,9 +54,10 @@ export const QuickSetupView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/system/quick-setup/preview', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(formData)
       });
+      if (!res.ok) return;
       const data = await res.json();
       setPreview(data);
       setStep(3);
@@ -62,12 +71,17 @@ export const QuickSetupView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/system/quick-setup/apply', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(formData)
       });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        alert(errJson.error || 'Erro ao aplicar configuração rápida.');
+        return;
+      }
       const data = await res.json();
       if (data.success) {
-        setSuccessMessage(`Operação concluída. ${data.stats.extensionsCount} ramais gerados. Snapshot de segurança criado.`);
+        setSuccessMessage(`Operação concluída. ${data.stats?.extensionsCount || 0} ramais gerados. Snapshot de segurança criado.`);
         setStep(4);
         fetchSnapshots();
       }
@@ -80,13 +94,16 @@ export const QuickSetupView: React.FC = () => {
 
   const handleRollback = async (id: string) => {
     try {
-      const res = await fetch(`/api/v1/system/snapshots/${id}/rollback`, { method: 'POST' });
+      const res = await fetch(`/api/v1/system/snapshots/${id}/rollback`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (data.success) {
         alert('Rollback executado com sucesso! A base de dados e configurações Asterisk foram revertidas.');
         fetchSnapshots();
       } else {
-        alert('Erro ao realizar rollback.');
+        alert(data.error || 'Erro ao realizar rollback.');
       }
     } catch (e) {
       console.error(e);
@@ -275,12 +292,12 @@ export const QuickSetupView: React.FC = () => {
                   <div className="grid grid-cols-2 gap-x-12 gap-y-6">
                     <div>
                       <div className="text-[10px] text-slate-500 font-mono mb-1">RAMAIS GERADOS</div>
-                      <div className="text-2xl font-black text-emerald-400">{preview.extensions.length} <span className="text-sm text-slate-400 font-normal">objetos</span></div>
-                      <div className="text-xs text-slate-400 font-mono mt-1">Range: {preview.extensions[0]?.number} → {preview.extensions[preview.extensions.length-1]?.number}</div>
+                      <div className="text-2xl font-black text-emerald-400">{preview?.extensions?.length || 0} <span className="text-sm text-slate-400 font-normal">objetos</span></div>
+                      <div className="text-xs text-slate-400 font-mono mt-1">Range: {preview?.extensions?.[0]?.number || '---'} → {preview?.extensions?.[(preview?.extensions?.length || 1) - 1]?.number || '---'}</div>
                     </div>
                     <div>
                       <div className="text-[10px] text-slate-500 font-mono mb-1">TRONCOS SIP</div>
-                      <div className="text-2xl font-black text-blue-400">{preview.trunks.length} <span className="text-sm text-slate-400 font-normal">objeto</span></div>
+                      <div className="text-2xl font-black text-blue-400">{preview?.trunks?.length || 0} <span className="text-sm text-slate-400 font-normal">objeto</span></div>
                       <div className="text-xs text-slate-400 font-mono mt-1">ID: {formData.trunkName}</div>
                     </div>
                     <div>
@@ -352,39 +369,43 @@ export const QuickSetupView: React.FC = () => {
             </div>
             
             <div className="p-4 flex-1 overflow-y-auto bg-slate-50">
-              {snapshots.length === 0 ? (
+              {(!Array.isArray(snapshots) || snapshots.length === 0) ? (
                 <div className="flex flex-col items-center justify-center h-full text-center py-12 opacity-50">
                   <Database className="w-12 h-12 text-slate-400 mb-3" />
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Nenhum ponto de<br/>restauração criado.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {snapshots.map(snap => (
-                    <div key={snap.id} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm transition hover:border-blue-300 hover:shadow-md group">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <p className="font-bold text-slate-900 text-sm leading-tight">{snap.name}</p>
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-1">
-                            {new Date(snap.createdAt).toLocaleString('pt-BR')}
-                          </p>
+                  {snapshots.map(snap => {
+                    const snapName = snap.name || snap.description || `Snapshot ${snap.id}`;
+                    const snapDate = snap.createdAt || snap.timestamp || new Date().toISOString();
+                    return (
+                      <div key={snap.id} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm transition hover:border-blue-300 hover:shadow-md group">
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <p className="font-bold text-slate-900 text-sm leading-tight">{snapName}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-1">
+                              {new Date(snapDate).toLocaleString('pt-BR')}
+                            </p>
+                          </div>
+                          <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 text-slate-400 group-hover:text-blue-500 group-hover:bg-blue-50 transition-colors">
+                            <Database className="w-4 h-4" />
+                          </div>
                         </div>
-                        <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 text-slate-400 group-hover:text-blue-500 group-hover:bg-blue-50 transition-colors">
-                          <Database className="w-4 h-4" />
-                        </div>
+                        
+                        <button 
+                          onClick={() => {
+                            if(confirm('ATENÇÃO: Isso reverterá toda a base de dados (PostgreSQL) e arquivos do Asterisk para o estado exato deste snapshot. As conexões ativas cairão. Confirma Rollback Tático?')) {
+                              handleRollback(snap.id);
+                            }
+                          }}
+                          className="w-full py-2 bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider rounded-xl hover:bg-rose-600 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" /> Executar Rollback Tático
+                        </button>
                       </div>
-                      
-                      <button 
-                        onClick={() => {
-                          if(confirm('ATENÇÃO: Isso reverterá toda a base de dados (PostgreSQL) e arquivos do Asterisk para o estado exato deste snapshot. As conexões ativas cairão. Confirma Rollback Tático?')) {
-                            handleRollback(snap.id);
-                          }
-                        }}
-                        className="w-full py-2 bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider rounded-xl hover:bg-rose-600 transition-colors flex items-center justify-center gap-1.5"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" /> Executar Rollback Tático
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

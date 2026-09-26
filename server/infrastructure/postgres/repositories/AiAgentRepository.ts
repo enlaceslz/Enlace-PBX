@@ -79,9 +79,9 @@ export class AiAgentRepository {
     try {
       let query = 'SELECT * FROM ai_agents WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -117,6 +117,10 @@ export class AiAgentRepository {
       console.error('[AiAgentRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<AiAgent | null> {
+    return this.findById(id);
   }
 
   public static async save(agent: AiAgent): Promise<AiAgent> {
@@ -183,9 +187,9 @@ export class AiAgentRepository {
     try {
       let query = 'DELETE FROM ai_agents WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;

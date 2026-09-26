@@ -206,9 +206,9 @@ export class CdrRepository {
     try {
       let query = 'SELECT * FROM cdr WHERE (id = $1 OR uniqueid = $1)';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -239,5 +239,9 @@ export class CdrRepository {
       console.error('[CdrRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<CdrRecord | null> {
+    return this.findById(id);
   }
 }

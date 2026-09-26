@@ -88,10 +88,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="relative z-10 flex-1">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Tráfego Hoje</div>
             <div className="text-2xl font-black text-white font-mono flex items-end gap-2">
-              {metrics?.callsToday ?? 35} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">chamadas</span>
+              {metrics ? metrics.callsToday : 'NO_DATA'} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">chamadas</span>
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-[10px] text-emerald-400 font-bold">
-              <ArrowUpRight className="w-3 h-3" /> {(metrics?.callsAnswered ?? 30)} ACD
+              <ArrowUpRight className="w-3 h-3" /> {metrics ? `${metrics.callsAnswered} ACD` : 'NO_DATA'}
             </div>
           </div>
         </div>
@@ -125,7 +125,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="relative z-10 flex-1">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">SIP Endpoints</div>
             <div className="text-2xl font-black text-white font-mono flex items-end gap-2">
-              {metrics?.extensionsOnline ?? 4} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">/ {metrics?.extensionsTotal ?? 5} online</span>
+              {metrics ? `${metrics.extensionsOnline} / ${metrics.extensionsTotal}` : 'NO_DATA'} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">online</span>
             </div>
             <div className="mt-1 text-[10px] text-emerald-400 font-bold flex items-center gap-1">
                <CheckCircle2 className="w-3 h-3" /> WebRTC OK
@@ -142,10 +142,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="relative z-10 flex-1">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Gateway PJSIP</div>
             <div className="text-2xl font-black text-white font-mono flex items-end gap-2">
-              {metrics?.trunksOnline ?? 3} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">/ {metrics?.trunksTotal ?? 3} troncos</span>
+              {metrics ? `${metrics.trunksOnline} / ${metrics.trunksTotal}` : 'NO_DATA'} <span className="text-[10px] text-slate-500 font-sans mb-1 font-bold">troncos</span>
             </div>
             <div className="mt-1 text-[10px] text-slate-500 font-mono truncate">
-               Vivo Fibra / Algar
+               {metrics && metrics.trunksTotal > 0 ? `${metrics.trunksOnline} ativos` : 'Nenhum tronco'}
             </div>
           </div>
         </div>
@@ -295,7 +295,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-500">
             <span>Fuso horário: America/Sao_Paulo (Horário de Brasília)</span>
-            <span className="text-blue-600 font-semibold">SLA de Atendimento: 94.2%</span>
+            <span className="text-blue-600 font-semibold">
+              {metrics && metrics.callsToday > 0
+                ? `SLA de Atendimento: ${Math.round((metrics.callsAnswered / metrics.callsToday) * 100)}%`
+                : 'SLA de Atendimento: NO_DATA'}
+            </span>
           </div>
         </div>
       </div>

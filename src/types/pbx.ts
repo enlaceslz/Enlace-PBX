@@ -38,7 +38,7 @@ export interface Extension {
   tenantId: string;
   number: string;
   name: string;
-  sipSecret: string;
+  sipSecret?: string;
   context: string;
   callerId: string;
   cliCallerId?: string; // BINA transmitida especificamente em rotas CLI/ITX
@@ -52,6 +52,16 @@ export interface Extension {
   ipAddress?: string;
   allowAiTransfer: boolean;
   videoEnabled?: boolean;
+}
+
+export type SafeExtension = Omit<Extension, 'sipSecret'> & { hasSipSecret?: boolean };
+export type ExtensionRecord = Extension;
+
+export interface WebRtcCredential {
+  extension: string;
+  secret: string;
+  domain: string;
+  wssUrl: string;
 }
 
 export interface AuthorizedIpItem {
@@ -76,7 +86,7 @@ export interface Trunk {
   codecs: string[];
   context: string;
   register: boolean;
-  status: 'registered' | 'unregistered' | 'error';
+  status: 'registered' | 'unregistered' | 'error' | 'NOT_TESTED';
   channelsMax: number;
   channelsInUse: number;
   // Advanced PJSIP / Telecom fields
@@ -460,8 +470,9 @@ export interface DashboardMetrics {
   trunksTotal: number;
   aiAgentsActive: number;
   aiSessionsCount: number;
-  aiLatencyAvgMs: number;
-  humanTransferRatePercent: number;
+  aiLatencyAvgMs: number | null;
+  humanTransferRatePercent: number | null;
+  slaPercent?: number | null;
   aiTokensUsedToday: number;
   costEstimateTodayBrl: number;
   hourlyCallDistribution: Array<{ hour: string; total: number; ai: number }>;
@@ -732,9 +743,9 @@ export interface VpnTelemetryResponse {
     ztTxKbps: number;
     totalKbps: number;
     pps: number;
-    latencyAvgMs: number;
-    jitterAvgMs: number;
-    packetLossPercent: number;
+    latencyAvgMs: number | null;
+    jitterAvgMs: number | null;
+    packetLossPercent: number | null;
   };
   history: VpnTelemetryPoint[];
   nodes: VpnNodeMonitoringItem[];

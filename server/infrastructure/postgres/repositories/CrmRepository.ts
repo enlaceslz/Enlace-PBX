@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoString } from '../dateUtils';
 import { CrmContact, CustomerMemory } from '../../../../src/types/pbx';
 
 export class CrmRepository {
@@ -15,7 +16,7 @@ export class CrmRepository {
         phone: row.phone,
         email: row.email || '',
         crmId: row.crm_id || undefined,
-        lastInteraction: row.last_interaction ? row.last_interaction.toISOString() : undefined,
+        lastInteraction: toSafeIsoString(row.last_interaction),
       }));
     } catch (err: any) {
       console.error('[CrmRepository.listContacts] Erro no PostgreSQL:', err?.message || err);
@@ -41,7 +42,7 @@ export class CrmRepository {
           phone: row.phone,
           email: row.email || '',
           crmId: row.crm_id || undefined,
-          lastInteraction: row.last_interaction ? row.last_interaction.toISOString() : undefined,
+          lastInteraction: toSafeIsoString(row.last_interaction),
         };
       }
       return null;

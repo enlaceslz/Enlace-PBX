@@ -46,6 +46,7 @@ import {
   VpnTelemetryResponse,
   TunnelMode,
 } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 
 interface VpnMonitoringDashboardProps {
   onNavigateToTab?: (tab: 'wireguard' | 'zerotier' | 'fail2ban_monitor') => void;
@@ -76,7 +77,9 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
   const fetchTelemetry = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const res = await fetch('/api/v1/network/telemetry');
+      const res = await fetch('/api/v1/network/telemetry', {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const json: VpnTelemetryResponse = await res.json();
         setData(json);
@@ -111,7 +114,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
     try {
       const res = await fetch('/api/v1/network/tunnel-switch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ primaryTunnel: mode }),
       });
       const result = await res.json();
@@ -136,6 +139,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
     try {
       const res = await fetch(`/api/v1/network/nodes/${node.tunnelType}/${node.id}/ping`, {
         method: 'POST',
+        headers: getAuthHeaders(),
       });
       const result = await res.json();
       if (result.success) {
@@ -161,6 +165,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
     try {
       const res = await fetch(`/api/v1/network/nodes/${node.tunnelType}/${node.id}/toggle`, {
         method: 'POST',
+        headers: getAuthHeaders(),
       });
       const result = await res.json();
       if (result.success) {
@@ -182,22 +187,23 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
 
   // Filtragem dos Nós
   const filteredNodes = (data?.nodes || []).filter((node) => {
+    const q = (searchQuery || '').toLowerCase();
     const matchesSearch =
-      node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      node.virtualIp.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (node.roleOrExtension && node.roleOrExtension.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (node.location && node.location.toLowerCase().includes(searchQuery.toLowerCase()));
+      (node.name || '').toLowerCase().includes(q) ||
+      (node.virtualIp || '').toLowerCase().includes(q) ||
+      (node.roleOrExtension ? node.roleOrExtension.toLowerCase().includes(q) : false) ||
+      (node.location ? node.location.toLowerCase().includes(q) : false);
 
-    const matchesTunnel = filterTunnelType === 'all' || node.tunnelType === filterTunnelType;
+    const matchesTunnel = filterTunnelType === 'all' || node?.tunnelType === filterTunnelType;
     const matchesStatus =
       filterStatus === 'all' ||
-      (filterStatus === 'connected' && node.status === 'connected') ||
-      (filterStatus === 'offline' && node.status !== 'connected');
+      (filterStatus === 'connected' && node?.status === 'connected') ||
+      (filterStatus === 'offline' && node?.status !== 'connected');
 
     return matchesSearch && matchesTunnel && matchesStatus;
   });
 
-  const connectedNodesCount = (data?.nodes || []).filter((n) => n.status === 'connected').length;
+  const connectedNodesCount = (data?.nodes || []).filter((n) => n?.status === 'connected').length;
   const totalNodesCount = data?.nodes?.length || 0;
 
   if (loading && !data) {
@@ -257,7 +263,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
               onClick={() => handleSwitchTunnel('wireguard')}
               disabled={switchingTunnel !== null}
               className={`flex-1 flex items-center justify-between sm:justify-start gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
-                data?.routing.primaryTunnel === 'wireguard'
+                data?.routing?.primaryTunnel === 'wireguard'
                   ? 'bg-blue-600 text-white shadow-md border border-blue-400'
                   : 'text-slate-300 hover:bg-slate-700 hover:text-white'
               }`}
@@ -269,7 +275,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
                   <div className="text-[10px] opacity-80 mt-0.5 font-normal">Ponto-a-Ponto ChaCha20</div>
                 </div>
               </div>
-              {data?.routing.activeTunnel === 'wireguard' && (
+              {data?.routing?.activeTunnel === 'wireguard' && (
                 <span className="px-1.5 py-0.5 rounded bg-blue-700 text-[10px] font-mono font-bold uppercase">Ativo</span>
               )}
             </button>
@@ -279,7 +285,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
               onClick={() => handleSwitchTunnel('zerotier')}
               disabled={switchingTunnel !== null}
               className={`flex-1 flex items-center justify-between sm:justify-start gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
-                data?.routing.primaryTunnel === 'zerotier'
+                data?.routing?.primaryTunnel === 'zerotier'
                   ? 'bg-orange-600 text-white shadow-md border border-orange-400'
                   : 'text-slate-300 hover:bg-slate-700 hover:text-white'
               }`}
@@ -291,7 +297,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
                   <div className="text-[10px] opacity-80 mt-0.5 font-normal">SD-WAN Mesh P2P</div>
                 </div>
               </div>
-              {data?.routing.activeTunnel === 'zerotier' && (
+              {data?.routing?.activeTunnel === 'zerotier' && (
                 <span className="px-1.5 py-0.5 rounded bg-orange-700 text-[10px] font-mono font-bold uppercase">Ativo</span>
               )}
             </button>
@@ -301,7 +307,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
               onClick={() => handleSwitchTunnel('failover_auto')}
               disabled={switchingTunnel !== null}
               className={`flex-1 flex items-center justify-between sm:justify-start gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
-                data?.routing.primaryTunnel === 'failover_auto'
+                data?.routing?.primaryTunnel === 'failover_auto'
                   ? 'bg-emerald-600 text-white shadow-md border border-emerald-400'
                   : 'text-slate-300 hover:bg-slate-700 hover:text-white'
               }`}
@@ -313,7 +319,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
                   <div className="text-[10px] opacity-80 mt-0.5 font-normal">Chaveamento Auto</div>
                 </div>
               </div>
-              {data?.routing.primaryTunnel === 'failover_auto' && (
+              {data?.routing?.primaryTunnel === 'failover_auto' && (
                 <span className="px-1.5 py-0.5 rounded bg-emerald-700 text-[10px] font-mono font-bold uppercase">Auto</span>
               )}
             </button>
@@ -324,11 +330,11 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
         <div className="mt-5 pt-4 border-t border-slate-700/60 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div className="flex items-center gap-2 text-slate-300">
             <span className="w-2 h-2 rounded-full bg-blue-400" />
-            <span>WireGuard: <strong className="text-white font-mono">{data?.routing.wireguardHealthy ? 'Saudável' : 'Degradado'}</strong></span>
+            <span>WireGuard: <strong className="text-white font-mono">{data?.routing?.wireguardHealthy ? 'Saudável' : 'Degradado'}</strong></span>
           </div>
           <div className="flex items-center gap-2 text-slate-300">
             <span className="w-2 h-2 rounded-full bg-orange-400" />
-            <span>ZeroTier: <strong className="text-white font-mono">{data?.routing.zerotierHealthy ? 'Saudável' : 'Degradado'}</strong></span>
+            <span>ZeroTier: <strong className="text-white font-mono">{data?.routing?.zerotierHealthy ? 'Saudável' : 'Degradado'}</strong></span>
           </div>
           <div className="flex items-center gap-2 text-slate-300">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
@@ -355,16 +361,16 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-slate-900 font-mono">
-              {(data?.currentRates.totalKbps || 0).toLocaleString()}
+              {(data?.currentRates?.totalKbps || 0).toLocaleString()}
             </span>
             <span className="text-xs text-slate-500 font-semibold">KB/s</span>
           </div>
           <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 font-mono">
             <span className="flex items-center gap-1">
-              <ArrowDownLeft className="w-3 h-3 text-emerald-600" /> RX: {(data?.currentRates.wgRxKbps || 0) + (data?.currentRates.ztRxKbps || 0)} KB/s
+              <ArrowDownLeft className="w-3 h-3 text-emerald-600" /> RX: {(data?.currentRates?.wgRxKbps || 0) + (data?.currentRates?.ztRxKbps || 0)} KB/s
             </span>
             <span className="flex items-center gap-1">
-              <ArrowUpRight className="w-3 h-3 text-blue-600" /> TX: {(data?.currentRates.wgTxKbps || 0) + (data?.currentRates.ztTxKbps || 0)} KB/s
+              <ArrowUpRight className="w-3 h-3 text-blue-600" /> TX: {(data?.currentRates?.wgTxKbps || 0) + (data?.currentRates?.ztTxKbps || 0)} KB/s
             </span>
           </div>
         </div>
@@ -381,7 +387,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-slate-900 font-mono">
-              {data?.currentRates.pps || 0}
+              {data?.currentRates?.pps || 0}
             </span>
             <span className="text-xs text-slate-500 font-semibold">pps</span>
           </div>
@@ -402,11 +408,11 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-emerald-700 font-mono">
-              {data?.currentRates.latencyAvgMs || 18}
+              {data?.currentRates?.latencyAvgMs || 18}
             </span>
             <span className="text-xs text-slate-500 font-semibold">ms</span>
             <span className="text-xs text-slate-400 font-mono ml-auto">
-              Jitter: <strong>{data?.currentRates.jitterAvgMs || 1.6}ms</strong>
+              Jitter: <strong>{data?.currentRates?.jitterAvgMs || 1.6}ms</strong>
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-2 truncate">

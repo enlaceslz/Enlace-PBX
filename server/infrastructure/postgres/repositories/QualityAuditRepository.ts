@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoStringOrNow } from '../dateUtils';
 
 export interface QualityAudit {
   id: string;
@@ -18,7 +19,7 @@ export class QualityAuditRepository {
   public static async listByTenant(tenantId: string): Promise<QualityAudit[]> {
     try {
       const res = await postgresClient.query(
-        'SELECT * FROM quality_audits WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 50',
+        'SELECT * FROM quality_audits WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100',
         [tenantId]
       );
       return res.rows.map(row => ({
@@ -32,7 +33,7 @@ export class QualityAuditRepository {
         summary: row.summary || '',
         feedback: row.feedback || '',
         complianceScore: row.compliance_score || 100,
-        createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+        createdAt: toSafeIsoStringOrNow(row.created_at),
       }));
     } catch (err: any) {
       console.error('[QualityAuditRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
@@ -56,10 +57,42 @@ export class QualityAuditRepository {
         summary: row.summary || '',
         feedback: row.feedback || '',
         complianceScore: row.compliance_score || 100,
-        createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+        createdAt: toSafeIsoStringOrNow(row.created_at),
       }));
     } catch (err: any) {
       console.error('[QualityAuditRepository.listAll] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
+  }
+
+  public static async findById(id: string, tenantId: string): Promise<QualityAudit | null> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: tenantId é obrigatório para consultar auditoria de qualidade.');
+    }
+    try {
+      const res = await postgresClient.query(
+        'SELECT * FROM quality_audits WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId]
+      );
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          callId: row.call_id,
+          agentId: row.agent_id || undefined,
+          score: row.score || 85,
+          sentiment: row.sentiment || 'positive',
+          resolutionStatus: row.resolution_status || 'resolved',
+          summary: row.summary || '',
+          feedback: row.feedback || '',
+          complianceScore: row.compliance_score || 100,
+          createdAt: toSafeIsoStringOrNow(row.created_at),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[QualityAuditRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
   }

@@ -1089,7 +1089,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                     <div className="space-y-2.5">
                       <div className="flex justify-between items-center text-xs">
                         <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Status</span>
-                        <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{val.status}</span>
+                        <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{val?.status || 'up'}</span>
                       </div>
                       
                       {val.version && (

@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import net from 'net';
+import dgram from 'dgram';
+import tls from 'tls';
 import { Trunk, Did } from '../src/types/pbx.js';
 import { TrunkRepository, DidRepository, SystemRepository } from './infrastructure/postgres/repositories/index.js';
 
@@ -462,17 +464,18 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
 
   /**
    * Teste real de conectividade de rede e handshake SIP OPTIONS com o host SIP / SBC.
+   * Suporta UDP (socket dgram), TLS (socket tls) e TCP (socket net).
    * Separa estritamente:
-   * - Camada de Transporte: TCP_REACHABLE, TCP_UNREACHABLE, TIMEOUT
+   * - Camada de Transporte: TCP_REACHABLE, TCP_UNREACHABLE, UDP_REACHABLE, TLS_REACHABLE, TIMEOUT, UNAVAILABLE
    * - Camada SIP: SIP_OPTIONS_200, SIP_OPTIONS_401, SIP_OPTIONS_403, SIP_OPTIONS_404,
    *               SIP_OPTIONS_408, SIP_OPTIONS_5XX, SIP_TIMEOUT, SIP_INVALID_RESPONSE
-   * Guarda evidência completa do teste e nunca converte conexão TCP simples em "200 OK".
+   * Guarda evidência completa do teste e NUNCA converte conexão de transporte em "200 OK" sem resposta SIP real.
    */
   async testSipHostSocket(
     hostOrIp: string,
     port: number = 5060,
     timeoutMs: number = 2500,
-    transport: 'TCP' | 'UDP' | 'TLS' = 'TCP'
+    transport: 'TCP' | 'UDP' | 'TLS' = 'UDP'
   ): Promise<{
     status: 'active' | 'inactive' | 'unreachable';
     classification:
@@ -486,7 +489,10 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
       | 'SIP_INVALID_RESPONSE'
       | 'TCP_REACHABLE'
       | 'TCP_UNREACHABLE'
-      | 'TIMEOUT';
+      | 'UDP_REACHABLE'
+      | 'TLS_REACHABLE'
+      | 'TIMEOUT'
+      | 'UNAVAILABLE';
     transport: 'TCP' | 'UDP' | 'TLS';
     target: string;
     port: number;
@@ -501,6 +507,258 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
     const start = Date.now();
     const target = cleanHost;
 
+    const buildOptionsPacket = (proto: string) =>
+      `OPTIONS sip:${cleanHost}:${port} SIP/2.0\r\n` +
+      `Via: SIP/2.0/${proto} 127.0.0.1;branch=z9hG4bK-enlace-${Date.now()}\r\n` +
+      `Max-Forwards: 70\r\n` +
+      `From: <sip:ping@enlace.slz.br>;tag=ping-${Date.now()}\r\n` +
+      `To: <sip:${cleanHost}>\r\n` +
+      `Call-ID: ping-${Date.now()}@enlace.slz.br\r\n` +
+      `CSeq: 1 OPTIONS\r\n` +
+      `User-Agent: Enlace-PBX Enterprise Pure SIP\r\n` +
+      `Content-Length: 0\r\n\r\n`;
+
+    const parseSipResponse = (
+      responseBuffer: string,
+      sentTimestamp: number | null,
+      receivedTimestamp: number
+    ) => {
+      const statusMatch = responseBuffer.match(/SIP\/2\.0\s+(\d{3})\s*([^\r\n]*)/i);
+      if (!statusMatch) return null;
+
+      const code = parseInt(statusMatch[1], 10);
+      const reason = (statusMatch[2] || '').trim();
+      const latency = Math.max(1, receivedTimestamp - (sentTimestamp || start));
+
+      let classification:
+        | 'SIP_OPTIONS_200'
+        | 'SIP_OPTIONS_401'
+        | 'SIP_OPTIONS_403'
+        | 'SIP_OPTIONS_404'
+        | 'SIP_OPTIONS_408'
+        | 'SIP_OPTIONS_5XX'
+        | 'SIP_INVALID_RESPONSE' = 'SIP_INVALID_RESPONSE';
+
+      let status: 'active' | 'inactive' | 'unreachable' = 'inactive';
+
+      if (code === 200) {
+        classification = 'SIP_OPTIONS_200';
+        status = 'active';
+      } else if (code === 401) {
+        classification = 'SIP_OPTIONS_401';
+        status = 'active'; // 401 confirma que o servidor SIP remoto está ativo e respondendo
+      } else if (code === 403) {
+        classification = 'SIP_OPTIONS_403';
+        status = 'active';
+      } else if (code === 404) {
+        classification = 'SIP_OPTIONS_404';
+        status = 'active';
+      } else if (code === 408) {
+        classification = 'SIP_OPTIONS_408';
+        status = 'inactive';
+      } else if (code >= 500 && code < 600) {
+        classification = 'SIP_OPTIONS_5XX';
+        status = 'inactive';
+      }
+
+      return {
+        status,
+        classification,
+        responseCode: code,
+        responseReason: reason || null,
+        latencyMs: latency,
+        sipResponse: `SIP/2.0 ${code} ${reason}`.trim(),
+      };
+    };
+
+    // Caso 1: Transporte UDP Real (RFC 3261)
+    if (transport === 'UDP') {
+      return new Promise((resolve) => {
+        const client = dgram.createSocket('udp4');
+        let resolved = false;
+        let sentTimestamp: number | null = null;
+
+        const timer = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            try { client.close(); } catch {}
+            const latency = Date.now() - start;
+            resolve({
+              status: 'unreachable',
+              classification: 'TIMEOUT',
+              transport: 'UDP',
+              target,
+              port,
+              sentAt: sentTimestamp ? new Date(sentTimestamp).toISOString() : null,
+              receivedAt: null,
+              responseCode: null,
+              responseReason: 'UDP_TIMEOUT',
+              latencyMs: latency,
+              sipResponse: 'Nenhuma resposta SIP recebida via UDP dentro do timeout.',
+            });
+          }
+        }, timeoutMs);
+
+        client.on('message', (msg) => {
+          if (resolved) return;
+          const receivedTimestamp = Date.now();
+          const parsed = parseSipResponse(msg.toString(), sentTimestamp, receivedTimestamp);
+          if (parsed) {
+            resolved = true;
+            clearTimeout(timer);
+            try { client.close(); } catch {}
+            resolve({
+              status: parsed.status,
+              classification: parsed.classification,
+              transport: 'UDP',
+              target,
+              port,
+              sentAt: sentTimestamp ? new Date(sentTimestamp).toISOString() : null,
+              receivedAt: new Date(receivedTimestamp).toISOString(),
+              responseCode: parsed.responseCode,
+              responseReason: parsed.responseReason,
+              latencyMs: parsed.latencyMs,
+              sipResponse: parsed.sipResponse,
+            });
+          }
+        });
+
+        client.on('error', (err: any) => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            try { client.close(); } catch {}
+            resolve({
+              status: 'unreachable',
+              classification: 'UNAVAILABLE',
+              transport: 'UDP',
+              target,
+              port,
+              sentAt: null,
+              receivedAt: null,
+              responseCode: null,
+              responseReason: err.code || 'UDP_ERROR',
+              latencyMs: Date.now() - start,
+              sipResponse: `Falha no socket UDP: ${err.message || err.code}`,
+            });
+          }
+        });
+
+        const packet = Buffer.from(buildOptionsPacket('UDP'));
+        sentTimestamp = Date.now();
+        client.send(packet, 0, packet.length, port, cleanHost, (err) => {
+          if (err && !resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            try { client.close(); } catch {}
+            resolve({
+              status: 'unreachable',
+              classification: 'UNAVAILABLE',
+              transport: 'UDP',
+              target,
+              port,
+              sentAt: null,
+              receivedAt: null,
+              responseCode: null,
+              responseReason: err.message,
+              latencyMs: Date.now() - start,
+              sipResponse: `Erro no envio UDP: ${err.message}`,
+            });
+          }
+        });
+      });
+    }
+
+    // Caso 2: Transporte TLS Real (SIPS / TLS 1.2+)
+    if (transport === 'TLS') {
+      return new Promise((resolve) => {
+        let resolved = false;
+        let sentTimestamp: number | null = null;
+        let responseBuffer = '';
+
+        const timer = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            socket.destroy();
+            const latency = Date.now() - start;
+            resolve({
+              status: 'unreachable',
+              classification: sentTimestamp !== null ? 'SIP_TIMEOUT' : 'TIMEOUT',
+              transport: 'TLS',
+              target,
+              port,
+              sentAt: sentTimestamp ? new Date(sentTimestamp).toISOString() : null,
+              receivedAt: null,
+              responseCode: null,
+              responseReason: sentTimestamp !== null ? 'SIP_TIMEOUT' : 'TLS_TIMEOUT',
+              latencyMs: latency,
+              sipResponse: sentTimestamp !== null
+                ? 'Handshake TLS concluído, mas o SBC SIP não respondeu ao pacote OPTIONS (SIP_TIMEOUT).'
+                : 'Timeout durante handshake TLS SIP.',
+            });
+          }
+        }, timeoutMs);
+
+        const socket = tls.connect(
+          {
+            host: cleanHost,
+            port,
+            rejectUnauthorized: false, // Permite certificados corporativos autoassinados
+            timeout: timeoutMs,
+          },
+          () => {
+            sentTimestamp = Date.now();
+            socket.write(buildOptionsPacket('TLS'));
+          }
+        );
+
+        socket.on('data', (chunk) => {
+          responseBuffer += chunk.toString();
+          const receivedTimestamp = Date.now();
+          const parsed = parseSipResponse(responseBuffer, sentTimestamp, receivedTimestamp);
+          if (parsed && !resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            socket.end();
+            resolve({
+              status: parsed.status,
+              classification: parsed.classification,
+              transport: 'TLS',
+              target,
+              port,
+              sentAt: sentTimestamp ? new Date(sentTimestamp).toISOString() : null,
+              receivedAt: new Date(receivedTimestamp).toISOString(),
+              responseCode: parsed.responseCode,
+              responseReason: parsed.responseReason,
+              latencyMs: parsed.latencyMs,
+              sipResponse: parsed.sipResponse,
+            });
+          }
+        });
+
+        socket.on('error', (err: any) => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            resolve({
+              status: 'unreachable',
+              classification: 'UNAVAILABLE',
+              transport: 'TLS',
+              target,
+              port,
+              sentAt: null,
+              receivedAt: null,
+              responseCode: null,
+              responseReason: err.code || 'TLS_ERROR',
+              latencyMs: Date.now() - start,
+              sipResponse: `Falha na conexão TLS SIP: ${err.message || err.code}`,
+            });
+          }
+        });
+      });
+    }
+
+    // Caso 3: Transporte TCP Real (RFC 3261)
     return new Promise((resolve) => {
       const socket = new net.Socket();
       let resolved = false;
@@ -516,7 +774,7 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
           resolve({
             status: 'unreachable',
             classification: wasTcpConnected ? 'SIP_TIMEOUT' : 'TIMEOUT',
-            transport,
+            transport: 'TCP',
             target,
             port,
             sentAt: sentTimestamp ? new Date(sentTimestamp).toISOString() : null,
@@ -533,79 +791,29 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
 
       socket.connect(port, cleanHost, () => {
         sentTimestamp = Date.now();
-        const optionsPacket =
-          `OPTIONS sip:${cleanHost}:${port} SIP/2.0\r\n` +
-          `Via: SIP/2.0/TCP 127.0.0.1;branch=z9hG4bK-enlace-${Date.now()}\r\n` +
-          `Max-Forwards: 70\r\n` +
-          `From: <sip:ping@enlace.slz.br>;tag=ping-${Date.now()}\r\n` +
-          `To: <sip:${cleanHost}>\r\n` +
-          `Call-ID: ping-${Date.now()}@enlace.slz.br\r\n` +
-          `CSeq: 1 OPTIONS\r\n` +
-          `User-Agent: Enlace-PBX Enterprise Pure SIP\r\n` +
-          `Content-Length: 0\r\n\r\n`;
-
-        socket.write(optionsPacket);
+        socket.write(buildOptionsPacket('TCP'));
       });
 
       socket.on('data', (chunk) => {
         responseBuffer += chunk.toString();
         const receivedTimestamp = Date.now();
-
-        // Verifica se recebeu o cabeçalho status line do SIP (ex: SIP/2.0 200 OK ou SIP/2.0 401 Unauthorized)
-        const statusMatch = responseBuffer.match(/SIP\/2\.0\s+(\d{3})\s*([^\r\n]*)/i);
-        if (statusMatch && !resolved) {
+        const parsed = parseSipResponse(responseBuffer, sentTimestamp, receivedTimestamp);
+        if (parsed && !resolved) {
           resolved = true;
           clearTimeout(timer);
           socket.end();
-
-          const code = parseInt(statusMatch[1], 10);
-          const reason = (statusMatch[2] || '').trim();
-          const latency = Math.max(1, receivedTimestamp - (sentTimestamp || start));
-
-          let classification:
-            | 'SIP_OPTIONS_200'
-            | 'SIP_OPTIONS_401'
-            | 'SIP_OPTIONS_403'
-            | 'SIP_OPTIONS_404'
-            | 'SIP_OPTIONS_408'
-            | 'SIP_OPTIONS_5XX'
-            | 'SIP_INVALID_RESPONSE' = 'SIP_INVALID_RESPONSE';
-
-          let status: 'active' | 'inactive' | 'unreachable' = 'inactive';
-
-          if (code === 200) {
-            classification = 'SIP_OPTIONS_200';
-            status = 'active';
-          } else if (code === 401) {
-            classification = 'SIP_OPTIONS_401';
-            // 401 Unauthorized confirma que o PBX SIP remoto está online e respondeu na camada SIP
-            status = 'active';
-          } else if (code === 403) {
-            classification = 'SIP_OPTIONS_403';
-            status = 'active';
-          } else if (code === 404) {
-            classification = 'SIP_OPTIONS_404';
-            status = 'active';
-          } else if (code === 408) {
-            classification = 'SIP_OPTIONS_408';
-            status = 'inactive';
-          } else if (code >= 500 && code < 600) {
-            classification = 'SIP_OPTIONS_5XX';
-            status = 'inactive';
-          }
-
           resolve({
-            status,
-            classification,
-            transport,
+            status: parsed.status,
+            classification: parsed.classification,
+            transport: 'TCP',
             target,
             port,
             sentAt: sentTimestamp ? new Date(sentTimestamp).toISOString() : null,
             receivedAt: new Date(receivedTimestamp).toISOString(),
-            responseCode: code,
-            responseReason: reason || null,
-            latencyMs: latency,
-            sipResponse: `SIP/2.0 ${code} ${reason}`.trim(),
+            responseCode: parsed.responseCode,
+            responseReason: parsed.responseReason,
+            latencyMs: parsed.latencyMs,
+            sipResponse: parsed.sipResponse,
           });
         }
       });
@@ -619,7 +827,7 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
           resolve({
             status: isRefused ? 'inactive' : 'unreachable',
             classification: 'TCP_UNREACHABLE',
-            transport,
+            transport: 'TCP',
             target,
             port,
             sentAt: null,
@@ -685,7 +893,12 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
       }
 
       // Teste de socket real para cada SBC da operadora
-      const result = await this.testSipHostSocket(ip, trunk.port || trunk.sipPort || 5060);
+      const result = await this.testSipHostSocket(
+        ip,
+        trunk.port || trunk.sipPort || 5060,
+        2500,
+        trunk.transport || 'UDP'
+      );
       ipChecks.push({
         ip,
         label: trunk.ipStatusList?.find((i) => i.ip === ip)?.label || `SBC Gateway (${ip})`,

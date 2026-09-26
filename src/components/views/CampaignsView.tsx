@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Megaphone, Play, Pause, BarChart, Users, Bot, PhoneCall, CheckCircle2, AlertTriangle, Plus, Settings, TrendingUp, PhoneForwarded, BarChart3, Activity, Zap, Trash2, X } from 'lucide-react';
+import { getAuthHeaders } from '../../utils/api';
 
 interface Campaign {
   id: string;
@@ -29,7 +30,7 @@ export const CampaignsView: React.FC = () => {
 
   const fetchCampaigns = async () => {
     try {
-      const res = await fetch('/api/v1/campaigns');
+      const res = await fetch('/api/v1/campaigns', { headers: getAuthHeaders() });
       const data = await res.json();
       if (Array.isArray(data)) {
         setCampaigns(data);
@@ -59,7 +60,10 @@ export const CampaignsView: React.FC = () => {
 
   const toggleStatus = async (id: string) => {
     try {
-      const res = await fetch(`/api/v1/campaigns/${id}/toggle`, { method: 'POST' });
+      const res = await fetch(`/api/v1/campaigns/${id}/toggle`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       const updated = await res.json();
       setCampaigns(prev => prev.map(c => c.id === id ? updated : c));
     } catch (e) {
@@ -70,7 +74,10 @@ export const CampaignsView: React.FC = () => {
   const handleDeleteCampaign = async (id: string) => {
     if (!confirm('Deseja realmente remover esta campanha do discador?')) return;
     try {
-      await fetch(`/api/v1/campaigns/${id}`, { method: 'DELETE' });
+      await fetch(`/api/v1/campaigns/${id}`, { 
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
       setCampaigns(prev => prev.filter(c => c.id !== id));
     } catch (e) {
       console.error('Erro ao deletar campanha:', e);
@@ -85,7 +92,7 @@ export const CampaignsView: React.FC = () => {
     try {
       const res = await fetch('/api/v1/campaigns', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: newName.trim(),
           type: newType,

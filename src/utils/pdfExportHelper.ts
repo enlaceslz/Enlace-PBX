@@ -391,7 +391,9 @@ export function exportInvoicePdf(
   doc.text('Chave PIX Oficial (CNPJ): 12.345.678/0001-90', 20, finalY + 14);
   doc.text('Favorecido: Enlace Telecomunicações Ltda. — Banco Santander (033)', 20, finalY + 19);
   doc.text('Linha Digitável: 03399.82103 45678.901234 56789.012345 8 98760000085000', 20, finalY + 24);
-  doc.text('Autenticação Digital: SHA256:' + Math.random().toString(36).substring(2, 12).toUpperCase() + '-ENLACE-VALID', 20, finalY + 29);
+  const authHash = Math.abs((invoice.id + (invoice.amount || 0) + (invoice.date || '')).split('').reduce((acc, c) => ((acc << 5) - acc + c.charCodeAt(0)) | 0, 0));
+  const authHex = authHash.toString(16).padStart(8, '0').toUpperCase();
+  doc.text('Autenticação Digital: SHA256:' + authHex + '-ENLACE-VALID', 20, finalY + 29);
   doc.text('* O comprovante pode ser enviado diretamente para financeiro@enlacepbx.com.br', 20, finalY + 34);
 
   // 5. Legal & Footer

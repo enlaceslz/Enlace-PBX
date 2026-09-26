@@ -33,6 +33,7 @@ import {
   ThumbsUp,
   HelpCircle,
 } from "lucide-react";
+import { getAuthHeaders } from "../../utils/api";
 
 interface Conversation {
   id: string;
@@ -111,9 +112,10 @@ export const OmnichannelView: React.FC = () => {
 
   const fetchConversations = async () => {
     try {
-      const res = await fetch("/api/v1/omnichannel/conversations");
+      const res = await fetch("/api/v1/omnichannel/conversations", { headers: getAuthHeaders() });
       if (!res.ok) return;
       const data: Conversation[] = await res.json();
+      if (!Array.isArray(data)) return;
       setConversations(data);
       // Update selected conversation with fresh messages
       setSelectedConv((prev) => {
@@ -131,10 +133,12 @@ export const OmnichannelView: React.FC = () => {
 
   const fetchCrmContacts = async () => {
     try {
-      const res = await fetch("/api/v1/crm/contacts");
+      const res = await fetch("/api/v1/crm/contacts", { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setCrmContacts(data);
+        if (Array.isArray(data)) {
+          setCrmContacts(data);
+        }
       }
     } catch (e) {
       console.error("Failed to fetch crm contacts", e);
@@ -559,7 +563,7 @@ export const OmnichannelView: React.FC = () => {
             ) : (
               filteredConversations.map((conv) => {
                 const isSelected = selectedConv?.id === conv.id;
-                const lastMsg = conv.messages[conv.messages.length - 1];
+                const lastMsg = conv.messages && conv.messages.length > 0 ? conv.messages[conv.messages.length - 1] : undefined;
                 const matched = crmContacts.find(
                   (c) =>
                     c.phone === conv.contactId ||
@@ -1206,7 +1210,7 @@ export const OmnichannelView: React.FC = () => {
                     setWhatsappConfig({ ...whatsappConfig, verifyToken: e.target.value })
                   }
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="enlace_whatsapp_token_default"
+                  placeholder="Token de verificação do Webhook (ex: whsec_...)"
                 />
               </div>
 

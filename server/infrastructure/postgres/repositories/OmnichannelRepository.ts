@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoStringOrNow } from '../dateUtils';
 
 export interface OmnichannelMessage {
   id: string;
@@ -45,7 +46,7 @@ export class OmnichannelRepository {
         sentiment: row.sentiment || 'neutral',
         tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
         messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
-        createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+        createdAt: toSafeIsoStringOrNow(row.created_at),
       }));
     } catch (err: any) {
       console.error('[OmnichannelRepository.listConversations] Erro no PostgreSQL:', err?.message || err);
@@ -76,7 +77,7 @@ export class OmnichannelRepository {
           sentiment: row.sentiment || 'neutral',
           tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
           messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
-          createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+          createdAt: toSafeIsoStringOrNow(row.created_at),
         };
       }
       return null;

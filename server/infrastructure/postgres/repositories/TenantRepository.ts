@@ -1,4 +1,5 @@
 import { postgresClient } from '../client';
+import { toSafeIsoStringOrNow } from '../dateUtils';
 import { Tenant } from '../../../../src/types/pbx';
 
 export class TenantRepository {
@@ -15,7 +16,7 @@ export class TenantRepository {
           maxExtensions: row.max_extensions,
           maxTrunks: row.max_trunks,
           aiCreditsUsd: parseFloat(row.ai_credits_usd || '0'),
-          createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+          createdAt: toSafeIsoStringOrNow(row.created_at),
           antiFraud: typeof row.anti_fraud === 'string' ? JSON.parse(row.anti_fraud) : (row.anti_fraud || {}),
         };
       }
@@ -37,7 +38,7 @@ export class TenantRepository {
         maxExtensions: row.max_extensions,
         maxTrunks: row.max_trunks,
         aiCreditsUsd: parseFloat(row.ai_credits_usd || '0'),
-        createdAt: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+        createdAt: toSafeIsoStringOrNow(row.created_at),
         antiFraud: typeof row.anti_fraud === 'string' ? JSON.parse(row.anti_fraud) : (row.anti_fraud || {}),
       }));
     } catch (err: any) {

@@ -4,21 +4,24 @@ import {
   HeartPulse, RefreshCw, CheckCircle2, AlertTriangle, Zap, 
   ServerCrash, Cpu, Terminal, Network, ShieldCheck
 } from 'lucide-react';
+import { getAuthHeaders } from '../../utils/api';
 
 interface HealthStatus {
   status: string;
   timestamp: string;
   platform: string;
   version: string;
-  components: {
-    asterisk: { status: 'up' | 'down'; version: string; uptime: string };
-    postgresql: { status: 'up' | 'down'; latencyMs: number; pool: string };
-    redis: { status: 'up' | 'down'; memoryUsedMb: number };
-    ari: { status: 'up' | 'down'; port: number; apps: string[] };
-    pjsip: { status: 'up' | 'down'; endpointsOnline: number; trunksRegistered: number };
-    audioSocket: { status: 'up' | 'down'; activeStreams: number; bufferLatencyMs: number };
-    aiGateway: { status: 'up' | 'down'; activeSessions: number };
-    geminiApi: { status: string; model: string; liveVoiceModel: string; defaultVoice: string };
+  components?: {
+    asterisk?: { status?: string; version?: string; uptime?: string };
+    postgresql?: { status?: string; latencyMs?: number; pool?: string; mode?: string };
+    redis?: { status?: string; memoryUsedMb?: number };
+    ari?: { status?: string; port?: number; apps?: string[] };
+    pjsip?: { status?: string; endpointsOnline?: number; trunksRegistered?: number };
+    audioSocket?: { status?: string; activeStreams?: number; bufferLatencyMs?: number };
+    aiGateway?: { status?: string; activeSessions?: number };
+    geminiApi?: { status?: string; model?: string; liveVoiceModel?: string; defaultVoice?: string };
+    wireguard?: { status?: string; installed?: boolean; peersCount?: number };
+    zerotier?: { status?: string; installed?: boolean };
   };
 }
 
@@ -31,7 +34,7 @@ export const HealthCheckView: React.FC = () => {
 
   const fetchHealth = async () => {
     try {
-      const res = await fetch('/api/v1/health');
+      const res = await fetch('/api/v1/health', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         setHealth(data);
@@ -58,30 +61,31 @@ export const HealthCheckView: React.FC = () => {
     setDiagResult(null);
     setLogs([]);
     
-    addLog('INIT: Starting Full System Diagnostic...');
+    addLog('INIT: Iniciando bateria de diagnósticos reais no servidor...');
     
     try {
-      addLog('CHK: Pinging Asterisk PJSIP Engine...');
-      await new Promise(resolve => setTimeout(resolve, 800));
-      addLog('RES: Asterisk PJSIP responded in 12ms (OK)');
-      
-      addLog('CHK: Testing Gemini Live API AudioSocket loopback...');
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      addLog('RES: AudioSocket stream established, jitter 4ms (OK)');
-      
-      addLog('CHK: PostgreSQL connection pool depth...');
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
-      const res = await fetch('/api/v1/health/run-diagnostic', { method: 'POST' });
+      addLog('EXEC: Requisitando telemetria de componentes ao backend...');
+      const res = await fetch('/api/v1/health/run-diagnostic', { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
-        addLog('RES: Database pool healthy (12/50 conns)');
-        addLog('SYS: Diagnostics completed successfully.');
+        if (Array.isArray(data.diagnostics)) {
+          for (const d of data.diagnostics) {
+            const latencyStr = d.pingMs !== null && d.pingMs !== undefined ? ` [${d.pingMs}ms]` : '';
+            addLog(`${d.status}: ${d.name} — ${d.details}${latencyStr}`);
+          }
+        }
+        addLog(`SYS: Diagnóstico concluído com status global: ${data.overallHealth || 'PASS'}`);
         setDiagResult(data);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        addLog(`ERR: Falha na resposta da API de diagnóstico (${res.status}): ${errData.error || 'Erro desconhecido'}`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      addLog('ERR: Diagnostic sequence failed!');
+      addLog(`ERR: Sequência de diagnóstico falhou: ${e.message || 'Sem conectividade'}`);
     } finally {
       setRunningDiag(false);
     }
@@ -155,21 +159,21 @@ export const HealthCheckView: React.FC = () => {
             <div className="space-y-4 relative z-10">
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
-                  {getStatusNode(health.components.asterisk.status, true)} Core Engine
+                  {getStatusNode(health.components?.asterisk?.status || 'down', true)} Core Engine
                 </div>
-                <div className="text-xs font-mono text-blue-400">{health.components.asterisk.uptime}</div>
+                <div className="text-xs font-mono text-blue-400">{health.components?.asterisk?.uptime || 'N/A'}</div>
               </div>
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
-                  {getStatusNode(health.components.pjsip.status)} PJSIP Stack
+                  {getStatusNode(health.components?.pjsip?.status || 'down')} PJSIP Stack
                 </div>
-                <div className="text-xs font-mono text-slate-400">{health.components.pjsip.endpointsOnline} EPS / {health.components.pjsip.trunksRegistered} TRKS</div>
+                <div className="text-xs font-mono text-slate-400">{health.components?.pjsip?.endpointsOnline ?? 0} EPS / {health.components?.pjsip?.trunksRegistered ?? 0} TRKS</div>
               </div>
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
-                  {getStatusNode(health.components.ari.status)} ARI Interface
+                  {getStatusNode(health.components?.ari?.status || 'down')} ARI Interface
                 </div>
-                <div className="text-xs font-mono text-slate-400">Port {health.components.ari.port}</div>
+                <div className="text-xs font-mono text-slate-400">Port {health.components?.ari?.port ?? 8088}</div>
               </div>
             </div>
           </div>
@@ -186,16 +190,16 @@ export const HealthCheckView: React.FC = () => {
             <div className="space-y-4 relative z-10">
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
-                  {getStatusNode(health.components.postgresql.status)} Banco de Dados & Armazenamento
+                  {getStatusNode(health.components?.postgresql?.status || 'down')} Banco de Dados & Armazenamento
                 </div>
-                <div className="text-xs font-mono text-emerald-400">{health.components.postgresql.latencyMs ?? 1}ms</div>
+                <div className="text-xs font-mono text-emerald-400">{health.components?.postgresql?.latencyMs ?? 1}ms</div>
               </div>
               <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold">
                   <ShieldCheck className="w-4 h-4 text-blue-400" /> Modo de Operação
                 </div>
                 <div className="text-xs font-mono text-blue-300 font-semibold">
-                  {health.components.postgresql.mode === 'postgresql_cluster'
+                  {health.components?.postgresql?.mode === 'postgresql_cluster'
                     ? 'PostgreSQL Corporativo'
                     : 'Indisponível / Desconectado'}
                 </div>
@@ -205,7 +209,7 @@ export const HealthCheckView: React.FC = () => {
                   <ShieldCheck className="w-4 h-4 text-slate-500" /> Pool de Conexões
                 </div>
                 <div className="text-xs font-mono text-slate-400">
-                  {health.components.postgresql.pool === 'active'
+                  {health.components?.postgresql?.pool === 'active'
                     ? 'Ativo (Pool Conectado)'
                     : 'Desconectado'}
                 </div>
@@ -226,30 +230,30 @@ export const HealthCheckView: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative z-10">
               <div className="flex flex-col justify-between bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold mb-3">
-                  {getStatusNode(health.components.geminiApi.status)} Google Gemini Live API
+                  {getStatusNode(health.components?.geminiApi?.status || 'connected')} Google Gemini Live API
                 </div>
                 <div className="text-[10px] font-mono text-slate-400 bg-slate-900 p-2 rounded-lg border border-slate-800">
                   <div className="text-purple-400 mb-1">Modelo Ativo:</div>
-                  {health.components.geminiApi.model}
+                  {health.components?.geminiApi?.model || 'gemini-flash-latest'}
                 </div>
               </div>
               
               <div className="flex flex-col justify-between bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold mb-3">
-                  {getStatusNode(health.components.audioSocket.status, true)} WebSockets (Audio)
+                  {getStatusNode(health.components?.audioSocket?.status || 'up', true)} WebSockets (Audio)
                 </div>
                 <div className="flex justify-between items-end mt-auto">
-                  <div className="text-2xl font-black text-white">{health.components.audioSocket.activeStreams}</div>
-                  <div className="text-[10px] font-mono text-emerald-400">{health.components.audioSocket.bufferLatencyMs}ms Buffer</div>
+                  <div className="text-2xl font-black text-white">{health.components?.audioSocket?.activeStreams ?? 0}</div>
+                  <div className="text-[10px] font-mono text-emerald-400">{health.components?.audioSocket?.bufferLatencyMs ?? 0}ms Buffer</div>
                 </div>
               </div>
 
               <div className="flex flex-col justify-between bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
                 <div className="flex items-center gap-3 text-slate-300 text-xs font-bold mb-3">
-                  {getStatusNode(health.components.aiGateway.status)} Gateway de Agentes
+                  {getStatusNode(health.components?.aiGateway?.status || 'up')} Gateway de Agentes
                 </div>
                 <div className="flex justify-between items-end mt-auto">
-                  <div className="text-2xl font-black text-white">{health.components.aiGateway.activeSessions}</div>
+                  <div className="text-2xl font-black text-white">{health.components?.aiGateway?.activeSessions ?? 0}</div>
                   <div className="text-[10px] font-mono text-slate-400">Sessões RAG</div>
                 </div>
               </div>

@@ -21,6 +21,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Route, Trunk, Extension, RouteExtensionOverride } from '../../types/pbx';
+import { getAuthHeaders } from '../../utils/api';
 
 interface RoutesViewProps {
   routes: Route[];
@@ -41,9 +42,9 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [simExtension, setSimExtension] = useState<string>(extensions[0]?.number || '4101');
   const [simRouteId, setSimRouteId] = useState<string>(
-    routes.find((r) => r.type === 'outbound' && r.isCliItx)?.id ||
-      routes.find((r) => r.type === 'outbound')?.id ||
-      routes[0]?.id ||
+    (routes || []).find((r) => r.type === 'outbound' && r.isCliItx)?.id ||
+      (routes || []).find((r) => r.type === 'outbound')?.id ||
+      routes?.[0]?.id ||
       ''
   );
   const [simResult, setSimResult] = useState<{
@@ -190,7 +191,7 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
     try {
       const res = await fetch('/api/v1/routes/simulate-callerid', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           extensionNumber: extToSimulate,
           routeId: routeToSimulate,
@@ -221,7 +222,7 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
     try {
       const res = await fetch('/api/v1/routes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: formData.name,
           type: formData.type,
@@ -241,7 +242,7 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
           callerIdMode: formData.type === 'outbound' && formData.isCliItx ? formData.callerIdMode : undefined,
           callerIdOverride: formData.type === 'outbound' && formData.callerIdOverride ? formData.callerIdOverride.trim() : undefined,
           extensionOverrides:
-            formData.type === 'outbound' && formData.isCliItx && formData.extensionOverrides.length > 0
+            formData.type === 'outbound' && formData.isCliItx && (formData.extensionOverrides?.length || 0) > 0
               ? formData.extensionOverrides
               : undefined,
         }),
@@ -299,7 +300,7 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
     try {
       const res = await fetch(`/api/v1/routes/${editingRoute.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(editingRoute),
       });
 
@@ -323,7 +324,10 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
   const handleDeleteRoute = async (id: string, name: string) => {
     if (!confirm(`Deseja realmente excluir a rota "${name}"?`)) return;
     try {
-      await fetch(`/api/v1/routes/${id}`, { method: 'DELETE' });
+      await fetch(`/api/v1/routes/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       onRefresh();
     } catch (err) {
       console.error('Erro ao excluir rota:', err);
@@ -1005,7 +1009,7 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
                               Sobrescritas Específicas por Ramal nesta Rota (Prioridade 1)
                             </span>
                             <span className="text-[10px] text-amber-800">
-                              {formData.extensionOverrides.length} ramal(is) com BINA dedicada
+                              {formData.extensionOverrides?.length || 0} ramal(is) com BINA dedicada
                             </span>
                           </div>
 
@@ -1044,7 +1048,7 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
                                 setFormData({
                                   ...formData,
                                   extensionOverrides: [
-                                    ...formData.extensionOverrides.filter((o) => o.extensionNumber !== newOverrideExt),
+                                    ...(formData.extensionOverrides || []).filter((o) => o.extensionNumber !== newOverrideExt),
                                     {
                                       extensionNumber: newOverrideExt,
                                       callerId: newOverrideCallerId.trim(),
@@ -1062,9 +1066,9 @@ export const RoutesView: React.FC<RoutesViewProps> = ({ routes, trunks, extensio
                             </button>
                           </div>
 
-                          {formData.extensionOverrides.length > 0 && (
+                          {(formData.extensionOverrides?.length || 0) > 0 && (
                             <div className="bg-white rounded-lg border border-amber-200 divide-y divide-amber-100 max-h-36 overflow-y-auto">
-                              {formData.extensionOverrides.map((ov, idx) => (
+                              {(formData.extensionOverrides || []).map((ov, idx) => (
                                 <div key={idx} className="px-3 py-1.5 flex items-center justify-between text-xs">
                                   <div className="flex items-center gap-2 font-mono">
                                     <span className="font-bold text-slate-900">Ramal {ov.extensionNumber}</span>

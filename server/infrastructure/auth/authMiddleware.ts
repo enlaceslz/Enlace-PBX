@@ -209,6 +209,56 @@ export const requirePermission = (permission: string) => {
   };
 };
 
+export interface TenantContext {
+  tenantId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  isCrossTenantOperation: boolean;
+}
+
+/**
+ * Função centralizada para determinar o contexto de tenant estrito.
+ * Nunca confia no req.body.tenantId, req.query.tenantId ou cabeçalhos arbitrários de clientes comuns.
+ * Somente 'super_admin' pode operar cross-tenant sob autorização explícita.
+ */
+export function resolveTenantContext(req: Request): TenantContext {
+  const authReq = req as AuthenticatedRequest;
+  if (!authReq.user) {
+    throw new Error('AUTH_REQUIRED: Sessão não autenticada.');
+  }
+
+  const actorRole = authReq.user.role;
+  const actorUserId = authReq.user.id;
+  const userTenantId = authReq.user.tenantId;
+
+  // Se super_admin, ele pode operar sobre outro tenant apenas se expressamente requisitado
+  // via header 'x-target-tenant-id' ou query 'targetTenantId', validado previamente
+  if (actorRole === 'super_admin') {
+    const explicitTarget =
+      (req.headers['x-target-tenant-id'] as string) ||
+      (req.headers['x-tenant-id'] as string) ||
+      (typeof req.query?.targetTenantId === 'string' ? req.query.targetTenantId : undefined) ||
+      (authReq.tenantId !== userTenantId ? authReq.tenantId : undefined);
+
+    if (explicitTarget && explicitTarget.trim() !== '' && explicitTarget.trim() !== userTenantId) {
+      return {
+        tenantId: explicitTarget.trim(),
+        actorUserId,
+        actorRole,
+        isCrossTenantOperation: true,
+      };
+    }
+  }
+
+  // Para qualquer outro perfil, o tenant do usuário é a ÚNICA fonte de verdade imutável
+  return {
+    tenantId: userTenantId,
+    actorUserId,
+    actorRole,
+    isCrossTenantOperation: false,
+  };
+}
+
 /**
  * Middleware de Isolamento Rigoroso de Tenants:
  * Garante que usuários só acessem recursos do seu próprio tenant.
@@ -216,21 +266,23 @@ export const requirePermission = (permission: string) => {
  */
 export const requireTenant = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   if (!req.user) {
-    return res.status(401).json({ error: 'Sessão não autenticada.' });
+    return res.status(401).json({ error: 'Sessão não autenticada.', code: 'AUTH_REQUIRED' });
   }
 
-  // Identifica o tenant solicitado na rota, query ou body
+  // Identifica o tenant solicitado na rota, query, headers ou body
   const requestedTenantId =
+    (req.headers['x-target-tenant-id'] as string) ||
+    (req.headers['x-tenant-id'] as string) ||
     req.params.tenantId ||
-    (req.query.tenantId as string) ||
-    req.body?.tenantId ||
-    req.headers['x-tenant-id'];
+    (typeof req.query?.tenantId === 'string' ? req.query.tenantId : undefined) ||
+    (typeof req.query?.targetTenantId === 'string' ? req.query.targetTenantId : undefined) ||
+    req.body?.tenantId;
 
   if (req.user.role === 'super_admin') {
-    if (requestedTenantId) {
+    if (requestedTenantId && requestedTenantId !== req.user.tenantId) {
       const tenant = await TenantRepository.findById(requestedTenantId);
-      if (!tenant && requestedTenantId !== req.user.tenantId) {
-        return res.status(404).json({ error: `Tenant informado (${requestedTenantId}) não existe.` });
+      if (!tenant) {
+        return res.status(404).json({ error: `Tenant informado (${requestedTenantId}) não existe.`, code: 'TENANT_NOT_FOUND' });
       }
       req.tenantId = requestedTenantId;
     } else {
@@ -239,15 +291,19 @@ export const requireTenant = async (req: AuthenticatedRequest, res: Response, ne
     return next();
   }
 
-  // Para qualquer outro perfil, o tenant é RIGOROSAMENTE fixado no da sessão do usuário
+  // Para qualquer outro perfil, tentativas de especificar outro tenant são expressamente rejeitadas
   if (requestedTenantId && requestedTenantId !== req.user.tenantId) {
     return res.status(403).json({
-      error: `Violação de Isolamento de Tenant. Você pertence ao tenant '${req.user.tenantId}' e não pode acessar o tenant '${requestedTenantId}'.`,
-      code: 'TENANT_ISOLATION_VIOLATION'
+      error: `Violação de Isolamento de Tenant. Você pertence ao tenant '${req.user.tenantId}' e não pode acessar recursos do tenant '${requestedTenantId}'.`,
+      code: 'TENANT_ISOLATION_VIOLATION',
     });
   }
 
   req.tenantId = req.user.tenantId;
+  if (req.body && typeof req.body === 'object') {
+    // Sobrescreve com o tenant real da sessão
+    req.body.tenantId = req.user.tenantId;
+  }
   next();
 };
 
@@ -256,11 +312,6 @@ export const requireTenant = async (req: AuthenticatedRequest, res: Response, ne
  * Nunca confia em dados não autenticados do frontend.
  */
 export function getAuthorizedTenantId(req: Request): string {
-  const authReq = req as AuthenticatedRequest;
-  const tenantId = authReq.tenantId || authReq.user?.tenantId;
-  if (!tenantId) {
-    throw new Error('TENANT_UNAUTHORIZED: Tenant não determinado no contexto da sessão.');
-  }
-  return tenantId;
+  return resolveTenantContext(req).tenantId;
 }
 

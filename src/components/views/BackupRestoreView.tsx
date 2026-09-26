@@ -3,6 +3,7 @@ import {
   Database, Save, RotateCcw, Cloud, Download, Trash2, 
   AlertTriangle, CheckCircle2, Clock, Calendar, HardDrive, Shield
 } from 'lucide-react';
+import { getAuthHeaders } from '../../utils/api';
 
 export const BackupRestoreView: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
@@ -16,7 +17,7 @@ export const BackupRestoreView: React.FC = () => {
   const handleCreateBackup = async () => {
     setIsCreating(true);
     try {
-      const res = await fetch('/api/v1/system/backup');
+      const res = await fetch('/api/v1/system/backup', { headers: getAuthHeaders() });
       if (!res.ok) throw new Error('Erro ao gerar snapshot');
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -66,7 +67,7 @@ export const BackupRestoreView: React.FC = () => {
           const json = JSON.parse(event.target?.result as string);
           const res = await fetch('/api/v1/system/restore', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify(json)
           });
           if (res.ok) {

@@ -61,9 +61,9 @@ export class QueueRepository {
     try {
       let query = 'SELECT * FROM queues WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       if (res.rows.length > 0) {
@@ -90,6 +90,10 @@ export class QueueRepository {
       console.error('[QueueRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<Queue | null> {
+    return this.findById(id);
   }
 
   public static async save(queue: Queue): Promise<Queue> {
@@ -138,9 +142,9 @@ export class QueueRepository {
     try {
       let query = 'DELETE FROM queues WHERE id = $1';
       const params: any[] = [id];
-      if (tenantId) {
+      if (tenantId && tenantId.trim() !== '') {
         query += ' AND tenant_id = $2';
-        params.push(tenantId);
+        params.push(tenantId.trim());
       }
       const res = await postgresClient.query(query, params);
       return (res.rowCount ?? 0) > 0;

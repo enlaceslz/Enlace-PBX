@@ -7,8 +7,8 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('admin@enlace.slz.br');
+  const [password, setPassword] = useState('Enlace@2026!');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -94,6 +94,23 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               </div>
             </div>
           )}
+
+          <div className="mb-5 p-3 bg-blue-950/60 border border-blue-500/30 rounded-xl flex items-center justify-between text-xs text-blue-200">
+            <div>
+              <span className="font-semibold text-white">Acesso Master: </span>
+              <span className="font-mono text-blue-300">admin@enlace.slz.br</span> / <span className="font-mono text-blue-300">Enlace@2026!</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('admin@enlace.slz.br');
+                setPassword('Enlace@2026!');
+              }}
+              className="text-[11px] font-bold text-blue-400 hover:text-white px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600/60 rounded-lg transition cursor-pointer"
+            >
+              Preencher
+            </button>
+          </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">

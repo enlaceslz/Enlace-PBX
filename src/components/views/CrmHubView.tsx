@@ -5,6 +5,7 @@ import {
   Filter, Server, X, CheckCircle2, ChevronRight, Save
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { getAuthHeaders } from '../../utils/api';
 
 interface CrmProvider {
   id: string;
@@ -27,11 +28,16 @@ export const CrmHubView: React.FC = () => {
   const fetchProviders = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/v1/crm/providers');
-      const data = await res.json();
-      setProviders(data);
+      const res = await fetch('/api/v1/crm/providers', { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setProviders(Array.isArray(data) ? data : []);
+      } else {
+        setProviders([]);
+      }
     } catch (e) {
       console.error(e);
+      setProviders([]);
     } finally {
       setIsLoading(false);
     }
@@ -44,7 +50,10 @@ export const CrmHubView: React.FC = () => {
   const toggleConnection = async (provider: CrmProvider) => {
     try {
       const action = provider.isConnected ? 'disconnect' : 'connect';
-      await fetch(`/api/v1/crm/providers/${provider.id}/${action}`, { method: 'POST' });
+      await fetch(`/api/v1/crm/providers/${provider.id}/${action}`, { 
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       fetchProviders();
     } catch (e) {
       console.error(e);
