@@ -66,6 +66,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
   // AI Voice conversation state
   const [isAiCall, setIsAiCall] = useState(false);
+  const [aiSessionId, setAiSessionId] = useState<string | null>(null);
   const [aiHistory, setAiHistory] = useState<Array<{ role: 'user' | 'model' | 'system' | 'tool'; text: string; timestamp: string }>>([]);
   const [userInputText, setUserInputText] = useState('');
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
@@ -356,7 +357,21 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
     // Notifica encerramento da chamada para recarregar bilhetagem oficial originada pelo Asterisk
     if (onCallEnded) onCallEnded();
 
+    // Se havia sessão da MaIA ativa, notifica encerramento no backend
+    if (aiSessionId) {
+      const jwtToken = localStorage.getItem('enlace_jwt') || localStorage.getItem('enlace_token') || '';
+      fetch(`/api/v1/ai/sessions/${aiSessionId}/end`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(jwtToken ? { 'Authorization': `Bearer ${jwtToken}` } : {}),
+        },
+        body: JSON.stringify({ reason: 'Chamada encerrada pelo Webphone' }),
+      }).catch((e) => console.warn('Falha ao sinalizar encerramento de sessão de IA:', e));
+    }
+
     setTransferDestination('');
+    setAiSessionId(null);
     setAiHistory([]);
     setLastExecutedTool(null);
     stopSpeaking();
@@ -430,18 +445,26 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
 
       const targetAgentId = isSupportTarget ? 'agent-suporte-n1' : 'agent-maia-247';
 
+      const jwtToken = localStorage.getItem('enlace_jwt') || localStorage.getItem('enlace_token') || '';
       const res = await fetch('/api/v1/ai/voice-turn', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(jwtToken ? { 'Authorization': `Bearer ${jwtToken}` } : {}),
+        },
         body: JSON.stringify({
           agentId: targetAgentId,
           userMessage: messageText,
           history: aiHistory,
           callerNumber: '4101',
+          sessionId: aiSessionId || undefined,
         }),
       });
 
       const data = await res.json();
+      if (data.sessionId && !aiSessionId) {
+        setAiSessionId(data.sessionId);
+      }
 
       if (data.toolCallExecuted) {
         setLastExecutedTool(`${data.toolCallExecuted.name}`);

@@ -44,7 +44,7 @@ export class EmbeddedDatabaseEngine {
         const found = this.tables.users.find((u: any) => (u.email || '').toLowerCase() === email.toLowerCase());
         if (!found) {
           this.tables.users.push({
-            id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            id: `user-${crypto.randomUUID()}`,
             tenant_id: defaultTenantId,
             name,
             email: email.toLowerCase(),
@@ -1040,11 +1040,16 @@ export class EmbeddedDatabaseEngine {
 
     // 23. Quality Audits
     this.tables.quality_audits = [];
+    this.tables.ai_sessions = this.tables.ai_sessions || [];
+    this.tables.ai_session_turns = this.tables.ai_session_turns || [];
+    this.tables.ai_tool_executions = this.tables.ai_tool_executions || [];
+    this.tables.ai_session_events = this.tables.ai_session_events || [];
     this.tables.schema_migrations = [
       { version: '001', name: '001_initial_schema.sql', applied_at: now },
       { version: '002', name: '002_schema_consolidation.sql', applied_at: now },
       { version: '003', name: '003_campaigns_schema.sql', applied_at: now },
       { version: '004', name: '004_crm_omnichannel_schema.sql', applied_at: now },
+      { version: '005', name: '005_maia_v2_schema.sql', applied_at: now },
     ];
   }
 

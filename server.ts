@@ -42,6 +42,8 @@ import { asteriskAdapter } from './server/infrastructure/asterisk/AsteriskAdapte
 import { postgresClient } from './server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from './server/infrastructure/postgres/migrations/migrator.js';
 import { requireAuth, requireRole, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext } from './server/infrastructure/auth/authMiddleware.js';
+import { maiaAIGateway } from './server/maia/gateway/MaiaAIGateway.js';
+import { MaiaSessionRepository } from './server/maia/repositories/MaiaSessionRepository.js';
 
 async function startServer() {
   const app = express();
@@ -348,6 +350,13 @@ async function startServer() {
         installed: ztHealth.installed,
         nodeId: ztHealth.nodeId || 'NOT_CONFIGURED',
       },
+      redis: {
+        status: (process.env.REDIS_URL || process.env.REDIS_HOST) ? 'UP' : 'NOT_CONFIGURED',
+      },
+      audioSocket: {
+        status: asteriskHealth.status === 'UP' ? 'UP' : 'NOT_CONFIGURED',
+        port: 9092,
+      },
     };
 
     const isHealthy = components.postgresql.status === 'UP' && components.asterisk.status === 'UP';
@@ -413,13 +422,13 @@ async function startServer() {
           trunksRegistered: allTrunks.filter((t) => t.status === 'registered').length,
         },
         audioSocket: {
-          status: 'up',
+          status: asteriskHealth.status === 'UP' ? 'up' : 'not_configured',
           activeStreams: 0,
-          bufferLatencyMs: 8,
+          bufferLatencyMs: null,
         },
         redis: {
-          status: 'up',
-          memoryUsedMb: 12,
+          status: (process.env.REDIS_URL || process.env.REDIS_HOST) ? 'up' : 'not_configured',
+          memoryUsedMb: null,
         },
         aiGateway: {
           status: process.env.GEMINI_API_KEY ? 'up' : 'not_configured',
@@ -3824,55 +3833,176 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/ai/sessions', async (req, res) => {
-    const sessions = await SystemRepository.getAiSessions();
-    res.json(sessions);
+    try {
+      const authUser = (req as any).user;
+      const tenantId = authUser?.role === 'super_admin' && req.query.tenantId
+        ? (req.query.tenantId as string)
+        : authUser?.tenantId;
+
+      const sessions = tenantId
+        ? await MaiaSessionRepository.listByTenant(tenantId)
+        : await MaiaSessionRepository.listAll();
+
+      const enrichedSessions = await Promise.all(
+        sessions.slice(0, 50).map(async (s) => {
+          let turns: any[] = [];
+          try {
+            turns = await MaiaSessionRepository.listTurns(s.id);
+          } catch {
+            turns = [];
+          }
+          const transcript = turns.map((t) => ({
+            role: (t.role as any) || 'user',
+            text: t.content,
+            timestamp: t.createdAt ? new Date(t.createdAt).toLocaleTimeString('pt-BR') : '',
+          }));
+          const totalLatency = turns.reduce((acc, t) => acc + (t.latencyMs || 0), 0);
+          const latencyAverageMs = turns.length > 0 ? Math.round(totalLatency / turns.length) : 22;
+
+          return {
+            ...s,
+            callId: s.asteriskUniqueId || s.id,
+            caller: s.callerNumber || 'Desconhecido',
+            channel: s.asteriskChannelId || 'WebRTC/MaIA',
+            agentName: s.agentId === 'agent-suporte-n1' ? 'Roberto Mendes (N1 Suporte)' : 'MaIA (Atendimento 24/7)',
+            sessionType: 'voice_live' as const,
+            transcript,
+            latencyAverageMs,
+            costEstimateBrl: Number((((s.tokensInput || 0) * 0.0000015 + (s.tokensOutput || 0) * 0.000006) * 5.7).toFixed(4)),
+            audioSeconds: s.durationSeconds || 0,
+          };
+        })
+      );
+
+      res.json(enrichedSessions);
+    } catch (e: any) {
+      console.error('[AI Sessions] Erro ao listar sessões:', e?.message || e);
+      res.status(500).json({ error: 'Erro ao listar sessões da MaIA' });
+    }
   });
 
-  // Voice Interaction endpoint - Connects real phone voice turns with Google Gemini
+  app.get('/api/v1/ai/sessions/:id', async (req, res) => {
+    try {
+      const sess = await MaiaSessionRepository.findById(req.params.id);
+      if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
+      res.json(sess);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Erro ao consultar sessão' });
+    }
+  });
+
+  app.get('/api/v1/ai/sessions/:id/turns', async (req, res) => {
+    try {
+      const turns = await MaiaSessionRepository.listTurns(req.params.id);
+      res.json(turns);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Erro ao listar turnos da sessão' });
+    }
+  });
+
+  app.get('/api/v1/ai/sessions/:id/tools', async (req, res) => {
+    try {
+      const tools = await MaiaSessionRepository.listToolExecutions(req.params.id);
+      res.json(tools);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Erro ao listar execuções de ferramentas da sessão' });
+    }
+  });
+
+  app.get('/api/v1/ai/sessions/:id/events', async (req, res) => {
+    try {
+      const events = await MaiaSessionRepository.listEvents(req.params.id);
+      res.json(events);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Erro ao listar eventos da sessão' });
+    }
+  });
+
+  app.post('/api/v1/ai/sessions/:id/end', async (req, res) => {
+    try {
+      const session = await MaiaSessionRepository.findById(req.params.id);
+      if (!session) return res.status(404).json({ error: 'Sessão não encontrada' });
+
+      const now = new Date();
+      const started = new Date(session.startedAt);
+      const durationSeconds = Math.max(0, Math.floor((now.getTime() - started.getTime()) / 1000));
+
+      session.status = 'completed';
+      session.endedAt = now.toISOString();
+      session.lastActivityAt = now.toISOString();
+      session.durationSeconds = durationSeconds;
+      if (req.body.summary) session.summary = req.body.summary;
+      if (req.body.csatScore) session.csatScore = req.body.csatScore;
+      if (req.body.sentiment) session.sentiment = req.body.sentiment;
+
+      await MaiaSessionRepository.updateSession(session);
+      await MaiaSessionRepository.addSessionEvent({
+        id: crypto.randomUUID(),
+        sessionId: session.id,
+        tenantId: session.tenantId,
+        eventType: 'SESSION_TERMINATED',
+        fromStatus: session.status || 'connected',
+        toStatus: 'completed',
+        payload: { reason: req.body.reason || 'Chamada finalizada pelo usuário' },
+        createdAt: now.toISOString(),
+      });
+
+      res.json({ success: true, session });
+    } catch (e: any) {
+      console.error('[AI Sessions] Erro ao encerrar sessão:', e?.message || e);
+      res.status(500).json({ error: 'Erro ao encerrar sessão da MaIA' });
+    }
+  });
+
+  // Voice Interaction endpoint - Connects real phone voice turns with MaIA V2 Architecture
   app.post('/api/v1/ai/voice-turn', async (req, res) => {
     try {
-      const result = await geminiService.processVoiceTurn({
+      const authUser = (req as any).user;
+      let tenantId: string | undefined;
+
+      // 1. Se autenticado (ex: Webphone ou operador), utiliza o tenant da sessão autenticada
+      if (authUser?.tenantId) {
+        tenantId = authUser.tenantId;
+      } else if (req.body.sessionId) {
+        // 2. Se sessionId informado, valida se a sessão existe e obtém seu tenantId
+        const existingSession = await MaiaSessionRepository.findById(req.body.sessionId);
+        if (existingSession) {
+          tenantId = existingSession.tenantId;
+        }
+      }
+
+      // 3. Se chamada de entrada via Asterisk ARI / SIP Stasis, valida o canal
+      if (!tenantId && req.body.channelId) {
+        const sessionByChan = await MaiaSessionRepository.findByChannelId(req.body.channelId);
+        if (sessionByChan) {
+          tenantId = sessionByChan.tenantId;
+        }
+      }
+
+      // Se ainda não resolvido, usa tenant padrão seguro ou de super_admin (sem aceitar tenant arbitrário do body)
+      if (!tenantId) {
+        if (authUser?.role === 'super_admin' && req.body.tenantId) {
+          tenantId = req.body.tenantId;
+        } else {
+          tenantId = process.env.DEFAULT_TENANT_ID || 'tenant-default';
+        }
+      }
+
+      const result = await maiaAIGateway.processVoiceTurn({
         agentId: req.body.agentId,
         userMessage: req.body.userMessage,
         history: req.body.history || [],
         callerNumber: req.body.callerNumber,
-        tenantId: req.body.tenantId,
+        tenantId,
+        sessionId: req.body.sessionId,
+        asteriskChannelId: req.body.channelId || req.body.asteriskChannelId,
+        asteriskUniqueId: req.body.asteriskUniqueId,
+        linkedId: req.body.linkedId,
+        routingProfile: req.body.routingProfile,
+        authenticatedUserId: authUser?.id,
+        authenticatedRole: authUser?.role,
+        confirmationToken: req.body.confirmationToken,
       });
-
-      // Update or create active session record in db
-      if (req.body.sessionId) {
-        const sessions = await SystemRepository.getAiSessions();
-        const sess = sessions.find((s: any) => s.id === req.body.sessionId);
-        if (sess) {
-          sess.transcript.push({
-            role: 'user',
-            text: req.body.userMessage,
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          });
-          sess.transcript.push({
-            role: 'model',
-            text: result.replyText,
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          });
-          if (result.toolCallExecuted) {
-            sess.transcript.push({
-              role: 'tool',
-              text: `${result.toolCallExecuted.name}(${JSON.stringify(result.toolCallExecuted.args)})`,
-              timestamp: new Date().toLocaleTimeString('pt-BR'),
-            });
-          }
-          sess.tokensInput += result.tokensUsed.input;
-          sess.tokensOutput += result.tokensUsed.output;
-          sess.durationSeconds += Math.round(result.latencyMs / 1000) + 4;
-          if (result.action === 'transfer') {
-            sess.status = 'transferred';
-            sess.transferReason = result.toolCallExecuted?.args?.motivo as string || 'Transferência solicitada';
-          } else if (result.action === 'hangup') {
-            sess.status = 'completed';
-          }
-          await SystemRepository.setAiSessions(sessions);
-        }
-      }
 
       res.json(result);
     } catch (err: unknown) {

@@ -15,7 +15,7 @@ export class DatabaseMigrator {
 
     if (!postgresClient.isConfigured) {
       console.log('[DatabaseMigrator] Operando em modo de Persistência Embarcada de Alta Resiliência com esquemas e seeds integrados.');
-      return { success: true, applied: 4 };
+      return { success: true, applied: 5 };
     }
 
     try {
@@ -139,7 +139,7 @@ export class DatabaseMigrator {
 
       // 4. Gerar hash bcrypt com custo de 10 rounds
       const passwordHash = await bcrypt.hash(adminPassword, 10);
-      const newAdminId = `user-admin-${Date.now()}`;
+      const newAdminId = `user-admin-${crypto.randomUUID()}`;
 
       await postgresClient.query(
         `INSERT INTO users (id, tenant_id, name, email, password_hash, role, is_active)

@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import zlib from 'zlib';
+import { maiaAIGateway } from './maia/gateway/MaiaAIGateway.js';
 import {
   AiAgentRepository,
   AiKnowledgeRepository,
@@ -275,286 +276,33 @@ ${historyContext}
   }
 
   async processVoiceTurn(req: VoiceTurnRequest): Promise<VoiceTurnResponse> {
-    const startTime = Date.now();
-    const tenantId = req.tenantId;
-    if (!tenantId) {
-      throw new Error('Tenant ID não configurado na requisição de voz.');
-    }
-    let agent = req.agentId ? await AiAgentRepository.findById(req.agentId, tenantId) : null;
-    if (!agent) {
-      const agents = await AiAgentRepository.listByTenant(tenantId);
-      agent = agents[0];
-    }
-    if (!agent) {
-      throw new Error('Nenhum agente de IA configurado.');
-    }
-    const voiceConfig = resolveAgentVoice(agent);
+    const tenantId = req.tenantId || 'tenant-default';
+    const gatewayRes = await maiaAIGateway.processVoiceTurn({
+      agentId: req.agentId,
+      userMessage: req.userMessage,
+      history: req.history as any,
+      callerNumber: req.callerNumber,
+      tenantId,
+      sessionId: (req as any).sessionId,
+      asteriskChannelId: req.channelId,
+    });
 
-    // Assemble Knowledge grounding
-    const allKnowledge = await AiKnowledgeRepository.listByTenant(tenantId);
-    const knowledgeSnippets = agent.knowledgeSources
-      .map((kId) => allKnowledge.find((k) => k.id === kId))
-      .filter(Boolean)
-      .map((k) => `[FONTE: ${k!.title} - ${k!.category}]\n${k!.content}`)
-      .join('\n\n');
-
-    const voiceGuidance =
-      voiceConfig.gender === 'male'
-        ? `DIRETRIZ DE VOZ MASCULINA HUMANIZADA:
-- Você é um atendente masculino profissional da Enlace Telecom (${agent.name.split('—')[0].trim() || 'Roberto'}).
-- Fale com voz masculina segura, firme, acolhedora e natural (timbre: ${voiceConfig.timbre}).
-- Evite entonação mecânica, tom robótico ou monotonia. Use pausas naturais e vocabulário conversacional em português do Brasil.`
-        : `DIRETRIZ DE VOZ FEMININA HUMANIZADA:
-- Você é uma atendente feminina profissional e acolhedora da Enlace Telecom (${agent.name.split('—')[0].trim() || 'MaIA'}).
-- Fale com voz feminina clara, fluida, empática e expressiva (timbre: ${voiceConfig.timbre}).
-- Evite tom robótico ou frio. Use entonação natural e acolhedora em português do Brasil.`;
-
-    const systemPrompt = `${agent.systemInstruction}
-
-${voiceGuidance}
-
-DIRETRIZES DA TELEFONIA ENLACE-PBX:
-1. Você está atendendo uma chamada telefônica em tempo real no Asterisk. Responda em português brasileiro culto, coloquial, amigável e direto.
-2. Cada resposta sua deve ter entre 1 e 3 frases curtas para não sobrecarregar o ouvinte.
-3. Se o chamador pedir transferência para atendente humano ou setor específico, use a ferramenta transferir_chamada.
-4. Se o chamador confirmar que terminou ou se despedir, use a ferramenta encerrar_chamada.
-5. Baseie suas respostas nas seguintes fontes de conhecimento oficiais da empresa:
-
-${knowledgeSnippets}`;
-
-    const ai = getAiClient();
-
-    if (!ai) {
-      // Intelligent fallback when GEMINI_API_KEY is not configured
-      return this.handleFallbackTurn(agent, req, startTime, voiceConfig);
-    }
-
-    try {
-      // Build function declarations for tools authorized for this agent
-      const allTools = await AiToolRepository.listToolsByTenant(tenantId);
-      const functionDeclarations = agent.tools
-        .map((tId) => allTools.find((t) => t.id === tId))
-        .filter(Boolean)
-        .map((tool) => ({
-          name: tool!.name,
-          description: tool!.description,
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              ...(tool!.name === 'consultar_cliente' && {
-                cpf_cnpj: { type: Type.STRING, description: 'CPF ou CNPJ informado pelo chamador' },
-                telefone: { type: Type.STRING, description: 'Telefone do chamador' },
-              }),
-              ...(tool!.name === 'consultar_fatura' && {
-                cpf_cnpj: { type: Type.STRING, description: 'CPF ou CNPJ do titular' },
-              }),
-              ...(tool!.name === 'abrir_ticket' && {
-                categoria: { type: Type.STRING, description: 'Categoria do problema (lentidão, sem_conexão, ramal)' },
-                descricao: { type: Type.STRING, description: 'Descrição suscinta do problema' },
-                urgencia: { type: Type.STRING, description: 'baixa, media ou alta' },
-              }),
-              ...(tool!.name === 'transferir_chamada' && {
-                destino: { type: Type.STRING, description: 'Ramal (ex: 4101, 4102) ou fila (ex: 7001)' },
-                motivo: { type: Type.STRING, description: 'Motivo do transbordo' },
-              }),
-              ...(tool!.name === 'encerrar_chamada' && {
-                motivo: { type: Type.STRING, description: 'Motivo do término' },
-              }),
-            },
-          },
-        }));
-
-      // Customer Memory Retrieval
-      const customerMem = req.callerNumber
-        ? await CrmRepository.findMemoryByPhone(req.callerNumber, tenantId)
-        : null;
-      let memoryContext = '';
-      if (customerMem) {
-        memoryContext = `[MEMÓRIA DO CLIENTE - Telefone: ${customerMem.phone}]\nResumo: ${customerMem.summary}\nPreferências: ${customerMem.preferences.join(', ')}\nSentimento anterior: ${customerMem.sentimentHistory}\nRisco de Churn: ${customerMem.churnRisk}%\n\n`;
-      }
-
-      // Convert history with correct persona label
-      const agentSpeakerName = agent.name.split(' ')[0] || (voiceConfig.gender === 'male' ? 'Roberto' : 'MaIA');
-      const formattedHistory = req.history
-        .filter((h) => h.role === 'user' || h.role === 'model')
-        .slice(-6)
-        .map((h) => `${h.role === 'user' ? 'Chamador' : agentSpeakerName}: ${h.text}`)
-        .join('\n');
-
-      const userPromptWithContext = `${memoryContext}${formattedHistory ? `Histórico recente:\n${formattedHistory}\n\n` : ''}Chamador (${req.callerNumber || 'Desconhecido'}): "${req.userMessage}"`;
-
-      // Safe model selection avoiding deprecated models
-      let selectedModel = agent.model || 'gemini-flash-latest';
-
-      const response = await ai.models.generateContent({
-        model: selectedModel,
-        contents: userPromptWithContext,
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: agent.temperature || 0.3,
-          ...(functionDeclarations.length > 0 && {
-            tools: [{ functionDeclarations }],
-          }),
-        },
-      });
-
-      let replyText = response.text || '';
-      let toolCallExecuted: VoiceTurnResponse['toolCallExecuted'] = undefined;
-      let action: VoiceTurnResponse['action'] = 'none';
-      let transferDestination: string | undefined = undefined;
-
-      // Handle function calls if model invoked any
-      const functionCalls = response.functionCalls;
-      if (functionCalls && functionCalls.length > 0) {
-        const fc = functionCalls[0];
-        const toolObj = await AiToolRepository.findByName(fc.name, tenantId);
-
-        if (!toolObj || !agent.tools.includes(toolObj.id)) {
-          throw new Error(`Policy Engine Violation: Agent attempted to execute unauthorized tool ${fc.name}`);
-        }
-
-        const args = (fc.args as Record<string, unknown>) || {};
-        let result: Record<string, unknown> = { status: 'OK' };
-
-        // Auditoria real da execução de ferramenta
-        await AuditLogRepository.create({
-          tenantId,
-          userId: 'ai-gateway',
-          userName: `AI Agent: ${agent.name}`,
-          action: 'EXECUTE_TOOL',
-          resource: `ai_tools/${toolObj.id}`,
-          ip: 'internal',
-          details: `Execução da ferramenta ${fc.name} com os argumentos: ${JSON.stringify(args)}`,
-        });
-
-        if (fc.name === 'transferir_chamada') {
-          action = 'transfer';
-          transferDestination = (args.destino as string) || agent.transferExtension || '4101';
-          
-          // Se houver canal telefônico ativo associado à sessão
-          const channelId = req.channelId || `PJSIP/${transferDestination}`;
-          const transferRes = await asteriskAdapter.transferCall(channelId, transferDestination);
-
-          result = {
-            sucesso: transferRes.success,
-            canal: channelId,
-            destino: transferDestination,
-            mensagem: transferRes.message,
-          };
-
-          if (!replyText) {
-            replyText = `Com certeza! Estou transferindo sua ligação para o ramal ${transferDestination}. Um momento, por favor.`;
+    return {
+      replyText: gatewayRes.replyText,
+      toolCallExecuted: gatewayRes.toolCallExecuted
+        ? {
+            name: gatewayRes.toolCallExecuted.name,
+            args: gatewayRes.toolCallExecuted.args,
+            result: gatewayRes.toolCallExecuted.result,
           }
-        } else if (fc.name === 'encerrar_chamada') {
-          action = 'hangup';
-          if (req.channelId) {
-            await asteriskAdapter.hangupCall(req.channelId);
-          }
-          result = {
-            sucesso: true,
-            status: 'chamada_encerrada',
-          };
-          if (!replyText) {
-            replyText = 'Agradeço pelo contato com a Enlace Telecom. Tenha um ótimo dia!';
-          }
-        } else if (fc.name === 'consultar_cdr') {
-          const cdrs = await CdrRepository.listByTenant(tenantId, { limit: 5 });
-          result = {
-            sucesso: true,
-            registros: cdrs.map(c => ({
-              data: c.startTime,
-              origem: c.caller,
-              destino: c.callee,
-              duracao: c.duration,
-              disposicao: c.disposition,
-            })),
-          };
-          if (!replyText) {
-            replyText = `Localizei os últimos ${cdrs.length} registros de bilhetagem no sistema.`;
-          }
-        } else if (fc.name === 'consultar_cliente') {
-          // Executor real: consulta dados cadastrais ou reporta não configurado
-          result = {
-            status: 'NOT_CONFIGURED',
-            message: 'Módulo de CRM/ERP não integrado a este tenant. Para ativar, vincule sua chave de CRM no Enlace Hub.',
-          };
-          if (!replyText) {
-            replyText = 'Estou consultando seus dados cadastrais, mas a integração de CRM com seu cadastro ainda está em fase de vinculação. Posso te ajudar com o assunto principal do seu atendimento?';
-          }
-        } else if (fc.name === 'consultar_fatura') {
-          result = {
-            status: 'NOT_CONFIGURED',
-            message: 'Módulo de Gateway Bancário/ERP não integrado a este tenant.',
-          };
-          if (!replyText) {
-            replyText = 'O serviço de consulta direta de faturas está temporariamente indisponível para consulta automática. Deseja que eu transfira para o setor financeiro?';
-          }
-        } else {
-          result = {
-            status: 'NOT_IMPLEMENTED',
-            error: `A ferramenta ${fc.name} não possui um executor de produção configurado neste ambiente.`,
-          };
-        }
-
-        toolCallExecuted = {
-          name: fc.name,
-          args,
-          result,
-        };
-      }
-
-      if (!replyText) {
-        replyText =
-          voiceConfig.gender === 'male'
-            ? 'Entendido. Aqui é o suporte da Enlace Telecom, como posso te ajudar?'
-            : 'Entendido. Em que mais posso te ajudar na Enlace Telecom?';
-      }
-
-      // Try Gemini TTS synthesis for natural human-like voice
-      let audioBase64: string | undefined = undefined;
-      try {
-        const ttsResponse = await ai.models.generateContent({
-          model: 'gemini-3.1-flash-tts-preview',
-          contents: [{ parts: [{ text: replyText }] }],
-          config: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: voiceConfig.voiceName,
-                },
-              },
-            },
-          },
-        });
-        const inlineAudio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (inlineAudio) {
-          audioBase64 = inlineAudio;
-        }
-        // Fallback smoothly to browser humanized Web Speech API
-      } catch (e) {
-        // Fallback smoothly to browser humanized Web Speech API
-      }
-
-      const latencyMs = Date.now() - startTime;
-
-      return {
-        replyText,
-        toolCallExecuted,
-        action,
-        transferDestination,
-        audioBase64,
-        latencyMs,
-        tokensUsed: {
-          input: Math.round(userPromptWithContext.length / 4) + 120,
-          output: Math.round(replyText.length / 4) + 20,
-        },
-        voiceConfig,
-      };
-    } catch (err: unknown) {
-      console.error('Gemini Voice Turn error:', err);
-      return this.handleFallbackTurn(agent, req, startTime, voiceConfig);
-    }
+        : undefined,
+      action: gatewayRes.action,
+      transferDestination: gatewayRes.transferDestination,
+      audioBase64: gatewayRes.audioBase64,
+      latencyMs: gatewayRes.latencyMs,
+      tokensUsed: gatewayRes.tokensUsed,
+      voiceConfig: gatewayRes.voiceConfig,
+    };
   }
 
   async summarizeAndAnalyzeCall(transcript: string, caller: string, callee: string): Promise<{ summary: string; sentiment: string; category: string; actionItems: string[] }> {
@@ -614,52 +362,42 @@ Retorne uma análise em português no seguinte formato JSON:
     providedVoiceConfig?: VoiceTurnResponse['voiceConfig']
   ): VoiceTurnResponse {
     const voiceConfig = providedVoiceConfig || resolveAgentVoice(agent);
-    const isMale = voiceConfig.gender === 'male';
     const lower = req.userMessage.toLowerCase();
 
-    let replyText = isMale
-      ? 'Olá! Aqui é o Roberto do Suporte Técnico da Enlace Telecom. Como posso ajudar com sua conexão, ramal ou chamado hoje?'
-      : 'Olá! Sou a MaIA da Enlace Telecom. Como posso te auxiliar com seus serviços de telefonia ou internet?';
+    let replyText = 'Nosso assistente virtual de inteligência artificial está temporariamente em manutenção. Deseja que eu transfira sua ligação para um atendente humano?';
     let action: VoiceTurnResponse['action'] = 'none';
     let transferDestination: string | undefined = undefined;
     let toolCallExecuted: VoiceTurnResponse['toolCallExecuted'] = undefined;
 
-    if (lower.includes('humano') || lower.includes('atendente') || lower.includes('transferir') || lower.includes('falar com alguém')) {
+    if (
+      lower.includes('humano') ||
+      lower.includes('atendente') ||
+      lower.includes('transferir') ||
+      lower.includes('falar com alguém') ||
+      lower.includes('sim') ||
+      lower.includes('transfira')
+    ) {
       action = 'transfer';
-      transferDestination = agent.transferExtension || (isMale ? '4101' : '4102');
-      replyText = `Com certeza! Estou transferindo você agora mesmo para o ramal ${transferDestination}. Por favor, aguarde na linha.`;
+      transferDestination = agent.transferExtension || '4101';
+      replyText = `Com certeza. Estou direcionando sua ligação para o ramal ${transferDestination}. Por favor, aguarde na linha.`;
       toolCallExecuted = {
         name: 'transferir_chamada',
-        args: { destino: transferDestination, motivo: 'Solicitação de atendente humano' },
-        result: { status: 'sucesso', canal_ari: `PJSIP/${transferDestination}-001a` },
+        args: { destino: transferDestination, motivo: 'Solicitação de atendente humano em contingência' },
+        result: { status: 'pending', destino: transferDestination },
       };
-    } else if (lower.includes('fatura') || lower.includes('boleto') || lower.includes('pix') || lower.includes('pagar') || lower.includes('segunda via')) {
-      replyText = isMale
-        ? 'Localizei sua fatura aqui no sistema: valor de R$ 249,00 com vencimento em 15/09. Posso enviar o código Pix por SMS ou transferir para a Renata no Financeiro.'
-        : 'Localizei sua fatura em aberto no valor de R$ 249,00 com vencimento em 15/09. Posso enviar o código Pix para você ou transferir para nosso setor de cobrança.';
-      toolCallExecuted = {
-        name: 'consultar_fatura',
-        args: { cpf_cnpj: 'titular' },
-        result: { valor: 'R$ 249,00', status: 'Aberta' },
-      };
-    } else if (lower.includes('suporte') || lower.includes('sem internet') || lower.includes('ramal') || lower.includes('mudo') || lower.includes('chiado')) {
-      replyText = isMale
-        ? 'Entendido perfeitamente. Como especialista de suporte, sugiro verificar se o cabo de rede está firme e reiniciar o aparelho telefônico por 30 segundos. Deseja que eu abra um chamado no NOC agora?'
-        : 'Entendi a dificuldade técnica. Recomendo verificar o cabo de rede ou reiniciar o aparelho por 30 segundos. Deseja que eu abra um chamado de suporte?';
-      toolCallExecuted = {
-        name: 'abrir_ticket',
-        args: { categoria: 'suporte_tecnico', urgencia: 'alta' },
-        result: { protocolo: `ENL-${Date.now().toString().slice(-5)}`, status: 'Aberto' },
-      };
-    } else if (lower.includes('tchau') || lower.includes('obrigado') || lower.includes('valeu') || lower.includes('desligar') || lower.includes('era isso')) {
+    } else if (
+      lower.includes('tchau') ||
+      lower.includes('obrigado') ||
+      lower.includes('valeu') ||
+      lower.includes('desligar') ||
+      lower.includes('era isso')
+    ) {
       action = 'hangup';
-      replyText = isMale
-        ? 'Obrigado pelo contato com o suporte Enlace Telecom! Qualquer dúvida, estamos à disposição no ramal 4102. Tenha um ótimo dia!'
-        : 'Foi um prazer te atender! A Enlace Telecom agradece sua ligação. Até logo!';
+      replyText = 'Agradeço pelo contato com a Enlace Telecom. Tenha um ótimo dia!';
       toolCallExecuted = {
         name: 'encerrar_chamada',
         args: { motivo: 'Conclusão pelo usuário' },
-        result: { status: 'finalizado' },
+        result: { status: 'completed' },
       };
     }
 
@@ -668,8 +406,8 @@ Retorne uma análise em português no seguinte formato JSON:
       toolCallExecuted,
       action,
       transferDestination,
-      latencyMs: Date.now() - startTime + 180,
-      tokensUsed: { input: 120, output: 45 },
+      latencyMs: Date.now() - startTime,
+      tokensUsed: { input: 10, output: 25 },
       voiceConfig,
     };
   }
@@ -710,7 +448,7 @@ Retorne uma análise em português no seguinte formato JSON:
     if (ai) {
       try {
         const ttsResponse = await ai.models.generateContent({
-          model: 'gemini-3.1-flash-tts-preview',
+          model: 'gemini-3.8-flash-lite-tts',
           contents: [{ parts: [{ text: sampleText }] }],
           config: {
             responseModalities: ['AUDIO'],

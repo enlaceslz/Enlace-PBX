@@ -32,19 +32,28 @@ class PostgresClient {
   private initPool() {
     const connectionString = process.env.DATABASE_URL;
 
+    const isProd = process.env.NODE_ENV === 'production';
+
     if (!connectionString && !process.env.PGHOST) {
       this.isConfigured = false;
       this.lastHealth = {
-        status: 'UP',
+        status: isProd ? 'NOT_CONFIGURED' : 'NOT_CONFIGURED',
         latencyMs: 1,
-        poolSize: 1,
-        activeClients: 1,
-        database: 'enlace_pbx (Memória Integrada de Alta Resiliência)',
-        mode: 'EMBEDDED_RESILIENT',
+        poolSize: 0,
+        activeClients: 0,
+        database: isProd ? 'não configurado' : 'enlace_pbx_dev',
+        mode: isProd ? 'POSTGRESQL_POOL' : 'EMBEDDED_RESILIENT',
+        error: isProd ? 'DATABASE_URL obrigatória em produção' : undefined,
       };
-      console.log(
-        '[PostgresClient] Nenhuma string DATABASE_URL detectada. Ativando Modo de Persistência Embarcada de Alta Resiliência.'
-      );
+      if (isProd) {
+        console.error(
+          '[PostgresClient] FATAL DE PRODUÇÃO: Nenhuma string DATABASE_URL detectada. O Enlace-PBX exige PostgreSQL relacional em produção.'
+        );
+      } else {
+        console.log(
+          '[PostgresClient] Nenhuma string DATABASE_URL detectada. Ativando Modo de Persistência Embarcada para desenvolvimento/testes.'
+        );
+      }
       return;
     }
 
@@ -73,6 +82,8 @@ class PostgresClient {
   }
 
   public async query<T = any>(text: string, params?: any[]): Promise<pg.QueryResult<T>> {
+    const isProd = process.env.NODE_ENV === 'production';
+
     // Se PostgreSQL externo estiver configurado e operacional
     if (this.pool && this.isConfigured) {
       const start = Date.now();
@@ -84,14 +95,19 @@ class PostgresClient {
         }
         return res;
       } catch (err: any) {
-        // Se a conexão física com o host PostgreSQL falhar (ex: porta fechada ou host offline),
-        // faz failover transparente para o motor de dados embarcado corporativo
-        console.warn(`[PostgresClient] Falha ao consultar PostgreSQL externo (${err.message}). Utilizando failover embarcado.`);
+        if (isProd) {
+          throw new Error(`FATAL DE PRODUÇÃO: Falha ao consultar PostgreSQL externo (${err.message}). Fallback em memória estritamente proibido em produção.`);
+        }
+        console.warn(`[PostgresClient] Falha ao consultar PostgreSQL externo (${err.message}). Utilizando failover embarcado de desenvolvimento.`);
         return await embeddedDatabaseEngine.query<T>(text, params);
       }
     }
 
-    // Modo Embarcado Resiliente (padrão em ambiente de desenvolvimento / preview)
+    if (isProd) {
+      throw new Error('FATAL DE PRODUÇÃO: Banco PostgreSQL não configurado. Fallback em memória estritamente proibido em produção.');
+    }
+
+    // Modo Embarcado Resiliente (apenas em ambiente de desenvolvimento / preview)
     return await embeddedDatabaseEngine.query<T>(text, params);
   }
 
@@ -100,11 +116,18 @@ class PostgresClient {
       try {
         return await this.pool.connect();
       } catch (err: any) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(`FATAL DE PRODUÇÃO: Falha ao obter conexão física com PostgreSQL (${err.message}).`);
+        }
         console.warn('[PostgresClient] Falha ao obter client do pool, retornando cliente simulado resiliente:', err.message);
       }
     }
 
-    // Cliente simulado compatível com a interface pg.PoolClient
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL DE PRODUÇÃO: Banco PostgreSQL não configurado. Fallback de client proibido.');
+    }
+
+    // Cliente simulado compatível com a interface pg.PoolClient (dev/test)
     const mockClient = {
       query: (text: string, params?: any[]) => this.query(text, params),
       release: () => {},
@@ -114,6 +137,8 @@ class PostgresClient {
   }
 
   public async checkHealth(): Promise<PostgresHealthStatus> {
+    const isProd = process.env.NODE_ENV === 'production';
+
     if (this.isConfigured && this.pool) {
       const start = Date.now();
       try {
@@ -134,17 +159,24 @@ class PostgresClient {
           client.release();
         }
       } catch (err: any) {
-        console.warn('[PostgresClient] Verificação de saúde no PostgreSQL externo falhou. Ativando status do motor embarcado.');
+        this.lastHealth = {
+          status: 'DOWN',
+          latencyMs: Date.now() - start,
+          error: `Falha de conexão com PostgreSQL externo: ${err.message}`,
+          mode: 'POSTGRESQL_POOL',
+        };
+        return this.lastHealth;
       }
     }
 
     this.lastHealth = {
-      status: 'UP',
+      status: 'NOT_CONFIGURED',
       latencyMs: 1,
-      poolSize: 1,
-      activeClients: 1,
-      database: 'enlace_pbx (Memória Integrada de Alta Resiliência)',
-      mode: 'EMBEDDED_RESILIENT',
+      poolSize: 0,
+      activeClients: 0,
+      database: isProd ? 'não configurado' : 'enlace_pbx_embedded_dev',
+      mode: isProd ? 'POSTGRESQL_POOL' : 'EMBEDDED_RESILIENT',
+      error: 'DATABASE_URL não definida',
     };
     return this.lastHealth;
   }

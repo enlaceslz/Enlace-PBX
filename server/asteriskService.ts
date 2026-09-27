@@ -654,6 +654,14 @@ echo "=== [ENLACE-PBX] Instalação concluída com sucesso! ==="
   }
 
   generateAriConf(): string {
+    const rawOrigins = process.env.ASTERISK_ARI_ALLOWED_ORIGINS || process.env.CORS_ALLOWED_ORIGINS;
+    const allowedOrigins = rawOrigins && rawOrigins.trim() !== '' && !rawOrigins.includes('*')
+      ? rawOrigins.trim()
+      : 'http://127.0.0.1:3000,http://localhost:3000';
+
+    const ariUser = process.env.ASTERISK_ARI_USERNAME || process.env.ASTERISK_ARI_USER || 'enlace_ari_admin';
+    const ariPassword = process.env.ASTERISK_ARI_PASSWORD || process.env.ASTERISK_AMI_PASSWORD || 'ari_enlace_internal_token';
+
     return `; ====================================================================
 ; Enlace-PBX — Configuração ARI (Asterisk REST Interface)
 ; Asterisk 20 LTS — Enlace Telecom
@@ -662,12 +670,12 @@ echo "=== [ENLACE-PBX] Instalação concluída com sucesso! ==="
 [general]
 enabled = yes
 pretty = yes
-allowed_origins = *
+allowed_origins = ${allowedOrigins}
 
-[enlace_ari_admin]
+[${ariUser}]
 type = user
 read_only = no
-password = ENLACE_ARI_SEC_TOKEN_PROD
+password = ${ariPassword}
 password_format = plain
 `;
   }

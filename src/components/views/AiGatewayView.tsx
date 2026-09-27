@@ -2063,61 +2063,130 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       {/* 5. SESSIONS TAB */}
       {currentTab === 'sessions' && (
         <div className="space-y-4">
-          {sessions.map((sess) => (
-            <div
-              key={sess.id}
-              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse" />
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-sm">
-                      Sessão {sess.id} • {sess.agentName}
-                    </h3>
-                    <div className="text-xs text-slate-500">
-                      Chamador: <strong className="text-slate-700 font-mono">{sess.caller}</strong> • Canal:{' '}
-                      <span className="font-mono text-slate-700">{sess.channel}</span>
+          {sessions.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-4">
+              <div className="w-12 h-12 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mx-auto">
+                <Radio className="w-6 h-6 animate-pulse" />
+              </div>
+              <div className="max-w-md mx-auto">
+                <h4 className="font-bold text-slate-800 text-base">Nenhuma Sessão Ativa no Momento</h4>
+                <p className="text-xs text-slate-500 mt-1">
+                  As sessões de voz humana com os Agentes MaIA e Roberto Mendes são registradas em tempo real durante as chamadas do Webphone WebRTC ou canais Asterisk PJSIP.
+                </p>
+              </div>
+              {onOpenWebphone && (
+                <button
+                  onClick={() => onOpenWebphone('9001')}
+                  className="px-4 py-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-sky-500/20 inline-flex items-center gap-2"
+                >
+                  <Headphones className="w-4 h-4" /> Iniciar Chamada de Teste com MaIA (9001)
+                </button>
+              )}
+            </div>
+          ) : (
+            sessions.map((sess) => (
+              <div
+                key={sess.id}
+                className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4 hover:border-slate-300 transition"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${sess.status === 'active' ? 'bg-emerald-500 animate-ping' : sess.status === 'completed' ? 'bg-sky-500' : 'bg-slate-400'}`} />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-slate-900 text-sm">
+                          Sessão {sess.id.slice(0, 12)}... • {sess.agentName || 'MaIA Enterprise'}
+                        </h3>
+                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                          sess.status === 'active'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : sess.status === 'transferred'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {sess.status === 'active' ? 'Em Andamento' : sess.status === 'transferred' ? 'Transferida' : 'Concluída'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        Chamador: <strong className="text-slate-700 font-mono">{sess.caller || '4101'}</strong> • Canal:{' '}
+                        <span className="font-mono text-slate-700">{sess.channel || 'WebRTC/res_pjsip'}</span> • Início:{' '}
+                        <span>{new Date(sess.startedAt).toLocaleString('pt-BR')}</span>
+                      </div>
                     </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                    <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-700 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-amber-500" />
+                      Latência: {sess.latencyAverageMs || 18}ms
+                    </span>
+                    <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-blue-500" />
+                      {sess.durationSeconds || 0}s
+                    </span>
+                    {(sess as any).csatScore !== undefined && (
+                      <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                        CSAT: {(sess as any).csatScore}/5.0
+                      </span>
+                    )}
+                    {(sess as any).toolCalls !== undefined && (sess as any).toolCalls > 0 && (
+                      <span className="px-2.5 py-1 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                        {(sess as any).toolCalls} ferramentas
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs font-mono">
-                  <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-700">
-                    Latência: {sess.latencyAverageMs}ms
-                  </span>
-                  <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                    {sess.durationSeconds}s
-                  </span>
-                </div>
-              </div>
+                {/* Resumo da Sessão (se houver) */}
+                {(sess as any).summary && (
+                  <div className="bg-sky-50/60 border border-sky-100 rounded-xl p-3 text-xs text-sky-950">
+                    <span className="font-bold text-sky-800 uppercase tracking-wide text-[10px] block mb-0.5">
+                      Resumo da Conversa (Supervisor IA):
+                    </span>
+                    {(sess as any).summary}
+                  </div>
+                )}
 
-              {/* Transcript Preview */}
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-2">
-                  Histórico da Interação em Tempo Real:
-                </label>
-                <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200 max-h-48 overflow-y-auto">
-                  {sess.transcript.map((t, idx) => (
-                    <div
-                      key={idx}
-                      className={`text-xs p-2 rounded-lg ${
-                        t.role === 'user'
-                          ? 'bg-white text-blue-700 border border-slate-200'
-                          : 'bg-white/40 text-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 mb-0.5 font-mono">
-                        <span className="capitalize font-bold">{t.role}</span>
-                        <span>{t.timestamp}</span>
-                      </div>
-                      <p>{t.text}</p>
-                    </div>
-                  ))}
+                {/* Transcript Preview */}
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-2 flex items-center justify-between">
+                    <span>Histórico da Interação em Tempo Real ({((sess.transcript || []).length)} mensagens):</span>
+                    {sess.transferReason && (
+                      <span className="text-amber-600 font-medium lowercase">Motivo: {sess.transferReason}</span>
+                    )}
+                  </label>
+                  <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200 max-h-48 overflow-y-auto">
+                    {(sess.transcript && sess.transcript.length > 0) ? (
+                      sess.transcript.map((t, idx) => (
+                        <div
+                          key={idx}
+                          className={`text-xs p-2.5 rounded-lg ${
+                            t.role === 'user'
+                              ? 'bg-white text-blue-900 border border-blue-100 shadow-2xs'
+                              : t.role === 'tool'
+                              ? 'bg-purple-50 text-purple-900 border border-purple-100'
+                              : t.role === 'system'
+                              ? 'bg-amber-50 text-amber-900 border border-amber-100'
+                              : 'bg-white text-slate-800 border border-slate-200 shadow-2xs'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-mono">
+                            <span className="capitalize font-bold text-slate-700">
+                              {t.role === 'user' ? '👤 Usuário / Cliente' : t.role === 'tool' ? '⚙️ Ferramenta Executada' : t.role === 'system' ? '🛡️ Política Asterisk' : '🤖 Agente MaIA'}
+                            </span>
+                            <span>{t.timestamp}</span>
+                          </div>
+                          <p className="whitespace-pre-wrap">{t.text}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-400 italic py-2 text-center">Nenhum turno gravado nesta sessão ainda.</p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
 
