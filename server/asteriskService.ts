@@ -10,6 +10,7 @@ import {
   SystemRepository,
 } from './infrastructure/postgres/repositories/index.js';
 import { asteriskAdapter, AsteriskChannelInfo } from './infrastructure/asterisk/AsteriskAdapter.js';
+import { AsteriskCommandService } from './infrastructure/asterisk/AsteriskCommandService.js';
 
 export interface AsteriskChannel {
   id: string;
@@ -761,25 +762,18 @@ format = slin24
   }
 
   /**
-   * Executa comando diretamente no Asterisk Core via CLI ou AMI.
-   * Não simula saídas quando Asterisk estiver offline.
+   * Executa comando estruturado e seguro no Asterisk Core via AsteriskCommandService.
+   * Valida obrigatoriamente a Allowlist para impedir qualquer injeção de comandos.
    */
-  async executeCliCommand(rawCmd: string): Promise<string> {
-    const hasBinary = await asteriskAdapter.checkBinaryExists();
-    if (hasBinary) {
-      const res = await asteriskAdapter.executeCli(rawCmd);
-      if (res.success) {
-        return res.output || 'Comando executado com sucesso no Asterisk CLI.';
-      }
-      return `[ERRO ASTERISK CLI] ${res.error || 'Falha ao executar comando no Asterisk CLI.'}`;
+  async executeCliCommand(
+    rawCmd: string,
+    context?: { tenantId?: string; userId?: string; ip?: string }
+  ): Promise<string> {
+    const res = await AsteriskCommandService.executeSafeCli(rawCmd, context);
+    if (res.success) {
+      return res.output || 'Comando executado com sucesso no Asterisk CLI.';
     }
-
-    try {
-      const out = await asteriskAdapter.executeAmiAction('Command', { Command: rawCmd });
-      return out || 'Comando executado via AMI.';
-    } catch (err: any) {
-      return `[ERRO COMUNICAÇÃO] Asterisk Core não está em execução ou não foi possível conectar ao socket CLI/AMI: ${err.message}`;
-    }
+    return `[ERRO ASTERISK CLI] ${res.error || 'Falha ao executar comando no Asterisk CLI.'}`;
   }
 
   /**

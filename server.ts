@@ -39,6 +39,7 @@ import { Extension, User, SafeExtension, WebRtcCredential } from './src/types/pb
 import { OmnichannelMessage } from './server/infrastructure/postgres/repositories/OmnichannelRepository.js';
 import { VpnAdapter } from './server/infrastructure/network/VpnAdapter.js';
 import { asteriskAdapter } from './server/infrastructure/asterisk/AsteriskAdapter.js';
+import { AsteriskCommandService } from './server/infrastructure/asterisk/AsteriskCommandService.js';
 import { postgresClient } from './server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from './server/infrastructure/postgres/migrations/migrator.js';
 import { requireAuth, requireRole, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext } from './server/infrastructure/auth/authMiddleware.js';
@@ -74,16 +75,26 @@ async function startServer() {
     throw new Error('TENANT_NOT_DETERMINED');
   }
 
-  // Inicialização assíncrona das migrações PostgreSQL e integridade do banco
-  DatabaseMigrator.runMigrations().then(res => {
-    if (res.success) {
-      console.log(`[PostgreSQL] Migrações e tabelas consolidadas com sucesso (${res.applied} novas aplicadas).`);
+  // Inicialização síncrona/bloqueante das migrações PostgreSQL e integridade do banco (Fail-Fast em produção)
+  console.log('[Enlace-PBX] [1/5] Validando ambiente e inicializando integridade do PostgreSQL...');
+  try {
+    const migrationRes = await DatabaseMigrator.runMigrations();
+    if (!migrationRes.success) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[Enlace-PBX] FATAL PRODUÇÃO: Falha crítica na execução das migrações PostgreSQL:', migrationRes.error);
+        process.exit(1);
+      } else {
+        console.warn('[Enlace-PBX] Aviso: Migrações PostgreSQL em modo de desenvolvimento:', migrationRes.error || 'Aguardando conexão');
+      }
     } else {
-      console.log(`[PostgreSQL] Status: ${res.error || 'Aguardando conexão'}`);
+      console.log(`[Enlace-PBX] [PostgreSQL] Migrações e tabelas consolidadas com sucesso (${migrationRes.applied} novas aplicadas).`);
     }
-  }).catch(err => {
+  } catch (err: any) {
     console.error('[PostgreSQL] Erro ao aplicar migrações:', err.message);
-  });
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
+  }
 
   // Configure express to trust the reverse proxy (crucial for AI Studio environment)
   app.set('trust proxy', 1);
@@ -160,29 +171,6 @@ async function startServer() {
       const user = await UserRepository.findByEmail(rawEmail);
 
       if (!user) {
-        // Se for o e-mail do operador do workspace, admin ou domínio corporativo, auto-provisiona para evitar bloqueio
-        if (rawEmail === 'slzenlace@gmail.com' || rawEmail.endsWith('@enlace.slz.br')) {
-          const autoAdmin: User = {
-            id: `user-${Date.now()}`,
-            tenantId: 'tenant-default',
-            name: rawEmail === 'slzenlace@gmail.com' ? 'André LJP (Enlace Telecom)' : 'Administrador Corporativo',
-            email: rawEmail,
-            role: 'super_admin',
-            passwordHash: await bcrypt.hash(password || 'Enlace@2026!', 10),
-            isActive: true,
-            extension: '1001',
-            lastLogin: new Date().toISOString(),
-          };
-          await UserRepository.save(autoAdmin);
-          const secret = getJwtSecret();
-          const token = jwt.sign(
-            { id: autoAdmin.id, role: autoAdmin.role, email: autoAdmin.email, tenantId: autoAdmin.tenantId, name: autoAdmin.name },
-            secret,
-            { expiresIn: '8h' }
-          );
-          return res.json({ token, user: UserRepository.toSafeUser(autoAdmin) });
-        }
-
         return res.status(401).json({ 
           error: 'Credenciais inválidas. Verifique seu e-mail e senha de acesso.' 
         });
@@ -253,12 +241,12 @@ async function startServer() {
   // -------------------------------------------------------------------------
 
   // 1. Liveness Probe (Público, rápido e leve)
-  app.get('/health/live', (req, res) => {
-    res.status(200).json({ status: 'alive' });
+  app.get(['/health/live', '/health'], (req, res) => {
+    res.status(200).json({ status: 'alive', timestamp: new Date().toISOString() });
   });
 
   // 2. Readiness Probe (Verifica dependências críticas: PostgreSQL, Asterisk, AMI)
-  app.get('/health/ready', async (req, res) => {
+  const readyHandler = async (req: express.Request, res: express.Response) => {
     const pgHealth = await postgresClient.checkHealth();
     const asteriskHealth = await asteriskAdapter.checkHealth();
 
@@ -279,7 +267,10 @@ async function startServer() {
         ami: amiStatus,
       },
     });
-  });
+  };
+
+  app.get('/health/ready', readyHandler);
+  app.get('/ready', readyHandler);
 
   // 3. Diagnóstico do Sistema Protegido por RBAC (/api/v1/system/health)
   app.get('/api/v1/system/health', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
@@ -4250,24 +4241,41 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.send(asteriskService.generateInstallScript());
   });
 
-  app.post('/api/v1/asterisk/reload', requireRole('super_admin', 'admin'), (req, res) => {
-    const output = asteriskService.executeCliCommand('core reload');
+  app.post('/api/v1/asterisk/reload', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = (req as any).user?.tenantId || 'SYSTEM';
+    const userId = (req as any).user?.id || 'admin';
+    const ip = req.ip || '127.0.0.1';
+
+    const output = await asteriskService.executeCliCommand('core reload', { tenantId, userId, ip });
     recordAuditLog({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
+      tenantId,
+      userId,
+      userName: (req as any).user?.name || 'Administrador',
       action: 'RELOAD_ASTERISK_CORE',
       resource: 'asterisk/core',
-      ip: req.ip || '127.0.0.1',
-      details: 'Recarregamento total dos módulos do Asterisk (PJSIP, Dialplan, AudioSocket e ARI).',
+      ip,
+      details: 'Recarregamento seguro dos módulos do Asterisk (PJSIP, Dialplan, AudioSocket e ARI).',
       category: 'TELECOM_SIP',
       severity: 'WARNING',
     });
     res.json({ success: true, message: output });
   });
 
-  app.post('/api/v1/asterisk/cli', requireRole('super_admin', 'admin'), (req, res) => {
+  app.post('/api/v1/asterisk/cli', requireRole('super_admin', 'admin'), async (req, res) => {
     const cmd = (req.body.command || '').trim();
-    const output = asteriskService.executeCliCommand(cmd);
+    const tenantId = (req as any).user?.tenantId || 'SYSTEM';
+    const userId = (req as any).user?.id || 'admin';
+    const ip = req.ip || '127.0.0.1';
+
+    const output = await asteriskService.executeCliCommand(cmd, { tenantId, userId, ip });
     res.json({ command: cmd, output });
+  });
+
+  app.get('/api/v1/asterisk/cli/allowed', requireRole('super_admin', 'admin'), (req, res) => {
+    res.json({
+      allowedCommands: AsteriskCommandService.getAllowedCommandsList(),
+      policy: 'STRICT_ALLOWLIST_NO_SHELL',
+    });
   });
 
   // -------------------------------------------------------------------------

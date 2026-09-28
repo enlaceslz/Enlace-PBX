@@ -1,9 +1,10 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import util from 'util';
 import net from 'net';
 import http from 'http';
 
 const execPromise = util.promisify(exec);
+const execFilePromise = util.promisify(execFile);
 
 export interface AsteriskChannelInfo {
   id: string;
@@ -89,8 +90,7 @@ export class AsteriskAdapter {
     }
 
     try {
-      const sanitizedCommand = command.replace(/"/g, '\\"');
-      const { stdout, stderr } = await execPromise(`asterisk -rx "${sanitizedCommand}"`, { timeout: 8000 });
+      const { stdout, stderr } = await execFilePromise('asterisk', ['-rx', command], { timeout: 8000 });
       return {
         success: true,
         output: stdout || stderr,

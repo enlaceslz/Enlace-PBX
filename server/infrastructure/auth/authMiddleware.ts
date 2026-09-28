@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { User } from '../../../src/types/pbx.js';
 import { UserRepository } from '../postgres/repositories/UserRepository.js';
 import { TenantRepository } from '../postgres/repositories/TenantRepository.js';
+import { AuditLogRepository } from '../postgres/repositories/AuditLogRepository.js';
 import { env } from '../../config/env.js';
 
 export type UserRole = 'super_admin' | 'admin' | 'supervisor' | 'operator' | 'agent' | 'readonly';
@@ -99,8 +100,7 @@ export interface AuthenticatedRequest extends Request {
  */
 export const requireAuth = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
-  const token = (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null) ||
-                (typeof req.query?.token === 'string' ? req.query.token : null);
+  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7).trim() : null;
 
   if (!token) {
     return res.status(401).json({
@@ -285,6 +285,21 @@ export const requireTenant = async (req: AuthenticatedRequest, res: Response, ne
         return res.status(404).json({ error: `Tenant informado (${requestedTenantId}) não existe.`, code: 'TENANT_NOT_FOUND' });
       }
       req.tenantId = requestedTenantId;
+
+      // Auditoria obrigatória de troca de tenant para super_admin (conformidade multi-tenant)
+      try {
+        await AuditLogRepository.create({
+          tenantId: requestedTenantId,
+          userId: req.user.id,
+          userName: req.user.name,
+          action: 'CROSS_TENANT_SWITCH',
+          resource: `tenant/${requestedTenantId}`,
+          details: `Super Admin alternou o contexto do tenant de origem '${req.user.tenantId}' para o tenant de destino '${requestedTenantId}'.`,
+          ip: req.ip || '127.0.0.1',
+        });
+      } catch (err: any) {
+        console.warn('[requireTenant] Falha ao registrar log de auditoria de cross-tenant:', err?.message || err);
+      }
     } else {
       req.tenantId = req.user.tenantId;
     }
