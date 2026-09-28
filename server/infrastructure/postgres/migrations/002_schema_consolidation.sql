@@ -78,87 +78,114 @@ ALTER TABLE recordings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE billing ENABLE ROW LEVEL SECURITY;
 
--- Políticas RLS: Usuário só enxerga o tenant autenticado, a menos que seja super_admin ou sessão interna
+-- Políticas RLS: Usuário só enxerga o tenant autenticado sob Fail-Closed estrito (nunca permitir acesso se tenant for nulo)
 DO $$
 BEGIN
     -- Extensions
     DROP POLICY IF EXISTS rls_extensions_tenant ON extensions;
     CREATE POLICY rls_extensions_tenant ON extensions FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 
     -- Trunks
     DROP POLICY IF EXISTS rls_trunks_tenant ON trunks;
     CREATE POLICY rls_trunks_tenant ON trunks FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 
     -- Dids
     DROP POLICY IF EXISTS rls_dids_tenant ON dids;
     CREATE POLICY rls_dids_tenant ON dids FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 
     -- Routes
     DROP POLICY IF EXISTS rls_routes_tenant ON routes;
     CREATE POLICY rls_routes_tenant ON routes FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 
     -- Queues
     DROP POLICY IF EXISTS rls_queues_tenant ON queues;
     CREATE POLICY rls_queues_tenant ON queues FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 
     -- CDR
     DROP POLICY IF EXISTS rls_cdr_tenant ON cdr;
     CREATE POLICY rls_cdr_tenant ON cdr FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 
     -- Audit Logs
     DROP POLICY IF EXISTS rls_audit_logs_tenant ON audit_logs;
     CREATE POLICY rls_audit_logs_tenant ON audit_logs FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 
     -- AI Agents
     DROP POLICY IF EXISTS rls_ai_agents_tenant ON ai_agents;
     CREATE POLICY rls_ai_agents_tenant ON ai_agents FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 
     -- AI Knowledge
     DROP POLICY IF EXISTS rls_ai_knowledge_tenant ON ai_knowledge;
     CREATE POLICY rls_ai_knowledge_tenant ON ai_knowledge FOR ALL
     USING (
-        current_app_tenant() IS NULL 
-        OR is_app_super_admin() 
-        OR tenant_id = current_app_tenant()
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
+    )
+    WITH CHECK (
+        is_app_super_admin() 
+        OR (current_app_tenant() IS NOT NULL AND tenant_id = current_app_tenant())
     );
 END $$;

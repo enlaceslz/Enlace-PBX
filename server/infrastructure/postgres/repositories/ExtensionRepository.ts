@@ -1,5 +1,6 @@
-import { postgresClient } from '../client';
-import { Extension, SafeExtension } from '../../../../src/types/pbx';
+import { postgresClient } from '../client.js';
+import { Extension, SafeExtension } from '../../../../src/types/pbx.js';
+import { EncryptionService } from '../../security/EncryptionService.js';
 
 export class ExtensionRepository {
   public static toSafeExtension(ext: Extension): SafeExtension {
@@ -20,7 +21,7 @@ export class ExtensionRepository {
         tenantId: row.tenant_id,
         number: row.number,
         name: row.name,
-        sipSecret: row.sip_secret,
+        sipSecret: EncryptionService.decrypt(row.sip_secret),
         context: row.context,
         callerId: row.caller_id,
         cliCallerId: row.cli_caller_id || undefined,
@@ -51,7 +52,7 @@ export class ExtensionRepository {
         tenantId: row.tenant_id,
         number: row.number,
         name: row.name,
-        sipSecret: row.sip_secret,
+        sipSecret: EncryptionService.decrypt(row.sip_secret),
         context: row.context,
         callerId: row.caller_id,
         cliCallerId: row.cli_caller_id || undefined,
@@ -84,7 +85,7 @@ export class ExtensionRepository {
           tenantId: row.tenant_id,
           number: row.number,
           name: row.name,
-          sipSecret: row.sip_secret,
+          sipSecret: EncryptionService.decrypt(row.sip_secret),
           context: row.context,
           callerId: row.caller_id,
           cliCallerId: row.cli_caller_id || undefined,
@@ -122,7 +123,7 @@ export class ExtensionRepository {
           tenantId: row.tenant_id,
           number: row.number,
           name: row.name,
-          sipSecret: row.sip_secret,
+          sipSecret: EncryptionService.decrypt(row.sip_secret),
           context: row.context,
           callerId: row.caller_id,
           cliCallerId: row.cli_caller_id || undefined,
@@ -150,6 +151,8 @@ export class ExtensionRepository {
 
   public static async save(ext: Extension): Promise<Extension> {
     try {
+      const encryptedSecret = EncryptionService.encrypt(ext.sipSecret);
+
       await postgresClient.query(
         `INSERT INTO extensions (id, tenant_id, number, name, sip_secret, context, caller_id, cli_caller_id, codecs, nat, webrtc, recording, voicemail, dnd, status, ip_address, allow_ai_transfer)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
@@ -171,7 +174,7 @@ export class ExtensionRepository {
              allow_ai_transfer = EXCLUDED.allow_ai_transfer,
              updated_at = CURRENT_TIMESTAMP`,
         [
-          ext.id, ext.tenantId, ext.number, ext.name, ext.sipSecret, ext.context,
+          ext.id, ext.tenantId, ext.number, ext.name, encryptedSecret, ext.context,
           ext.callerId, ext.cliCallerId || null, JSON.stringify(ext.codecs || ['opus', 'alaw', 'ulaw']),
           ext.nat ?? true, ext.webrtc ?? true, ext.recording ?? true, ext.voicemail ?? false, ext.dnd ?? false,
           ext.status || 'offline', ext.ipAddress || null, ext.allowAiTransfer ?? true

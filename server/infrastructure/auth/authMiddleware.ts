@@ -161,6 +161,76 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
 };
 
 /**
+ * Middleware de Autenticação para Streams SSE (Server-Sent Events):
+ * Como o EventSource padrão dos navegadores não suporta cabeçalhos customizados,
+ * aceita o token no header Authorization Bearer OU estritamente via query string ?token=
+ * apenas para conexões de telemetria/stream.
+ */
+export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization'];
+  let token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7).trim() : null;
+
+  if (!token && typeof req.query?.token === 'string') {
+    token = req.query.token.trim();
+  }
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'Autenticação SSE obrigatória. Token JWT não fornecido.',
+      code: 'AUTH_TOKEN_MISSING'
+    });
+  }
+
+  let secret: string;
+  try {
+    secret = getJwtSecret();
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  try {
+    const decoded = jwt.verify(token, secret) as any;
+
+    const user = (decoded.id ? await UserRepository.findById(decoded.id) : null) ||
+                 (decoded.email ? await UserRepository.findByEmail(decoded.email) : null);
+
+    if (!user) {
+      return res.status(401).json({
+        error: 'Usuário do token SSE não localizado.',
+        code: 'AUTH_USER_NOT_FOUND'
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({
+        error: 'Conta de usuário desativada pelo administrador.',
+        code: 'AUTH_USER_INACTIVE'
+      });
+    }
+
+    const normalizedRole = normalizeRole(user.role);
+
+    req.user = {
+      id: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      role: normalizedRole,
+      name: user.name,
+      extension: user.extension,
+    };
+
+    req.tenantId = user.tenantId;
+
+    next();
+  } catch {
+    return res.status(401).json({
+      error: 'Token JWT SSE inválido ou expirado.',
+      code: 'AUTH_TOKEN_INVALID'
+    });
+  }
+};
+
+/**
  * Middleware RBAC: Exige que o usuário possua um dos papéis informados.
  */
 export const requireRole = (...allowedRoles: UserRole[]) => {

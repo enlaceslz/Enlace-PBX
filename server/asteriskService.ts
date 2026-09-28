@@ -149,8 +149,9 @@ export class AsteriskService {
 
   /**
    * Gerador oficial de configuração PJSIP (pjsip.conf) baseado em PostgreSQL.
+   * Suporta mascaramento de segredos para exibição segura na API administrativa.
    */
-  async generatePjsipConf(tenantId: string): Promise<string> {
+  async generatePjsipConf(tenantId: string, maskSecrets: boolean = false): Promise<string> {
     const extensions = await ExtensionRepository.listByTenant(tenantId);
     const trunks = await TrunkRepository.listByTenant(tenantId);
     const infraStored = await SystemRepository.getInfraConfig();
@@ -232,7 +233,7 @@ dtls_setup=actpass` : ''}
 [${ext.number}-auth]
 type=auth
 auth_type=userpass
-password=${ext.sipSecret}
+password=${maskSecrets ? '••••••••' : ext.sipSecret}
 username=${ext.number}
 
 [${ext.number}-aor]
@@ -654,14 +655,21 @@ echo "=== [ENLACE-PBX] Instalação concluída com sucesso! ==="
 `;
   }
 
-  generateAriConf(): string {
+  generateAriConf(maskSecrets: boolean = false): string {
     const rawOrigins = process.env.ASTERISK_ARI_ALLOWED_ORIGINS || process.env.CORS_ALLOWED_ORIGINS;
     const allowedOrigins = rawOrigins && rawOrigins.trim() !== '' && !rawOrigins.includes('*')
       ? rawOrigins.trim()
       : 'http://127.0.0.1:3000,http://localhost:3000';
 
-    const ariUser = process.env.ASTERISK_ARI_USERNAME || process.env.ASTERISK_ARI_USER || 'enlace_ari_admin';
-    const ariPassword = process.env.ASTERISK_ARI_PASSWORD || process.env.ASTERISK_AMI_PASSWORD || 'ari_enlace_internal_token';
+    const isProd = process.env.NODE_ENV === 'production';
+    const ariUser = process.env.ASTERISK_ARI_USERNAME || process.env.ASTERISK_ARI_USER || 'enlace_ari';
+    const ariPassword = process.env.ASTERISK_ARI_PASSWORD?.trim();
+
+    if (!ariPassword && isProd) {
+      throw new Error('FATAL PRODUÇÃO: ASTERISK_ARI_PASSWORD é obrigatória e deve ser configurada explicitamente sem fallback.');
+    }
+
+    const effectivePassword = ariPassword || (isProd ? '' : 'ari_dev_local_secret');
 
     return `; ====================================================================
 ; Enlace-PBX — Configuração ARI (Asterisk REST Interface)
@@ -676,7 +684,7 @@ allowed_origins = ${allowedOrigins}
 [${ariUser}]
 type = user
 read_only = no
-password = ${ariPassword}
+password = ${maskSecrets ? '••••••••' : effectivePassword}
 password_format = plain
 `;
   }

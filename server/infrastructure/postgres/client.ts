@@ -185,8 +185,60 @@ class PostgresClient {
     return this.lastHealth;
   }
 
+  /**
+   * Executa operação transacional isolada por tenant configurando variáveis de sessão LOCAL
+   * Garante conformidade com RLS PostgreSQL sob modelo Fail-Closed.
+   */
+  public async withTenantTransaction<T>(
+    context: { tenantId?: string; isSuperAdmin?: boolean },
+    callback: (client: pg.PoolClient) => Promise<T>
+  ): Promise<T> {
+    const isProd = process.env.NODE_ENV === 'production';
+
+    if (this.pool && this.isConfigured) {
+      const client = await this.pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Configuração segura e isolada da sessão local da transação
+        if (context.tenantId) {
+          await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [context.tenantId]);
+        }
+        if (context.isSuperAdmin) {
+          await client.query("SELECT set_config('app.is_super_admin', 'true', true)");
+        }
+
+        const result = await callback(client);
+        await client.query('COMMIT');
+        return result;
+      } catch (err: any) {
+        try {
+          await client.query('ROLLBACK');
+        } catch {}
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
+    if (isProd) {
+      throw new Error('FATAL DE PRODUÇÃO: Banco PostgreSQL não conectado para transação RLS.');
+    }
+
+    // Modo de desenvolvimento com cliente simulado
+    const mockClient = await this.getClient();
+    return await callback(mockClient);
+  }
+
+  /**
+   * Verifica o estado real da conexão.
+   * Não retorna 'true' incondicionalmente para mascarar falhas.
+   */
   public isConnected(): boolean {
-    return true;
+    if (!this.isConfigured || !this.pool) {
+      return false;
+    }
+    return this.lastHealth.status === 'UP';
   }
 }
 

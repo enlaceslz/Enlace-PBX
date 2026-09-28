@@ -42,7 +42,7 @@ import { asteriskAdapter } from './server/infrastructure/asterisk/AsteriskAdapte
 import { AsteriskCommandService } from './server/infrastructure/asterisk/AsteriskCommandService.js';
 import { postgresClient } from './server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from './server/infrastructure/postgres/migrations/migrator.js';
-import { requireAuth, requireRole, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext } from './server/infrastructure/auth/authMiddleware.js';
+import { requireAuth, requireSseAuth, requireRole, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext } from './server/infrastructure/auth/authMiddleware.js';
 import { maiaAIGateway } from './server/maia/gateway/MaiaAIGateway.js';
 import { MaiaSessionRepository } from './server/maia/repositories/MaiaSessionRepository.js';
 
@@ -2104,7 +2104,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/events/asterisk', requireAuth, (req, res) => {
+  app.get('/api/v1/events/asterisk', requireSseAuth, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -4191,41 +4191,43 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({ success: true, channel: spyChan, message: `ChanSpy iniciado no ramal ${supervisorExt}.` });
   });
 
-  app.get('/api/v1/asterisk/configs', (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+  app.get('/api/v1/asterisk/configs', requireAuth, requireRole('super_admin', 'admin'), requireTenant, async (req, res) => {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para gerar configurações do Asterisk.' });
     }
+    // Sempre mascara segredos para exibição segura na API administrativa
     res.json({
-      pjsipConf: asteriskService.generatePjsipConf(tenantId),
+      pjsipConf: await asteriskService.generatePjsipConf(tenantId, true),
       extensionsConf: asteriskService.generateExtensionsConf(tenantId),
-      ariConf: asteriskService.generateAriConf(),
-      queuesConf: asteriskService.generateQueuesConf(tenantId),
+      ariConf: asteriskService.generateAriConf(true),
+      queuesConf: await asteriskService.generateQueuesConf(tenantId),
       rtpConf: asteriskService.generateRtpConf(),
       audioSocketConf: asteriskService.generateAudioSocketConf(),
       installerScript: asteriskService.generateInstallScript(),
     });
   });
 
-  app.get('/api/v1/asterisk/configs/:file', (req, res) => {
-    const tenantId = (req.query.tenantId as string) || (req as any).user?.tenantId;
+  app.get('/api/v1/asterisk/configs/:file', requireAuth, requireRole('super_admin', 'admin'), requireTenant, async (req, res) => {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
     }
     const { file } = req.params;
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
 
+    // Mascara segredos para visualização na UI administrativa
     if (file === 'pjsip') {
-      return res.send(asteriskService.generatePjsipConf(tenantId));
+      return res.send(await asteriskService.generatePjsipConf(tenantId, true));
     }
     if (file === 'extensions') {
       return res.send(asteriskService.generateExtensionsConf(tenantId));
     }
     if (file === 'ari') {
-      return res.send(asteriskService.generateAriConf());
+      return res.send(asteriskService.generateAriConf(true));
     }
     if (file === 'queues') {
-      return res.send(asteriskService.generateQueuesConf(tenantId));
+      return res.send(await asteriskService.generateQueuesConf(tenantId));
     }
     if (file === 'rtp') {
       return res.send(asteriskService.generateRtpConf());
@@ -4236,7 +4238,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     return res.status(404).send('; Arquivo de configuração não encontrado');
   });
 
-  app.get('/api/v1/asterisk/install-script', (req, res) => {
+  app.get('/api/v1/asterisk/install-script', requireAuth, requireRole('super_admin', 'admin'), (req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(asteriskService.generateInstallScript());
   });

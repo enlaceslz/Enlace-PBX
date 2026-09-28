@@ -1,88 +1,182 @@
-import { asteriskAdapter } from '../server/infrastructure/asterisk/AsteriskAdapter';
-import { postgresClient } from '../server/infrastructure/postgres/client';
-import { CdrRepository } from '../server/infrastructure/postgres/repositories/CdrRepository';
-import { AuditLogRepository } from '../server/infrastructure/postgres/repositories/AuditLogRepository';
-import { AiAgentRepository } from '../server/infrastructure/postgres/repositories/AiAgentRepository';
-import { AiKnowledgeRepository } from '../server/infrastructure/postgres/repositories/AiKnowledgeRepository';
-import { ExtensionRepository } from '../server/infrastructure/postgres/repositories/ExtensionRepository';
-import { TrunkRepository } from '../server/infrastructure/postgres/repositories/TrunkRepository';
-import { DidRepository } from '../server/infrastructure/postgres/repositories/DidRepository';
-import { TenantRepository } from '../server/infrastructure/postgres/repositories/TenantRepository';
-import { VpnAdapter } from '../server/infrastructure/network/VpnAdapter';
+import { asteriskAdapter } from '../server/infrastructure/asterisk/AsteriskAdapter.js';
+import { postgresClient } from '../server/infrastructure/postgres/client.js';
+import { CdrRepository } from '../server/infrastructure/postgres/repositories/CdrRepository.js';
+import { AuditLogRepository } from '../server/infrastructure/postgres/repositories/AuditLogRepository.js';
+import { AiAgentRepository } from '../server/infrastructure/postgres/repositories/AiAgentRepository.js';
+import { AiKnowledgeRepository } from '../server/infrastructure/postgres/repositories/AiKnowledgeRepository.js';
+import { ExtensionRepository } from '../server/infrastructure/postgres/repositories/ExtensionRepository.js';
+import { TrunkRepository } from '../server/infrastructure/postgres/repositories/TrunkRepository.js';
+import { DidRepository } from '../server/infrastructure/postgres/repositories/DidRepository.js';
+import { TenantRepository } from '../server/infrastructure/postgres/repositories/TenantRepository.js';
+import { VpnAdapter } from '../server/infrastructure/network/VpnAdapter.js';
+import { AsteriskCommandService } from '../server/infrastructure/asterisk/AsteriskCommandService.js';
+import { MaiaPolicyEngine } from '../server/maia/policy/MaiaPolicyEngine.js';
 import crypto from 'crypto';
 
+type CheckStatus = 'PASS' | 'FAIL' | 'BLOCKED' | 'NOT_TESTED' | 'NOT_APPLICABLE';
+
+interface ArchCheck {
+  component: string;
+  status: CheckStatus;
+  detail: string;
+}
+
 async function runVerification() {
-  console.log('=== [ENLACE-PBX] INICIANDO VERIFICAÇÃO DA ARQUITETURA REAL ===\n');
+  console.log('====================================================================');
+  console.log('🐙  ENLACE-PBX — RELATÓRIO DE VERIFICAÇÃO DE ARQUITETURA REAL');
+  console.log('====================================================================\n');
 
-  // 1. Verificação de ID Cryptográfico (Substituição de Math.random)
-  const testId = `cdr-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-  console.log(`[1/5] Geração de ID criptográfico seguro: ${testId} - SUCESSO`);
+  const checks: ArchCheck[] = [];
 
-  // 2. Teste do AsteriskAdapter: isAsteriskRunning & applyPjsipConfig
-  console.log('\n[2/5] Testando AsteriskAdapter e filesystem de pjsip.conf...');
-  const isRunning = await asteriskAdapter.isAsteriskRunning();
-  console.log(`  -> Asterisk operacional: ${isRunning ? 'SIM (Binário detectado)' : 'NÃO (Ambiente de container/sandbox)'}`);
-
-  const samplePjsip = `; Enlace-PBX Real Configuration Test\n; Generated at: ${new Date().toISOString()}\n[transport-udp]\ntype=transport\nprotocol=udp\nbind=0.0.0.0:5060\n`;
-  const applyRes = await asteriskAdapter.applyPjsipConfig(samplePjsip);
-  console.log(`  -> applyPjsipConfig status: ${applyRes.success}`);
-  console.log(`  -> applyPjsipConfig mensagem: ${applyRes.message}`);
-  if (applyRes.backupPath) {
-    console.log(`  -> Backup gerado com sucesso em: ${applyRes.backupPath}`);
-  }
-
-  // 3. Teste dos Repositórios com Persistência
-  console.log('\n[3/5] Testando Conexão e Repositórios PostgreSQL...');
-  if (postgresClient.isConfigured) {
-    const allTenants = await TenantRepository.listAll();
-    const tenantId = allTenants[0]?.id || 'test-tenant';
-
-    const auditLog = await AuditLogRepository.create({
-      tenantId,
-      userId: 'admin-test',
-      userName: 'Auditor de Produção',
-      action: 'VERIFY_REAL_ARCHITECTURE',
-      resource: 'system/verification',
-      details: 'Verificação da integridade operacional do backend Enlace-PBX',
-      ip: '127.0.0.1',
+  // 1. Geração Criptográfica
+  try {
+    const testId = `cdr-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    checks.push({
+      component: 'Criptografia (RandomBytes / UUID)',
+      status: 'PASS',
+      detail: `ID gerado: ${testId}`,
     });
-    console.log(`  -> AuditLogRepository registrado com ID: ${auditLog.id}`);
-
-    const cdrs = await CdrRepository.listByTenant(tenantId, { limit: 5 });
-    console.log(`  -> CdrRepository retornou ${cdrs.length} registros para o tenant ${tenantId}`);
-
-    const agents = await AiAgentRepository.listByTenant(tenantId);
-    console.log(`  -> AiAgentRepository retornou ${agents.length} agentes cadastrados`);
-
-    const knowledge = await AiKnowledgeRepository.listByTenant(tenantId);
-    console.log(`  -> AiKnowledgeRepository retornou ${knowledge.length} bases de conhecimento`);
-
-    const extensions = await ExtensionRepository.listByTenant(tenantId);
-    const trunks = await TrunkRepository.listByTenant(tenantId);
-    const dids = await DidRepository.listByTenant(tenantId);
-    console.log(`  -> Ramais cadastrados: ${extensions.length}`);
-    console.log(`  -> Troncos PJSIP configurados: ${trunks.length}`);
-    console.log(`  -> DIDs ativos: ${dids.length}`);
-  } else {
-    console.log('  -> PostgreSQL aguardando credenciais (DATABASE_URL / PGHOST). Módulos configurados para conexão corporativa estrita sem mocks.');
+  } catch (err: any) {
+    checks.push({
+      component: 'Criptografia (RandomBytes / UUID)',
+      status: 'FAIL',
+      detail: err.message,
+    });
   }
 
-  // 4. Teste de Adaptadores de Rede (VpnAdapter)
-  console.log('\n[4/5] Testando VpnAdapter (WireGuard e ZeroTier real telemetry)...');
+  // 2. Asterisk Core
+  const hasBinary = await asteriskAdapter.checkBinaryExists();
+  if (hasBinary) {
+    checks.push({
+      component: 'Asterisk — Binário Local Instalado',
+      status: 'PASS',
+      detail: 'Binário /usr/sbin/asterisk localizado no PATH.',
+    });
+
+    const isRunning = await asteriskAdapter.isAsteriskRunning();
+    checks.push({
+      component: 'Asterisk — Daemon em Execução',
+      status: isRunning ? 'PASS' : 'FAIL',
+      detail: isRunning ? 'Processo asterisk ativo.' : 'Binário presente, mas daemon não responde.',
+    });
+  } else {
+    checks.push({
+      component: 'Asterisk — Binário Local Instalado',
+      status: 'BLOCKED',
+      detail: 'Binário asterisk não instalado neste container/sandbox.',
+    });
+    checks.push({
+      component: 'Asterisk — Daemon em Execução',
+      status: 'BLOCKED',
+      detail: 'Ambiente de container sem Asterisk nativo em execução.',
+    });
+  }
+
+  // 3. AsteriskCommandService & Allowlist
+  const isAllowlistActive = AsteriskCommandService.isCommandAllowed('pjsip show endpoints') &&
+                           !AsteriskCommandService.isCommandAllowed('core show version; rm -rf /');
+  checks.push({
+    component: 'Asterisk — Allowlist CLI & Anti-Injection',
+    status: isAllowlistActive ? 'PASS' : 'FAIL',
+    detail: isAllowlistActive ? 'Allowlist bloqueia injeções e autoriza comandos catalogados.' : 'Falha na validação da Allowlist.',
+  });
+
+  // 4. PostgreSQL Relacional
+  const pgHealth = await postgresClient.checkHealth();
+  if (postgresClient.isConfigured && pgHealth.status === 'UP') {
+    checks.push({
+      component: 'PostgreSQL — Conexão Relacional Externa',
+      status: 'PASS',
+      detail: `Conectado ao banco: ${pgHealth.database} (latência: ${pgHealth.latencyMs}ms)`,
+    });
+  } else {
+    checks.push({
+      component: 'PostgreSQL — Conexão Relacional Externa',
+      status: 'BLOCKED',
+      detail: 'DATABASE_URL ausente no ambiente de execução. Motor embarcado resiliente ativo para dev.',
+    });
+  }
+
+  // 5. Repositórios de Dados
+  try {
+    const tenants = await TenantRepository.listAll();
+    const tId = tenants[0]?.id || 'tenant-default';
+    const exts = await ExtensionRepository.listByTenant(tId);
+    checks.push({
+      component: 'Repositórios de Entidades (Ramais/Troncos/DIDs)',
+      status: 'PASS',
+      detail: `${exts.length} ramais mapeados para o tenant ${tId}.`,
+    });
+  } catch (err: any) {
+    checks.push({
+      component: 'Repositórios de Entidades (Ramais/Troncos/DIDs)',
+      status: 'FAIL',
+      detail: err.message,
+    });
+  }
+
+  // 6. VPN & Conectividade de Rede
   const wgStatus = await VpnAdapter.getWireguardStatus();
-  console.log(`  -> WireGuard status: ${wgStatus.status}, instalada: ${wgStatus.installed}, interface: ${wgStatus.interface || 'wg0'}`);
+  checks.push({
+    component: 'Rede — WireGuard Tools',
+    status: wgStatus.installed ? 'PASS' : 'BLOCKED',
+    detail: wgStatus.installed ? `Interface ${wgStatus.interface} ativa.` : 'Binário wg não instalado no host.',
+  });
 
   const ztStatus = await VpnAdapter.getZeroTierStatus();
-  console.log(`  -> ZeroTier status: ${ztStatus.status}, instalada: ${ztStatus.installed}, nodeId: ${ztStatus.nodeId || 'N/A'}`);
+  checks.push({
+    component: 'Rede — ZeroTier CLI',
+    status: ztStatus.installed ? 'PASS' : 'BLOCKED',
+    detail: ztStatus.installed ? `NodeId: ${ztStatus.nodeId}` : 'Binário zerotier-cli não instalado no host.',
+  });
 
-  // 5. Verificação da Integridade da API e Segurança
-  console.log('\n[5/5] Testando integridade dos serviços do ecossistema Enlace-PBX...');
-  console.log('  -> Autenticação JWT: Protegida e verificada.');
-  console.log('  -> Telefonia WebRTC / SIP: Stack PJSIP pura validada.');
-  console.log('  -> IA Cognitiva Google Gemini: Endpoints /api/v1/ai-gateway prontos.');
-  console.log('  -> Conformidade LGPD: Trilha de auditoria criptografada e imutável.');
+  // 7. TIP Brasil & WebRTC
+  checks.push({
+    component: 'Telecom — Tronco TIP Brasil (Conexão SBC)',
+    status: 'NOT_TESTED',
+    detail: 'Requer SBC remoto da TIP Brasil ativo para teste de sinalização SIP real.',
+  });
 
-  console.log('\n=== [ENLACE-PBX] TODAS AS VERIFICAÇÕES CONCLUÍDAS COM SUCESSO ===');
+  checks.push({
+    component: 'Telecom — WebRTC WSS (Mídia Real de Áudio)',
+    status: 'NOT_TESTED',
+    detail: 'Requer cliente Webphone conectado ao servidor WSS com microfone ativo.',
+  });
+
+  // 8. MaIA AI Gateway & Policy Engine
+  const policyCheck = MaiaPolicyEngine.evaluateToolExecution({
+    toolName: 'transferir_chamada',
+    args: { destino: '4101' },
+    tenantId: 'tenant-default',
+  });
+  checks.push({
+    component: 'MaIA — Policy Engine & Tool Governance',
+    status: policyCheck.decision === 'ALLOW' ? 'PASS' : 'FAIL',
+    detail: `Ação operacional avaliada com risco ${policyCheck.risk} e decisão ${policyCheck.decision}.`,
+  });
+
+  // Impressão da Tabela de Verificação
+  console.log('| Componente / Módulo | Status | Detalhe Técnico |');
+  console.log('| :--- | :---: | :--- |');
+  for (const c of checks) {
+    console.log(`| ${c.component} | **${c.status}** | ${c.detail} |`);
+  }
+
+  const passCount = checks.filter(c => c.status === 'PASS').length;
+  const blockedCount = checks.filter(c => c.status === 'BLOCKED').length;
+  const notTestedCount = checks.filter(c => c.status === 'NOT_TESTED').length;
+  const failCount = checks.filter(c => c.status === 'FAIL').length;
+
+  console.log('\n====================================================================');
+  console.log(`📊 CONSOLIDAÇÃO: ${passCount} PASS | ${blockedCount} BLOCKED | ${notTestedCount} NOT_TESTED | ${failCount} FAIL`);
+  if (failCount > 0) {
+    console.log('❌ STATUS GERAL: FALHAS IDENTIFICADAS NA ARQUITETURA');
+  } else if (blockedCount > 0 || notTestedCount > 0) {
+    console.log('⚠️ STATUS GERAL: NÚCLEO APROVADO COM DEPENDÊNCIAS EXTERNAS BLOQUEADAS/NÃO TESTADAS');
+  } else {
+    console.log('✅ STATUS GERAL: TODAS AS VERIFICAÇÕES APROVADAS');
+  }
+  console.log('====================================================================\n');
 }
 
 runVerification().catch((err) => {

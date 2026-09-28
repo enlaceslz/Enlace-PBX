@@ -17,6 +17,26 @@ export class AsteriskTransferExecutor implements IMaiaExecutor {
       };
     }
 
+    // Validação estrita de segurança do formato do destino
+    if (!/^[a-zA-Z0-9_\-]+$/.test(destino) || destino.length > 30) {
+      return {
+        status: 'failed',
+        data: {
+          motivo,
+          erro: 'Formato de ramal ou destino inválido.',
+        },
+        message: 'O número de ramal informado é inválido. Por favor, confirme o número do ramal.',
+      };
+    }
+
+    if (!context.tenantId) {
+      return {
+        status: 'failed',
+        data: { erro: 'Contexto de tenant ausente para transferência.' },
+        message: 'Não foi possível validar as permissões corporativas para esta transferência.',
+      };
+    }
+
     // Identifica o canal Asterisk real
     const channelId = context.asteriskChannelId;
 
@@ -97,7 +117,7 @@ export class AsteriskHangupExecutor implements IMaiaExecutor {
           motivo,
           canal: null,
         },
-        message: 'A Enlace Telecom agradece sua ligação. Tenha um excelente dia!',
+        message: 'Agradecemos seu contato. Tenha um excelente dia!',
       };
     }
 

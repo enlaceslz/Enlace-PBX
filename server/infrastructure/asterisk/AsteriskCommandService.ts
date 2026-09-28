@@ -232,4 +232,60 @@ export class AsteriskCommandService {
   public static getAllowedCommandsList(): string[] {
     return Array.from(this.STATIC_ALLOWLIST);
   }
+
+  /**
+   * Operações Estruturadas Tipadas (Sem passagem de strings brutas)
+   */
+  public static async getVersion(): Promise<string> {
+    const res = await this.executeSafeCli('core show version');
+    return res.output || 'Asterisk Core Version';
+  }
+
+  public static async getChannels(): Promise<string> {
+    const res = await this.executeSafeCli('core show channels concise');
+    return res.output;
+  }
+
+  public static async hangupChannel(channelId: string): Promise<boolean> {
+    if (!/^[a-zA-Z0-9_\-\./]+$/.test(channelId) || channelId.includes('..')) {
+      throw new Error('Identificador de canal inválido para hangup.');
+    }
+    const res = await this.executeSafeCli(`channel request hangup ${channelId}`);
+    return res.success;
+  }
+
+  public static async redirectChannel(
+    channelId: string,
+    context: string,
+    destination: string,
+    priority: number = 1
+  ): Promise<boolean> {
+    if (
+      !/^[a-zA-Z0-9_\-\./]+$/.test(channelId) ||
+      !/^[a-zA-Z0-9_\-]+$/.test(context) ||
+      !/^[a-zA-Z0-9_\-]+$/.test(destination)
+    ) {
+      throw new Error('Parâmetros inválidos para redirecionamento de canal.');
+    }
+    const res = await this.executeSafeCli(`channel redirect ${channelId} ${context},${destination},${priority}`);
+    return res.success;
+  }
+
+  public static async reloadPjsip(): Promise<{ success: boolean; message: string }> {
+    const res = await this.executeSafeCli('pjsip reload');
+    return { success: res.success, message: res.output || res.error || '' };
+  }
+
+  public static async reloadDialplan(): Promise<{ success: boolean; message: string }> {
+    const res = await this.executeSafeCli('dialplan reload');
+    return { success: res.success, message: res.output || res.error || '' };
+  }
+
+  public static async showEndpoint(endpoint: string): Promise<string> {
+    if (!/^[a-zA-Z0-9_\-]+$/.test(endpoint)) {
+      throw new Error('Nome de endpoint PJSIP inválido.');
+    }
+    const res = await this.executeSafeCli(`pjsip show endpoint ${endpoint}`);
+    return res.output;
+  }
 }

@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import { MaiaRouter } from './MaiaRouter.js';
+import { MaiaVoiceGateway } from './MaiaVoiceGateway.js';
+import { TenantProfileResolver } from '../core/TenantProfile.js';
 import { MaiaSessionEntity } from '../core/MaiaSession.js';
 import { MaiaPromptGuard } from '../core/MaiaPromptGuard.js';
 import { MaiaPersona } from '../core/MaiaPersona.js';
@@ -67,10 +69,12 @@ export interface VoiceTurnResult {
 
 export class MaiaAIGateway {
   private router: MaiaRouter;
+  private voiceGateway: MaiaVoiceGateway;
   private executors: Map<string, IMaiaExecutor> = new Map();
 
   constructor() {
     this.router = new MaiaRouter();
+    this.voiceGateway = new MaiaVoiceGateway(this.router);
 
     // Registro dos Executores Reais
     const transferExec = new AsteriskTransferExecutor();
@@ -194,11 +198,13 @@ Risco de Churn: ${custMem.churnRisk}%`;
       }
     }
 
-    // 5. Constrói Prompts Estruturados com MaiaPromptGuard
+    // 5. Constrói Prompts Estruturados com MaiaPromptGuard baseado no TenantProfile
+    const tenantProfile = await TenantProfileResolver.getProfile(tenantId);
+
     const systemPrompt = MaiaPromptGuard.buildStructuredSystemPrompt({
-      system: agent.systemInstruction || 'Você é a MaIA, assistente virtual inteligente da Enlace Telecom.',
+      system: agent.systemInstruction || `Você é a MaIA, assistente virtual inteligente da ${tenantProfile.companyName}.`,
       developerPolicy: `Regra de concisão: Cada resposta deve ter no máximo 2 ou 3 frases curtas para áudio natural em tempo real.`,
-      tenantPolicy: `Empresa: Enlace Telecom. Contato de transbordo: ramal ${agent.transferExtension || '4101'}.`,
+      tenantPolicy: `Empresa: ${tenantProfile.companyName}. Contato de transbordo: ramal ${agent.transferExtension || tenantProfile.transferExtension}. Regras: ${tenantProfile.rules.join(' ')}`,
       personaTimbre: voiceConfig.guidancePrompt,
     });
 
@@ -382,28 +388,23 @@ Risco de Churn: ${custMem.churnRisk}%`;
     }
 
     if (!replyText) {
-      replyText = voiceConfig.gender === 'male'
-        ? 'Perfeito! Em que mais posso te ajudar na Enlace Telecom?'
-        : 'Entendido perfeitamente! Como posso te ajudar na Enlace Telecom?';
+      replyText = `Entendido perfeitamente! Como posso te ajudar na ${tenantProfile.companyName}?`;
     }
 
-    // 9. Tenta síntese de voz (TTS) pelo GeminiProvider se disponível
+    // 9. Síntese de voz através do MaiaVoiceGateway desacoplado
     let audioBase64: string | undefined = undefined;
-    const geminiProvider = this.router.getProvider('gemini') as any;
-    if (geminiProvider && typeof geminiProvider.generateVoice === 'function') {
-      try {
-        const vRes = await geminiProvider.generateVoice({
-          text: replyText,
-          voiceName: voiceConfig.voiceName,
-          gender: voiceConfig.gender,
-          correlationId,
-        });
-        if (vRes && vRes.audioBase64) {
-          audioBase64 = vRes.audioBase64;
-        }
-      } catch {
-        // Fallback suave para TTS de navegador (Web Speech API)
+    try {
+      const vRes = await this.voiceGateway.synthesize({
+        text: replyText,
+        voiceName: voiceConfig.voiceName,
+        gender: voiceConfig.gender,
+        correlationId,
+      });
+      if (vRes && vRes.audioBase64) {
+        audioBase64 = vRes.audioBase64;
       }
+    } catch (err: any) {
+      console.warn('[MaiaAIGateway] Síntese de voz neural indisponível, fallback para áudio do cliente:', err.message);
     }
 
     const latencyMs = Date.now() - startTime;

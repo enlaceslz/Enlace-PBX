@@ -44,6 +44,11 @@ apt-get install -y --no-install-recommends \
   libcurl4-openssl-dev pkg-config ca-certificates libspeexdsp-dev \
   sox libsox-fmt-all fail2ban sngrep
 
+# Tabela oficial de Checksums SHA-256 para versões homologadas do Asterisk 20 LTS
+declare -A KNOWN_ASTERISK_SHA256=(
+  ["20.17.0"]="a38b5847e93050cb25391a9b2c3c4314c1d7634f19bca4020a67e584f29ee873"
+)
+
 # 3. Download seguro e extração
 cd "${DOWNLOAD_DIR}"
 echo -e "\n${BOLD}[2/7] Obtendo pacote oficial do Asterisk ${ASTERISK_VER}...${NC}"
@@ -65,7 +70,19 @@ if [ ! -s "${ARCHIVE_FILE}" ]; then
 fi
 
 FILE_SHA256=$(sha256sum "${ARCHIVE_FILE}" | awk '{print $1}')
-echo -e "${GREEN}✓ Checksum SHA-256 do tarball validado:${NC} ${FILE_SHA256}"
+EXPECTED_SHA256="${ASTERISK_EXPECTED_SHA256:-${KNOWN_ASTERISK_SHA256[${ASTERISK_VER}]:-}}"
+
+if [ -n "${EXPECTED_SHA256}" ]; then
+  if [ "${FILE_SHA256}" != "${EXPECTED_SHA256}" ]; then
+    echo -e "${RED}❌ ERRO CRÍTICO DE INTEGRIDADE: O checksum SHA-256 calculado (${FILE_SHA256}) não confere com o esperado (${EXPECTED_SHA256}).${NC}"
+    echo -e "${RED}Abortando compilação imediatamente por segurança contra adulteração.${NC}"
+    rm -f "${ARCHIVE_FILE}"
+    exit 1
+  fi
+  echo -e "${GREEN}✓ Checksum SHA-256 verificado e aprovado com precisão:${NC} ${FILE_SHA256}"
+else
+  echo -e "${YELLOW}⚠️ Aviso: Nenhum hash pré-definido para versão ${ASTERISK_VER}. Hash calculado:${NC} ${FILE_SHA256}"
+fi
 
 # Extração
 echo -e "\n${BOLD}[3/7] Extraindo fontes...${NC}"

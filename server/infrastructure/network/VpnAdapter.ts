@@ -1,8 +1,8 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import fs from 'fs';
 import util from 'util';
 
-const execPromise = util.promisify(exec);
+const execFilePromise = util.promisify(execFile);
 
 export interface VpnStatus {
   installed: boolean;
@@ -40,7 +40,7 @@ export class VpnAdapter {
   public static async getWireguardStatus(): Promise<WireguardRealStatus> {
     try {
       // Verifica se o binário wg está disponível
-      await execPromise('which wg');
+      await execFilePromise('which', ['wg']);
     } catch {
       return {
         installed: false,
@@ -51,7 +51,7 @@ export class VpnAdapter {
     }
 
     try {
-      const { stdout } = await execPromise('wg show all dump');
+      const { stdout } = await execFilePromise('wg', ['show', 'all', 'dump']);
       const lines = stdout.trim().split('\n').filter(l => l.trim() !== '');
       if (lines.length === 0) {
         return {
@@ -106,7 +106,7 @@ export class VpnAdapter {
    */
   public static async getZeroTierStatus(): Promise<ZeroTierRealStatus> {
     try {
-      await execPromise('which zerotier-cli');
+      await execFilePromise('which', ['zerotier-cli']);
     } catch {
       return {
         installed: false,
@@ -117,14 +117,14 @@ export class VpnAdapter {
     }
 
     try {
-      const { stdout: statusOut } = await execPromise('zerotier-cli -j status');
+      const { stdout: statusOut } = await execFilePromise('zerotier-cli', ['-j', 'status']);
       const statusJson = JSON.parse(statusOut);
 
       const isOnline = statusJson.online === true;
 
       let networks: any[] = [];
       try {
-        const { stdout: netOut } = await execPromise('zerotier-cli -j listnetworks');
+        const { stdout: netOut } = await execFilePromise('zerotier-cli', ['-j', 'listnetworks']);
         networks = JSON.parse(netOut);
       } catch {
         // Redes vazias se não houver

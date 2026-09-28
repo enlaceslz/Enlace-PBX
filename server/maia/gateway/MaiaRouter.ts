@@ -32,6 +32,10 @@ export class MaiaRouter {
     return this.providers.get(id);
   }
 
+  public getAllProviders(): MaiaAIProvider[] {
+    return Array.from(this.providers.values());
+  }
+
   /**
    * Resolve a cadeia de execução com base no perfil de roteamento
    */

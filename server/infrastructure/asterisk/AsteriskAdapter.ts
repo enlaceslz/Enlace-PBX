@@ -1,9 +1,8 @@
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import util from 'util';
 import net from 'net';
 import http from 'http';
 
-const execPromise = util.promisify(exec);
 const execFilePromise = util.promisify(execFile);
 
 export interface AsteriskChannelInfo {
@@ -68,7 +67,7 @@ export class AsteriskAdapter {
   public async checkBinaryExists(): Promise<boolean> {
     if (this.hasBinary !== null) return this.hasBinary;
     try {
-      await execPromise('which asterisk');
+      await execFilePromise('which', ['asterisk']);
       this.hasBinary = true;
     } catch {
       this.hasBinary = false;
@@ -89,8 +88,18 @@ export class AsteriskAdapter {
       };
     }
 
+    // Sanitização rigorosa: rejeitar comandos com caracteres de controle ou novas linhas
+    const sanitizedCommand = command.trim().replace(/[\r\n\0]/g, ' ');
+    if (!sanitizedCommand) {
+      return {
+        success: false,
+        output: '',
+        error: 'Comando Asterisk inválido ou vazio.',
+      };
+    }
+
     try {
-      const { stdout, stderr } = await execFilePromise('asterisk', ['-rx', command], { timeout: 8000 });
+      const { stdout, stderr } = await execFilePromise('asterisk', ['-rx', sanitizedCommand], { timeout: 8000 });
       return {
         success: true,
         output: stdout || stderr,
