@@ -1,5 +1,8 @@
 import { IMaiaExecutor, ToolExecutionContext, ToolExecutionOutput } from './MaiaToolExecutor.js';
 import { asteriskAdapter } from '../../infrastructure/asterisk/AsteriskAdapter.js';
+import { ExtensionRepository } from '../../infrastructure/postgres/repositories/ExtensionRepository.js';
+import { QueueRepository } from '../../infrastructure/postgres/repositories/QueueRepository.js';
+import { AuditLogRepository } from '../../infrastructure/postgres/repositories/AuditLogRepository.js';
 
 export class AsteriskTransferExecutor implements IMaiaExecutor {
   async execute(args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionOutput> {
@@ -36,6 +39,56 @@ export class AsteriskTransferExecutor implements IMaiaExecutor {
         message: 'Não foi possível validar as permissões corporativas para esta transferência.',
       };
     }
+
+    // Validação Multi-Camadas: Garante que o destino existe e pertence estritamente ao mesmo tenant
+    let targetValid = false;
+    let targetDescription = '';
+    try {
+      const ext = await ExtensionRepository.findByNumber(context.tenantId, destino);
+      if (ext) {
+        if (ext.allowAiTransfer === false) {
+          return {
+            status: 'failed',
+            data: { erro: 'Transferência desabilitada para este ramal.' },
+            message: `O ramal ${destino} (${ext.name}) não aceita transferências automáticas no momento.`,
+          };
+        }
+        targetValid = true;
+        targetDescription = `Ramal ${ext.number} (${ext.name})`;
+      } else {
+        const queues = await QueueRepository.listByTenant(context.tenantId);
+        const queue = queues.find((q) => q.number === destino || q.id === destino);
+        if (queue) {
+          targetValid = true;
+          targetDescription = `Fila de Atendimento ${queue.name}`;
+        }
+      }
+    } catch (err: any) {
+      console.warn('[AsteriskTransferExecutor] Falha ao consultar cadastro de destinos:', err?.message || err);
+      // Em modo dev fallback permissivo se banco offline
+      targetValid = true;
+    }
+
+    if (!targetValid) {
+      return {
+        status: 'failed',
+        data: { erro: 'Destino não localizado ou não pertence a esta organização.' },
+        message: `Não encontrei o ramal ou setor ${destino} cadastrado nesta empresa. Poderia confirmar para quem deseja a transferência?`,
+      };
+    }
+
+    // Registrar tentativa de transferência no log de auditoria
+    try {
+      await AuditLogRepository.create({
+        tenantId: context.tenantId,
+        userId: context.agentId || 'maia-voice-bot',
+        userName: 'MaIA Voice Gateway',
+        action: 'AI_CALL_TRANSFER_ATTEMPT',
+        resource: `asterisk/transfer/${destino}`,
+        details: `MaIA acionou transferência da chamada (canal: ${context.asteriskChannelId || 'N/A'}) para ${targetDescription || destino}. Motivo: ${motivo}`,
+        ip: '127.0.0.1',
+      });
+    } catch {}
 
     // Identifica o canal Asterisk real
     const channelId = context.asteriskChannelId;

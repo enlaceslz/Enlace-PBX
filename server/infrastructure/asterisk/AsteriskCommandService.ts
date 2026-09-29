@@ -2,6 +2,11 @@ import { execFile } from 'child_process';
 import util from 'util';
 import { AsteriskAdapter, asteriskAdapter } from './AsteriskAdapter.js';
 import { AuditLogRepository } from '../postgres/repositories/AuditLogRepository.js';
+import {
+  STATIC_ALLOWLIST,
+  PARAMETERIZED_PATTERNS,
+  isAsteriskCommandAllowed,
+} from './AsteriskAllowlist.js';
 
 const execFilePromise = util.promisify(execFile);
 
@@ -19,116 +24,14 @@ export interface CommandExecutionResult {
  * Utiliza execFile diretamente (sem shell /bin/sh intermediário) e validação estrita por Allowlist.
  */
 export class AsteriskCommandService {
-  /**
-   * Lista branca de comandos fixos e seguros autorizados no Asterisk CLI.
-   */
-  private static readonly STATIC_ALLOWLIST: ReadonlySet<string> = new Set([
-    // Core & Status
-    'core show version',
-    'core show uptime',
-    'core show channels',
-    'core show channels concise',
-    'core show calls',
-    'core show sysinfo',
-    'core show uptime seconds',
-    'core reload',
-
-    // PJSIP
-    'pjsip show endpoints',
-    'pjsip show aors',
-    'pjsip show auths',
-    'pjsip show contacts',
-    'pjsip show registrations',
-    'pjsip show transports',
-    'pjsip reload',
-
-    // Dialplan
-    'dialplan show',
-    'dialplan reload',
-
-    // Queues
-    'queue show',
-    'queue reload all',
-
-    // Modules
-    'module show',
-    'module reload',
-    'module show like pjsip',
-    'module show like ari',
-    'module show like audiosocket',
-
-    // Bridges & Media
-    'bridge show all',
-  ]);
-
-  /**
-   * Padrões permitidos com parâmetros estritamente validados via Regex
-   */
-  private static readonly PARAMETERIZED_PATTERNS: Array<{
-    name: string;
-    regex: RegExp;
-    validator: (matches: RegExpMatchArray) => boolean;
-  }> = [
-    {
-      name: 'core show channel',
-      regex: /^core show channel ([a-zA-Z0-9_\-\./]+)$/,
-      validator: (m) => m[1].length <= 80 && !m[1].includes('..'),
-    },
-    {
-      name: 'pjsip show endpoint',
-      regex: /^pjsip show endpoint ([a-zA-Z0-9_\-]+)$/,
-      validator: (m) => m[1].length <= 50,
-    },
-    {
-      name: 'pjsip show aor',
-      regex: /^pjsip show aor ([a-zA-Z0-9_\-]+)$/,
-      validator: (m) => m[1].length <= 50,
-    },
-    {
-      name: 'pjsip show auth',
-      regex: /^pjsip show auth ([a-zA-Z0-9_\-]+)$/,
-      validator: (m) => m[1].length <= 50,
-    },
-    {
-      name: 'dialplan show context',
-      regex: /^dialplan show ([a-zA-Z0-9_\-]+)$/,
-      validator: (m) => m[1].length <= 50,
-    },
-    {
-      name: 'queue show specific',
-      regex: /^queue show ([a-zA-Z0-9_\-]+)$/,
-      validator: (m) => m[1].length <= 50,
-    },
-    {
-      name: 'channel request hangup',
-      regex: /^channel request hangup ([a-zA-Z0-9_\-\./]+)$/,
-      validator: (m) => m[1].length <= 80 && !m[1].includes('..'),
-    },
-    {
-      name: 'channel redirect',
-      regex: /^channel redirect ([a-zA-Z0-9_\-\./]+) ([a-zA-Z0-9_\-]+),([a-zA-Z0-9_\-]+),([0-9]{1,3})$/,
-      validator: (m) => m[1].length <= 80 && m[2].length <= 50 && m[3].length <= 30,
-    },
-  ];
+  public static readonly STATIC_ALLOWLIST = STATIC_ALLOWLIST;
+  public static readonly PARAMETERIZED_PATTERNS = PARAMETERIZED_PATTERNS;
 
   /**
    * Valida se um comando está estritamente autorizado na Allowlist
    */
   public static isCommandAllowed(rawCommand: string): boolean {
-    const normalized = rawCommand.trim().replace(/\s+/g, ' ');
-
-    if (this.STATIC_ALLOWLIST.has(normalized)) {
-      return true;
-    }
-
-    for (const pattern of this.PARAMETERIZED_PATTERNS) {
-      const match = normalized.match(pattern.regex);
-      if (match && pattern.validator(match)) {
-        return true;
-      }
-    }
-
-    return false;
+    return isAsteriskCommandAllowed(rawCommand);
   }
 
   /**
@@ -287,5 +190,35 @@ export class AsteriskCommandService {
     }
     const res = await this.executeSafeCli(`pjsip show endpoint ${endpoint}`);
     return res.output;
+  }
+
+  public static async originateCall(
+    caller: string,
+    callee: string,
+    context: string = 'from-internal'
+  ): Promise<{ success: boolean; message: string }> {
+    if (!/^[a-zA-Z0-9_\-]+$/.test(caller) || !/^[a-zA-Z0-9_\-]+$/.test(callee) || !/^[a-zA-Z0-9_\-]+$/.test(context)) {
+      throw new Error('Parâmetros inválidos para originação de chamada.');
+    }
+    const res = await this.executeSafeCli(`channel originate PJSIP/${caller} extension ${callee}@${context}`);
+    return { success: res.success, message: res.output || res.error || '' };
+  }
+
+  public static async startChanSpy(
+    supervisorExt: string,
+    targetChannel: string,
+    options: string = 'qb'
+  ): Promise<{ success: boolean; message: string }> {
+    if (!/^[a-zA-Z0-9_\-]+$/.test(supervisorExt)) {
+      throw new Error('Ramal de supervisor inválido.');
+    }
+    if (!/^[a-zA-Z0-9_\-\./]+$/.test(targetChannel) || targetChannel.includes('..')) {
+      throw new Error('Identificador de canal alvo inválido para ChanSpy.');
+    }
+    if (!/^[a-zA-Z]{1,5}$/.test(options)) {
+      throw new Error('Opções inválidas para ChanSpy.');
+    }
+    const res = await this.executeSafeCli(`originate PJSIP/${supervisorExt} application ChanSpy ${targetChannel},${options}`);
+    return { success: res.success, message: res.output || res.error || '' };
   }
 }

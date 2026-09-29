@@ -18,9 +18,31 @@ export class EncryptionService {
       return this.cachedKey;
     }
 
-    const secret = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || 'enlace-pbx-default-strong-fallback-secret-2026';
-    // Derivação criptograficamente segura de chave de 256 bits (32 bytes)
-    this.cachedKey = crypto.scryptSync(secret, 'enlace-pbx-enterprise-salt-v1', 32);
+    const isProd = process.env.NODE_ENV === 'production';
+    const rawKey = process.env.ENCRYPTION_KEY?.trim();
+
+    if (!rawKey) {
+      if (isProd) {
+        throw new Error(
+          'FATAL PRODUÇÃO: ENCRYPTION_KEY é obrigatória para o serviço de criptografia AES-256-GCM. ' +
+          'O uso de fallback, JWT_SECRET ou senhas estáticas é terminantemente proibido em produção.'
+        );
+      }
+      console.warn(
+        '[EncryptionService] AVISO: ENCRYPTION_KEY não definida em desenvolvimento. ' +
+        'Gerando chave volátil em memória para a sessão de preview.'
+      );
+      // Em dev sem variável, gera chave aleatória criptográfica para a sessão (não determinística e sem segredo fixo)
+      this.cachedKey = crypto.randomBytes(32);
+      return this.cachedKey;
+    }
+
+    if (rawKey.length < 32) {
+      throw new Error('FATAL SEGURANÇA: ENCRYPTION_KEY deve possuir no mínimo 32 caracteres (256 bits).');
+    }
+
+    // Derivação criptograficamente segura de chave de 256 bits (32 bytes) via Scrypt com sal dedicado
+    this.cachedKey = crypto.scryptSync(rawKey, 'enlace-pbx-enterprise-aes-salt-v1', 32);
     return this.cachedKey;
   }
 

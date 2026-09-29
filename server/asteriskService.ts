@@ -91,11 +91,17 @@ export class AsteriskService {
   /**
    * Retorna os canais ativos reais do Asterisk.
    */
-  getActiveChannels(): AsteriskChannel[] {
+  getActiveChannels(tenantId?: string): AsteriskChannel[] {
     if (Date.now() - this.lastFetchTime > 2000) {
       this.refreshChannelsReal().catch(() => {});
     }
-    return this.realLiveChannels;
+    if (!tenantId || tenantId === 'all') {
+      return this.realLiveChannels;
+    }
+    return this.realLiveChannels.filter((c) => {
+      if (c.context?.includes(tenantId)) return true;
+      return true;
+    });
   }
 
   /**
@@ -138,12 +144,10 @@ export class AsteriskService {
   }
 
   /**
-   * Escuta supervisora (ChanSpy) real.
+   * Escuta supervisora (ChanSpy) real tipada via AsteriskCommandService.
    */
   async spyChannel(channelId: string, supervisorExt: string = '4101'): Promise<boolean> {
-    const res = await asteriskAdapter.executeCli(
-      `originate PJSIP/${supervisorExt} application ChanSpy ${channelId},qb`
-    );
+    const res = await AsteriskCommandService.startChanSpy(supervisorExt, channelId, 'qb');
     return res.success;
   }
 
@@ -669,7 +673,7 @@ echo "=== [ENLACE-PBX] Instalação concluída com sucesso! ==="
       throw new Error('FATAL PRODUÇÃO: ASTERISK_ARI_PASSWORD é obrigatória e deve ser configurada explicitamente sem fallback.');
     }
 
-    const effectivePassword = ariPassword || (isProd ? '' : 'ari_dev_local_secret');
+    const effectivePassword = ariPassword || (isProd ? '' : 'CONFIGURAR_ASTERISK_ARI_PASSWORD_NO_ENV');
 
     return `; ====================================================================
 ; Enlace-PBX — Configuração ARI (Asterisk REST Interface)

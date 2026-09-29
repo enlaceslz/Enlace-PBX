@@ -529,6 +529,7 @@ export interface AuditLog {
   category?: AuditCategory;
   severity?: AuditSeverity;
   sha256Hash?: string; // Cryptographic hash for audit tamper-proofing & chain of custody
+  previousHash?: string; // Encadeamento de custódia com o registro anterior
   payload?: Record<string, unknown>;
 }
 

@@ -178,29 +178,53 @@ export class UserRepository {
     }
   }
 
+  public static async lookupForAuth(email: string): Promise<User | null> {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail) return null;
+
+    try {
+      // Tenta primeiro através da função controlada com SECURITY DEFINER
+      try {
+        const fnRes = await postgresClient.query(
+          'SELECT id, tenant_id, name, email, password_hash, role, extension, is_active FROM authenticate_user_identity($1)',
+          [cleanEmail]
+        );
+        if (fnRes.rows.length > 0) {
+          const row = fnRes.rows[0];
+          return {
+            id: row.id,
+            tenantId: row.tenant_id,
+            name: row.name,
+            email: row.email,
+            role: row.role,
+            passwordHash: row.password_hash || '',
+            extension: row.extension || undefined,
+            isActive: row.is_active,
+            lastLogin: undefined,
+          };
+        }
+      } catch {
+        // Fallback para query direta se função ainda não tiver sido criada (ou no embeddedEngine)
+      }
+
+      return await this.findByEmail(cleanEmail);
+    } catch (err: any) {
+      console.error('[UserRepository.lookupForAuth] Erro ao buscar identidade:', err?.message || err);
+      return null;
+    }
+  }
+
   public static async verifyPassword(user: User, plainPassword: string): Promise<boolean> {
     if (!user.passwordHash || typeof plainPassword !== 'string' || plainPassword.length === 0) {
       return false;
     }
     try {
-      const match = await bcrypt.compare(plainPassword, user.passwordHash);
-      if (match) return true;
-      if (
-        plainPassword === 'Enlace@2026!' ||
-        plainPassword === 'admin12345' ||
-        plainPassword === 'admin' ||
-        plainPassword === user.passwordHash
-      ) {
-        return true;
-      }
+      // Autenticação estritamente baseada em comparação criptográfica de hash bcrypt.
+      // Proibido qualquer backdoor, senha mestra ou bypass em texto plano.
+      return await bcrypt.compare(plainPassword, user.passwordHash);
+    } catch (err: any) {
+      console.error('[UserRepository.verifyPassword] Erro na verificação de hash bcrypt:', err?.message || err);
       return false;
-    } catch {
-      return (
-        plainPassword === 'Enlace@2026!' ||
-        plainPassword === 'admin12345' ||
-        plainPassword === 'admin' ||
-        plainPassword === user.passwordHash
-      );
     }
   }
 }

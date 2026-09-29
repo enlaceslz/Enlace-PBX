@@ -33,7 +33,20 @@ export class AuditLogRepository {
   }): Promise<AuditLog> {
     const timestamp = new Date().toISOString();
     const id = `audit-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-    const hashData = `${id}|${entry.tenantId}|${entry.userId}|${entry.action}|${entry.resource}|${timestamp}`;
+
+    // Obtém o hash do registro imediatamente anterior para encadeamento criptográfico estrito
+    let previousHash = '0000000000000000000000000000000000000000000000000000000000000000';
+    try {
+      const prevRes = await postgresClient.query(
+        'SELECT sha256_hash FROM audit_logs WHERE tenant_id = $1 ORDER BY timestamp DESC, id DESC LIMIT 1',
+        [entry.tenantId]
+      );
+      if (prevRes.rows.length > 0 && prevRes.rows[0].sha256_hash) {
+        previousHash = prevRes.rows[0].sha256_hash;
+      }
+    } catch {}
+
+    const hashData = `${previousHash}|${id}|${entry.tenantId}|${entry.userId}|${entry.action}|${entry.resource}|${timestamp}`;
     const sha256Hash = crypto.createHash('sha256').update(hashData).digest('hex');
 
     const auditItem: AuditLog = {
@@ -49,18 +62,19 @@ export class AuditLogRepository {
       category: entry.category || 'SYSTEM',
       severity: entry.severity || 'INFO',
       sha256Hash,
+      previousHash,
       payload: entry.payload,
     };
 
     try {
       await postgresClient.query(
-        `INSERT INTO audit_logs (id, tenant_id, user_id, user_name, action, resource, ip, timestamp, details, category, severity, sha256_hash, payload)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        `INSERT INTO audit_logs (id, tenant_id, user_id, user_name, action, resource, ip, timestamp, details, category, severity, sha256_hash, previous_hash, payload)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           auditItem.id, auditItem.tenantId, auditItem.userId, auditItem.userName,
           auditItem.action, auditItem.resource, auditItem.ip, new Date(timestamp),
           auditItem.details, auditItem.category, auditItem.severity,
-          auditItem.sha256Hash, JSON.stringify(auditItem.payload || {})
+          auditItem.sha256Hash, previousHash, JSON.stringify(auditItem.payload || {})
         ]
       );
     } catch (err: any) {
@@ -120,6 +134,7 @@ export class AuditLogRepository {
         category: row.category,
         severity: row.severity,
         sha256Hash: row.sha256_hash,
+        previousHash: row.previous_hash || undefined,
         payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload || {}),
       }));
 
@@ -183,11 +198,52 @@ export class AuditLogRepository {
         category: row.category,
         severity: row.severity,
         sha256Hash: row.sha256_hash,
+        previousHash: row.previous_hash || undefined,
         payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload || {}),
       }));
     } catch (err: any) {
       console.error('[AuditLogRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
       throw err;
+    }
+  }
+
+  /**
+   * Validação matemática da cadeia criptográfica de custódia (Blockchain-style).
+   * Comprova que os registros não sofreram adulteração, inserção espúria ou exclusão.
+   */
+  public static async verifyChain(tenantId: string): Promise<{
+    valid: boolean;
+    totalVerified: number;
+    brokenAtId?: string;
+    details?: string;
+  }> {
+    try {
+      const res = await postgresClient.query(
+        'SELECT id, tenant_id, user_id, action, resource, ip, timestamp, sha256_hash, previous_hash FROM audit_logs WHERE tenant_id = $1 ORDER BY timestamp ASC, id ASC',
+        [tenantId]
+      );
+      const rows = res.rows;
+      if (rows.length === 0) {
+        return { valid: true, totalVerified: 0 };
+      }
+
+      let expectedPrev = '0000000000000000000000000000000000000000000000000000000000000000';
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (i > 0 && row.previous_hash && row.previous_hash !== expectedPrev) {
+          return {
+            valid: false,
+            totalVerified: i,
+            brokenAtId: row.id,
+            details: `Ruptura na cadeia de custódia no registro ${row.id}. Hash anterior esperado: ${expectedPrev}, obtido: ${row.previous_hash}`,
+          };
+        }
+        expectedPrev = row.sha256_hash;
+      }
+
+      return { valid: true, totalVerified: rows.length };
+    } catch (err: any) {
+      return { valid: false, totalVerified: 0, details: err.message };
     }
   }
 }

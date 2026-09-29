@@ -167,8 +167,8 @@ async function startServer() {
         return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
       }
 
-      // Busca usuário exclusivamente no PostgreSQL através do repositório
-      const user = await UserRepository.findByEmail(rawEmail);
+      // Busca usuário através de lookup controlado de identidade
+      const user = await UserRepository.lookupForAuth(rawEmail);
 
       if (!user) {
         return res.status(401).json({ 
@@ -2097,7 +2097,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   app.get('/api/v1/dashboard/metrics', async (req, res) => {
     try {
-      res.json(await getDashboardMetrics());
+      const authorizedTenant = getAuthorizedTenantId(req);
+      res.json(await getDashboardMetrics(authorizedTenant));
     } catch (e: any) {
       console.error('[Dashboard] Erro ao obter métricas:', e?.message || e);
       res.status(500).json({ error: 'Erro ao calcular métricas do dashboard' });
@@ -2110,11 +2111,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    const authorizedTenant = getAuthorizedTenantId(req);
+
     const sendUpdate = async () => {
       try {
-        const metrics = await getDashboardMetrics();
+        const metrics = await getDashboardMetrics(authorizedTenant);
         const data = JSON.stringify({
-          channels: asteriskService.getActiveChannels(),
+          channels: asteriskService.getActiveChannels(authorizedTenant),
           metrics,
         });
         res.write(`data: ${data}\n\n`);
@@ -4948,7 +4951,15 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Meta Webhook Verification
   app.get('/api/v1/webhooks/whatsapp', async (req, res) => {
     const config = await SystemRepository.getWhatsappConfig();
-    const verifyToken = config ? config.verifyToken : 'enlace_whatsapp_token_default';
+    const verifyToken = config?.verifyToken?.trim() || process.env.WHATSAPP_VERIFY_TOKEN?.trim();
+
+    if (!verifyToken) {
+      console.warn('[WhatsApp Webhook] Rejeitado: WHATSAPP_VERIFY_TOKEN não configurado no sistema.');
+      return res.status(503).json({
+        error: 'NOT_CONFIGURED',
+        message: 'Token de verificação do WhatsApp Meta não configurado no servidor.',
+      });
+    }
 
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -4956,7 +4967,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
     if (mode && token) {
       if (mode === 'subscribe' && token === verifyToken) {
-        console.log('WEBHOOK_VERIFIED');
+        console.log('[WhatsApp Webhook] Webhook Meta verificado com sucesso.');
         res.status(200).send(challenge);
       } else {
         res.sendStatus(403);
@@ -4968,6 +4979,32 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // Meta Webhook Receiving Messages
   app.post('/api/v1/webhooks/whatsapp', async (req, res) => {
+    const rawSignature = (req.headers['x-hub-signature-256'] as string) || '';
+    const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
+
+    // Validação criptográfica de assinatura Meta HMAC-SHA256 se appSecret estiver configurado
+    if (appSecret) {
+      if (!rawSignature.startsWith('sha256=')) {
+        console.warn('[WhatsApp Webhook] Rejeitado: Assinatura x-hub-signature-256 ausente ou malformatada.');
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Assinatura x-hub-signature-256 ausente.' });
+      }
+
+      const receivedHash = rawSignature.slice(7);
+      const expectedHash = crypto
+        .createHmac('sha256', appSecret)
+        .update(JSON.stringify(req.body))
+        .digest('hex');
+
+      const isSignatureValid =
+        receivedHash.length === expectedHash.length &&
+        crypto.timingSafeEqual(Buffer.from(receivedHash), Buffer.from(expectedHash));
+
+      if (!isSignatureValid) {
+        console.warn('[WhatsApp Webhook] Rejeitado: Assinatura HMAC-SHA256 inválida.');
+        return res.status(403).json({ error: 'FORBIDDEN', message: 'Assinatura inválida do webhook.' });
+      }
+    }
+
     const body = req.body;
     
     if (body.object) {
@@ -4975,13 +5012,23 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
         const from = body.entry[0].changes[0].value.messages[0].from; // sender number
         const msg_body = body.entry[0].changes[0].value.messages[0].text?.body; 
+        const msgTimestamp = parseInt(body.entry[0].changes[0].value.messages[0].timestamp || '0', 10);
+
+        // Proteção contra Replay Attack: Rejeita mensagens com mais de 5 minutos de atraso
+        if (msgTimestamp > 0) {
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          if (Math.abs(nowSeconds - msgTimestamp) > 300) {
+            console.warn(`[WhatsApp Webhook] Mensagem ignorada por expiração de timestamp (Replay Protection): ${msgTimestamp}`);
+            return res.status(200).json({ status: 'ignored_expired' });
+          }
+        }
 
         if (!msg_body) {
            return res.sendStatus(200); // Ignore non-text for now
         }
 
         const config = await SystemRepository.getWhatsappConfig();
-        const tenantId = config?.tenantId || 'SYSTEM';
+        const tenantId = config?.tenantId || 'tenant-default';
         const conversations = await OmnichannelRepository.listConversations(tenantId);
         let conv = conversations.find(c => c.contactId === from && c.channel === 'whatsapp');
         if (!conv) {
@@ -5008,6 +5055,19 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           type: 'text',
           timestamp: new Date().toISOString()
         });
+
+        // Registrar auditoria do webhook recebido
+        try {
+          await AuditLogRepository.create({
+            tenantId,
+            userId: 'whatsapp-webhook',
+            userName: `WhatsApp (${from})`,
+            action: 'WHATSAPP_MESSAGE_RECEIVED',
+            resource: `whatsapp/conversation/${conv.id}`,
+            details: `Mensagem recebida do contato ${from} via Meta Cloud API.`,
+            ip: req.ip || '127.0.0.1',
+          });
+        } catch {}
 
         // Trigger AI response if in active status
         if (conv.status === 'active') {

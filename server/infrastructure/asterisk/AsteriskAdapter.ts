@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import util from 'util';
 import net from 'net';
 import http from 'http';
+import { isAsteriskCommandAllowed } from './AsteriskAllowlist.js';
 
 const execFilePromise = util.promisify(execFile);
 
@@ -95,6 +96,16 @@ export class AsteriskAdapter {
         success: false,
         output: '',
         error: 'Comando Asterisk inválido ou vazio.',
+      };
+    }
+
+    // Verificação estrita na Allowlist de comandos corporativos autorizados
+    if (!isAsteriskCommandAllowed(sanitizedCommand)) {
+      console.warn(`[AsteriskAdapter] BLOQUEIO DE SEGURANÇA: Comando rejeitado pela Allowlist: "${sanitizedCommand}"`);
+      return {
+        success: false,
+        output: '',
+        error: 'Comando rejeitado pela Allowlist de segurança do Asterisk. Comandos arbitrários ou fora do catálogo são terminantemente proibidos.',
       };
     }
 
@@ -462,7 +473,7 @@ export class AsteriskAdapter {
   public async transferCall(channel: string, targetExten: string, context = 'from-internal'): Promise<{ success: boolean; message: string }> {
     const hasAsterisk = await this.checkBinaryExists();
     if (hasAsterisk) {
-      const res = await this.executeCli(`channel redirect ${channel} ${context} ${targetExten} 1`);
+      const res = await this.executeCli(`channel redirect ${channel} ${context},${targetExten},1`);
       return {
         success: res.success,
         message: res.success ? `Canal ${channel} transferido com sucesso para ${targetExten}` : (res.error || 'Falha ao transferir canal.'),
@@ -479,6 +490,47 @@ export class AsteriskAdapter {
       return { success: true, message: out };
     } catch (err: any) {
       return { success: false, message: `Falha ao transferir chamada: ${err.message}` };
+    }
+  }
+
+  /**
+   * Operações AMI Tipadas e Estruturadas
+   */
+  public async amiHangup(channel: string): Promise<boolean> {
+    try {
+      await this.executeAmiAction('Hangup', { Channel: channel });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async amiRedirect(channel: string, exten: string, context: string, priority: string = '1'): Promise<boolean> {
+    try {
+      await this.executeAmiAction('Redirect', {
+        Channel: channel,
+        Exten: exten,
+        Context: context,
+        Priority: priority,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async amiOriginate(caller: string, callee: string, context: string = 'from-internal'): Promise<boolean> {
+    try {
+      await this.executeAmiAction('Originate', {
+        Channel: `PJSIP/${caller}`,
+        Exten: callee,
+        Context: context,
+        Priority: '1',
+        CallerID: caller,
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 

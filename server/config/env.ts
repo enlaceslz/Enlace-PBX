@@ -23,6 +23,8 @@ export interface AppEnvConfig {
   ADMIN_INITIAL_EMAIL?: string;
   ADMIN_INITIAL_PASSWORD?: string;
   WHATSAPP_VERIFY_TOKEN?: string;
+  WHATSAPP_APP_SECRET?: string;
+  ENCRYPTION_KEY?: string;
   PBX_PUBLIC_IP?: string;
 }
 
@@ -121,7 +123,9 @@ export function loadEnvConfig(): AppEnvConfig {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     ADMIN_INITIAL_EMAIL: process.env.ADMIN_INITIAL_EMAIL,
     ADMIN_INITIAL_PASSWORD: process.env.ADMIN_INITIAL_PASSWORD,
+    ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
     WHATSAPP_VERIFY_TOKEN: whatsappToken,
+    WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET,
     PBX_PUBLIC_IP: process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP,
   };
 }

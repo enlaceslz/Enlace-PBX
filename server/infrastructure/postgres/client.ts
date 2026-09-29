@@ -193,6 +193,10 @@ class PostgresClient {
     context: { tenantId?: string; isSuperAdmin?: boolean },
     callback: (client: pg.PoolClient) => Promise<T>
   ): Promise<T> {
+    if (!context.tenantId && !context.isSuperAdmin) {
+      throw new Error('ACCESS_DENIED: Operação de banco de dados rejeitada. Tenant não especificado no contexto de execução.');
+    }
+
     const isProd = process.env.NODE_ENV === 'production';
 
     if (this.pool && this.isConfigured) {

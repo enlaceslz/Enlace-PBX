@@ -187,15 +187,15 @@ export class ExtensionRepository {
     }
   }
 
-  public static async delete(id: string, tenantId?: string): Promise<boolean> {
+  public static async delete(id: string, tenantId: string): Promise<boolean> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: tenantId é obrigatório para remover ramal.');
+    }
     try {
-      let query = 'DELETE FROM extensions WHERE (id = $1 OR number = $1)';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query = 'DELETE FROM extensions WHERE tenant_id = $1 AND (id = $2 OR number = $2)';
-        params.unshift(tenantId.trim());
-      }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'DELETE FROM extensions WHERE tenant_id = $1 AND (id = $2 OR number = $2)',
+        [tenantId.trim(), id]
+      );
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
       console.error('[ExtensionRepository.delete] Erro no PostgreSQL:', err?.message || err);

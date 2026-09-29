@@ -120,17 +120,7 @@ export class MaiaPolicyEngine {
       allowedRoles: ['super_admin'],
       allowedContexts: ['internal_cli'],
       requiresConfirmation: true,
-      enabled: true,
-    },
-    executar_cli_asterisk: {
-      toolId: 'tool-admin-cli',
-      name: 'executar_cli_asterisk',
-      description: 'Executa comandos administrativos no Asterisk Core',
-      risk: 'CRITICAL',
-      allowedRoles: ['super_admin'],
-      allowedContexts: ['internal_cli'],
-      requiresConfirmation: true,
-      enabled: true,
+      enabled: false, // Desabilitado para garantir que a IA não altere telecom diretamente
     },
   };
 

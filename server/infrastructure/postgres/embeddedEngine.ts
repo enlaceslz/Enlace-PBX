@@ -1201,11 +1201,18 @@ export class EmbeddedDatabaseEngine {
         if ((row.email || '').toLowerCase() !== targetEmail) return false;
       }
 
-      // 2. id = $1
-      const idMatch = whereClause.match(/\bid\s*=\s*(\$\d+|'[^']*')/i);
-      if (idMatch) {
-        const val = this.resolveParam(idMatch[1], params);
-        if (row.id !== val) return false;
+      // 2. (id = $X OR number = $X) ou id = $1
+      const idOrNumberMatch = whereClause.match(/\(\s*id\s*=\s*(\$\d+|'[^']*')\s+OR\s+number\s*=\s*(\$\d+|'[^']*')\s*\)/i);
+      if (idOrNumberMatch) {
+        const valId = this.resolveParam(idOrNumberMatch[1], params);
+        const valNum = this.resolveParam(idOrNumberMatch[2], params);
+        if (row.id !== valId && row.number !== valNum) return false;
+      } else {
+        const idMatch = whereClause.match(/\bid\s*=\s*(\$\d+|'[^']*')/i);
+        if (idMatch) {
+          const val = this.resolveParam(idMatch[1], params);
+          if (row.id !== val && row.uniqueid !== val) return false;
+        }
       }
 
       // 3. tenant_id = $1
@@ -1367,6 +1374,10 @@ export class EmbeddedDatabaseEngine {
     }
 
     const tableName = tableMatch[1].toLowerCase();
+    if (tableName === 'audit_logs') {
+      throw new Error('AUDIT_LOG_IMMUTABLE: Registros de auditoria são estritamente imutáveis. Operações de UPDATE são proibidas por segurança e conformidade LGPD.');
+    }
+
     const setClause = tableMatch[2];
     const whereClause = tableMatch[3] || '';
 
@@ -1374,21 +1385,7 @@ export class EmbeddedDatabaseEngine {
     let updatedCount = 0;
 
     tableData.forEach((row) => {
-      let matches = true;
-      if (whereClause) {
-        // Valida id = $X
-        const idMatch = whereClause.match(/\bid\s*=\s*(\$\d+|'[^']*')/i);
-        if (idMatch) {
-          const val = this.resolveParam(idMatch[1], params);
-          if (row.id !== val && row.uniqueid !== val) matches = false;
-        }
-
-        const keyMatch = whereClause.match(/\bkey\s*=\s*(\$\d+|'[^']*')/i);
-        if (keyMatch) {
-          const val = this.resolveParam(keyMatch[1], params);
-          if (row.key !== val) matches = false;
-        }
-      }
+      const matches = whereClause ? this.filterRows([row], whereClause, params).length > 0 : true;
 
       if (matches) {
         // Aplica campos do SET
@@ -1421,26 +1418,18 @@ export class EmbeddedDatabaseEngine {
     }
 
     const tableName = tableMatch[1].toLowerCase();
+    if (tableName === 'audit_logs') {
+      throw new Error('AUDIT_LOG_IMMUTABLE: Registros de auditoria são estritamente imutáveis. Operações de DELETE são proibidas por segurança e conformidade LGPD.');
+    }
+
     const whereClause = tableMatch[2] || '';
     const tableData = this.tables[tableName] || [];
 
     const initialLen = tableData.length;
     this.tables[tableName] = tableData.filter((row) => {
       if (!whereClause) return false;
-
-      const idMatch = whereClause.match(/\bid\s*=\s*(\$\d+|'[^']*')/i);
-      if (idMatch) {
-        const val = this.resolveParam(idMatch[1], params);
-        if (row.id === val) return false;
-      }
-
-      const keyMatch = whereClause.match(/\bkey\s*=\s*(\$\d+|'[^']*')/i);
-      if (keyMatch) {
-        const val = this.resolveParam(keyMatch[1], params);
-        if (row.key === val) return false;
-      }
-
-      return true;
+      const matches = this.filterRows([row], whereClause, params).length > 0;
+      return !matches;
     });
 
     const deletedCount = initialLen - this.tables[tableName].length;
