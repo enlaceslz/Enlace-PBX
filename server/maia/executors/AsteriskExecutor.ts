@@ -65,8 +65,16 @@ export class AsteriskTransferExecutor implements IMaiaExecutor {
       }
     } catch (err: any) {
       console.warn('[AsteriskTransferExecutor] Falha ao consultar cadastro de destinos:', err?.message || err);
-      // Em modo dev fallback permissivo se banco offline
-      targetValid = true;
+      // REGRA FAIL-CLOSED ESTRITA: Qualquer erro de consulta resulta em negação de execução
+      targetValid = false;
+      return {
+        status: 'failed',
+        data: {
+          erro: 'Banco de dados indisponível para validar permissão de destino (Fail-Closed).',
+          detalhes: err?.message || 'Falha de conexão',
+        },
+        message: 'Não foi possível validar o destino de transferência no momento devido a uma indisponibilidade temporária do sistema corporativo.',
+      };
     }
 
     if (!targetValid) {

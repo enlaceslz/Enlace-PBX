@@ -19,6 +19,22 @@ export class AuditLogRepository {
     return this.log(entry);
   }
 
+  /**
+   * Constrói o hash canônico SHA-256 para o registro de auditoria.
+   */
+  public static computeCanonicalHash(params: {
+    previousHash: string;
+    id: string;
+    tenantId: string;
+    userId: string;
+    action: string;
+    resource: string;
+    timestamp: string;
+  }): string {
+    const canonical = `${params.previousHash}|${params.id}|${params.tenantId}|${params.userId}|${params.action}|${params.resource}|${params.timestamp}`;
+    return crypto.createHash('sha256').update(canonical).digest('hex');
+  }
+
   public static async log(entry: {
     tenantId: string;
     userId: string;
@@ -46,8 +62,15 @@ export class AuditLogRepository {
       }
     } catch {}
 
-    const hashData = `${previousHash}|${id}|${entry.tenantId}|${entry.userId}|${entry.action}|${entry.resource}|${timestamp}`;
-    const sha256Hash = crypto.createHash('sha256').update(hashData).digest('hex');
+    const sha256Hash = this.computeCanonicalHash({
+      previousHash,
+      id,
+      tenantId: entry.tenantId,
+      userId: entry.userId,
+      action: entry.action,
+      resource: entry.resource,
+      timestamp,
+    });
 
     const auditItem: AuditLog = {
       id,
@@ -230,14 +253,53 @@ export class AuditLogRepository {
       let expectedPrev = '0000000000000000000000000000000000000000000000000000000000000000';
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        if (i > 0 && row.previous_hash && row.previous_hash !== expectedPrev) {
+        const actualPrev = row.previous_hash || '0000000000000000000000000000000000000000000000000000000000000000';
+
+        // 1. Validação de Encadeamento de Hash (previous_hash[n] === sha256_hash[n-1])
+        if (i > 0 && actualPrev !== expectedPrev) {
           return {
             valid: false,
             totalVerified: i,
             brokenAtId: row.id,
-            details: `Ruptura na cadeia de custódia no registro ${row.id}. Hash anterior esperado: ${expectedPrev}, obtido: ${row.previous_hash}`,
+            details: `Ruptura na cadeia de custódia no registro ${row.id}. Hash anterior esperado: ${expectedPrev}, obtido: ${actualPrev}`,
           };
         }
+
+        // 2. Validação Matemática Canônica: CALCULATED_HASH === STORED_HASH
+        const canonicalTimestamp = toSafeIsoStringOrNow(row.timestamp);
+        const calculatedHash = this.computeCanonicalHash({
+          previousHash: actualPrev,
+          id: row.id,
+          tenantId: row.tenant_id,
+          userId: row.user_id,
+          action: row.action,
+          resource: row.resource,
+          timestamp: canonicalTimestamp,
+        });
+
+        if (calculatedHash !== row.sha256_hash) {
+          // Tenta com timestamp bruto caso a formatação de fuso difira minimamente
+          const rawTimestamp = typeof row.timestamp === 'string' ? row.timestamp : new Date(row.timestamp).toISOString();
+          const altHash = this.computeCanonicalHash({
+            previousHash: actualPrev,
+            id: row.id,
+            tenantId: row.tenant_id,
+            userId: row.user_id,
+            action: row.action,
+            resource: row.resource,
+            timestamp: rawTimestamp,
+          });
+
+          if (altHash !== row.sha256_hash) {
+            return {
+              valid: false,
+              totalVerified: i,
+              brokenAtId: row.id,
+              details: `Adulteração detectada no registro ${row.id}: hash recalculado não coincide com o hash armazenado. Cadeia de custódia corrompida.`,
+            };
+          }
+        }
+
         expectedPrev = row.sha256_hash;
       }
 

@@ -1222,11 +1222,13 @@ export class EmbeddedDatabaseEngine {
         if (row.tenant_id !== val) return false;
       }
 
-      // 4. number = $2
-      const numberMatch = whereClause.match(/\bnumber\s*=\s*(\$\d+|'[^']*')/i);
-      if (numberMatch) {
-        const val = this.resolveParam(numberMatch[1], params);
-        if (row.number !== val) return false;
+      // 4. number = $2 (apenas se não fizer parte do idOrNumberMatch)
+      if (!idOrNumberMatch) {
+        const numberMatch = whereClause.match(/\bnumber\s*=\s*(\$\d+|'[^']*')/i);
+        if (numberMatch) {
+          const val = this.resolveParam(numberMatch[1], params);
+          if (row.number !== val) return false;
+        }
       }
 
       // 5. role = 'super_admin'

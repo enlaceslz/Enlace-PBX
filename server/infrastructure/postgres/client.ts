@@ -11,6 +11,9 @@ export interface PostgresHealthStatus {
   error?: string;
   database?: string;
   mode?: 'POSTGRESQL_POOL' | 'EMBEDDED_RESILIENT';
+  currentUser?: string;
+  isDbAppRole?: boolean;
+  productionSafe?: boolean;
 }
 
 class PostgresClient {
@@ -144,8 +147,16 @@ class PostgresClient {
       try {
         const client = await this.pool.connect();
         try {
-          const res = await client.query('SELECT NOW() as current_time, current_database() as db_name');
+          const res = await client.query('SELECT NOW() as current_time, current_database() as db_name, current_user as db_user');
           const latency = Date.now() - start;
+          const currentUser = res.rows[0]?.db_user || undefined;
+          const isDbAppRole = currentUser === 'enlace_app';
+          const productionSafe = !isProd || isDbAppRole;
+
+          if (isProd && !isDbAppRole) {
+            console.warn(`[PostgresClient] AVISO CRÍTICO DE SEGURANÇA: Conectado ao PostgreSQL como "${currentUser}". Em produção é obrigatório o uso do usuário "enlace_app" (DB_APP sem bypass RLS). Status: NOT PRODUCTION SAFE.`);
+          }
+
           this.lastHealth = {
             status: 'UP',
             latencyMs: latency,
@@ -153,6 +164,9 @@ class PostgresClient {
             activeClients: this.pool.waitingCount,
             database: res.rows[0]?.db_name || 'enlace_pbx',
             mode: 'POSTGRESQL_POOL',
+            currentUser,
+            isDbAppRole,
+            productionSafe,
           };
           return this.lastHealth;
         } finally {

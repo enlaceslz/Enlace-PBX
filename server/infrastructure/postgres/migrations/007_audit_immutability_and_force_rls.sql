@@ -67,7 +67,10 @@ RETURNS TABLE (
     role VARCHAR,
     extension VARCHAR,
     is_active BOOLEAN
-) AS $$
+) 
+SECURITY DEFINER
+SET search_path = public, pg_catalog, pg_temp
+AS $$
 BEGIN
     RETURN QUERY
     SELECT u.id, u.tenant_id, u.name, u.email, u.password_hash, u.role, u.extension, u.is_active
@@ -75,7 +78,10 @@ BEGIN
     WHERE LOWER(u.email) = LOWER(p_email)
     LIMIT 1;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
+
+REVOKE ALL ON FUNCTION authenticate_user_identity(VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION authenticate_user_identity(VARCHAR) TO enlace_app;
 
 -- 5. Definição do Papel da Aplicação (DB_APP sem privilégios de bypass RLS ou DDL)
 DO $$

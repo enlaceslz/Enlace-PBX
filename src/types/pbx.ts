@@ -451,6 +451,7 @@ export interface AsteriskChannel {
   application: string;
   durationSeconds: number;
   aiBridgeActive: boolean;
+  tenantId?: string;
   qos?: {
     latencyMs: number;
     jitterMs: number;

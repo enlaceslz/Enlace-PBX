@@ -1825,7 +1825,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       totalCost += (c.costBrl || 0);
     }
     const avgDuration = Math.round(totalDuration / (todayCdrs.length || 1));
-    const activeChannels = asteriskService.getActiveChannels();
+    const activeChannels = await asteriskService.getActiveChannels(tenantId).catch(() => []);
 
     const sessionLatencies = aiSessions
       .map((s: any) => s.latencyMs)
@@ -4116,82 +4116,141 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Asterisk Core & Config Generation
   // -------------------------------------------------------------------------
-  app.get('/api/v1/asterisk/channels', async (req, res) => {
+  app.get('/api/v1/asterisk/channels', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
     try {
-      const channels = await asteriskService.getActiveChannels();
+      const user = (req as any).user;
+      const isSuper = user?.role === 'super_admin';
+      const tenantId = (req as any).tenantId || user?.tenantId;
+      const channels = await asteriskService.getActiveChannels(tenantId, isSuper);
       res.json(channels);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.post('/api/v1/asterisk/channels', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
+  app.post('/api/v1/asterisk/channels', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
     try {
+      const user = (req as any).user;
+      const isSuper = user?.role === 'super_admin';
+      const tenantId = (req as any).tenantId || user?.tenantId;
+      if (!tenantId && !isSuper) {
+        return res.status(403).json({ error: 'Tenant obrigatório para originar chamadas.' });
+      }
       const chan = await asteriskService.originateCall(
-        req.body.caller || '4101',
+        req.body.caller || user?.extension || '4101',
         req.body.callee || '4102',
-        Boolean(req.body.isAi)
+        tenantId,
+        Boolean(req.body.isAi),
+        isSuper
       );
       res.status(201).json(chan);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
     }
   });
 
-  app.delete('/api/v1/asterisk/channels/:id', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
+  app.delete('/api/v1/asterisk/channels/:id', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
     try {
-      const success = await asteriskService.hangupChannel(req.params.id);
+      const user = (req as any).user;
+      const isSuper = user?.role === 'super_admin';
+      const tenantId = (req as any).tenantId || user?.tenantId;
+      const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
       res.json({ success });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
     }
   });
 
-  app.post('/api/v1/asterisk/channels/:id/hangup', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const success = await asteriskService.hangupChannel(req.params.id);
-    recordAuditLog({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      action: 'HANGUP_CHANNEL',
-      resource: `channels/${req.params.id}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Canal ${req.params.id} desconectado manualmente via comando ARI/CLI.`,
-      category: 'TELECOM_SIP',
-      severity: 'WARNING',
-    });
-    res.json({ success, message: `Canal ${req.params.id} encerrado.` });
-  });
-
-  app.post('/api/v1/asterisk/channels/:id/transfer', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const destination = (req.body.destination || '4102').trim();
-    const chan = await asteriskService.transferChannel(req.params.id, destination);
-    if (!chan) {
-      return res.status(404).json({ error: 'Canal não encontrado para transferência.' });
+  app.post('/api/v1/asterisk/channels/:id/hangup', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isSuper = user?.role === 'super_admin';
+      const tenantId = (req as any).tenantId || user?.tenantId;
+      const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
+      recordAuditLog({
+        tenantId: tenantId || 'SYSTEM',
+        action: 'HANGUP_CHANNEL',
+        resource: `channels/${req.params.id}`,
+        ip: req.ip || '127.0.0.1',
+        details: `Canal ${req.params.id} desconectado manualmente via comando ARI/CLI.`,
+        category: 'TELECOM_SIP',
+        severity: 'WARNING',
+      });
+      res.json({ success, message: `Canal ${req.params.id} encerrado.` });
+    } catch (err: any) {
+      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
     }
-    recordAuditLog({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      action: 'TRANSFER_CHANNEL',
-      resource: `channels/${req.params.id}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Transferência cega/assistida do canal ${chan.name} para destino ${destination}.`,
-      category: 'TELECOM_SIP',
-      severity: 'INFO',
-    });
-    res.json({ success: true, channel: chan, message: `Canal transferido para ${destination}.` });
   });
 
-  app.post('/api/v1/asterisk/channels/:id/spy', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    const supervisorExt = (req.body.supervisorExt || '4101').trim();
-    const spyChan = await asteriskService.spyChannel(req.params.id, supervisorExt);
-    recordAuditLog({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      action: 'CHANSPY_CHANNEL',
-      resource: `channels/${req.params.id}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Originação de ChanSpy no ramal supervisor ${supervisorExt} para monitoramento silencioso do canal ${req.params.id}.`,
-      category: 'TELECOM_SIP',
-      severity: 'WARNING',
-    });
-    res.json({ success: true, channel: spyChan, message: `ChanSpy iniciado no ramal ${supervisorExt}.` });
+  app.post('/api/v1/asterisk/channels/:id/transfer', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isSuper = user?.role === 'super_admin';
+      const tenantId = (req as any).tenantId || user?.tenantId;
+      const destination = (req.body.destination || '4102').trim();
+      const chan = await asteriskService.transferChannel(req.params.id, destination, tenantId, isSuper);
+      if (!chan) {
+        return res.status(404).json({ error: 'Canal não encontrado para transferência.' });
+      }
+      recordAuditLog({
+        tenantId: tenantId || 'SYSTEM',
+        action: 'TRANSFER_CHANNEL',
+        resource: `channels/${req.params.id}`,
+        ip: req.ip || '127.0.0.1',
+        details: `Transferência cega/assistida do canal ${chan.name} para destino ${destination}.`,
+        category: 'TELECOM_SIP',
+        severity: 'INFO',
+      });
+      res.json({ success: true, channel: chan, message: `Canal transferido para ${destination}.` });
+    } catch (err: any) {
+      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/v1/asterisk/channels/:id/redirect', requireAuth, requireRole('super_admin', 'admin', 'supervisor'), requireTenant, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isSuper = user?.role === 'super_admin';
+      const tenantId = (req as any).tenantId || user?.tenantId;
+      const context = (req.body.context || 'from-internal').trim();
+      const destination = (req.body.destination || '4102').trim();
+      const priority = Number(req.body.priority) || 1;
+      const success = await asteriskService.redirectChannel(req.params.id, context, destination, priority, tenantId, isSuper);
+      recordAuditLog({
+        tenantId: tenantId || 'SYSTEM',
+        action: 'REDIRECT_CHANNEL',
+        resource: `channels/${req.params.id}`,
+        ip: req.ip || '127.0.0.1',
+        details: `Redirecionamento de canal ${req.params.id} para ${destination}@${context},${priority}.`,
+        category: 'TELECOM_SIP',
+        severity: 'INFO',
+      });
+      res.json({ success, message: `Canal ${req.params.id} redirecionado para ${destination}.` });
+    } catch (err: any) {
+      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/v1/asterisk/channels/:id/spy', requireAuth, requireRole('super_admin', 'admin', 'supervisor'), requireTenant, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isSuper = user?.role === 'super_admin';
+      const tenantId = (req as any).tenantId || user?.tenantId;
+      const supervisorExt = (req.body.supervisorExt || user?.extension || '4101').trim();
+      const spyChan = await asteriskService.spyChannel(req.params.id, supervisorExt, tenantId, isSuper);
+      recordAuditLog({
+        tenantId: tenantId || 'SYSTEM',
+        action: 'CHANSPY_CHANNEL',
+        resource: `channels/${req.params.id}`,
+        ip: req.ip || '127.0.0.1',
+        details: `Originação de ChanSpy no ramal supervisor ${supervisorExt} para monitoramento silencioso do canal ${req.params.id}.`,
+        category: 'TELECOM_SIP',
+        severity: 'WARNING',
+      });
+      res.json({ success: true, channel: spyChan, message: `ChanSpy iniciado no ramal ${supervisorExt}.` });
+    } catch (err: any) {
+      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+    }
   });
 
   app.get('/api/v1/asterisk/configs', requireAuth, requireRole('super_admin', 'admin'), requireTenant, async (req, res) => {

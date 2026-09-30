@@ -17,6 +17,7 @@ export interface AsteriskChannelInfo {
   application: string;
   durationSeconds: number;
   aiBridgeActive: boolean;
+  tenantId?: string;
   qos?: {
     latencyMs: number;
     jitterMs: number;
@@ -77,6 +78,7 @@ export class AsteriskAdapter {
   }
 
   /**
+   * @deprecated [INTERNAL/DEPRECATED] Utilize os métodos tipados do AsteriskAdapter (getChannels, hangup, transfer, originateCall).
    * Executa comando Asterisk CLI real usando asterisk -rx "...".
    */
   public async executeCli(command: string): Promise<{ success: boolean; output: string; error?: string }> {
@@ -125,6 +127,7 @@ export class AsteriskAdapter {
   }
 
   /**
+   * @deprecated [INTERNAL/DEPRECATED] Utilize as operações AMI tipadas (hangup, transfer, originateCall).
    * Envia ação real via AMI (Asterisk Manager Interface).
    */
   public async executeAmiAction(action: string, params: Record<string, string> = {}): Promise<string> {

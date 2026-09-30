@@ -23,6 +23,7 @@ export interface AsteriskChannel {
   application: string;
   durationSeconds: number;
   aiBridgeActive: boolean;
+  tenantId?: string;
   qos?: {
     latencyMs: number;
     jitterMs: number;
@@ -55,9 +56,101 @@ const defaultInfraConfig = {
 export class AsteriskService {
   private realLiveChannels: AsteriskChannel[] = [];
   private lastFetchTime: number = 0;
+  private channelTenantMap: Map<string, string> = new Map();
+  private endpointTenantCache: Map<string, { tenantId: string; cachedAt: number }> = new Map();
 
   constructor() {
     this.refreshChannelsReal().catch(() => {});
+  }
+
+  /**
+   * Vincula explicitamente um identificador ou nome de canal a um tenant
+   */
+  public bindChannelTenant(channelIdOrName: string, tenantId: string): void {
+    if (channelIdOrName && tenantId) {
+      this.channelTenantMap.set(channelIdOrName, tenantId);
+    }
+  }
+
+  /**
+   * Resolução explícita e determinística do Tenant de um canal telefônico Asterisk.
+   * Não confia em string match simples no contexto.
+   * Mapeia: canal -> endpoint -> ramal/tronco no PostgreSQL -> tenantId real.
+   */
+  public async resolveChannelTenant(channel: AsteriskChannel | AsteriskChannelInfo): Promise<string | null> {
+    if (channel.tenantId) {
+      return channel.tenantId;
+    }
+
+    // 1. Vínculo explícito de originação/atendimento registrado em memória
+    if (channel.id && this.channelTenantMap.has(channel.id)) {
+      return this.channelTenantMap.get(channel.id)!;
+    }
+    if (channel.name && this.channelTenantMap.has(channel.name)) {
+      return this.channelTenantMap.get(channel.name)!;
+    }
+
+    // 2. Extração do endpoint a partir do nome do canal (ex: PJSIP/4101-0000002f -> 4101)
+    const endpointMatch = channel.name.match(/^(?:PJSIP|SIP)\/([a-zA-Z0-9_\-]+)/i);
+    const candidateEndpoint = endpointMatch ? endpointMatch[1] : null;
+
+    if (candidateEndpoint) {
+      const cached = this.endpointTenantCache.get(candidateEndpoint);
+      if (cached && Date.now() - cached.cachedAt < 60000) {
+        if (channel.id) this.channelTenantMap.set(channel.id, cached.tenantId);
+        return cached.tenantId;
+      }
+
+      // Consulta se o endpoint é um ramal existente em qualquer tenant
+      try {
+        const ext = await ExtensionRepository.findAnyByIdForSuperAdmin(candidateEndpoint);
+        if (ext && ext.tenantId) {
+          this.endpointTenantCache.set(candidateEndpoint, { tenantId: ext.tenantId, cachedAt: Date.now() });
+          if (channel.id) this.channelTenantMap.set(channel.id, ext.tenantId);
+          return ext.tenantId;
+        }
+      } catch {}
+
+      // Consulta se o endpoint é um tronco SIP corporativo
+      try {
+        const trunk = await TrunkRepository.findById(candidateEndpoint);
+        if (trunk && trunk.tenantId) {
+          this.endpointTenantCache.set(candidateEndpoint, { tenantId: trunk.tenantId, cachedAt: Date.now() });
+          if (channel.id) this.channelTenantMap.set(channel.id, trunk.tenantId);
+          return trunk.tenantId;
+        }
+      } catch {}
+    }
+
+    // 3. Resolução pelo número do chamador (callerNumber) se for ramal interno
+    if (channel.callerNumber && channel.callerNumber !== 'Desconhecido') {
+      const cleanNum = channel.callerNumber.replace(/\D/g, '');
+      if (cleanNum) {
+        try {
+          const ext = await ExtensionRepository.findAnyByIdForSuperAdmin(cleanNum);
+          if (ext && ext.tenantId) {
+            if (channel.id) this.channelTenantMap.set(channel.id, ext.tenantId);
+            return ext.tenantId;
+          }
+        } catch {}
+      }
+    }
+
+    // 4. Resolução pelo ramal conectado (connectedLine / exten) se for ramal interno
+    if (channel.connectedLine && channel.connectedLine !== 'Central') {
+      const cleanConn = channel.connectedLine.replace(/\D/g, '');
+      if (cleanConn) {
+        try {
+          const ext = await ExtensionRepository.findAnyByIdForSuperAdmin(cleanConn);
+          if (ext && ext.tenantId) {
+            if (channel.id) this.channelTenantMap.set(channel.id, ext.tenantId);
+            return ext.tenantId;
+          }
+        } catch {}
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -78,6 +171,7 @@ export class AsteriskService {
         application: c.application,
         durationSeconds: c.durationSeconds,
         aiBridgeActive: c.aiBridgeActive,
+        tenantId: c.tenantId,
         qos: c.qos,
       }));
       this.lastFetchTime = Date.now();
@@ -89,27 +183,72 @@ export class AsteriskService {
   }
 
   /**
-   * Retorna os canais ativos reais do Asterisk.
+   * Retorna os canais ativos reais com filtro estrito de autorização por tenant.
+   * Fail-Closed: se tenantId não informado e não for super_admin, retorna array vazio.
+   * Proibido qualquer string match permissivo.
    */
-  getActiveChannels(tenantId?: string): AsteriskChannel[] {
+  async getActiveChannels(tenantId?: string, isSuperAdmin: boolean = false): Promise<AsteriskChannel[]> {
     if (Date.now() - this.lastFetchTime > 2000) {
-      this.refreshChannelsReal().catch(() => {});
+      await this.refreshChannelsReal().catch(() => {});
     }
-    if (!tenantId || tenantId === 'all') {
+
+    // Resolve deterministicamente o tenantId de cada canal ativo
+    for (const c of this.realLiveChannels) {
+      if (!c.tenantId) {
+        const resolved = await this.resolveChannelTenant(c);
+        if (resolved) {
+          c.tenantId = resolved;
+        }
+      }
+    }
+
+    // Super Admin com visão global explícita de todos os canais do sistema
+    if (isSuperAdmin && (!tenantId || tenantId === 'all')) {
       return this.realLiveChannels;
     }
-    return this.realLiveChannels.filter((c) => {
-      if (c.context?.includes(tenantId)) return true;
-      return true;
-    });
+
+    // Filtragem rigorosa por tenantId: somente canais que comprovadamente pertencem ao tenant
+    if (tenantId && tenantId.trim() !== '') {
+      return this.realLiveChannels.filter((c) => c.tenantId === tenantId.trim());
+    }
+
+    // Sem autorização explícita: Fail-Closed rigoroso
+    return [];
   }
 
   /**
-   * Origina chamada real através do AsteriskAdapter.
+   * Obtém um canal ativo garantindo validação de posse do tenant
    */
-  async originateCall(caller: string, callee: string, isAi: boolean = false): Promise<AsteriskChannel> {
+  async getChannel(channelId: string, tenantId?: string, isSuperAdmin: boolean = false): Promise<AsteriskChannel | null> {
+    const channels = await this.getActiveChannels(tenantId, isSuperAdmin);
+    return channels.find((c) => c.id === channelId || c.name === channelId) || null;
+  }
+
+  /**
+   * Origina chamada real através do AsteriskAdapter com validação de Tenant.
+   */
+  async originateCall(
+    caller: string,
+    callee: string,
+    tenantId: string,
+    isAi: boolean = false,
+    isSuperAdmin: boolean = false
+  ): Promise<AsteriskChannel> {
+    if (!isSuperAdmin) {
+      if (!tenantId || tenantId.trim() === '') {
+        throw new Error('ACCESS_DENIED: tenantId é obrigatório para originar chamadas.');
+      }
+      const ext = await ExtensionRepository.findByNumber(tenantId, caller);
+      if (!ext) {
+        throw new Error('ACCESS_DENIED: O ramal originador da chamada não pertence ao seu tenant.');
+      }
+    }
+
     const chan = await asteriskAdapter.originateCall(caller, callee, isAi);
+    this.bindChannelTenant(chan.id, tenantId);
+    this.bindChannelTenant(chan.name, tenantId);
     await this.refreshChannelsReal().catch(() => {});
+
     return {
       id: chan.id,
       name: chan.name,
@@ -121,32 +260,117 @@ export class AsteriskService {
       application: chan.application,
       durationSeconds: chan.durationSeconds,
       aiBridgeActive: chan.aiBridgeActive,
+      tenantId,
       qos: chan.qos,
     };
   }
 
   /**
-   * Encerra um canal real no Asterisk.
+   * Encerra um canal real no Asterisk com validação estrita de Tenant.
    */
-  async hangupChannel(channelId: string): Promise<boolean> {
+  async hangupChannel(channelId: string, tenantId?: string, isSuperAdmin: boolean = false): Promise<boolean> {
+    if (!isSuperAdmin) {
+      if (!tenantId || tenantId.trim() === '') {
+        throw new Error('ACCESS_DENIED: tenantId é obrigatório para encerrar canais.');
+      }
+      const channel = await this.getChannel(channelId, tenantId, false);
+      if (!channel) {
+        throw new Error('ACCESS_DENIED: O canal solicitado não existe ou não pertence ao seu tenant.');
+      }
+    }
+
     const success = await asteriskAdapter.hangup(channelId);
+    this.channelTenantMap.delete(channelId);
     await this.refreshChannelsReal().catch(() => {});
     return success;
   }
 
   /**
-   * Transfere chamada real no Asterisk.
+   * Transfere chamada real no Asterisk com validação de canal e destino por Tenant.
    */
-  async transferChannel(channelId: string, destination: string): Promise<AsteriskChannel | null> {
+  async transferChannel(
+    channelId: string,
+    destination: string,
+    tenantId?: string,
+    isSuperAdmin: boolean = false
+  ): Promise<AsteriskChannel | null> {
+    if (!isSuperAdmin) {
+      if (!tenantId || tenantId.trim() === '') {
+        throw new Error('ACCESS_DENIED: tenantId é obrigatório para transferir canais.');
+      }
+      const channel = await this.getChannel(channelId, tenantId, false);
+      if (!channel) {
+        throw new Error('ACCESS_DENIED: O canal solicitado para transferência não pertence ao seu tenant.');
+      }
+
+      // Validação do destino no mesmo tenant
+      const ext = await ExtensionRepository.findByNumber(tenantId, destination);
+      const queues = await QueueRepository.listByTenant(tenantId);
+      const isQueue = queues.some((q) => q.number === destination || q.id === destination);
+      if (!ext && !isQueue) {
+        throw new Error('ACCESS_DENIED: O destino da transferência não pertence à sua organização.');
+      }
+    }
+
     await asteriskAdapter.transfer(channelId, destination);
     await this.refreshChannelsReal().catch(() => {});
     return this.realLiveChannels.find((c) => c.id === channelId || c.name === channelId) || null;
   }
 
   /**
-   * Escuta supervisora (ChanSpy) real tipada via AsteriskCommandService.
+   * Redireciona um canal real no Asterisk (dialplan redirect) com validação de Tenant.
    */
-  async spyChannel(channelId: string, supervisorExt: string = '4101'): Promise<boolean> {
+  async redirectChannel(
+    channelId: string,
+    context: string,
+    destination: string,
+    priority: number = 1,
+    tenantId?: string,
+    isSuperAdmin: boolean = false
+  ): Promise<boolean> {
+    if (!isSuperAdmin) {
+      if (!tenantId || tenantId.trim() === '') {
+        throw new Error('ACCESS_DENIED: tenantId é obrigatório para redirecionar canais.');
+      }
+      const channel = await this.getChannel(channelId, tenantId, false);
+      if (!channel) {
+        throw new Error('ACCESS_DENIED: O canal solicitado para redirecionamento não pertence ao seu tenant.');
+      }
+      // Validação do destino no mesmo tenant
+      const ext = await ExtensionRepository.findByNumber(tenantId, destination);
+      const queues = await QueueRepository.listByTenant(tenantId);
+      const isQueue = queues.some((q) => q.number === destination || q.id === destination);
+      if (!ext && !isQueue) {
+        throw new Error('ACCESS_DENIED: O destino do redirecionamento não pertence à sua organização.');
+      }
+    }
+
+    return await AsteriskCommandService.redirectChannel(channelId, context, destination, priority);
+  }
+
+  /**
+   * Escuta supervisora (ChanSpy) com validação estrita de Tenant para supervisor e alvo.
+   */
+  async spyChannel(
+    channelId: string,
+    supervisorExt: string = '4101',
+    tenantId?: string,
+    isSuperAdmin: boolean = false
+  ): Promise<boolean> {
+    if (!isSuperAdmin) {
+      if (!tenantId || tenantId.trim() === '') {
+        throw new Error('ACCESS_DENIED: tenantId é obrigatório para ChanSpy.');
+      }
+      const sup = await ExtensionRepository.findByNumber(tenantId, supervisorExt);
+      if (!sup) {
+        throw new Error('ACCESS_DENIED: O ramal de supervisão informado não pertence ao seu tenant.');
+      }
+      const targetChan = await this.getChannel(channelId, tenantId, false);
+      if (!targetChan) {
+        throw new Error('ACCESS_DENIED: O canal alvo de escuta não pertence ao seu tenant.');
+      }
+    }
+
     const res = await AsteriskCommandService.startChanSpy(supervisorExt, channelId, 'qb');
     return res.success;
   }

@@ -148,6 +148,17 @@ export class MaiaPolicyEngine {
     // 2. Mascara campos sensíveis nos argumentos para log e auditoria
     const argumentsMasked = this.maskSensitiveArgs(args);
 
+    // 0. Fail-Closed: Validação obrigatória de Tenant
+    if (!tenantId || tenantId.trim() === '') {
+      return {
+        decision: 'DENY',
+        risk: 'HIGH',
+        reason: 'Contexto de tenant obrigatório e não informado (Fail-Closed).',
+        argumentsHash,
+        argumentsMasked,
+      };
+    }
+
     // 3. Localiza a política da ferramenta
     const toolDef = this.TOOL_REGISTRY[toolName];
     if (!toolDef || !toolDef.enabled) {
