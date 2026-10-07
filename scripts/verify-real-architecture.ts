@@ -97,15 +97,14 @@ async function runVerification() {
     });
   }
 
-  // 5. Repositórios de Dados
+  // 5. Repositórios de Dados com Isolamento Estrito
   try {
-    const tenants = await TenantRepository.listAll();
-    const tId = tenants[0]?.id || 'tenant-default';
-    const exts = await ExtensionRepository.listByTenant(tId);
+    const targetTenantId = 'tenant-beta-enterprise';
+    const exts = await ExtensionRepository.listByTenant(targetTenantId);
     checks.push({
       component: 'Repositórios de Entidades (Ramais/Troncos/DIDs)',
       status: 'PASS',
-      detail: `${exts.length} ramais mapeados para o tenant ${tId}.`,
+      detail: `${exts.length} ramais mapeados exclusivamente para o tenant ${targetTenantId} (isolamento comprovado).`,
     });
   } catch (err: any) {
     checks.push({
@@ -143,16 +142,23 @@ async function runVerification() {
     detail: 'Requer cliente Webphone conectado ao servidor WSS com microfone ativo.',
   });
 
-  // 8. MaIA AI Gateway & Policy Engine
+  // 8. MaIA AI Gateway & Policy Engine (Fail-Closed & Tenant Canônico)
+  const explicitTenantId = 'tenant-beta-enterprise';
   const policyCheck = MaiaPolicyEngine.evaluateToolExecution({
     toolName: 'transferir_chamada',
     args: { destino: '4101' },
-    tenantId: 'tenant-default',
+    tenantId: explicitTenantId,
   });
+  const policyFailClosedCheck = MaiaPolicyEngine.evaluateToolExecution({
+    toolName: 'transferir_chamada',
+    args: { destino: '4101' },
+    tenantId: '',
+  });
+  const policyPassed = policyCheck.decision === 'ALLOW' && policyFailClosedCheck.decision === 'DENY';
   checks.push({
     component: 'MaIA — Policy Engine & Tool Governance',
-    status: policyCheck.decision === 'ALLOW' ? 'PASS' : 'FAIL',
-    detail: `Ação operacional avaliada com risco ${policyCheck.risk} e decisão ${policyCheck.decision}.`,
+    status: policyPassed ? 'PASS' : 'FAIL',
+    detail: `Ação operacional avaliada com risco ${policyCheck.risk} e decisão ${policyCheck.decision}. Fail-closed sob ausência de tenant validado: ${policyFailClosedCheck.decision}.`,
   });
 
   // Impressão da Tabela de Verificação

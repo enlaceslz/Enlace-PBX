@@ -118,8 +118,9 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   const [statementPeriod, setStatementPeriod] = useState<'current_month' | 'last_30_days' | 'all'>('current_month');
 
   const fetchBilling = async () => {
+    if (!currentTenant?.id) return;
     try {
-      const tenantId = currentTenant?.id || 'tenant-default';
+      const tenantId = currentTenant.id;
       const authHeaders = getAuthHeaders();
       const [resBilling, resDids] = await Promise.all([
         fetch(`/api/v1/billing/${tenantId}`, { headers: authHeaders }),
@@ -180,8 +181,8 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
 
   // Handle Add Balance
   const handleConfirmRecharge = async () => {
-    if (!billing) return;
-    const tenantId = currentTenant?.id || 'tenant-default';
+    if (!billing || !currentTenant?.id) return;
+    const tenantId = currentTenant.id;
     setIsProcessingRecharge(true);
     try {
       const res = await fetch(`/api/v1/billing/${tenantId}/recharge`, {
@@ -206,8 +207,8 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
 
   // Handle Pay Invoice Simulated
   const handlePayInvoice = async (invoiceId: string) => {
-    if (!billing) return;
-    const tenantId = currentTenant?.id || 'tenant-default';
+    if (!billing || !currentTenant?.id) return;
+    const tenantId = currentTenant.id;
     try {
       const res = await fetch(`/api/v1/billing/${tenantId}/invoices/${invoiceId}/pay`, {
         method: 'POST',

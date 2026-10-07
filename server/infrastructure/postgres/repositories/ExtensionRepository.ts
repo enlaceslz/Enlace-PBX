@@ -41,6 +41,10 @@ export class ExtensionRepository {
     }
   }
 
+  public static async listAllGlobalForSuperAdmin(): Promise<Extension[]> {
+    return this.listAll();
+  }
+
   public static async listByTenant(tenantId: string): Promise<Extension[]> {
     try {
       const res = await postgresClient.query(
@@ -109,13 +113,14 @@ export class ExtensionRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<Extension | null> {
     try {
-      let query = 'SELECT * FROM extensions WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-149: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM extensions WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -146,7 +151,35 @@ export class ExtensionRepository {
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<Extension | null> {
-    return this.findById(id);
+    try {
+      const res = await postgresClient.query('SELECT * FROM extensions WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          number: row.number,
+          name: row.name,
+          sipSecret: EncryptionService.decrypt(row.sip_secret),
+          context: row.context,
+          callerId: row.caller_id,
+          cliCallerId: row.cli_caller_id || undefined,
+          codecs: typeof row.codecs === 'string' ? JSON.parse(row.codecs) : (row.codecs || ['opus', 'alaw', 'ulaw']),
+          nat: row.nat,
+          webrtc: row.webrtc,
+          recording: row.recording,
+          voicemail: row.voicemail,
+          dnd: row.dnd,
+          status: row.status,
+          ipAddress: row.ip_address || undefined,
+          allowAiTransfer: row.allow_ai_transfer,
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[ExtensionRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
   }
 
   public static async save(ext: Extension): Promise<Extension> {

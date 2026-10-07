@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { embeddedDatabaseEngine } from './embeddedEngine.js';
+import type { TenantContext } from '../auth/authMiddleware.js';
 
 const { Pool } = pg;
 
@@ -15,6 +16,8 @@ export interface PostgresHealthStatus {
   isDbAppRole?: boolean;
   productionSafe?: boolean;
 }
+
+export type TenantTransactionContext = TenantContext;
 
 class PostgresClient {
   private pool: pg.Pool | null = null;
@@ -147,14 +150,44 @@ class PostgresClient {
       try {
         const client = await this.pool.connect();
         try {
-          const res = await client.query('SELECT NOW() as current_time, current_database() as db_name, current_user as db_user');
+          const res = await client.query(`
+            SELECT 
+              NOW() as current_time, 
+              current_database() as db_name, 
+              current_user as db_user,
+              r.rolsuper,
+              r.rolbypassrls,
+              r.rolcreatedb,
+              r.rolcreaterole
+            FROM pg_roles r
+            WHERE r.rolname = current_user
+            LIMIT 1
+          `);
           const latency = Date.now() - start;
           const currentUser = res.rows[0]?.db_user || undefined;
           const isDbAppRole = currentUser === 'enlace_app';
-          const productionSafe = !isProd || isDbAppRole;
+          const isSuperUser = res.rows[0]?.rolsuper === true;
+          const hasBypassRls = res.rows[0]?.rolbypassrls === true;
+          const hasCreateDb = res.rows[0]?.rolcreatedb === true;
+          const hasCreateRole = res.rows[0]?.rolcreaterole === true;
+          const productionSafe = !isProd || (isDbAppRole && !isSuperUser && !hasBypassRls && !hasCreateDb && !hasCreateRole);
 
-          if (isProd && !isDbAppRole) {
-            console.warn(`[PostgresClient] AVISO CRÍTICO DE SEGURANÇA: Conectado ao PostgreSQL como "${currentUser}". Em produção é obrigatório o uso do usuário "enlace_app" (DB_APP sem bypass RLS). Status: NOT PRODUCTION SAFE.`);
+          if (isProd && (!isDbAppRole || isSuperUser || hasBypassRls || hasCreateDb || hasCreateRole)) {
+            const fatalMsg = `FATAL DE PRODUÇÃO (Fail-Closed): Conectado ao PostgreSQL como "${currentUser}" (super=${isSuperUser}, bypassrls=${hasBypassRls}, createdb=${hasCreateDb}, createrole=${hasCreateRole}). Em produção é estritamente obrigatório o uso do usuário operacional "enlace_app" sem privilégios administrativos (NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE). Inicialização recusada.`;
+            console.error(`[PostgresClient] ${fatalMsg}`);
+            this.lastHealth = {
+              status: 'DOWN',
+              latencyMs: latency,
+              poolSize: this.pool.totalCount,
+              activeClients: this.pool.waitingCount,
+              database: res.rows[0]?.db_name || 'enlace_pbx',
+              mode: 'POSTGRESQL_POOL',
+              currentUser,
+              isDbAppRole,
+              productionSafe: false,
+              error: fatalMsg,
+            };
+            throw new Error(fatalMsg);
           }
 
           this.lastHealth = {
@@ -201,14 +234,35 @@ class PostgresClient {
 
   /**
    * Executa operação transacional isolada por tenant configurando variáveis de sessão LOCAL
-   * Garante conformidade com RLS PostgreSQL sob modelo Fail-Closed.
+   * Garante conformidade com RLS PostgreSQL sob modelo Fail-Closed e contexto canônico.
    */
   public async withTenantTransaction<T>(
-    context: { tenantId?: string; isSuperAdmin?: boolean },
+    context: TenantContext,
     callback: (client: pg.PoolClient) => Promise<T>
   ): Promise<T> {
-    if (!context.tenantId && !context.isSuperAdmin) {
-      throw new Error('ACCESS_DENIED: Operação de banco de dados rejeitada. Tenant não especificado no contexto de execução.');
+    if (!context || typeof context !== 'object') {
+      throw new Error('ACCESS_DENIED: Contexto de execução de tenant inválido ou nulo (Fail-Closed).');
+    }
+
+    const { accessMode, tenantId, actorRole } = context;
+
+    if (accessMode === 'GLOBAL') {
+      if (actorRole !== 'super_admin') {
+        throw new Error('ACCESS_DENIED: Operação de banco GLOBAL permitida exclusivamente para o perfil super_admin (Fail-Closed).');
+      }
+    } else if (accessMode === 'SUPER_ADMIN_TARGET') {
+      if (actorRole !== 'super_admin') {
+        throw new Error('ACCESS_DENIED: Operação SUPER_ADMIN_TARGET rejeitada. Requer perfil super_admin autenticado (Fail-Closed).');
+      }
+      if (!tenantId || tenantId.trim() === '') {
+        throw new Error('ACCESS_DENIED: Operação SUPER_ADMIN_TARGET requer tenantId de destino explícito (Fail-Closed).');
+      }
+    } else if (accessMode === 'TENANT') {
+      if (!tenantId || tenantId.trim() === '') {
+        throw new Error('ACCESS_DENIED: Operação de banco de dados rejeitada. Tenant não especificado no contexto de execução (Fail-Closed).');
+      }
+    } else {
+      throw new Error(`ACCESS_DENIED: Modo de acesso inválido ou desconhecido: ${accessMode} (Fail-Closed).`);
     }
 
     const isProd = process.env.NODE_ENV === 'production';
@@ -218,11 +272,13 @@ class PostgresClient {
       try {
         await client.query('BEGIN');
 
-        // Configuração segura e isolada da sessão local da transação
-        if (context.tenantId) {
-          await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [context.tenantId]);
-        }
-        if (context.isSuperAdmin) {
+        // Configuração segura e isolada da sessão local da transação via SET LOCAL
+        if (accessMode === 'TENANT') {
+          await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
+        } else if (accessMode === 'SUPER_ADMIN_TARGET') {
+          await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
+          await client.query("SELECT set_config('app.is_super_admin', 'true', true)");
+        } else if (accessMode === 'GLOBAL') {
           await client.query("SELECT set_config('app.is_super_admin', 'true', true)");
         }
 

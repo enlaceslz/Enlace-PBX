@@ -81,13 +81,14 @@ export class DidRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<Did | null> {
     try {
-      let query = 'SELECT * FROM dids WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-149: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM dids WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         return this.mapRow(res.rows[0]);
       }
@@ -99,7 +100,16 @@ export class DidRepository {
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<Did | null> {
-    return this.findById(id);
+    try {
+      const res = await postgresClient.query('SELECT * FROM dids WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        return this.mapRow(res.rows[0]);
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[DidRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
   }
 
   public static async save(did: Did): Promise<Did> {
@@ -164,15 +174,15 @@ export class DidRepository {
     }
   }
 
-  public static async delete(id: string, tenantId?: string): Promise<boolean> {
+  public static async delete(id: string, tenantId: string): Promise<boolean> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: tenantId é obrigatório para remover DID.');
+    }
     try {
-      let query = 'DELETE FROM dids WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
-      }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'DELETE FROM dids WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
       console.error('[DidRepository.delete] Erro no PostgreSQL:', err?.message || err);

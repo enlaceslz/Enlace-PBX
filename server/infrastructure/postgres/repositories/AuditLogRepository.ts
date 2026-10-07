@@ -35,7 +35,7 @@ export class AuditLogRepository {
     return crypto.createHash('sha256').update(canonical).digest('hex');
   }
 
-  public static async log(entry: {
+  public static async logStrict(entry: {
     tenantId: string;
     userId: string;
     userName: string;
@@ -47,6 +47,24 @@ export class AuditLogRepository {
     severity?: 'INFO' | 'WARNING' | 'CRITICAL';
     payload?: Record<string, unknown>;
   }): Promise<AuditLog> {
+    return this.log(entry, { strict: true });
+  }
+
+  public static async log(
+    entry: {
+      tenantId: string;
+      userId: string;
+      userName: string;
+      action: string;
+      resource: string;
+      ip: string;
+      details: string;
+      category?: 'TELECOM_SIP' | 'ROUTING' | 'SECURITY' | 'AI_GATEWAY' | 'USER_MGMT' | 'LGPD_ACCESS' | 'SYSTEM';
+      severity?: 'INFO' | 'WARNING' | 'CRITICAL';
+      payload?: Record<string, unknown>;
+    },
+    options?: { strict?: boolean }
+  ): Promise<AuditLog> {
     const timestamp = new Date().toISOString();
     const id = `audit-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
@@ -102,6 +120,9 @@ export class AuditLogRepository {
       );
     } catch (err: any) {
       console.error('[AuditLogRepository.log] Erro ao gravar log de auditoria no PostgreSQL:', err?.message || err);
+      if (options?.strict) {
+        throw new Error(`AUDIT_REQUIRED_FAILURE: Falha crítica na persistência imutável de auditoria: ${err?.message || err}`);
+      }
     }
 
     return auditItem;

@@ -220,32 +220,74 @@ export default function App() {
     }
   }, [loadAllData, isAuthenticated]);
 
-  // Real-time SSE for channels and metrics
+  // Conexão Segura SSE para telemetria em tempo real com Ticket Efêmero (P0-01)
   useEffect(() => {
     if (!isAuthenticated) return;
-    const token = authToken || localStorage.getItem('enlace_jwt');
-    const sseUrl = '/api/v1/events/asterisk' + (token ? `?token=${encodeURIComponent(token)}` : '');
-    const eventSource = new EventSource(sseUrl);
-    
-    eventSource.onmessage = (event) => {
+    let isSubscribed = true;
+    let es: EventSource | null = null;
+    let retryTimer: any = null;
+
+    const connectSse = async () => {
       try {
-        const data = JSON.parse(event.data);
-        if (data.channels) setChannels(data.channels);
-        if (data.metrics) setMetrics(data.metrics);
-      } catch (err) {
-        // Ignored
+        const token = authToken || localStorage.getItem('enlace_jwt');
+        if (!token || !isSubscribed) return;
+
+        // Solicita ticket efêmero de uso único (TTL 30s) sem expor JWT na URL
+        const res = await fetch('/api/v1/auth/sse-ticket', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!res.ok || !isSubscribed) {
+          retryTimer = setTimeout(connectSse, 5000);
+          return;
+        }
+
+        const data = await res.json();
+        const ticket = data.ticket;
+        if (!ticket || !isSubscribed) {
+          retryTimer = setTimeout(connectSse, 5000);
+          return;
+        }
+
+        es = new EventSource(`/api/v1/events/asterisk?ticket=${encodeURIComponent(ticket)}`);
+
+        es.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.channels) setChannels(payload.channels);
+            if (payload.metrics) setMetrics(payload.metrics);
+          } catch {}
+        };
+
+        es.onerror = () => {
+          if (es) {
+            es.close();
+            es = null;
+          }
+          if (isSubscribed) {
+            // Reconexão solicitando um NOVO ticket efêmero
+            retryTimer = setTimeout(connectSse, 3000);
+          }
+        };
+      } catch {
+        if (isSubscribed) {
+          retryTimer = setTimeout(connectSse, 5000);
+        }
       }
     };
 
-    eventSource.onerror = () => {
-      // Browser or proxy closed connection, EventSource will auto-reconnect
-      // Mute the error to avoid console noise
-    };
+    connectSse();
 
     return () => {
-      eventSource.close();
+      isSubscribed = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (es) es.close();
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, authToken]);
 
   const handleOpenWebphone = (number?: string) => {
     if (number) setWebphoneTarget(number);

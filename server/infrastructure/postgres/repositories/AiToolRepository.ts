@@ -68,14 +68,18 @@ export class AiToolRepository {
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
-    if (tenantId) {
-      return this.deleteTool(id, tenantId);
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: Deleção de ferramenta de IA requer tenantId explícito (Fail-Closed).');
     }
+    return this.deleteTool(id, tenantId.trim());
+  }
+
+  public static async deleteAnyForSuperAdmin(id: string): Promise<boolean> {
     try {
       const res = await postgresClient.query('DELETE FROM ai_tools WHERE id = $1', [id]);
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
-      console.error('[AiToolRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      console.error('[AiToolRepository.deleteAnyForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
   }
@@ -148,13 +152,14 @@ export class AiToolRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<AiTool | null> {
     try {
-      let query = 'SELECT * FROM ai_tools WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-199: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM ai_tools WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -177,7 +182,27 @@ export class AiToolRepository {
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<AiTool | null> {
-    return this.findById(id);
+    try {
+      const res = await postgresClient.query('SELECT * FROM ai_tools WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          description: row.description,
+          endpoint: row.endpoint || '',
+          method: (row.method || 'POST') as 'GET' | 'POST',
+          requiresConfirmation: row.requires_confirmation ?? false,
+          schemaJson: typeof row.schema_json === 'string' ? JSON.parse(row.schema_json) : (row.schema_json || {}),
+          mockResponse: typeof row.mock_response === 'string' ? JSON.parse(row.mock_response) : (row.mock_response || {}),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[AiToolRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
   }
 
   public static async findByName(name: string, tenantId: string): Promise<AiTool | null> {

@@ -54,13 +54,14 @@ export class CampaignRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<OutboundCampaign | null> {
     try {
-      let query = 'SELECT * FROM campaigns WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-199: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM campaigns WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -85,7 +86,29 @@ export class CampaignRepository {
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<OutboundCampaign | null> {
-    return this.findById(id);
+    try {
+      const res = await postgresClient.query('SELECT * FROM campaigns WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          type: row.type || 'ai_voicebot',
+          status: row.status || 'paused',
+          aiAgentId: row.ai_agent_id || undefined,
+          totalLeads: row.total_leads || 0,
+          processedLeads: row.processed_leads || 0,
+          successCount: row.success_count || 0,
+          activeCalls: row.active_calls || 0,
+          createdAt: toSafeIsoStringOrNow(row.created_at),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[CampaignRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
   }
 
   public static async save(campaign: OutboundCampaign): Promise<OutboundCampaign> {
@@ -117,15 +140,15 @@ export class CampaignRepository {
     }
   }
 
-  public static async delete(id: string, tenantId?: string): Promise<boolean> {
+  public static async delete(id: string, tenantId: string): Promise<boolean> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: tenantId é obrigatório para remover campanha.');
+    }
     try {
-      let query = 'DELETE FROM campaigns WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
-      }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'DELETE FROM campaigns WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
       console.error('[CampaignRepository.delete] Erro no PostgreSQL:', err?.message || err);

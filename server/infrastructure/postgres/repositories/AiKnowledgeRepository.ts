@@ -50,13 +50,14 @@ export class AiKnowledgeRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<AiKnowledgeSource | null> {
     try {
-      let query = 'SELECT * FROM ai_knowledge WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-199: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM ai_knowledge WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -79,7 +80,27 @@ export class AiKnowledgeRepository {
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<AiKnowledgeSource | null> {
-    return this.findById(id);
+    try {
+      const res = await postgresClient.query('SELECT * FROM ai_knowledge WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          title: row.title,
+          category: row.category,
+          content: row.content,
+          updatedAt: toSafeIsoStringOrNow(row.updated_at),
+          fileName: row.file_name || undefined,
+          fileType: row.file_type || undefined,
+          fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[AiKnowledgeRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
   }
 
   public static async save(source: AiKnowledgeSource): Promise<AiKnowledgeSource> {
@@ -116,17 +137,27 @@ export class AiKnowledgeRepository {
   }
 
   public static async delete(id: string, tenantId?: string): Promise<boolean> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: Deleção de base de conhecimento requer tenantId explícito (Fail-Closed).');
+    }
     try {
-      let query = 'DELETE FROM ai_knowledge WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
-      }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'DELETE FROM ai_knowledge WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
       console.error('[AiKnowledgeRepository.delete] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
+  }
+
+  public static async deleteAnyForSuperAdmin(id: string): Promise<boolean> {
+    try {
+      const res = await postgresClient.query('DELETE FROM ai_knowledge WHERE id = $1', [id]);
+      return (res.rowCount ?? 0) > 0;
+    } catch (err: any) {
+      console.error('[AiKnowledgeRepository.deleteAnyForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
   }

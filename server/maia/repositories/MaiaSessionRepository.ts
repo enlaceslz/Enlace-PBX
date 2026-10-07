@@ -73,28 +73,32 @@ export class MaiaSessionRepository {
   }
 
   public static async findById(id: string, tenantId?: string): Promise<MaiaSession | null> {
-    let query = 'SELECT * FROM ai_sessions WHERE id = $1';
-    const params: any[] = [id];
-    if (tenantId) {
-      query += ' AND tenant_id = $2';
-      params.push(tenantId);
+    if (!tenantId || tenantId.trim() === '') {
+      // Regra Fail-Closed CS-148/CS-199/CS-227: Tenant ausente produz recusa estrita de recurso
+      return null;
     }
+    const res = await postgresClient.query(
+      'SELECT * FROM ai_sessions WHERE id = $1 AND tenant_id = $2',
+      [id, tenantId.trim()]
+    );
+    if (res.rows.length === 0) return null;
+    return this.rowToSession(res.rows[0]);
+  }
 
-    const res = await postgresClient.query(query, params);
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<MaiaSession | null> {
+    const res = await postgresClient.query('SELECT * FROM ai_sessions WHERE id = $1', [id]);
     if (res.rows.length === 0) return null;
     return this.rowToSession(res.rows[0]);
   }
 
   public static async findByChannelId(channelId: string, tenantId?: string): Promise<MaiaSession | null> {
-    let query = 'SELECT * FROM ai_sessions WHERE asterisk_channel_id = $1';
-    const params: any[] = [channelId];
-    if (tenantId) {
-      query += ' AND tenant_id = $2';
-      params.push(tenantId);
+    if (!tenantId || tenantId.trim() === '') {
+      return null;
     }
-    query += ' ORDER BY started_at DESC LIMIT 1';
-
-    const res = await postgresClient.query(query, params);
+    const res = await postgresClient.query(
+      'SELECT * FROM ai_sessions WHERE asterisk_channel_id = $1 AND tenant_id = $2 ORDER BY started_at DESC LIMIT 1',
+      [channelId, tenantId.trim()]
+    );
     if (res.rows.length === 0) return null;
     return this.rowToSession(res.rows[0]);
   }
@@ -105,6 +109,10 @@ export class MaiaSessionRepository {
       [tenantId, limit]
     );
     return res.rows.map((row) => this.rowToSession(row));
+  }
+
+  public static async listAllGlobalForSuperAdmin(limit: number = 50): Promise<MaiaSession[]> {
+    return this.listAll(limit);
   }
 
   public static async listAll(limit: number = 50): Promise<MaiaSession[]> {

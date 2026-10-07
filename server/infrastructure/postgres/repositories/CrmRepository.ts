@@ -26,13 +26,14 @@ export class CrmRepository {
 
   public static async findContactById(id: string, tenantId?: string): Promise<CrmContact | null> {
     try {
-      let query = 'SELECT * FROM crm_contacts WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId) {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId);
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-199: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM crm_contacts WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -48,6 +49,28 @@ export class CrmRepository {
       return null;
     } catch (err: any) {
       console.error('[CrmRepository.findContactById] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
+  }
+
+  public static async findAnyContactByIdForSuperAdmin(id: string): Promise<CrmContact | null> {
+    try {
+      const res = await postgresClient.query('SELECT * FROM crm_contacts WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          phone: row.phone,
+          email: row.email || '',
+          crmId: row.crm_id || undefined,
+          lastInteraction: toSafeIsoString(row.last_interaction),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[CrmRepository.findAnyContactByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
   }
@@ -82,17 +105,27 @@ export class CrmRepository {
   }
 
   public static async deleteContact(id: string, tenantId?: string): Promise<boolean> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: Deleção de contato CRM requer tenantId explícito (Fail-Closed).');
+    }
     try {
-      let query = 'DELETE FROM crm_contacts WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId) {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId);
-      }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'DELETE FROM crm_contacts WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
       console.error('[CrmRepository.deleteContact] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
+  }
+
+  public static async deleteAnyContactForSuperAdmin(id: string): Promise<boolean> {
+    try {
+      const res = await postgresClient.query('DELETE FROM crm_contacts WHERE id = $1', [id]);
+      return (res.rowCount ?? 0) > 0;
+    } catch (err: any) {
+      console.error('[CrmRepository.deleteAnyContactForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
   }

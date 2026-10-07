@@ -276,7 +276,10 @@ ${historyContext}
   }
 
   async processVoiceTurn(req: VoiceTurnRequest): Promise<VoiceTurnResponse> {
-    const tenantId = req.tenantId || 'tenant-default';
+    if (!req.tenantId || req.tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: Operação de voz MaIA rejeitada por ausência de tenantId no contexto (Fail-Closed).');
+    }
+    const tenantId = req.tenantId.trim();
     const gatewayRes = await maiaAIGateway.processVoiceTurn({
       agentId: req.agentId,
       userMessage: req.userMessage,

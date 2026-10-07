@@ -65,13 +65,14 @@ export class RouteRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<Route | null> {
     try {
-      let query = 'SELECT * FROM routes WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-149: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM routes WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -102,7 +103,35 @@ export class RouteRepository {
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<Route | null> {
-    return this.findById(id);
+    try {
+      const res = await postgresClient.query('SELECT * FROM routes WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          type: (row.type || 'outbound') as any,
+          pattern: row.pattern,
+          prefixRemove: row.strip_digits ? String(row.strip_digits) : undefined,
+          prepend: row.prepend_digits || undefined,
+          trunkId: row.trunk_id,
+          failoverTrunkId: row.failover_trunk_id || undefined,
+          priority: row.priority || 1,
+          isCliItx: row.is_cli_itx || false,
+          callerIdOverride: row.caller_id_override || undefined,
+          extensionOverrides: typeof row.extension_overrides === 'string'
+            ? JSON.parse(row.extension_overrides)
+            : (row.extension_overrides || []),
+          destinationType: (row.destination_type || 'trunk') as any,
+          destinationId: row.destination_id || (row.trunk_id || ''),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[RouteRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
   }
 
   public static async save(route: Route): Promise<Route> {
@@ -149,15 +178,15 @@ export class RouteRepository {
     }
   }
 
-  public static async delete(id: string, tenantId?: string): Promise<boolean> {
+  public static async delete(id: string, tenantId: string): Promise<boolean> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: tenantId é obrigatório para remover rota.');
+    }
     try {
-      let query = 'DELETE FROM routes WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
-      }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'DELETE FROM routes WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
       console.error('[RouteRepository.delete] Erro no PostgreSQL:', err?.message || err);

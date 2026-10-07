@@ -77,13 +77,14 @@ export class AiAgentRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<AiAgent | null> {
     try {
-      let query = 'SELECT * FROM ai_agents WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-199: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM ai_agents WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -120,7 +121,41 @@ export class AiAgentRepository {
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<AiAgent | null> {
-    return this.findById(id);
+    try {
+      const res = await postgresClient.query('SELECT * FROM ai_agents WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          description: row.description || '',
+          providerId: row.provider_id || 'provider-gemini',
+          model: row.model || 'gemini-flash-latest',
+          voice: row.voice || 'pt-BR-Wavenet-A',
+          voiceGender: (row.voice_gender || 'female') as any,
+          avatarType: (row.avatar_type || 'octopus_ai') as any,
+          language: row.language || 'pt-BR',
+          systemInstruction: row.system_instruction || '',
+          initialGreeting: row.initial_greeting || '',
+          temperature: parseFloat(row.temperature || '0.7'),
+          tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
+          knowledgeSources: typeof row.knowledge_sources === 'string'
+            ? JSON.parse(row.knowledge_sources)
+            : (row.knowledge_sources || []),
+          allowBargeIn: row.allow_barge_in ?? true,
+          silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
+          maxSessionMinutes: row.max_session_minutes || 15,
+          transferExtension: row.transfer_extension || '4101',
+          fallbackAction: (row.fallback_action || 'transfer_human') as any,
+          isActive: row.is_active ?? true,
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[AiAgentRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
   }
 
   public static async save(agent: AiAgent): Promise<AiAgent> {

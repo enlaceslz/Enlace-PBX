@@ -1,5 +1,6 @@
 import { postgresClient } from '../client';
 import { toSafeIsoStringOrNow } from '../dateUtils';
+import { SystemRepository } from './SystemRepository';
 
 export interface OmnichannelMessage {
   id: string;
@@ -56,13 +57,14 @@ export class OmnichannelRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<OmnichannelConversation | null> {
     try {
-      let query = 'SELECT * FROM omnichannel_conversations WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId) {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId);
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-199: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM omnichannel_conversations WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -85,6 +87,85 @@ export class OmnichannelRepository {
       console.error('[OmnichannelRepository.findById] Erro no PostgreSQL:', err?.message || err);
       throw err;
     }
+  }
+
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<OmnichannelConversation | null> {
+    try {
+      const res = await postgresClient.query('SELECT * FROM omnichannel_conversations WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          contactId: row.contact_id,
+          contactName: row.contact_name,
+          contactPhone: row.contact_phone,
+          companyName: row.company_name || undefined,
+          channel: row.channel || 'whatsapp',
+          status: row.status || 'active',
+          sentiment: row.sentiment || 'neutral',
+          tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
+          messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
+          createdAt: toSafeIsoStringOrNow(row.created_at),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[OmnichannelRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
+  }
+
+  /**
+   * Resolução Fail-Closed de Vínculo Estrito Meta WhatsApp:
+   * phone_number_id -> integração ativa -> tenantId
+   * Nunca permite mensagens órfãs ou roteamento para 'tenant-default'.
+   */
+  public static async findIntegrationByPhoneNumberId(
+    phoneNumberId: string
+  ): Promise<{ tenantId: string; phoneNumberId: string; accessToken?: string } | null> {
+    if (!phoneNumberId || phoneNumberId.trim() === '') {
+      return null;
+    }
+    const cleanId = phoneNumberId.trim();
+
+    // 1. Tenta consulta em tabela dedicada whatsapp_integrations
+    try {
+      const res = await postgresClient.query(
+        'SELECT tenant_id, phone_number_id, access_token FROM whatsapp_integrations WHERE phone_number_id = $1 LIMIT 1',
+        [cleanId]
+      );
+      if (res.rows.length > 0 && res.rows[0].tenant_id && res.rows[0].tenant_id.trim() !== '') {
+        return {
+          tenantId: res.rows[0].tenant_id.trim(),
+          phoneNumberId: cleanId,
+          accessToken: res.rows[0].access_token || undefined,
+        };
+      }
+    } catch {
+      // Ignora se tabela whatsapp_integrations não estiver criada
+    }
+
+    // 2. Consulta em system_settings via SystemRepository.getWhatsappConfig()
+    try {
+      const config = await SystemRepository.getWhatsappConfig();
+      if (
+        config &&
+        config.phoneNumberId === cleanId &&
+        config.tenantId &&
+        config.tenantId.trim() !== ''
+      ) {
+        return {
+          tenantId: config.tenantId.trim(),
+          phoneNumberId: cleanId,
+          accessToken: config.accessToken,
+        };
+      }
+    } catch {
+      // Ignora erro em dev
+    }
+
+    return null;
   }
 
   public static async save(conv: OmnichannelConversation): Promise<OmnichannelConversation> {

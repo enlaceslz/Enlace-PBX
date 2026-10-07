@@ -202,15 +202,20 @@ export class CdrRepository {
     }
   }
 
+  public static async listAllGlobalForSuperAdmin(options?: { limit?: number; offset?: number }): Promise<CdrRecord[]> {
+    return this.listAll(options);
+  }
+
   public static async findById(id: string, tenantId?: string): Promise<CdrRecord | null> {
     try {
-      let query = 'SELECT * FROM cdr WHERE (id = $1 OR uniqueid = $1)';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-199: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM cdr WHERE (id = $1 OR uniqueid = $1) AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -242,6 +247,38 @@ export class CdrRepository {
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<CdrRecord | null> {
-    return this.findById(id);
+    try {
+      const res = await postgresClient.query(
+        'SELECT * FROM cdr WHERE (id = $1 OR uniqueid = $1)',
+        [id]
+      );
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          uniqueId: row.uniqueid || row.id,
+          caller: row.caller,
+          callee: row.callee,
+          direction: row.direction,
+          startTime: row.start_time ? new Date(row.start_time).toISOString() : new Date().toISOString(),
+          answerTime: row.answer_time ? new Date(row.answer_time).toISOString() : undefined,
+          endTime: row.end_time ? new Date(row.end_time).toISOString() : new Date().toISOString(),
+          duration: row.duration,
+          billsec: row.billsec,
+          disposition: row.disposition,
+          recordingUrl: row.recording_file || undefined,
+          trunkName: row.trunk || undefined,
+          extension: row.extension || undefined,
+          aiAgentId: row.ai_agent_id || undefined,
+          isAiHandled: !!row.ai_agent_id,
+          costBrl: parseFloat(row.cost_brl || '0'),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[CdrRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
   }
 }

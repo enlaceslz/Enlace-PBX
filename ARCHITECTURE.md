@@ -141,3 +141,19 @@ A interface é segmentada em 6 áreas funcionais:
 - **Trilha de Auditoria Imutável:** Todos os acessos a gravações telefônicas registram o usuário solicitante, endereço IP, justificativa e carimbo de data/hora.
 - **Retenção Configurável:** Políticas automáticas de expurgo de arquivos de áudio após o prazo legal estabelecido pela empresa.
 
+---
+
+## 6. Hardening de Segurança Enterprise (P0)
+
+### 6.1. Autenticação SSE por Tickets Efêmeros (P0-01)
+- **Eliminação de JWT em URL:** O JWT permanente de aplicação é estritamente proibido em query strings (`?token=`). Tentativas de envio recebem `HTTP 401 SSE_PERMANENT_JWT_FORBIDDEN`.
+- **Tickets Efêmeros One-Time:** Conexões SSE utilizam tickets descartáveis gerados via `POST /api/v1/auth/sse-ticket` com TTL de 30 segundos, escopo restrito (`scope: 'sse'`) e invalidação imediata após o primeiro handshake (mitigação de replay).
+
+### 6.2. Capacidade Explícita Cross-Tenant (P0-02)
+- **Capacidade `platform:cross_tenant`:** O perfil `super_admin` não possui bypass universal irrestrito. Acesso e operações sobre outros tenants exigem a capacidade explícita `platform:cross_tenant`, validação prévia de existência e estado ativo do tenant no PostgreSQL.
+- **Auditoria Transacional:** Toda troca de contexto de tenant é auditada com registro imutável antes da execução da operação.
+
+### 6.3. Auditoria Obrigatória Fail-Closed (P0-03)
+- **Garantia Fail-Closed:** Operações críticas com marcação `AUDIT_REQUIRED` utilizam `AuditLogRepository.logStrict`. Se houver qualquer falha na persistência criptográfica imutável, a operação é sumariamente abortada com `HTTP 503 AUDIT_REQUIRED_FAILURE`, impedindo mutações sem rastreabilidade.
+
+

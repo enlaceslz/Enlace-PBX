@@ -45,45 +45,8 @@ export class BillingRepository {
     try {
       const res = await postgresClient.query('SELECT * FROM billing WHERE tenant_id = $1', [tenantId]);
       if (res.rows.length === 0) {
-        const defaultBilling: TenantBilling = {
-          tenantId,
-          plan: 'postpaid',
-          balance: 1000.0,
-          currency: 'BRL',
-          currentMonthCosts: {
-            telephony: 48.2,
-            aiTokens: 12.4,
-            omnichannel: 35.0,
-            licenses: 120.0,
-          },
-          recentInvoices: [
-            {
-              id: `INV-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-001`,
-              date: new Date().toISOString(),
-              dueDate: new Date(Date.now() + 10 * 86400000).toISOString(),
-              amount: 215.6,
-              status: 'pending',
-              paymentMethod: 'PIX',
-            },
-          ],
-          transactions: [
-            {
-              id: `tx-init-${Date.now()}`,
-              date: new Date().toISOString(),
-              description: 'Ativação do Plano Enterprise PBX & IA',
-              category: 'licenses',
-              type: 'credit',
-              amount: 1000.0,
-              balanceAfter: 1000.0,
-            },
-          ],
-        };
-        try {
-          await this.save(defaultBilling);
-        } catch {
-          // ignore
-        }
-        return defaultBilling;
+        // Regra P0 CS-128: Ausência deve ser tratada como ausência. Proibido sintetizar faturamento padrão.
+        return null;
       }
       const row = res.rows[0];
 
@@ -148,24 +111,17 @@ export class BillingRepository {
   }
 
   public static async recharge(tenantId: string, amount: number, paymentMethod: string): Promise<{ balance: number; transaction: BillingTransaction }> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: Recarga financeira exige tenantId válido.');
+    }
+    if (amount <= 0 || isNaN(amount)) {
+      throw new Error('INVALID_AMOUNT: Valor da recarga deve ser estritamente positivo.');
+    }
+
     const current = await this.getByTenantId(tenantId);
     const newBalance = (current ? current.balance : 0) + amount;
 
-    try {
-      await postgresClient.query(
-        `INSERT INTO billing (tenant_id, plan, balance, currency)
-         VALUES ($1, 'prepaid', $2, 'BRL')
-         ON CONFLICT (tenant_id) DO UPDATE SET
-           balance = billing.balance + EXCLUDED.balance,
-           updated_at = CURRENT_TIMESTAMP`,
-        [tenantId, amount]
-      );
-    } catch (err: any) {
-      console.error('[BillingRepository.recharge] Erro no PostgreSQL ao atualizar saldo:', err?.message || err);
-      throw err;
-    }
-
-    const txId = `tx-${Date.now()}`;
+    const txId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const txDate = new Date().toISOString().slice(0, 10);
     const tx: BillingTransaction = {
       id: txId,
@@ -177,31 +133,82 @@ export class BillingRepository {
       balanceAfter: newBalance,
     };
 
+    const client = await postgresClient.getClient();
     try {
-      await postgresClient.query(
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO billing (tenant_id, plan, balance, currency)
+         VALUES ($1, 'prepaid', $2, 'BRL')
+         ON CONFLICT (tenant_id) DO UPDATE SET
+           balance = billing.balance + EXCLUDED.balance,
+           updated_at = CURRENT_TIMESTAMP`,
+        [tenantId, amount]
+      );
+
+      await client.query(
         `INSERT INTO billing_transactions (id, tenant_id, date, description, category, type, amount, balance_after)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [tx.id, tenantId, tx.date, tx.description, tx.category, tx.type, tx.amount, tx.balanceAfter]
       );
+
+      await client.query('COMMIT');
     } catch (err: any) {
-      console.warn('[BillingRepository.recharge] Falha ao registrar transação:', err?.message || err);
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('[BillingRepository.recharge] Falha atômica ao processar recarga (Rollback executado):', err?.message || err);
+      throw new Error(`BILLING_TRANSACTION_FAILED: Falha atômica ao registrar recarga: ${err?.message || err}`);
+    } finally {
+      if ((client as any).release) {
+        (client as any).release();
+      }
     }
 
     return { balance: newBalance, transaction: tx };
   }
 
   public static async payInvoice(tenantId: string, invoiceId: string, paymentMethod: string): Promise<boolean> {
+    if (!tenantId || tenantId.trim() === '') {
+      throw new Error('TENANT_REQUIRED: Quitação de fatura exige tenantId válido.');
+    }
+
+    const client = await postgresClient.getClient();
     try {
-      const res = await postgresClient.query(
+      await client.query('BEGIN');
+
+      const checkRes = await client.query(
+        'SELECT id, status, amount FROM billing_invoices WHERE tenant_id = $1 AND id = $2',
+        [tenantId, invoiceId]
+      );
+
+      if (checkRes.rows.length === 0 || checkRes.rows[0].status === 'paid') {
+        await client.query('ROLLBACK');
+        return false;
+      }
+
+      const res = await client.query(
         `UPDATE billing_invoices
          SET status = 'paid', paid_at = CURRENT_TIMESTAMP, payment_method = $3
-         WHERE tenant_id = $1 AND id = $2`,
+         WHERE tenant_id = $1 AND id = $2 AND status != 'paid'`,
         [tenantId, invoiceId, paymentMethod]
       );
+
+      const invoiceAmount = parseFloat(checkRes.rows[0].amount || '0');
+      const txId = `tx-pay-${Date.now()}`;
+      await client.query(
+        `INSERT INTO billing_transactions (id, tenant_id, date, description, category, type, amount, balance_after)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [txId, tenantId, new Date().toISOString().slice(0, 10), `Quitação fatura ${invoiceId}`, 'fee', 'debit', invoiceAmount, 0]
+      );
+
+      await client.query('COMMIT');
       return (res.rowCount ?? 0) > 0;
     } catch (err: any) {
-      console.error('[BillingRepository.payInvoice] Erro no PostgreSQL:', err?.message || err);
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('[BillingRepository.payInvoice] Erro no PostgreSQL durante quitação atômica (Rollback executado):', err?.message || err);
       throw err;
+    } finally {
+      if ((client as any).release) {
+        (client as any).release();
+      }
     }
   }
 }
