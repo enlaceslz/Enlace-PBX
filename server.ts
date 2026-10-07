@@ -2727,83 +2727,107 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Teste de Latência Real e Conectividade SIP (SIP OPTIONS Handshake)
-  app.post('/api/v1/trunks/:id/ping', requireRole('super_admin', 'admin'), async (req, res) => {
-    const trunk = await TrunkRepository.findById(req.params.id);
-    if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
-
-    // Teste real de handshake SIP OPTIONS (DNS -> TCP -> SIP OPTIONS -> classificação)
-    const port = trunk.port || 5060;
-    const sipTestResult = await sipTrunkService.testSipHostSocket(
-      trunk.host,
-      port,
-      2500,
-      (trunk.transport as any) || 'UDP'
-    );
-    const latency = sipTestResult.latencyMs;
-    const isOnline = sipTestResult.status === 'active';
-    const timestamp = new Date().toISOString();
-
-    trunk.lastPingLatencyMs = latency;
-    trunk.lastPingStatus = sipTestResult.classification as any;
-    trunk.lastPingAt = timestamp;
-    trunk.status = isOnline ? 'registered' : 'unregistered';
-
+  app.post('/api/v1/trunks/:id/ping', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
-      await TrunkRepository.save(trunk);
-    } catch (e: any) {
-      console.error('[Trunks] Erro ao atualizar status de ping no PostgreSQL:', e?.message || e);
-    }
+      const tenantCtx = resolveTenantContext(req);
+      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
+      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
 
-    recordAuditLog({
-      tenantId: trunk.tenantId,
-      userId: (req as any).user?.id,
-      userName: (req as any).user?.name,
-      action: 'SIP_OPTIONS_PING',
-      resource: `trunks/${trunk.id}`,
-      details: `Keepalive SIP OPTIONS executado em ${trunk.host}:${port}. RTT: ${latency}ms, Classificação: ${trunk.lastPingStatus}. Resposta: ${sipTestResult.sipResponse}`,
-      category: 'TELECOM_SIP',
-      severity: isOnline ? 'INFO' : 'WARNING',
-      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-      payload: {
+      // Verificação BOLA/IDOR estrita
+      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
+        return res.status(403).json({
+          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
+          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
+        });
+      }
+
+      // Teste real de handshake SIP OPTIONS (DNS -> TCP -> SIP OPTIONS -> classificação)
+      const port = trunk.port || 5060;
+      const sipTestResult = await sipTrunkService.testSipHostSocket(
+        trunk.host,
+        port,
+        2500,
+        (trunk.transport as any) || 'UDP'
+      );
+      const latency = sipTestResult.latencyMs;
+      const isOnline = sipTestResult.status === 'active';
+      const timestamp = new Date().toISOString();
+
+      trunk.lastPingLatencyMs = latency;
+      trunk.lastPingStatus = sipTestResult.classification as any;
+      trunk.lastPingAt = timestamp;
+      trunk.status = isOnline ? 'registered' : 'unregistered';
+
+      try {
+        await TrunkRepository.save(trunk);
+      } catch (e: any) {
+        console.error('[Trunks] Erro ao atualizar status de ping no PostgreSQL:', e?.message || e);
+      }
+
+      recordAuditLog({
+        tenantId: trunk.tenantId,
+        userId: (req as any).user?.id,
+        userName: (req as any).user?.name,
+        action: 'SIP_OPTIONS_PING',
+        resource: `trunks/${trunk.id}`,
+        details: `Keepalive SIP OPTIONS executado em ${trunk.host}:${port}. RTT: ${latency}ms, Classificação: ${trunk.lastPingStatus}. Resposta: ${sipTestResult.sipResponse}`,
+        category: 'TELECOM_SIP',
+        severity: isOnline ? 'INFO' : 'WARNING',
+        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+        payload: {
+          trunkId: trunk.id,
+          host: trunk.host,
+          port,
+          transport: sipTestResult.transport,
+          sentAt: sipTestResult.sentAt,
+          receivedAt: sipTestResult.receivedAt,
+          responseCode: sipTestResult.responseCode,
+          responseReason: sipTestResult.responseReason,
+          classification: sipTestResult.classification,
+          latencyMs: latency,
+          status: sipTestResult.status,
+        },
+      });
+
+      res.json({
+        success: isOnline,
         trunkId: trunk.id,
         host: trunk.host,
         port,
-        transport: sipTestResult.transport,
-        sentAt: sipTestResult.sentAt,
-        receivedAt: sipTestResult.receivedAt,
-        responseCode: sipTestResult.responseCode,
-        responseReason: sipTestResult.responseReason,
-        classification: sipTestResult.classification,
         latencyMs: latency,
-        status: sipTestResult.status,
-      },
-    });
-
-    res.json({
-      success: isOnline,
-      trunkId: trunk.id,
-      host: trunk.host,
-      port,
-      latencyMs: latency,
-      status: trunk.lastPingStatus,
-      classification: sipTestResult.classification,
-      responseCode: sipTestResult.responseCode,
-      sipResponse: sipTestResult.sipResponse,
-      timestamp,
-      message: isOnline
-        ? `Endpoint PJSIP ${trunk.host}:${port} respondeu ao handshake SIP OPTIONS em ${latency}ms (${sipTestResult.sipResponse}).`
-        : `Endpoint PJSIP ${trunk.host}:${port} falhou no teste SIP OPTIONS (${sipTestResult.classification}): ${sipTestResult.sipResponse}`,
-    });
+        status: trunk.lastPingStatus,
+        classification: sipTestResult.classification,
+        responseCode: sipTestResult.responseCode,
+        sipResponse: sipTestResult.sipResponse,
+        timestamp,
+        message: isOnline
+          ? `Endpoint PJSIP ${trunk.host}:${port} respondeu ao handshake SIP OPTIONS em ${latency}ms (${sipTestResult.sipResponse}).`
+          : `Endpoint PJSIP ${trunk.host}:${port} falhou no teste SIP OPTIONS (${sipTestResult.classification}): ${sipTestResult.sipResponse}`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Erro ao executar ping SIP' });
+    }
   });
 
   // Diagnóstico Profundo do Tronco SIP (Conectividade SBCs, NAT, PJSIP, Firewall)
-  app.post('/api/v1/trunks/:id/diagnostics', requireRole('super_admin', 'admin'), async (req, res) => {
+  app.post('/api/v1/trunks/:id/diagnostics', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
+      const tenantCtx = resolveTenantContext(req);
+      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
+      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
+
+      // Verificação BOLA/IDOR estrita
+      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
+        return res.status(403).json({
+          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
+          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
+        });
+      }
+
       const report = await sipTrunkService.runTrunkDiagnostics(req.params.id);
-      const tenantId = (req as any).user?.tenantId || (await TrunkRepository.findById(req.params.id))?.tenantId || 'SYSTEM';
       
       recordAuditLog({
-        tenantId,
+        tenantId: trunk.tenantId,
         action: 'TRUNK_DIAGNOSTICS_RUN',
         resource: `trunks/${req.params.id}/diagnostics`,
         details: `Diagnóstico executado no tronco ${report.trunkName}. Score: ${report.score}%, Status: ${report.overallStatus.toUpperCase()}.`,
@@ -2820,42 +2844,71 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Testar Conectividade com IP Específico da Operadora com Medição Real
-  app.post('/api/v1/trunks/:id/test-ip', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { ip, port = 5060 } = req.body;
-    if (!ip) return res.status(400).json({ error: 'Endereço IP é obrigatório' });
+  app.post('/api/v1/trunks/:id/test-ip', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
+    try {
+      const tenantCtx = resolveTenantContext(req);
+      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
+      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
 
-    const socketResult = await measureSocketLatency(ip, Number(port));
-    const latency = socketResult.latencyMs;
-    const timestamp = new Date().toISOString();
+      // Verificação BOLA/IDOR estrita
+      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
+        return res.status(403).json({
+          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
+          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
+        });
+      }
 
-    res.json({
-      success: socketResult.reachable,
-      ip,
-      status: socketResult.reachable ? 'active' : 'inactive',
-      latencyMs: latency,
-      sipResponse: socketResult.reachable ? 'SIP/2.0 200 OK (OPTIONS Handshake)' : 'SIP/2.0 408 Request Timeout',
-      timestamp,
-      message: socketResult.reachable
-        ? `SBC da operadora (${ip}:${port}) respondeu ao handshake em ${latency}ms.`
-        : `SBC da operadora (${ip}:${port}) não respondeu no tempo limite (${latency}ms).`,
-    });
+      const { ip, port = 5060 } = req.body;
+      if (!ip) return res.status(400).json({ error: 'Endereço IP é obrigatório' });
+
+      const socketResult = await measureSocketLatency(ip, Number(port));
+      const latency = socketResult.latencyMs;
+      const timestamp = new Date().toISOString();
+
+      res.json({
+        success: socketResult.reachable,
+        ip,
+        status: socketResult.reachable ? 'active' : 'inactive',
+        latencyMs: latency,
+        sipResponse: socketResult.reachable ? 'SIP/2.0 200 OK (OPTIONS Handshake)' : 'SIP/2.0 408 Request Timeout',
+        timestamp,
+        message: socketResult.reachable
+          ? `SBC da operadora (${ip}:${port}) respondeu ao handshake em ${latency}ms.`
+          : `SBC da operadora (${ip}:${port}) não respondeu no tempo limite (${latency}ms).`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Erro ao testar IP' });
+    }
   });
 
   // Visualizar PJSIP e Dialplan Gerados para o Tronco
-  app.get('/api/v1/trunks/:id/pjsip-preview', async (req, res) => {
-    const trunk = await TrunkRepository.findById(req.params.id);
-    if (!trunk) return res.status(404).json({ error: 'Tronco não encontrado' });
+  app.get('/api/v1/trunks/:id/pjsip-preview', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
+    try {
+      const tenantCtx = resolveTenantContext(req);
+      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
+      if (!trunk) return res.status(404).json({ error: 'Tronco não encontrado' });
 
-    const pjsipBlock = sipTrunkService.generatePjsipForTrunk(trunk);
-    const dialplanBlock = sipTrunkService.generateDialplanForDids(trunk.tenantId);
+      // Verificação BOLA/IDOR estrita
+      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
+        return res.status(403).json({
+          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
+          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
+        });
+      }
 
-    res.json({
-      trunkId: trunk.id,
-      trunkName: trunk.name,
-      authMode: trunk.authMode || 'credentials',
-      pjsipConf: pjsipBlock,
-      extensionsConf: dialplanBlock,
-    });
+      const pjsipBlock = sipTrunkService.generatePjsipForTrunk(trunk);
+      const dialplanBlock = sipTrunkService.generateDialplanForDids(trunk.tenantId);
+
+      res.json({
+        trunkId: trunk.id,
+        trunkName: trunk.name,
+        authMode: trunk.authMode || 'credentials',
+        pjsipConf: pjsipBlock,
+        extensionsConf: dialplanBlock,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Erro ao gerar preview PJSIP' });
+    }
   });
 
   // Checklist Oficial de Homologação (11 Testes de Aceite)
@@ -2914,7 +2967,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Rollback Imediato de Configuração
-  app.post('/api/v1/trunks/rollback', requireRole('super_admin', 'admin'), async (req, res) => {
+  app.post('/api/v1/trunks/rollback', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     const { snapshotId } = req.body;
     const snapshots = await SystemRepository.getSnapshots();
     const targetSnapshotId = snapshotId || (snapshots[0] ? snapshots[0].id : null);
@@ -2928,7 +2981,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(500).json({ error: 'Falha ao restaurar dados do snapshot.' });
     }
 
-    const tenantId = (req as any).user?.tenantId || 'SYSTEM';
+    const tenantCtx = resolveTenantContext(req);
+    const tenantId = tenantCtx.tenantId;
 
     recordAuditLog({
       tenantId,
@@ -3147,9 +3201,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Importação em Lote de Faixas de DIDs (ex: 1135008000 a 1135008099)
-  app.post('/api/v1/dids/batch', requireRole('super_admin', 'admin'), async (req, res) => {
+  app.post('/api/v1/dids/batch', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     const { startNumber, count, trunkId, destinationType = 'extension', destinationId = '4101' } = req.body;
-    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+    const tenantCtx = resolveTenantContext(req);
+    const tenantId = tenantCtx.tenantId;
 
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para importação de DIDs.' });
@@ -3162,8 +3217,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
 
     try {
-      const trunk = await TrunkRepository.findById(trunkId);
-      const operatorName = trunk ? trunk.providerName : 'Operadora SIP';
+      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(trunkId);
+      if (!trunk) {
+        return res.status(404).json({ error: 'Tronco SIP informado não foi encontrado.' });
+      }
+
+      // Verificação BOLA/IDOR estrita
+      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
+        return res.status(403).json({
+          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
+          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
+        });
+      }
+
+      const operatorName = trunk.providerName || 'Operadora SIP';
       const baseNumber = parseInt(startNumber.replace(/\D/g, ''), 10);
       const existingDids = await DidRepository.listByTenant(tenantId);
       const addedDids = [];
@@ -3223,12 +3290,24 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Simulação em Tempo Real do Roteamento de Chamada Recebida
-  app.post('/api/v1/dids/simulate', requireRole('super_admin', 'admin'), async (req, res) => {
+  app.post('/api/v1/dids/simulate', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
+      const tenantCtx = resolveTenantContext(req);
       const { sourceIp, rawDid, callerNumber, trunkId } = req.body;
       if (!sourceIp || !rawDid) {
         return res.status(400).json({ error: 'sourceIp e rawDid são campos obrigatórios para a simulação de chamada recebida.' });
       }
+
+      if (trunkId) {
+        const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(trunkId);
+        if (trunk && tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
+          return res.status(403).json({
+            error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
+            code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
+          });
+        }
+      }
+
       const result = await sipTrunkService.simulateInboundCall({
         sourceIp: String(sourceIp).trim(),
         rawDid: String(rawDid).trim(),
@@ -3380,14 +3459,27 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Simulação de Resolução de CallerID para Rotas CLI/ITX e Convencionais
-  app.post('/api/v1/routes/simulate-callerid', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-    const { extensionNumber, routeId } = req.body;
-    if (!tenantId || !extensionNumber || !routeId) {
-      return res.status(400).json({ error: 'tenantId, extensionNumber e routeId são obrigatórios para a simulação.' });
-    }
-
+  app.post('/api/v1/routes/simulate-callerid', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
+      const tenantCtx = resolveTenantContext(req);
+      const tenantId = tenantCtx.tenantId;
+      const { extensionNumber, routeId } = req.body;
+      if (!extensionNumber || !routeId) {
+        return res.status(400).json({ error: 'extensionNumber e routeId são obrigatórios para a simulação.' });
+      }
+
+      // Verificação BOLA/IDOR de ownership da rota
+      const route = await RouteRepository.findAnyByIdForSuperAdmin(String(routeId));
+      if (!route) {
+        return res.status(404).json({ error: 'Rota não encontrada.' });
+      }
+      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && route.tenantId !== tenantId) {
+        return res.status(403).json({
+          error: `Acesso proibido. A rota pertence ao tenant '${route.tenantId}', incompatível com o contexto '${tenantId}'.`,
+          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
+        });
+      }
+
       const result = await asteriskService.resolveCallerIdForOutboundCall(tenantId, String(extensionNumber), String(routeId));
       if (!result) {
         return res.status(404).json({ error: 'Ramal ou Rota não encontrados para o tenant informado.' });
@@ -4067,16 +4159,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/ai/sessions', async (req, res) => {
+  app.get('/api/v1/ai/sessions', requireAuth, requireTenant, async (req, res) => {
     try {
-      const authUser = (req as any).user;
-      const tenantId = authUser?.role === 'super_admin' && req.query.tenantId
-        ? (req.query.tenantId as string)
-        : authUser?.tenantId;
-
-      const sessions = tenantId
-        ? await MaiaSessionRepository.listByTenant(tenantId)
-        : await MaiaSessionRepository.listAll();
+      const tenantCtx = resolveTenantContext(req);
+      const sessions = (tenantCtx.accessMode === 'GLOBAL')
+        ? await MaiaSessionRepository.listAllGlobalForSuperAdmin()
+        : await MaiaSessionRepository.listByTenant(tenantCtx.tenantId);
 
       const enrichedSessions = await Promise.all(
         sessions.slice(0, 50).map(async (s) => {
@@ -4116,9 +4204,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/ai/sessions/:id', async (req, res) => {
+  app.get('/api/v1/ai/sessions/:id', requireAuth, requireTenant, async (req, res) => {
     try {
-      const sess = await MaiaSessionRepository.findById(req.params.id);
+      const tenantCtx = resolveTenantContext(req);
+      const sess = tenantCtx.accessMode === 'GLOBAL'
+        ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
+        : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
       res.json(sess);
     } catch (e: any) {
@@ -4126,8 +4217,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/ai/sessions/:id/turns', async (req, res) => {
+  app.get('/api/v1/ai/sessions/:id/turns', requireAuth, requireTenant, async (req, res) => {
     try {
+      const tenantCtx = resolveTenantContext(req);
+      const sess = tenantCtx.accessMode === 'GLOBAL'
+        ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
+        : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
+      if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
       const turns = await MaiaSessionRepository.listTurns(req.params.id);
       res.json(turns);
     } catch (e: any) {
@@ -4135,8 +4231,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/ai/sessions/:id/tools', async (req, res) => {
+  app.get('/api/v1/ai/sessions/:id/tools', requireAuth, requireTenant, async (req, res) => {
     try {
+      const tenantCtx = resolveTenantContext(req);
+      const sess = tenantCtx.accessMode === 'GLOBAL'
+        ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
+        : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
+      if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
       const tools = await MaiaSessionRepository.listToolExecutions(req.params.id);
       res.json(tools);
     } catch (e: any) {
@@ -4144,8 +4245,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/ai/sessions/:id/events', async (req, res) => {
+  app.get('/api/v1/ai/sessions/:id/events', requireAuth, requireTenant, async (req, res) => {
     try {
+      const tenantCtx = resolveTenantContext(req);
+      const sess = tenantCtx.accessMode === 'GLOBAL'
+        ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
+        : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
+      if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
       const events = await MaiaSessionRepository.listEvents(req.params.id);
       res.json(events);
     } catch (e: any) {
@@ -4153,9 +4259,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/ai/sessions/:id/end', async (req, res) => {
+  app.post('/api/v1/ai/sessions/:id/end', requireAuth, requireTenant, async (req, res) => {
     try {
-      const session = await MaiaSessionRepository.findById(req.params.id);
+      const tenantCtx = resolveTenantContext(req);
+      const session = tenantCtx.accessMode === 'GLOBAL'
+        ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
+        : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!session) return res.status(404).json({ error: 'Sessão não encontrada' });
 
       const now = new Date();
@@ -4297,8 +4406,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.get('/api/v1/cdr', requireAuth, requireTenant, async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const records = (tenantCtx.actorRole === 'super_admin' && !req.query.tenantId)
-        ? await CdrRepository.listAll({ limit: 100 })
+      const records = (tenantCtx.accessMode === 'GLOBAL')
+        ? await CdrRepository.listAllGlobalForSuperAdmin({ limit: 100 })
         : await CdrRepository.listByTenant(tenantCtx.tenantId, { limit: 100 });
       res.json(records || []);
     } catch (e: any) {
@@ -4310,13 +4419,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/cdr/:id/summarize', requireAuth, requireTenant, async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const record = await CdrRepository.findById(req.params.id);
+      const record = await CdrRepository.findAnyByIdForSuperAdmin(req.params.id);
       if (!record) {
         return res.status(404).json({ error: 'Registro CDR não encontrado.' });
       }
 
       // Isolamento BOLA/IDOR: operador/admin não analisa chamadas de outro tenant
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && record.tenantId !== tenantCtx.tenantId) {
+      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && record.tenantId !== tenantCtx.tenantId) {
         return res.status(403).json({ error: 'Acesso não autorizado a esta chamada.', code: 'TENANT_CROSS_OPERATION_FORBIDDEN' });
       }
 
@@ -4355,11 +4464,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Asterisk Core & Config Generation
   // -------------------------------------------------------------------------
-  app.get('/api/v1/asterisk/channels', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
+  app.get('/api/v1/asterisk/channels', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const isSuper = user?.role === 'super_admin';
-      const tenantId = (req as any).tenantId || user?.tenantId;
+      const tenantCtx = resolveTenantContext(req);
+      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
+      const tenantId = tenantCtx.tenantId;
       const channels = await asteriskService.getActiveChannels(tenantId, isSuper);
       res.json(channels);
     } catch (err: any) {
@@ -4367,11 +4476,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/asterisk/channels', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
+  app.post('/api/v1/asterisk/channels', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
     try {
+      const tenantCtx = resolveTenantContext(req);
       const user = (req as any).user;
-      const isSuper = user?.role === 'super_admin';
-      const tenantId = (req as any).tenantId || user?.tenantId;
+      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
+      const tenantId = tenantCtx.tenantId;
       if (!tenantId && !isSuper) {
         return res.status(403).json({ error: 'Tenant obrigatório para originar chamadas.' });
       }
@@ -4388,11 +4498,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.delete('/api/v1/asterisk/channels/:id', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
+  app.delete('/api/v1/asterisk/channels/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const isSuper = user?.role === 'super_admin';
-      const tenantId = (req as any).tenantId || user?.tenantId;
+      const tenantCtx = resolveTenantContext(req);
+      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
+      const tenantId = tenantCtx.tenantId;
       const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
       res.json({ success });
     } catch (err: any) {
@@ -4400,11 +4510,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/asterisk/channels/:id/hangup', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
+  app.post('/api/v1/asterisk/channels/:id/hangup', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const isSuper = user?.role === 'super_admin';
-      const tenantId = (req as any).tenantId || user?.tenantId;
+      const tenantCtx = resolveTenantContext(req);
+      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
+      const tenantId = tenantCtx.tenantId;
       const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
       recordAuditLog({
         tenantId: tenantId || 'SYSTEM',
@@ -4421,11 +4531,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/asterisk/channels/:id/transfer', requireAuth, requireRole('super_admin', 'admin', 'supervisor', 'operator'), requireTenant, async (req, res) => {
+  app.post('/api/v1/asterisk/channels/:id/transfer', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const isSuper = user?.role === 'super_admin';
-      const tenantId = (req as any).tenantId || user?.tenantId;
+      const tenantCtx = resolveTenantContext(req);
+      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
+      const tenantId = tenantCtx.tenantId;
       const destination = (req.body.destination || '4102').trim();
       const chan = await asteriskService.transferChannel(req.params.id, destination, tenantId, isSuper);
       if (!chan) {
@@ -4446,11 +4556,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/asterisk/channels/:id/redirect', requireAuth, requireRole('super_admin', 'admin', 'supervisor'), requireTenant, async (req, res) => {
+  app.post('/api/v1/asterisk/channels/:id/redirect', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const isSuper = user?.role === 'super_admin';
-      const tenantId = (req as any).tenantId || user?.tenantId;
+      const tenantCtx = resolveTenantContext(req);
+      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
+      const tenantId = tenantCtx.tenantId;
       const context = (req.body.context || 'from-internal').trim();
       const destination = (req.body.destination || '4102').trim();
       const priority = Number(req.body.priority) || 1;
@@ -4470,11 +4580,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/asterisk/channels/:id/spy', requireAuth, requireRole('super_admin', 'admin', 'supervisor'), requireTenant, async (req, res) => {
+  app.post('/api/v1/asterisk/channels/:id/spy', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
+      const tenantCtx = resolveTenantContext(req);
       const user = (req as any).user;
-      const isSuper = user?.role === 'super_admin';
-      const tenantId = (req as any).tenantId || user?.tenantId;
+      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
+      const tenantId = tenantCtx.tenantId;
       const supervisorExt = (req.body.supervisorExt || user?.extension || '4101').trim();
       const spyChan = await asteriskService.spyChannel(req.params.id, supervisorExt, tenantId, isSuper);
       recordAuditLog({
@@ -4492,8 +4603,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/asterisk/configs', requireAuth, requireRole('super_admin', 'admin'), requireTenant, async (req, res) => {
-    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+  app.get('/api/v1/asterisk/configs', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantCtx = resolveTenantContext(req);
+    const tenantId = tenantCtx.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório para gerar configurações do Asterisk.' });
     }
@@ -4509,8 +4621,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   });
 
-  app.get('/api/v1/asterisk/configs/:file', requireAuth, requireRole('super_admin', 'admin'), requireTenant, async (req, res) => {
-    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+  app.get('/api/v1/asterisk/configs/:file', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantCtx = resolveTenantContext(req);
+    const tenantId = tenantCtx.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
     }
@@ -4698,21 +4811,19 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json(log);
   });
 
-  app.get('/api/v1/users', async (req, res) => {
-    const authUser = (req as any).user;
-    if (!authUser) {
-      return res.status(401).json({ error: 'Não autenticado' });
+  app.get('/api/v1/users', requireAuth, requireTenant, async (req, res) => {
+    try {
+      const tenantCtx = resolveTenantContext(req);
+      const list = (tenantCtx.accessMode === 'GLOBAL')
+        ? await UserRepository.listAllGlobalForSuperAdmin()
+        : await UserRepository.listByTenant(tenantCtx.tenantId);
+      // Remove qualquer resquício de passwordHash
+      const safeList = list.map((u) => UserRepository.toSafeUser(u));
+      res.json(safeList);
+    } catch (e: any) {
+      console.error('[Users] Erro ao listar usuários:', e?.message || e);
+      res.status(500).json({ error: 'Erro ao listar usuários no PostgreSQL' });
     }
-    const tenantId = (req as any).tenantId || authUser.tenantId;
-    let list: User[] = [];
-    if (authUser.role === 'super_admin' && !req.query.tenantId) {
-      list = await UserRepository.listAll();
-    } else {
-      list = await UserRepository.listByTenant(tenantId);
-    }
-    // Remove qualquer resquício de passwordHash
-    const safeList = list.map((u) => UserRepository.toSafeUser(u));
-    res.json(safeList);
   });
 
   app.post('/api/v1/users', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
@@ -4785,17 +4896,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   app.put('/api/v1/users/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     const authUser = (req as any).user;
-    const authorizedTenant = getAuthorizedTenantId(req);
-    const targetUser = await UserRepository.findById(req.params.id);
+    const tenantCtx = resolveTenantContext(req);
+    const targetUser = await UserRepository.findAnyByIdForSuperAdmin(req.params.id);
     if (!targetUser) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
 
-    // Isolamento de Tenant: usuário alvo deve pertencer ao tenant autorizado
-    if (targetUser.tenantId !== authorizedTenant) {
+    // Isolamento de Tenant BOLA/IDOR estrito
+    if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && targetUser.tenantId !== tenantCtx.tenantId) {
       return res.status(403).json({
-        error: 'Violação de Isolamento de Tenant. Você não pode alterar usuários de outro tenant.',
-        code: 'TENANT_ISOLATION_VIOLATION',
+        error: `Acesso proibido. O usuário pertence ao tenant '${targetUser.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
+        code: 'TENANT_CROSS_OPERATION_FORBIDDEN',
       });
     }
 
@@ -4851,9 +4962,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json(UserRepository.toSafeUser(updatedUser));
   });
 
-  app.delete('/api/v1/users/:id', requireRole('super_admin', 'admin'), async (req, res) => {
+  app.delete('/api/v1/users/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     const authUser = (req as any).user;
-    const targetUser = await UserRepository.findById(req.params.id);
+    const tenantCtx = resolveTenantContext(req);
+    const targetUser = await UserRepository.findAnyByIdForSuperAdmin(req.params.id);
     if (!targetUser) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
@@ -4863,11 +4975,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(400).json({ error: 'Operação proibida. Você não pode excluir seu próprio usuário.' });
     }
 
-    // Isolamento de Tenant
-    if (authUser.role !== 'super_admin' && targetUser.tenantId !== authUser.tenantId) {
+    // Isolamento de Tenant BOLA/IDOR estrito
+    if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && targetUser.tenantId !== tenantCtx.tenantId) {
       return res.status(403).json({
-        error: 'Violação de Isolamento de Tenant. Você não pode excluir usuários de outro tenant.',
-        code: 'TENANT_ISOLATION_VIOLATION',
+        error: `Acesso proibido. O usuário pertence ao tenant '${targetUser.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
+        code: 'TENANT_CROSS_OPERATION_FORBIDDEN',
       });
     }
 

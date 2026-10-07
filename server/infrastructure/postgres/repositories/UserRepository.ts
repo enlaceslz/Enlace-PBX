@@ -45,13 +45,14 @@ export class UserRepository {
 
   public static async findById(id: string, tenantId?: string): Promise<User | null> {
     try {
-      let query = 'SELECT * FROM users WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId) {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId);
+      if (!tenantId || tenantId.trim() === '') {
+        // Regra Fail-Closed CS-148/CS-199/CS-227: Tenant ausente produz recusa estrita de recurso
+        return null;
       }
-      const res = await postgresClient.query(query, params);
+      const res = await postgresClient.query(
+        'SELECT * FROM users WHERE id = $1 AND tenant_id = $2',
+        [id, tenantId.trim()]
+      );
       if (res.rows.length > 0) {
         const row = res.rows[0];
         return {
@@ -73,9 +74,37 @@ export class UserRepository {
     }
   }
 
+  public static async findAnyByIdForSuperAdmin(id: string): Promise<User | null> {
+    try {
+      const res = await postgresClient.query('SELECT * FROM users WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          email: row.email,
+          role: row.role,
+          passwordHash: row.password_hash || '',
+          extension: row.extension || undefined,
+          isActive: row.is_active,
+          lastLogin: parseIsoDate(row.last_login),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      console.error('[UserRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
+      throw err;
+    }
+  }
+
   public static toSafeUser(user: User): User {
     const { passwordHash, ...safe } = user;
     return safe as User;
+  }
+
+  public static async listAllGlobalForSuperAdmin(): Promise<User[]> {
+    return this.listAll();
   }
 
   public static async listAll(): Promise<User[]> {
