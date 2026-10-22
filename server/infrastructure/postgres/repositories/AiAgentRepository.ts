@@ -1,93 +1,17 @@
-import { postgresClient } from '../client';
-import { AiAgent } from '../../../../src/types/pbx';
+import { postgresClient } from '../client.js';
+import { AiAgent } from '../../../../src/types/pbx.js';
+import { TenantContext } from '../../auth/tenantContext.js';
 
 export class AiAgentRepository {
   public static async listAll(): Promise<AiAgent[]> {
-    try {
-      const res = await postgresClient.query(
-        'SELECT * FROM ai_agents ORDER BY name ASC'
-      );
-      return res.rows.map(row => ({
-        id: row.id,
-        tenantId: row.tenant_id,
-        name: row.name,
-        description: row.description || '',
-        providerId: row.provider_id || 'provider-gemini',
-        model: row.model || 'gemini-flash-latest',
-        voice: row.voice || 'pt-BR-Wavenet-A',
-        voiceGender: (row.voice_gender || 'female') as any,
-        avatarType: (row.avatar_type || 'octopus_ai') as any,
-        language: row.language || 'pt-BR',
-        systemInstruction: row.system_instruction || '',
-        initialGreeting: row.initial_greeting || '',
-        temperature: parseFloat(row.temperature || '0.7'),
-        tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
-        knowledgeSources: typeof row.knowledge_sources === 'string'
-          ? JSON.parse(row.knowledge_sources)
-          : (row.knowledge_sources || []),
-        allowBargeIn: row.allow_barge_in ?? true,
-        silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
-        maxSessionMinutes: row.max_session_minutes || 15,
-        transferExtension: row.transfer_extension || '4101',
-        fallbackAction: (row.fallback_action || 'transfer_human') as any,
-        isActive: row.is_active ?? true,
-      }));
-    } catch (err: any) {
-      console.error('[AiAgentRepository.listAll] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+    return this.listAllGlobalForSuperAdmin();
   }
 
-  public static async listByTenant(tenantId: string): Promise<AiAgent[]> {
-    try {
-      const res = await postgresClient.query(
-        'SELECT * FROM ai_agents WHERE tenant_id = $1 ORDER BY name ASC',
-        [tenantId]
-      );
-      return res.rows.map(row => ({
-        id: row.id,
-        tenantId: row.tenant_id,
-        name: row.name,
-        description: row.description || '',
-        providerId: row.provider_id || 'provider-gemini',
-        model: row.model || 'gemini-flash-latest',
-        voice: row.voice || 'pt-BR-Wavenet-A',
-        voiceGender: (row.voice_gender || 'female') as any,
-        avatarType: (row.avatar_type || 'octopus_ai') as any,
-        language: row.language || 'pt-BR',
-        systemInstruction: row.system_instruction || '',
-        initialGreeting: row.initial_greeting || '',
-        temperature: parseFloat(row.temperature || '0.7'),
-        tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
-        knowledgeSources: typeof row.knowledge_sources === 'string'
-          ? JSON.parse(row.knowledge_sources)
-          : (row.knowledge_sources || []),
-        allowBargeIn: row.allow_barge_in ?? true,
-        silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
-        maxSessionMinutes: row.max_session_minutes || 15,
-        transferExtension: row.transfer_extension || '4101',
-        fallbackAction: (row.fallback_action || 'transfer_human') as any,
-        isActive: row.is_active ?? true,
-      }));
-    } catch (err: any) {
-      console.error('[AiAgentRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
-  }
-
-  public static async findById(id: string, tenantId?: string): Promise<AiAgent | null> {
-    try {
-      if (!tenantId || tenantId.trim() === '') {
-        // Regra Fail-Closed CS-199: Tenant ausente produz recusa estrita de recurso
-        return null;
-      }
-      const res = await postgresClient.query(
-        'SELECT * FROM ai_agents WHERE id = $1 AND tenant_id = $2',
-        [id, tenantId.trim()]
-      );
-      if (res.rows.length > 0) {
-        const row = res.rows[0];
-        return {
+  public static async listAllGlobalForSuperAdmin(): Promise<AiAgent[]> {
+    return postgresClient.executeGlobalScoped(async (client) => {
+      try {
+        const res = await client.query('SELECT * FROM ai_agents ORDER BY name ASC');
+        return res.rows.map(row => ({
           id: row.id,
           tenantId: row.tenant_id,
           name: row.name,
@@ -111,126 +35,218 @@ export class AiAgentRepository {
           transferExtension: row.transfer_extension || '4101',
           fallbackAction: (row.fallback_action || 'transfer_human') as any,
           isActive: row.is_active ?? true,
-        };
+        }));
+      } catch (err: any) {
+        console.error('[AiAgentRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
       }
+    });
+  }
+
+  public static async listByTenant(contextOrTenant: TenantContext | string): Promise<AiAgent[]> {
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM ai_agents WHERE tenant_id = $1 ORDER BY name ASC',
+          [ctx.tenantId]
+        );
+        return res.rows.map(row => ({
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          description: row.description || '',
+          providerId: row.provider_id || 'provider-gemini',
+          model: row.model || 'gemini-flash-latest',
+          voice: row.voice || 'pt-BR-Wavenet-A',
+          voiceGender: (row.voice_gender || 'female') as any,
+          avatarType: (row.avatar_type || 'octopus_ai') as any,
+          language: row.language || 'pt-BR',
+          systemInstruction: row.system_instruction || '',
+          initialGreeting: row.initial_greeting || '',
+          temperature: parseFloat(row.temperature || '0.7'),
+          tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
+          knowledgeSources: typeof row.knowledge_sources === 'string'
+            ? JSON.parse(row.knowledge_sources)
+            : (row.knowledge_sources || []),
+          allowBargeIn: row.allow_barge_in ?? true,
+          silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
+          maxSessionMinutes: row.max_session_minutes || 15,
+          transferExtension: row.transfer_extension || '4101',
+          fallbackAction: (row.fallback_action || 'transfer_human') as any,
+          isActive: row.is_active ?? true,
+        }));
+      } catch (err: any) {
+        console.error('[AiAgentRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
+  }
+
+  public static async findById(id: string, contextOrTenant?: TenantContext | string): Promise<AiAgent | null> {
+    if (!contextOrTenant || (typeof contextOrTenant === 'string' && contextOrTenant.trim() === '')) {
+      // Regra Fail-Closed CS-199: Tenant ausente produz recusa estrita de recurso
       return null;
-    } catch (err: any) {
-      console.error('[AiAgentRepository.findById] Erro no PostgreSQL:', err?.message || err);
-      throw err;
     }
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM ai_agents WHERE id = $1 AND tenant_id = $2',
+          [id, ctx.tenantId]
+        );
+        if (res.rows.length > 0) {
+          const row = res.rows[0];
+          return {
+            id: row.id,
+            tenantId: row.tenant_id,
+            name: row.name,
+            description: row.description || '',
+            providerId: row.provider_id || 'provider-gemini',
+            model: row.model || 'gemini-flash-latest',
+            voice: row.voice || 'pt-BR-Wavenet-A',
+            voiceGender: (row.voice_gender || 'female') as any,
+            avatarType: (row.avatar_type || 'octopus_ai') as any,
+            language: row.language || 'pt-BR',
+            systemInstruction: row.system_instruction || '',
+            initialGreeting: row.initial_greeting || '',
+            temperature: parseFloat(row.temperature || '0.7'),
+            tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
+            knowledgeSources: typeof row.knowledge_sources === 'string'
+              ? JSON.parse(row.knowledge_sources)
+              : (row.knowledge_sources || []),
+            allowBargeIn: row.allow_barge_in ?? true,
+            silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
+            maxSessionMinutes: row.max_session_minutes || 15,
+            transferExtension: row.transfer_extension || '4101',
+            fallbackAction: (row.fallback_action || 'transfer_human') as any,
+            isActive: row.is_active ?? true,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        console.error('[AiAgentRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<AiAgent | null> {
-    try {
-      const res = await postgresClient.query('SELECT * FROM ai_agents WHERE id = $1', [id]);
-      if (res.rows.length > 0) {
-        const row = res.rows[0];
-        return {
-          id: row.id,
-          tenantId: row.tenant_id,
-          name: row.name,
-          description: row.description || '',
-          providerId: row.provider_id || 'provider-gemini',
-          model: row.model || 'gemini-flash-latest',
-          voice: row.voice || 'pt-BR-Wavenet-A',
-          voiceGender: (row.voice_gender || 'female') as any,
-          avatarType: (row.avatar_type || 'octopus_ai') as any,
-          language: row.language || 'pt-BR',
-          systemInstruction: row.system_instruction || '',
-          initialGreeting: row.initial_greeting || '',
-          temperature: parseFloat(row.temperature || '0.7'),
-          tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
-          knowledgeSources: typeof row.knowledge_sources === 'string'
-            ? JSON.parse(row.knowledge_sources)
-            : (row.knowledge_sources || []),
-          allowBargeIn: row.allow_barge_in ?? true,
-          silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
-          maxSessionMinutes: row.max_session_minutes || 15,
-          transferExtension: row.transfer_extension || '4101',
-          fallbackAction: (row.fallback_action || 'transfer_human') as any,
-          isActive: row.is_active ?? true,
-        };
+    return postgresClient.executeGlobalScoped(async (client) => {
+      try {
+        const res = await client.query('SELECT * FROM ai_agents WHERE id = $1', [id]);
+        if (res.rows.length > 0) {
+          const row = res.rows[0];
+          return {
+            id: row.id,
+            tenantId: row.tenant_id,
+            name: row.name,
+            description: row.description || '',
+            providerId: row.provider_id || 'provider-gemini',
+            model: row.model || 'gemini-flash-latest',
+            voice: row.voice || 'pt-BR-Wavenet-A',
+            voiceGender: (row.voice_gender || 'female') as any,
+            avatarType: (row.avatar_type || 'octopus_ai') as any,
+            language: row.language || 'pt-BR',
+            systemInstruction: row.system_instruction || '',
+            initialGreeting: row.initial_greeting || '',
+            temperature: parseFloat(row.temperature || '0.7'),
+            tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
+            knowledgeSources: typeof row.knowledge_sources === 'string'
+              ? JSON.parse(row.knowledge_sources)
+              : (row.knowledge_sources || []),
+            allowBargeIn: row.allow_barge_in ?? true,
+            silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
+            maxSessionMinutes: row.max_session_minutes || 15,
+            transferExtension: row.transfer_extension || '4101',
+            fallbackAction: (row.fallback_action || 'transfer_human') as any,
+            isActive: row.is_active ?? true,
+          };
+        }
+        return null;
+      } catch (err: any) {
+        console.error('[AiAgentRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
       }
-      return null;
-    } catch (err: any) {
-      console.error('[AiAgentRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+    });
   }
 
-  public static async save(agent: AiAgent): Promise<AiAgent> {
-    try {
-      await postgresClient.query(
-        `INSERT INTO ai_agents (
-          id, tenant_id, name, description, model, voice, voice_gender,
-          avatar_type, language, system_instruction, initial_greeting,
-          temperature, tools, knowledge_sources, allow_barge_in,
-          silence_timeout_seconds, max_session_minutes, transfer_extension,
-          fallback_action, is_active
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          description = EXCLUDED.description,
-          model = EXCLUDED.model,
-          voice = EXCLUDED.voice,
-          voice_gender = EXCLUDED.voice_gender,
-          avatar_type = EXCLUDED.avatar_type,
-          language = EXCLUDED.language,
-          system_instruction = EXCLUDED.system_instruction,
-          initial_greeting = EXCLUDED.initial_greeting,
-          temperature = EXCLUDED.temperature,
-          tools = EXCLUDED.tools,
-          knowledge_sources = EXCLUDED.knowledge_sources,
-          allow_barge_in = EXCLUDED.allow_barge_in,
-          silence_timeout_seconds = EXCLUDED.silence_timeout_seconds,
-          max_session_minutes = EXCLUDED.max_session_minutes,
-          transfer_extension = EXCLUDED.transfer_extension,
-          fallback_action = EXCLUDED.fallback_action,
-          is_active = EXCLUDED.is_active,
-          updated_at = CURRENT_TIMESTAMP`,
-        [
-          agent.id,
-          agent.tenantId,
-          agent.name,
-          agent.description || '',
-          agent.model || 'gemini-flash-latest',
-          agent.voice || 'pt-BR-Wavenet-A',
-          agent.voiceGender || 'female',
-          agent.avatarType || 'octopus_ai',
-          agent.language || 'pt-BR',
-          agent.systemInstruction || '',
-          agent.initialGreeting || '',
-          agent.temperature || 0.7,
-          JSON.stringify(agent.tools || []),
-          JSON.stringify(agent.knowledgeSources || []),
-          agent.allowBargeIn ?? true,
-          agent.silenceTimeoutSeconds || 3,
-          agent.maxSessionMinutes || 15,
-          agent.transferExtension || '4101',
-          agent.fallbackAction || 'transfer_human',
-          agent.isActive ?? true
-        ]
-      );
-      return agent;
-    } catch (err: any) {
-      console.error('[AiAgentRepository.save] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+  public static async save(agent: AiAgent, contextOrTenant?: TenantContext | string): Promise<AiAgent> {
+    const target = contextOrTenant || agent.tenantId;
+    return postgresClient.executeTenantScoped(target, async (client, ctx) => {
+      try {
+        await client.query(
+          `INSERT INTO ai_agents (
+            id, tenant_id, name, description, model, voice, voice_gender,
+            avatar_type, language, system_instruction, initial_greeting,
+            temperature, tools, knowledge_sources, allow_barge_in,
+            silence_timeout_seconds, max_session_minutes, transfer_extension,
+            fallback_action, is_active
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            model = EXCLUDED.model,
+            voice = EXCLUDED.voice,
+            voice_gender = EXCLUDED.voice_gender,
+            avatar_type = EXCLUDED.avatar_type,
+            language = EXCLUDED.language,
+            system_instruction = EXCLUDED.system_instruction,
+            initial_greeting = EXCLUDED.initial_greeting,
+            temperature = EXCLUDED.temperature,
+            tools = EXCLUDED.tools,
+            knowledge_sources = EXCLUDED.knowledge_sources,
+            allow_barge_in = EXCLUDED.allow_barge_in,
+            silence_timeout_seconds = EXCLUDED.silence_timeout_seconds,
+            max_session_minutes = EXCLUDED.max_session_minutes,
+            transfer_extension = EXCLUDED.transfer_extension,
+            fallback_action = EXCLUDED.fallback_action,
+            is_active = EXCLUDED.is_active,
+            updated_at = CURRENT_TIMESTAMP`,
+          [
+            agent.id,
+            ctx.tenantId,
+            agent.name,
+            agent.description || '',
+            agent.model || 'gemini-flash-latest',
+            agent.voice || 'pt-BR-Wavenet-A',
+            agent.voiceGender || 'female',
+            agent.avatarType || 'octopus_ai',
+            agent.language || 'pt-BR',
+            agent.systemInstruction || '',
+            agent.initialGreeting || '',
+            agent.temperature || 0.7,
+            JSON.stringify(agent.tools || []),
+            JSON.stringify(agent.knowledgeSources || []),
+            agent.allowBargeIn ?? true,
+            agent.silenceTimeoutSeconds || 3,
+            agent.maxSessionMinutes || 15,
+            agent.transferExtension || '4101',
+            agent.fallbackAction || 'transfer_human',
+            agent.isActive ?? true
+          ]
+        );
+        return agent;
+      } catch (err: any) {
+        console.error('[AiAgentRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 
-  public static async delete(id: string, tenantId?: string): Promise<boolean> {
-    try {
-      let query = 'DELETE FROM ai_agents WHERE id = $1';
-      const params: any[] = [id];
-      if (tenantId && tenantId.trim() !== '') {
-        query += ' AND tenant_id = $2';
-        params.push(tenantId.trim());
-      }
-      const res = await postgresClient.query(query, params);
-      return (res.rowCount ?? 0) > 0;
-    } catch (err: any) {
-      console.error('[AiAgentRepository.delete] Erro no PostgreSQL:', err?.message || err);
-      throw err;
+  public static async delete(id: string, contextOrTenant?: TenantContext | string): Promise<boolean> {
+    if (!contextOrTenant || (typeof contextOrTenant === 'string' && contextOrTenant.trim() === '')) {
+      throw new Error('TENANT_REQUIRED: Deleção de agente de IA requer tenantId explícito (Fail-Closed).');
     }
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'DELETE FROM ai_agents WHERE id = $1 AND tenant_id = $2',
+          [id, ctx.tenantId]
+        );
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        console.error('[AiAgentRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 }

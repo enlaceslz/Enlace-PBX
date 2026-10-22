@@ -11,6 +11,16 @@ const DEFAULT_ADMIN_HASH = '$2b$10$w8T.uKkJ/xW8qHl9Gz5G.O1B7G4yF1Qyv8rD3a2g.N4Q9
 export class EmbeddedDatabaseEngine {
   private tables: Record<string, any[]> = {};
   private initialized = false;
+  private currentSessionTenantId: string = '';
+  private currentSessionIsSuperAdmin: boolean = false;
+
+  public getSessionTenantId(): string {
+    return this.currentSessionTenantId;
+  }
+
+  public getSessionIsSuperAdmin(): boolean {
+    return this.currentSessionIsSuperAdmin;
+  }
 
   constructor() {
     this.init();
@@ -39,7 +49,38 @@ export class EmbeddedDatabaseEngine {
       this.persist();
     } else {
       // Garante que o administrador mestre e o usuário do workspace estejam sempre presentes
-      const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-default';
+      const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-alpha-enterprise';
+
+      // Sanitização estrita (CS-248): Elimina qualquer resquício de 'tenant-default' legado
+      if (this.tables.tenants) {
+        this.tables.tenants = this.tables.tenants.filter((t: any) => t.id !== 'tenant-default');
+        if (!this.tables.tenants.some((t: any) => t.id === defaultTenantId)) {
+          this.tables.tenants.unshift({
+            id: defaultTenantId,
+            name: 'Enlace Telecom Corporativo',
+            cnpj: '00.000.000/0001-00',
+            plan: 'Enterprise Voice & AI Pro',
+            max_extensions: 200,
+            max_trunks: 32,
+            ai_credits_usd: '1000.0000',
+            anti_fraud: JSON.stringify({
+              maxCallsPerMinute: 30,
+              blockedPrefixes: ['0900', '0300'],
+              internationalAllowed: false,
+            }),
+            created_at: new Date(),
+            updated_at: new Date(),
+          });
+        }
+      }
+      if (this.tables.users) {
+        this.tables.users.forEach((u: any) => {
+          if (u.tenant_id === 'tenant-default') {
+            u.tenant_id = defaultTenantId;
+          }
+        });
+      }
+
       const ensureUser = (email: string, name: string) => {
         const found = this.tables.users.find((u: any) => (u.email || '').toLowerCase() === email.toLowerCase());
         if (!found) {
@@ -76,7 +117,7 @@ export class EmbeddedDatabaseEngine {
 
   private seedInitialData() {
     const now = new Date();
-    const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-default';
+    const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-alpha-enterprise';
 
     // 1. Tenants
     this.tables.tenants = [
@@ -1066,6 +1107,42 @@ export class EmbeddedDatabaseEngine {
       return this.buildResult(rows);
     }
 
+    // 1.1 Controle transacional e variáveis de sessão RLS (SET LOCAL / set_config / BEGIN / COMMIT / ROLLBACK)
+    if (upper.startsWith('SELECT SET_CONFIG')) {
+      if (sql.includes('app.current_tenant_id')) {
+        this.currentSessionTenantId = params[0] || '';
+      } else if (sql.includes('app.is_super_admin')) {
+        this.currentSessionIsSuperAdmin = params[0] === 'true' || sql.includes("'true'");
+      }
+      return this.buildResult([]);
+    }
+
+    if (upper.startsWith('SET LOCAL APP.CURRENT_TENANT_ID') || upper.startsWith('SET APP.CURRENT_TENANT_ID')) {
+      const match = sql.match(/=\s*['"]?([^'";\s]+)['"]?/i);
+      this.currentSessionTenantId = match ? match[1] : (params[0] || '');
+      return this.buildResult([]);
+    }
+
+    if (upper.startsWith('SET LOCAL APP.IS_SUPER_ADMIN') || upper.startsWith('SET APP.IS_SUPER_ADMIN')) {
+      const match = sql.match(/=\s*['"]?([^'";\s]+)['"]?/i);
+      this.currentSessionIsSuperAdmin = match ? match[1].toLowerCase() === 'true' : (params[0] === 'true');
+      return this.buildResult([]);
+    }
+
+    if (upper === 'BEGIN') {
+      return this.buildResult([]);
+    }
+
+    if (upper === 'COMMIT' || upper === 'ROLLBACK') {
+      this.currentSessionTenantId = '';
+      this.currentSessionIsSuperAdmin = false;
+      return this.buildResult([]);
+    }
+
+    if (upper.startsWith('SET LOCAL') || upper.startsWith('SET ')) {
+      return this.buildResult([]);
+    }
+
     // 2. DDL (CREATE TABLE, CREATE INDEX, INSERT INTO roles ON CONFLICT, etc.)
     if (
       upper.startsWith('CREATE TABLE') ||
@@ -1126,6 +1203,12 @@ export class EmbeddedDatabaseEngine {
 
     // Filtra por WHERE
     let filtered = [...tableData];
+
+    // RLS Enforcement se houver sessão de tenant ativa (e não for super_admin)
+    if (this.currentSessionTenantId && !this.currentSessionIsSuperAdmin) {
+      filtered = filtered.filter((row: any) => !('tenant_id' in row) || row.tenant_id === this.currentSessionTenantId);
+    }
+
     const whereMatch = sql.match(/WHERE\s+(.*?)(?:\s+ORDER\s+BY|\s+GROUP\s+BY|\s+LIMIT|\s+OFFSET|$)/i);
     if (whereMatch) {
       const whereClause = whereMatch[1];
@@ -1362,6 +1445,13 @@ export class EmbeddedDatabaseEngine {
       }
     }
 
+    // RLS Enforcement: Inserções com tenant_id divergente da sessão são rejeitadas
+    if (this.currentSessionTenantId && !this.currentSessionIsSuperAdmin) {
+      if (newRow && 'tenant_id' in newRow && newRow.tenant_id && newRow.tenant_id !== this.currentSessionTenantId) {
+        throw new Error(`new row violates row-level security policy for table "${tableName}"`);
+      }
+    }
+
     newRow.created_at = newRow.created_at || new Date();
     newRow.updated_at = newRow.updated_at || new Date();
     this.tables[tableName].push(newRow);
@@ -1387,6 +1477,13 @@ export class EmbeddedDatabaseEngine {
     let updatedCount = 0;
 
     tableData.forEach((row) => {
+      // RLS Check: impede modificação de dados de outro tenant sob sessão isolada
+      if (this.currentSessionTenantId && !this.currentSessionIsSuperAdmin) {
+        if ('tenant_id' in row && row.tenant_id && row.tenant_id !== this.currentSessionTenantId) {
+          return;
+        }
+      }
+
       const matches = whereClause ? this.filterRows([row], whereClause, params).length > 0 : true;
 
       if (matches) {
@@ -1430,6 +1527,12 @@ export class EmbeddedDatabaseEngine {
     const initialLen = tableData.length;
     this.tables[tableName] = tableData.filter((row) => {
       if (!whereClause) return false;
+      // RLS Check: impede exclusão de dados de outro tenant sob sessão isolada
+      if (this.currentSessionTenantId && !this.currentSessionIsSuperAdmin) {
+        if ('tenant_id' in row && row.tenant_id && row.tenant_id !== this.currentSessionTenantId) {
+          return true; // preserva registro de outro tenant
+        }
+      }
       const matches = this.filterRows([row], whereClause, params).length > 0;
       return !matches;
     });

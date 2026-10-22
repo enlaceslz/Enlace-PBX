@@ -3,39 +3,46 @@ import { postgresClient } from '../client.js';
 export class SystemRepository {
   public static async getSetting<T>(key: string, defaultValue?: T): Promise<T | null> {
     try {
-      const res = await postgresClient.query('SELECT value FROM system_settings WHERE key = $1', [key]);
-      if (res.rows.length > 0) {
-        const val = res.rows[0].value;
-        return typeof val === 'string' ? JSON.parse(val) : val;
-      }
+      return await postgresClient.executeGlobalScoped(async (client) => {
+        const res = await client.query('SELECT value FROM system_settings WHERE key = $1', [key]);
+        if (res.rows.length > 0) {
+          const val = res.rows[0].value;
+          return typeof val === 'string' ? JSON.parse(val) : val;
+        }
+        return defaultValue !== undefined ? defaultValue : null;
+      });
     } catch (e: any) {
       console.warn(`[SystemRepository] Falha ao consultar configuração '${key}':`, e?.message || e);
+      return defaultValue !== undefined ? defaultValue : null;
     }
-    return defaultValue !== undefined ? defaultValue : null;
   }
 
   public static async setSetting<T>(key: string, value: T, description?: string): Promise<T> {
     try {
-      await postgresClient.query(
-        `INSERT INTO system_settings (key, value, description, updated_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-         ON CONFLICT (key) DO UPDATE SET
-           value = EXCLUDED.value,
-           description = COALESCE(EXCLUDED.description, system_settings.description),
-           updated_at = CURRENT_TIMESTAMP`,
-        [key, JSON.stringify(value), description || null]
-      );
+      return await postgresClient.executeGlobalScoped(async (client) => {
+        await client.query(
+          `INSERT INTO system_settings (key, value, description, updated_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+           ON CONFLICT (key) DO UPDATE SET
+             value = EXCLUDED.value,
+             description = COALESCE(EXCLUDED.description, system_settings.description),
+             updated_at = CURRENT_TIMESTAMP`,
+          [key, JSON.stringify(value), description || null]
+        );
+        return value;
+      });
     } catch (e: any) {
       console.error(`[SystemRepository] Falha ao salvar configuração '${key}':`, e?.message || e);
       throw e;
     }
-    return value;
   }
 
   public static async deleteSetting(key: string): Promise<boolean> {
     try {
-      const res = await postgresClient.query('DELETE FROM system_settings WHERE key = $1', [key]);
-      return (res.rowCount ?? 0) > 0;
+      return await postgresClient.executeGlobalScoped(async (client) => {
+        const res = await client.query('DELETE FROM system_settings WHERE key = $1', [key]);
+        return (res.rowCount ?? 0) > 0;
+      });
     } catch (e: any) {
       console.error(`[SystemRepository] Falha ao excluir configuração '${key}':`, e?.message || e);
       return false;

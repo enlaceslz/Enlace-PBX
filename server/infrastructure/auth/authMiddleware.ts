@@ -6,8 +6,16 @@ import { UserRepository } from '../postgres/repositories/UserRepository.js';
 import { TenantRepository } from '../postgres/repositories/TenantRepository.js';
 import { AuditLogRepository } from '../postgres/repositories/AuditLogRepository.js';
 import { env } from '../../config/env.js';
+import {
+  UserRole,
+  TenantAccessMode,
+  TenantContext,
+  toCanonicalTenantContext,
+  createTenantContext,
+} from './tenantContext.js';
 
-export type UserRole = 'super_admin' | 'admin' | 'supervisor' | 'operator' | 'agent' | 'readonly';
+export type { UserRole, TenantAccessMode, TenantContext };
+export { toCanonicalTenantContext, createTenantContext };
 
 // Normalização de roles legadas para a matriz de segurança oficial
 export function normalizeRole(role: string): UserRole {
@@ -447,15 +455,6 @@ export const requirePermission = (permission: string) => {
     });
   };
 };
-
-export interface TenantContext {
-  readonly tenantId: string;
-  readonly actorUserId: string;
-  readonly actorRole: UserRole;
-  readonly accessMode: 'TENANT' | 'SUPER_ADMIN_TARGET' | 'GLOBAL';
-  readonly originTenantId?: string;
-  readonly requestId?: string;
-}
 
 /**
  * Função centralizada para determinar o contexto de tenant estrito — Canonical Tenant Authority

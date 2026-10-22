@@ -429,16 +429,28 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Billing API — Protegido com TenantContext e Defesa Rigorosa contra BOLA/IDOR
   // -------------------------------------------------------------------------
+  app.get('/api/v1/billing', requireAuth, requireTenant, async (req, res) => {
+    try {
+      const tenantCtx = resolveTenantContext(req);
+      const billing = await BillingRepository.getByTenantId(tenantCtx);
+      if (!billing) return res.status(404).json({ error: 'Registro de faturamento não encontrado' });
+      res.json(billing);
+    } catch (e: any) {
+      console.error('[Billing] Erro ao buscar faturamento:', e?.message || e);
+      res.status(500).json({ error: 'Erro ao buscar dados de faturamento' });
+    }
+  });
+
   app.get('/api/v1/billing/:tenantId', requireAuth, requireTenant, async (req, res) => {
     try {
-      const authorizedTenant = getAuthorizedTenantId(req);
-      if (req.params.tenantId !== authorizedTenant) {
+      const tenantCtx = resolveTenantContext(req);
+      if (req.params.tenantId !== tenantCtx.tenantId) {
         return res.status(403).json({
           error: `Acesso proibido. Você não possui autorização para consultar o faturamento do tenant '${req.params.tenantId}'.`,
           code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
         });
       }
-      const billing = await BillingRepository.getByTenantId(authorizedTenant);
+      const billing = await BillingRepository.getByTenantId(tenantCtx);
       if (!billing) return res.status(404).json({ error: 'Registro de faturamento não encontrado' });
       res.json(billing);
     } catch (e: any) {
@@ -448,8 +460,8 @@ async function startServer() {
   });
 
   app.post('/api/v1/billing/:tenantId/recharge', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const authorizedTenant = getAuthorizedTenantId(req);
-    if (req.params.tenantId !== authorizedTenant) {
+    const tenantCtx = resolveTenantContext(req);
+    if (req.params.tenantId !== tenantCtx.tenantId) {
       return res.status(403).json({
         error: `Acesso proibido. Você não possui autorização para realizar recarga no tenant '${req.params.tenantId}'.`,
         code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
@@ -460,14 +472,14 @@ async function startServer() {
     const paymentMethod = req.body.paymentMethod || 'PIX Instantâneo';
 
     try {
-      const result = await BillingRepository.recharge(authorizedTenant, amount, paymentMethod);
+      const result = await BillingRepository.recharge(tenantCtx, amount, paymentMethod);
 
       await recordAuditLog({
-        tenantId: authorizedTenant,
+        tenantId: tenantCtx.tenantId,
         userId: (req as any).user?.id || 'SYSTEM',
         userName: (req as any).user?.name || 'Administrador',
         action: 'BILLING_RECHARGE',
-        resource: `billing/${authorizedTenant}`,
+        resource: `billing/${tenantCtx.tenantId}`,
         ip: req.ip || '127.0.0.1',
         details: `Recarga de crédito no valor de R$ ${amount.toFixed(2)} confirmada via ${paymentMethod}.`,
         category: 'SYSTEM',
@@ -482,8 +494,8 @@ async function startServer() {
   });
 
   app.post('/api/v1/billing/:tenantId/invoices/:invoiceId/pay', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const authorizedTenant = getAuthorizedTenantId(req);
-    if (req.params.tenantId !== authorizedTenant) {
+    const tenantCtx = resolveTenantContext(req);
+    if (req.params.tenantId !== tenantCtx.tenantId) {
       return res.status(403).json({
         error: `Acesso proibido. Você não possui autorização para quitar faturas do tenant '${req.params.tenantId}'.`,
         code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
@@ -494,17 +506,17 @@ async function startServer() {
     const paymentMethod = req.body.paymentMethod || 'PIX';
 
     try {
-      const paid = await BillingRepository.payInvoice(authorizedTenant, invoiceId, paymentMethod);
+      const paid = await BillingRepository.payInvoice(tenantCtx, invoiceId, paymentMethod);
       if (!paid) {
         return res.status(404).json({ error: 'Fatura não encontrada ou já quitada' });
       }
 
       await recordAuditLog({
-        tenantId: authorizedTenant,
+        tenantId: tenantCtx.tenantId,
         userId: (req as any).user?.id || 'SYSTEM',
         userName: (req as any).user?.name || 'Administrador',
         action: 'BILLING_INVOICE_PAY',
-        resource: `billing/${authorizedTenant}/invoices/${invoiceId}`,
+        resource: `billing/${tenantCtx.tenantId}/invoices/${invoiceId}`,
         ip: req.ip || '127.0.0.1',
         details: `Fatura ${invoiceId} quitada com sucesso via ${paymentMethod}.`,
         category: 'SYSTEM',

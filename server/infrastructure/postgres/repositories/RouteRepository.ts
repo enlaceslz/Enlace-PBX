@@ -1,85 +1,23 @@
-import { postgresClient } from '../client';
-import { Route } from '../../../../src/types/pbx';
+import { postgresClient } from '../client.js';
+import { Route } from '../../../../src/types/pbx.js';
+import { TenantContext } from '../../auth/tenantContext.js';
 
 export class RouteRepository {
   public static async listAll(): Promise<Route[]> {
-    try {
-      const res = await postgresClient.query(
-        'SELECT * FROM routes ORDER BY priority ASC, name ASC'
-      );
-      return res.rows.map(row => ({
-        id: row.id,
-        tenantId: row.tenant_id,
-        name: row.name,
-        type: (row.type || 'outbound') as 'outbound' | 'inbound',
-        pattern: row.pattern,
-        prefixRemove: row.strip_digits ? String(row.strip_digits) : undefined,
-        prepend: row.prepend_digits || undefined,
-        trunkId: row.trunk_id,
-        failoverTrunkId: row.failover_trunk_id || undefined,
-        priority: row.priority || 1,
-        isCliItx: row.is_cli_itx || false,
-        callerIdOverride: row.caller_id_override || undefined,
-        extensionOverrides: typeof row.extension_overrides === 'string'
-          ? JSON.parse(row.extension_overrides)
-          : (row.extension_overrides || []),
-        destinationType: (row.destination_type || 'trunk') as any,
-        destinationId: row.destination_id || (row.trunk_id || ''),
-      }));
-    } catch (err: any) {
-      console.error('[RouteRepository.listAll] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+    return this.listAllGlobalForSuperAdmin();
   }
 
-  public static async listByTenant(tenantId: string): Promise<Route[]> {
-    try {
-      const res = await postgresClient.query(
-        'SELECT * FROM routes WHERE tenant_id = $1 ORDER BY priority ASC, name ASC',
-        [tenantId]
-      );
-      return res.rows.map(row => ({
-        id: row.id,
-        tenantId: row.tenant_id,
-        name: row.name,
-        type: (row.type || 'outbound') as 'outbound' | 'inbound',
-        pattern: row.pattern,
-        prefixRemove: row.strip_digits ? String(row.strip_digits) : undefined,
-        prepend: row.prepend_digits || undefined,
-        trunkId: row.trunk_id,
-        failoverTrunkId: row.failover_trunk_id || undefined,
-        priority: row.priority || 1,
-        isCliItx: row.is_cli_itx || false,
-        callerIdOverride: row.caller_id_override || undefined,
-        extensionOverrides: typeof row.extension_overrides === 'string'
-          ? JSON.parse(row.extension_overrides)
-          : (row.extension_overrides || []),
-        destinationType: (row.destination_type || 'trunk') as any,
-        destinationId: row.destination_id || (row.trunk_id || ''),
-      }));
-    } catch (err: any) {
-      console.error('[RouteRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
-  }
-
-  public static async findById(id: string, tenantId?: string): Promise<Route | null> {
-    try {
-      if (!tenantId || tenantId.trim() === '') {
-        // Regra Fail-Closed CS-148/CS-149: Tenant ausente produz recusa estrita de recurso
-        return null;
-      }
-      const res = await postgresClient.query(
-        'SELECT * FROM routes WHERE id = $1 AND tenant_id = $2',
-        [id, tenantId.trim()]
-      );
-      if (res.rows.length > 0) {
-        const row = res.rows[0];
-        return {
+  public static async listAllGlobalForSuperAdmin(): Promise<Route[]> {
+    return postgresClient.executeGlobalScoped(async (client) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM routes ORDER BY priority ASC, name ASC'
+        );
+        return res.rows.map(row => ({
           id: row.id,
           tenantId: row.tenant_id,
           name: row.name,
-          type: (row.type || 'outbound') as any,
+          type: (row.type || 'outbound') as 'outbound' | 'inbound',
           pattern: row.pattern,
           prefixRemove: row.strip_digits ? String(row.strip_digits) : undefined,
           prepend: row.prepend_digits || undefined,
@@ -93,104 +31,181 @@ export class RouteRepository {
             : (row.extension_overrides || []),
           destinationType: (row.destination_type || 'trunk') as any,
           destinationId: row.destination_id || (row.trunk_id || ''),
-        };
+        }));
+      } catch (err: any) {
+        console.error('[RouteRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
       }
+    });
+  }
+
+  public static async listByTenant(contextOrTenant: TenantContext | string): Promise<Route[]> {
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM routes WHERE tenant_id = $1 ORDER BY priority ASC, name ASC',
+          [ctx.tenantId]
+        );
+        return res.rows.map(row => ({
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          type: (row.type || 'outbound') as 'outbound' | 'inbound',
+          pattern: row.pattern,
+          prefixRemove: row.strip_digits ? String(row.strip_digits) : undefined,
+          prepend: row.prepend_digits || undefined,
+          trunkId: row.trunk_id,
+          failoverTrunkId: row.failover_trunk_id || undefined,
+          priority: row.priority || 1,
+          isCliItx: row.is_cli_itx || false,
+          callerIdOverride: row.caller_id_override || undefined,
+          extensionOverrides: typeof row.extension_overrides === 'string'
+            ? JSON.parse(row.extension_overrides)
+            : (row.extension_overrides || []),
+          destinationType: (row.destination_type || 'trunk') as any,
+          destinationId: row.destination_id || (row.trunk_id || ''),
+        }));
+      } catch (err: any) {
+        console.error('[RouteRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
+  }
+
+  public static async findById(id: string, contextOrTenant?: TenantContext | string): Promise<Route | null> {
+    if (!contextOrTenant || (typeof contextOrTenant === 'string' && contextOrTenant.trim() === '')) {
+      // Regra Fail-Closed CS-148/CS-149: Tenant ausente produz recusa estrita de recurso
       return null;
-    } catch (err: any) {
-      console.error('[RouteRepository.findById] Erro no PostgreSQL:', err?.message || err);
-      throw err;
     }
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM routes WHERE id = $1 AND tenant_id = $2',
+          [id, ctx.tenantId]
+        );
+        if (res.rows.length > 0) {
+          const row = res.rows[0];
+          return {
+            id: row.id,
+            tenantId: row.tenant_id,
+            name: row.name,
+            type: (row.type || 'outbound') as any,
+            pattern: row.pattern,
+            prefixRemove: row.strip_digits ? String(row.strip_digits) : undefined,
+            prepend: row.prepend_digits || undefined,
+            trunkId: row.trunk_id,
+            failoverTrunkId: row.failover_trunk_id || undefined,
+            priority: row.priority || 1,
+            isCliItx: row.is_cli_itx || false,
+            callerIdOverride: row.caller_id_override || undefined,
+            extensionOverrides: typeof row.extension_overrides === 'string'
+              ? JSON.parse(row.extension_overrides)
+              : (row.extension_overrides || []),
+            destinationType: (row.destination_type || 'trunk') as any,
+            destinationId: row.destination_id || (row.trunk_id || ''),
+          };
+        }
+        return null;
+      } catch (err: any) {
+        console.error('[RouteRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<Route | null> {
-    try {
-      const res = await postgresClient.query('SELECT * FROM routes WHERE id = $1', [id]);
-      if (res.rows.length > 0) {
-        const row = res.rows[0];
-        return {
-          id: row.id,
-          tenantId: row.tenant_id,
-          name: row.name,
-          type: (row.type || 'outbound') as any,
-          pattern: row.pattern,
-          prefixRemove: row.strip_digits ? String(row.strip_digits) : undefined,
-          prepend: row.prepend_digits || undefined,
-          trunkId: row.trunk_id,
-          failoverTrunkId: row.failover_trunk_id || undefined,
-          priority: row.priority || 1,
-          isCliItx: row.is_cli_itx || false,
-          callerIdOverride: row.caller_id_override || undefined,
-          extensionOverrides: typeof row.extension_overrides === 'string'
-            ? JSON.parse(row.extension_overrides)
-            : (row.extension_overrides || []),
-          destinationType: (row.destination_type || 'trunk') as any,
-          destinationId: row.destination_id || (row.trunk_id || ''),
-        };
+    return postgresClient.executeGlobalScoped(async (client) => {
+      try {
+        const res = await client.query('SELECT * FROM routes WHERE id = $1', [id]);
+        if (res.rows.length > 0) {
+          const row = res.rows[0];
+          return {
+            id: row.id,
+            tenantId: row.tenant_id,
+            name: row.name,
+            type: (row.type || 'outbound') as any,
+            pattern: row.pattern,
+            prefixRemove: row.strip_digits ? String(row.strip_digits) : undefined,
+            prepend: row.prepend_digits || undefined,
+            trunkId: row.trunk_id,
+            failoverTrunkId: row.failover_trunk_id || undefined,
+            priority: row.priority || 1,
+            isCliItx: row.is_cli_itx || false,
+            callerIdOverride: row.caller_id_override || undefined,
+            extensionOverrides: typeof row.extension_overrides === 'string'
+              ? JSON.parse(row.extension_overrides)
+              : (row.extension_overrides || []),
+            destinationType: (row.destination_type || 'trunk') as any,
+            destinationId: row.destination_id || (row.trunk_id || ''),
+          };
+        }
+        return null;
+      } catch (err: any) {
+        console.error('[RouteRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
       }
-      return null;
-    } catch (err: any) {
-      console.error('[RouteRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+    });
   }
 
-  public static async save(route: Route): Promise<Route> {
-    try {
-      await postgresClient.query(
-        `INSERT INTO routes (
-          id, tenant_id, name, pattern, trunk_id, failover_trunk_id,
-          priority, strip_digits, prepend_digits, caller_id_override,
-          is_cli_itx, extension_overrides, is_active
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          pattern = EXCLUDED.pattern,
-          trunk_id = EXCLUDED.trunk_id,
-          failover_trunk_id = EXCLUDED.failover_trunk_id,
-          priority = EXCLUDED.priority,
-          strip_digits = EXCLUDED.strip_digits,
-          prepend_digits = EXCLUDED.prepend_digits,
-          caller_id_override = EXCLUDED.caller_id_override,
-          is_cli_itx = EXCLUDED.is_cli_itx,
-          extension_overrides = EXCLUDED.extension_overrides,
-          is_active = EXCLUDED.is_active,
-          updated_at = CURRENT_TIMESTAMP`,
-        [
-          route.id,
-          route.tenantId,
-          route.name,
-          route.pattern,
-          route.trunkId || null,
-          route.failoverTrunkId || null,
-          route.priority || 1,
-          route.prefixRemove ? parseInt(route.prefixRemove, 10) : 0,
-          route.prepend || '',
-          route.callerIdOverride || null,
-          route.isCliItx || false,
-          JSON.stringify(route.extensionOverrides || []),
-          true
-        ]
-      );
-      return route;
-    } catch (err: any) {
-      console.error('[RouteRepository.save] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+  public static async save(route: Route, contextOrTenant?: TenantContext | string): Promise<Route> {
+    const target = contextOrTenant || route.tenantId;
+    return postgresClient.executeTenantScoped(target, async (client, ctx) => {
+      try {
+        await client.query(
+          `INSERT INTO routes (
+            id, tenant_id, name, pattern, trunk_id, failover_trunk_id,
+            priority, strip_digits, prepend_digits, caller_id_override,
+            is_cli_itx, extension_overrides, is_active
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            pattern = EXCLUDED.pattern,
+            trunk_id = EXCLUDED.trunk_id,
+            failover_trunk_id = EXCLUDED.failover_trunk_id,
+            priority = EXCLUDED.priority,
+            strip_digits = EXCLUDED.strip_digits,
+            prepend_digits = EXCLUDED.prepend_digits,
+            caller_id_override = EXCLUDED.caller_id_override,
+            is_cli_itx = EXCLUDED.is_cli_itx,
+            extension_overrides = EXCLUDED.extension_overrides,
+            is_active = EXCLUDED.is_active,
+            updated_at = CURRENT_TIMESTAMP`,
+          [
+            route.id,
+            ctx.tenantId,
+            route.name,
+            route.pattern,
+            route.trunkId || null,
+            route.failoverTrunkId || null,
+            route.priority || 1,
+            route.prefixRemove ? parseInt(route.prefixRemove, 10) : 0,
+            route.prepend || '',
+            route.callerIdOverride || null,
+            route.isCliItx || false,
+            JSON.stringify(route.extensionOverrides || []),
+            true
+          ]
+        );
+        return route;
+      } catch (err: any) {
+        console.error('[RouteRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 
-  public static async delete(id: string, tenantId: string): Promise<boolean> {
-    if (!tenantId || tenantId.trim() === '') {
-      throw new Error('TENANT_REQUIRED: tenantId é obrigatório para remover rota.');
-    }
-    try {
-      const res = await postgresClient.query(
-        'DELETE FROM routes WHERE id = $1 AND tenant_id = $2',
-        [id, tenantId.trim()]
-      );
-      return (res.rowCount ?? 0) > 0;
-    } catch (err: any) {
-      console.error('[RouteRepository.delete] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+  public static async delete(id: string, contextOrTenant: TenantContext | string): Promise<boolean> {
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'DELETE FROM routes WHERE id = $1 AND tenant_id = $2',
+          [id, ctx.tenantId]
+        );
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        console.error('[RouteRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 }

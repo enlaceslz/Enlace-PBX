@@ -172,7 +172,7 @@ export class DatabaseMigrator {
       }
 
       // 4. Criar tenant inicial caso não exista
-      const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-default';
+      const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'tenant-alpha-enterprise';
       await postgresClient.query(
         `INSERT INTO tenants (id, name, cnpj, plan, max_extensions, max_trunks, ai_credits_usd, anti_fraud)
          VALUES ($1, 'Enlace Telecom Corporativo', '00.000.000/0001-00', 'enterprise', 100, 10, 50, '{}')

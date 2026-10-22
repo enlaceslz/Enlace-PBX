@@ -1,6 +1,7 @@
-import { postgresClient } from '../client';
-import { toSafeIsoString } from '../dateUtils';
-import { Trunk } from '../../../../src/types/pbx';
+import { postgresClient } from '../client.js';
+import { toSafeIsoString } from '../dateUtils.js';
+import { Trunk } from '../../../../src/types/pbx.js';
+import { TenantContext } from '../../auth/tenantContext.js';
 
 export class TrunkRepository {
   private static mapRow(row: any): Trunk {
@@ -41,142 +42,156 @@ export class TrunkRepository {
   }
 
   public static async listAll(): Promise<Trunk[]> {
-    try {
-      const res = await postgresClient.query('SELECT * FROM trunks ORDER BY name ASC');
-      return res.rows.map(row => this.mapRow(row));
-    } catch (err: any) {
-      console.error('[TrunkRepository.listAll] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+    return this.listAllGlobalForSuperAdmin();
   }
 
-  public static async listByTenant(tenantId: string): Promise<Trunk[]> {
-    try {
-      const res = await postgresClient.query(
-        'SELECT * FROM trunks WHERE tenant_id = $1 ORDER BY name ASC',
-        [tenantId]
-      );
-      return res.rows.map(row => this.mapRow(row));
-    } catch (err: any) {
-      console.error('[TrunkRepository.listByTenant] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+  public static async listAllGlobalForSuperAdmin(): Promise<Trunk[]> {
+    return postgresClient.executeGlobalScoped(async (client) => {
+      try {
+        const res = await client.query('SELECT * FROM trunks ORDER BY name ASC');
+        return res.rows.map(row => this.mapRow(row));
+      } catch (err: any) {
+        console.error('[TrunkRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 
-  public static async findById(id: string, tenantId?: string): Promise<Trunk | null> {
-    try {
-      if (!tenantId || tenantId.trim() === '') {
-        // Regra Fail-Closed CS-148/CS-149: Tenant ausente produz recusa estrita de recurso
-        return null;
+  public static async listByTenant(contextOrTenant: TenantContext | string): Promise<Trunk[]> {
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM trunks WHERE tenant_id = $1 ORDER BY name ASC',
+          [ctx.tenantId]
+        );
+        return res.rows.map(row => this.mapRow(row));
+      } catch (err: any) {
+        console.error('[TrunkRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
       }
-      const res = await postgresClient.query(
-        'SELECT * FROM trunks WHERE id = $1 AND tenant_id = $2',
-        [id, tenantId.trim()]
-      );
-      if (res.rows.length > 0) {
-        return this.mapRow(res.rows[0]);
-      }
+    });
+  }
+
+  public static async findById(id: string, contextOrTenant?: TenantContext | string): Promise<Trunk | null> {
+    if (!contextOrTenant || (typeof contextOrTenant === 'string' && contextOrTenant.trim() === '')) {
+      // Regra Fail-Closed CS-148/CS-149: Tenant ausente produz recusa estrita de recurso
       return null;
-    } catch (err: any) {
-      console.error('[TrunkRepository.findById] Erro no PostgreSQL:', err?.message || err);
-      throw err;
     }
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM trunks WHERE id = $1 AND tenant_id = $2',
+          [id, ctx.tenantId]
+        );
+        if (res.rows.length > 0) {
+          return this.mapRow(res.rows[0]);
+        }
+        return null;
+      } catch (err: any) {
+        console.error('[TrunkRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 
   public static async findAnyByIdForSuperAdmin(id: string): Promise<Trunk | null> {
-    try {
-      const res = await postgresClient.query('SELECT * FROM trunks WHERE id = $1', [id]);
-      if (res.rows.length > 0) {
-        return this.mapRow(res.rows[0]);
+    return postgresClient.executeGlobalScoped(async (client) => {
+      try {
+        const res = await client.query('SELECT * FROM trunks WHERE id = $1', [id]);
+        if (res.rows.length > 0) {
+          return this.mapRow(res.rows[0]);
+        }
+        return null;
+      } catch (err: any) {
+        console.error('[TrunkRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
       }
-      return null;
-    } catch (err: any) {
-      console.error('[TrunkRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+    });
   }
 
-  public static async save(trunk: Trunk): Promise<Trunk> {
-    try {
-      await postgresClient.query(
-        `INSERT INTO trunks (
-          id, tenant_id, name, provider_name, host, port, username, secret_masked,
-          transport, caller_id, codecs, context, register, status, channels_max,
-          channels_in_use, auth_mode, authorized_ips, inbound_context, send_pai,
-          send_rpid, direct_media, dtmf_mode, from_domain, from_user, qualify_frequency,
-          outbound_proxy, caller_id_mode, failover_trunk_id, last_ping_latency_ms,
-          last_ping_status, last_ping_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
-          $29, $30, $31, $32
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          provider_name = EXCLUDED.provider_name,
-          host = EXCLUDED.host,
-          port = EXCLUDED.port,
-          username = EXCLUDED.username,
-          secret_masked = EXCLUDED.secret_masked,
-          transport = EXCLUDED.transport,
-          caller_id = EXCLUDED.caller_id,
-          codecs = EXCLUDED.codecs,
-          context = EXCLUDED.context,
-          register = EXCLUDED.register,
-          status = EXCLUDED.status,
-          channels_max = EXCLUDED.channels_max,
-          channels_in_use = EXCLUDED.channels_in_use,
-          auth_mode = EXCLUDED.auth_mode,
-          authorized_ips = EXCLUDED.authorized_ips,
-          inbound_context = EXCLUDED.inbound_context,
-          send_pai = EXCLUDED.send_pai,
-          send_rpid = EXCLUDED.send_rpid,
-          direct_media = EXCLUDED.direct_media,
-          dtmf_mode = EXCLUDED.dtmf_mode,
-          from_domain = EXCLUDED.from_domain,
-          from_user = EXCLUDED.from_user,
-          qualify_frequency = EXCLUDED.qualify_frequency,
-          outbound_proxy = EXCLUDED.outbound_proxy,
-          caller_id_mode = EXCLUDED.caller_id_mode,
-          failover_trunk_id = EXCLUDED.failover_trunk_id,
-          last_ping_latency_ms = EXCLUDED.last_ping_latency_ms,
-          last_ping_status = EXCLUDED.last_ping_status,
-          last_ping_at = EXCLUDED.last_ping_at,
-          updated_at = CURRENT_TIMESTAMP`,
-        [
-          trunk.id, trunk.tenantId, trunk.name, trunk.providerName, trunk.host,
-          trunk.port || 5060, trunk.username || '', trunk.secretMasked || '',
-          trunk.transport || 'UDP', trunk.callerId || '', JSON.stringify(trunk.codecs || []),
-          trunk.context || 'from-trunk', trunk.register || false, trunk.status || 'unregistered',
-          trunk.channelsMax || 30, trunk.channelsInUse || 0, trunk.authMode || 'ip',
-          JSON.stringify(trunk.authorizedIps || []), trunk.inboundContext || 'from-trunk',
-          trunk.sendPai || false, trunk.sendRpid || false, trunk.directMedia || false,
-          trunk.dtmfMode || 'rfc4733', trunk.fromDomain || null, trunk.fromUser || null,
-          trunk.qualifyFrequency || 60, trunk.outboundProxy || null, trunk.callerIdMode || 'custom',
-          trunk.failoverTrunkId || null, trunk.lastPingLatencyMs || null, trunk.lastPingStatus || null,
-          trunk.lastPingAt ? new Date(trunk.lastPingAt) : null
-        ]
-      );
-      return trunk;
-    } catch (err: any) {
-      console.error('[TrunkRepository.save] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+  public static async save(trunk: Trunk, contextOrTenant?: TenantContext | string): Promise<Trunk> {
+    const target = contextOrTenant || trunk.tenantId;
+    return postgresClient.executeTenantScoped(target, async (client, ctx) => {
+      try {
+        await client.query(
+          `INSERT INTO trunks (
+            id, tenant_id, name, provider_name, host, port, username, secret_masked,
+            transport, caller_id, codecs, context, register, status, channels_max,
+            channels_in_use, auth_mode, authorized_ips, inbound_context, send_pai,
+            send_rpid, direct_media, dtmf_mode, from_domain, from_user, qualify_frequency,
+            outbound_proxy, caller_id_mode, failover_trunk_id, last_ping_latency_ms,
+            last_ping_status, last_ping_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
+            $29, $30, $31, $32
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            provider_name = EXCLUDED.provider_name,
+            host = EXCLUDED.host,
+            port = EXCLUDED.port,
+            username = EXCLUDED.username,
+            secret_masked = EXCLUDED.secret_masked,
+            transport = EXCLUDED.transport,
+            caller_id = EXCLUDED.caller_id,
+            codecs = EXCLUDED.codecs,
+            context = EXCLUDED.context,
+            register = EXCLUDED.register,
+            status = EXCLUDED.status,
+            channels_max = EXCLUDED.channels_max,
+            channels_in_use = EXCLUDED.channels_in_use,
+            auth_mode = EXCLUDED.auth_mode,
+            authorized_ips = EXCLUDED.authorized_ips,
+            inbound_context = EXCLUDED.inbound_context,
+            send_pai = EXCLUDED.send_pai,
+            send_rpid = EXCLUDED.send_rpid,
+            direct_media = EXCLUDED.direct_media,
+            dtmf_mode = EXCLUDED.dtmf_mode,
+            from_domain = EXCLUDED.from_domain,
+            from_user = EXCLUDED.from_user,
+            qualify_frequency = EXCLUDED.qualify_frequency,
+            outbound_proxy = EXCLUDED.outbound_proxy,
+            caller_id_mode = EXCLUDED.caller_id_mode,
+            failover_trunk_id = EXCLUDED.failover_trunk_id,
+            last_ping_latency_ms = EXCLUDED.last_ping_latency_ms,
+            last_ping_status = EXCLUDED.last_ping_status,
+            last_ping_at = EXCLUDED.last_ping_at,
+            updated_at = CURRENT_TIMESTAMP`,
+          [
+            trunk.id, ctx.tenantId, trunk.name, trunk.providerName, trunk.host,
+            trunk.port || 5060, trunk.username || '', trunk.secretMasked || '',
+            trunk.transport || 'UDP', trunk.callerId || '', JSON.stringify(trunk.codecs || []),
+            trunk.context || 'from-trunk', trunk.register || false, trunk.status || 'unregistered',
+            trunk.channelsMax || 30, trunk.channelsInUse || 0, trunk.authMode || 'ip',
+            JSON.stringify(trunk.authorizedIps || []), trunk.inboundContext || 'from-trunk',
+            trunk.sendPai || false, trunk.sendRpid || false, trunk.directMedia || false,
+            trunk.dtmfMode || 'rfc4733', trunk.fromDomain || null, trunk.fromUser || null,
+            trunk.qualifyFrequency || 60, trunk.outboundProxy || null, trunk.callerIdMode || 'custom',
+            trunk.failoverTrunkId || null, trunk.lastPingLatencyMs || null, trunk.lastPingStatus || null,
+            trunk.lastPingAt ? new Date(trunk.lastPingAt) : null
+          ]
+        );
+        return trunk;
+      } catch (err: any) {
+        console.error('[TrunkRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 
-  public static async delete(id: string, tenantId: string): Promise<boolean> {
-    if (!tenantId || tenantId.trim() === '') {
-      throw new Error('TENANT_REQUIRED: tenantId é obrigatório para remover tronco.');
-    }
-    try {
-      const res = await postgresClient.query(
-        'DELETE FROM trunks WHERE id = $1 AND tenant_id = $2',
-        [id, tenantId.trim()]
-      );
-      return (res.rowCount ?? 0) > 0;
-    } catch (err: any) {
-      console.error('[TrunkRepository.delete] Erro no PostgreSQL:', err?.message || err);
-      throw err;
-    }
+  public static async delete(id: string, contextOrTenant: TenantContext | string): Promise<boolean> {
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'DELETE FROM trunks WHERE id = $1 AND tenant_id = $2',
+          [id, ctx.tenantId]
+        );
+        return (res.rowCount ?? 0) > 0;
+      } catch (err: any) {
+        console.error('[TrunkRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 }

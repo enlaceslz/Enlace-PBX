@@ -1,6 +1,9 @@
 import pg from 'pg';
 import { embeddedDatabaseEngine } from './embeddedEngine.js';
-import type { TenantContext } from '../auth/authMiddleware.js';
+import { TenantContext, toCanonicalTenantContext } from '../auth/tenantContext.js';
+
+export type { TenantContext };
+export { toCanonicalTenantContext };
 
 const { Pool } = pg;
 
@@ -275,10 +278,12 @@ class PostgresClient {
         // Configuração segura e isolada da sessão local da transação via SET LOCAL
         if (accessMode === 'TENANT') {
           await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
+          await client.query("SELECT set_config('app.is_super_admin', 'false', true)");
         } else if (accessMode === 'SUPER_ADMIN_TARGET') {
           await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
           await client.query("SELECT set_config('app.is_super_admin', 'true', true)");
         } else if (accessMode === 'GLOBAL') {
+          await client.query("SELECT set_config('app.current_tenant_id', '', true)");
           await client.query("SELECT set_config('app.is_super_admin', 'true', true)");
         }
 
@@ -299,9 +304,60 @@ class PostgresClient {
       throw new Error('FATAL DE PRODUÇÃO: Banco PostgreSQL não conectado para transação RLS.');
     }
 
-    // Modo de desenvolvimento com cliente simulado
+    // Modo de desenvolvimento com cliente simulado resiliente sob transação RLS real
     const mockClient = await this.getClient();
-    return await callback(mockClient);
+    try {
+      await mockClient.query('BEGIN');
+      if (accessMode === 'TENANT') {
+        await mockClient.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
+        await mockClient.query("SELECT set_config('app.is_super_admin', 'false', true)");
+      } else if (accessMode === 'SUPER_ADMIN_TARGET') {
+        await mockClient.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
+        await mockClient.query("SELECT set_config('app.is_super_admin', 'true', true)");
+      } else if (accessMode === 'GLOBAL') {
+        await mockClient.query("SELECT set_config('app.current_tenant_id', '', true)");
+        await mockClient.query("SELECT set_config('app.is_super_admin', 'true', true)");
+      }
+
+      const result = await callback(mockClient);
+      await mockClient.query('COMMIT');
+      return result;
+    } catch (err: any) {
+      try {
+        await mockClient.query('ROLLBACK');
+      } catch {}
+      throw err;
+    } finally {
+      mockClient.release();
+    }
+  }
+
+  /**
+   * DB Access Gate Canônico: Executa operação escopada por tenant dentro de transação RLS
+   * com variáveis locais 'app.current_tenant_id' e controle de rollback automático.
+   */
+  public async executeTenantScoped<T>(
+    contextOrTenant: TenantContext | string,
+    callback: (client: pg.PoolClient, context: TenantContext) => Promise<T>
+  ): Promise<T> {
+    const context = toCanonicalTenantContext(contextOrTenant);
+    return this.withTenantTransaction(context, (client) => callback(client, context));
+  }
+
+  /**
+   * DB Access Gate Canônico: Executa operação global para super administrador dentro de transação
+   * com variável local 'app.is_super_admin' = 'true' e auditoria de contexto.
+   */
+  public async executeGlobalScoped<T>(
+    callback: (client: pg.PoolClient) => Promise<T>
+  ): Promise<T> {
+    const context: TenantContext = {
+      tenantId: '',
+      actorUserId: 'SUPER_ADMIN',
+      actorRole: 'super_admin',
+      accessMode: 'GLOBAL',
+    };
+    return this.withTenantTransaction(context, callback);
   }
 
   /**

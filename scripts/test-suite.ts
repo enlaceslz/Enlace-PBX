@@ -3274,6 +3274,314 @@ export async function runAllTests(): Promise<{
   }
 
   // -------------------------------------------------------------------------
+  // 8.27: CS-244, CS-245 & CS-246 — DB Access Gate Canônico & Zero Bypass
+  // -------------------------------------------------------------------------
+  try {
+    const ctxA: TenantContext = {
+      tenantId: TENANT_A,
+      actorUserId: 'user-alpha-mgr',
+      actorRole: 'admin',
+      accessMode: 'TENANT',
+      originTenantId: TENANT_A,
+    };
+
+    const ctxB: TenantContext = {
+      tenantId: TENANT_B,
+      actorUserId: 'user-beta-mgr',
+      actorRole: 'admin',
+      accessMode: 'TENANT',
+      originTenantId: TENANT_B,
+    };
+
+    // 1. MaiaSessionRepository opera sob transação com TenantContext canônico
+    const testSessionA = {
+      id: `session-gate-${Date.now()}`,
+      tenantId: TENANT_A,
+      agentId: 'agent-gate-1',
+      callerNumber: '+5598991112222',
+      provider: 'gemini' as const,
+      model: 'gemini-flash-latest',
+      routingProfile: 'BALANCEADO' as const,
+      status: 'connected' as const,
+      startedAt: new Date().toISOString(),
+      lastActivityAt: new Date().toISOString(),
+      durationSeconds: 15,
+      userTurns: 2,
+      toolCalls: 0,
+      tokensInput: 0,
+      tokensOutput: 0,
+      meta: { source: 'gate-audit' },
+    };
+
+    await MaiaSessionRepository.createSession(testSessionA, ctxA);
+
+    // Consulta pelo Tenant A deve encontrar a sessão
+    const foundByA = await MaiaSessionRepository.findById(testSessionA.id, ctxA);
+    const sessionOwnerMatch = foundByA !== null && foundByA.id === testSessionA.id;
+
+    // Consulta pelo Tenant B deve retornar estritamente null (isolamento RLS)
+    const foundByB = await MaiaSessionRepository.findById(testSessionA.id, ctxB);
+    const sessionCrossDenied = foundByB === null;
+
+    // 2. SystemRepository opera sob executeGlobalScoped
+    const testKey = `sys-cfg-gate-${Date.now()}`;
+    await SystemRepository.setSetting(testKey, { active: true, protocol: 'sip' });
+    const fetchedSetting = await SystemRepository.getSetting<{ active: boolean; protocol: string }>(testKey);
+    const systemSettingOk = fetchedSetting !== null && fetchedSetting.active === true;
+    await SystemRepository.deleteSetting(testKey);
+
+    // 3. Validação de RLS Session Enforcement no motor de banco
+    let rlsViolationCaught = false;
+    try {
+      await postgresClient.withTenantTransaction(ctxA, async (client) => {
+        // Tentativa de inserir registro com tenant B dentro da transação do tenant A
+        await client.query(
+          `INSERT INTO extensions (id, tenant_id, number, name, sip_secret, context, caller_id, codecs, nat, webrtc, recording, voicemail, dnd, status, allow_ai_transfer)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          ['ext-rls-viol-1', TENANT_B, '9999', 'Fake Ext', 'secret', 'default', '9999', '[]', true, true, 'never', false, false, 'offline', true]
+        );
+      });
+    } catch (err: any) {
+      rlsViolationCaught = err.message.includes('row-level security') || err.message.includes('violates');
+    }
+
+    const gatePass = sessionOwnerMatch && sessionCrossDenied && systemSettingOk && rlsViolationCaught;
+
+    if (gatePass) {
+      record({
+        test: 'CS-244/CS-245/CS-246: DB Access Gate Canônico, Zero Bypass & RLS Enforcement',
+        classification: 'SECURITY',
+        operation: 'CANONICAL_DB_GATE_VERIFICATION',
+        expected: 'PASS (withTenantTransaction ativo, RLS enforcement na sessão, zero bypass em Maia/System)',
+        actual: 'PASS (Isolamento transacional e RLS operacional confirmados)',
+        status: 'passed',
+        evidence: `Sessão MaIA atrelada ao ${TENANT_A} inacessível para ${TENANT_B}; SystemRepository sob executeGlobalScoped; Violação RLS detectada ao forçar tenant divergente.`,
+      });
+    } else {
+      record({
+        test: 'CS-244/CS-245/CS-246: DB Access Gate Canônico, Zero Bypass & RLS Enforcement',
+        classification: 'SECURITY',
+        operation: 'CANONICAL_DB_GATE_VERIFICATION',
+        expected: 'PASS',
+        actual: 'FAIL',
+        status: 'failed',
+        evidence: `FALHA: sessionOwnerMatch=${sessionOwnerMatch}, sessionCrossDenied=${sessionCrossDenied}, systemSettingOk=${systemSettingOk}, rlsViolationCaught=${rlsViolationCaught}`,
+      });
+    }
+  } catch (err: any) {
+    record({
+      test: 'CS-244/CS-245/CS-246: DB Access Gate Canônico, Zero Bypass & RLS Enforcement',
+      classification: 'SECURITY',
+      operation: 'CANONICAL_DB_GATE_VERIFICATION',
+      expected: 'PASS',
+      actual: `EXCEPTION (${err.message})`,
+      status: 'failed',
+      evidence: `Exceção: ${err.message}`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 8.28: CS-247 & CS-248 — Billing com TenantContext & Zero Fallback para tenant-default
+  // -------------------------------------------------------------------------
+  try {
+    const ctxA: TenantContext = {
+      tenantId: TENANT_A,
+      actorUserId: 'user-alpha-finance',
+      actorRole: 'admin',
+      accessMode: 'TENANT',
+      originTenantId: TENANT_A,
+    };
+
+    const ctxB: TenantContext = {
+      tenantId: TENANT_B,
+      actorUserId: 'user-beta-finance',
+      actorRole: 'admin',
+      accessMode: 'TENANT',
+      originTenantId: TENANT_B,
+    };
+
+    // 1. Recarga no Tenant A via TenantContext
+    const rechargeA = await BillingRepository.recharge(ctxA, 120.00, 'PIX Corporativo');
+    const billingA = await BillingRepository.getByTenantId(ctxA);
+    const rechargeAOk = billingA !== null && billingA.balance >= 120.00 && rechargeA.transaction.amount === 120.00;
+
+    // 2. Consulta pelo Tenant B via TenantContext não enxerga saldo ou transações do Tenant A
+    const billingB = await BillingRepository.getByTenantId(ctxB);
+    const balanceBIsolated = !billingB || billingB.transactions.every(tx => !tx.description.includes('PIX Corporativo') || tx.amount !== 120.00);
+
+    // 3. Tentativa de quitação cruzada de fatura rejeitada (Tenant B não pode quitar fatura do Tenant A)
+    const crossInvoiceDenied = await BillingRepository.payInvoice(ctxB, 'inv-fake-alpha', 'PIX');
+    const invoiceCrossBlocked = crossInvoiceDenied === false;
+
+    // 4. Verificação de ausência de tenant-default no catálogo de tenants
+    const allTenants = await TenantRepository.listAll();
+    const noTenantDefaultSeeded = !allTenants.some(t => t.id === 'tenant-default');
+
+    const billingAuthorityPass = rechargeAOk && balanceBIsolated && invoiceCrossBlocked && noTenantDefaultSeeded;
+
+    if (billingAuthorityPass) {
+      record({
+        test: 'CS-247/CS-248: Billing com TenantContext Canônico & Zero Fallback para tenant-default',
+        classification: 'SECURITY',
+        operation: 'BILLING_CANONICAL_AUTHORITY_VERIFICATION',
+        expected: 'PASS (Recarga via TenantContext atômica e isolada; ausência de tenant-default no catálogo)',
+        actual: 'PASS (Autoridade de faturamento e eliminação de tenant-default confirmadas)',
+        status: 'passed',
+        evidence: `Recarga de R$ 120 auditada e persistida no ${TENANT_A} sem afetar ${TENANT_B}; tentativa de quitação cruzada rejeitada; catálogo de tenants livre de 'tenant-default'.`,
+      });
+    } else {
+      record({
+        test: 'CS-247/CS-248: Billing com TenantContext Canônico & Zero Fallback para tenant-default',
+        classification: 'SECURITY',
+        operation: 'BILLING_CANONICAL_AUTHORITY_VERIFICATION',
+        expected: 'PASS',
+        actual: 'FAIL',
+        status: 'failed',
+        evidence: `FALHA: rechargeAOk=${rechargeAOk}, balanceBIsolated=${balanceBIsolated}, invoiceCrossBlocked=${invoiceCrossBlocked}, noTenantDefaultSeeded=${noTenantDefaultSeeded}`,
+      });
+    }
+  } catch (err: any) {
+    record({
+      test: 'CS-247/CS-248: Billing com TenantContext Canônico & Zero Fallback para tenant-default',
+      classification: 'SECURITY',
+      operation: 'BILLING_CANONICAL_AUTHORITY_VERIFICATION',
+      expected: 'PASS',
+      actual: `EXCEPTION (${err.message})`,
+      status: 'failed',
+      evidence: `Exceção: ${err.message}`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 8.29: CS-249 & CS-250 — Matriz Multi-Tenant A/B com RLS Operacional Comprovado
+  // -------------------------------------------------------------------------
+  try {
+    const ctxA: TenantContext = {
+      tenantId: TENANT_A,
+      actorUserId: 'admin-alpha',
+      actorRole: 'admin',
+      accessMode: 'TENANT',
+      originTenantId: TENANT_A,
+    };
+
+    const ctxB: TenantContext = {
+      tenantId: TENANT_B,
+      actorUserId: 'admin-beta',
+      actorRole: 'admin',
+      accessMode: 'TENANT',
+      originTenantId: TENANT_B,
+    };
+
+    const ctxSuperTargetA: TenantContext = {
+      tenantId: TENANT_A,
+      actorUserId: 'super-admin-master',
+      actorRole: 'super_admin',
+      accessMode: 'SUPER_ADMIN_TARGET',
+      originTenantId: 'tenant-enlace-noc',
+    };
+
+    // Cenário 1: Criação de recursos isolados nos Tenants A e B
+    const extAlpha = {
+      id: 'ext-ab-alpha-1',
+      tenantId: TENANT_A,
+      number: '8801',
+      name: 'Ramal Alpha 1',
+      context: 'from-internal',
+      callerId: '8801',
+      codecs: ['opus'],
+      nat: true,
+      webrtc: true,
+      recording: 'always' as const,
+      voicemail: false,
+      dnd: false,
+      status: 'online' as const,
+      allowAiTransfer: true,
+    };
+
+    const extBeta = {
+      id: 'ext-ab-beta-1',
+      tenantId: TENANT_B,
+      number: '8802',
+      name: 'Ramal Beta 1',
+      context: 'from-internal',
+      callerId: '8802',
+      codecs: ['opus'],
+      nat: true,
+      webrtc: true,
+      recording: 'always' as const,
+      voicemail: false,
+      dnd: false,
+      status: 'online' as const,
+      allowAiTransfer: true,
+    };
+
+    await ExtensionRepository.save(extAlpha, ctxA);
+    await ExtensionRepository.save(extBeta, ctxB);
+
+    // Matriz A/B de isolamento
+    const aSeesA = await ExtensionRepository.findById(extAlpha.id, ctxA);
+    const bSeesB = await ExtensionRepository.findById(extBeta.id, ctxB);
+    const aSeesB = await ExtensionRepository.findById(extBeta.id, ctxA); // Deve ser null
+    const bSeesA = await ExtensionRepository.findById(extAlpha.id, ctxB); // Deve ser null
+
+    // Super Admin com SUPER_ADMIN_TARGET acessa Tenant A explicitamente
+    const superSeesA = await ExtensionRepository.findById(extAlpha.id, ctxSuperTargetA);
+
+    // Deleção cruzada: Tenant B tentando deletar recurso do Tenant A é barrado
+    let crossDeleteBlocked = false;
+    try {
+      const delRes = await ExtensionRepository.delete(extAlpha.id, ctxB);
+      crossDeleteBlocked = delRes === false;
+    } catch {
+      crossDeleteBlocked = true;
+    }
+
+    // Limpeza de recursos
+    await ExtensionRepository.delete(extAlpha.id, ctxA).catch(() => {});
+    await ExtensionRepository.delete(extBeta.id, ctxB).catch(() => {});
+
+    const abMatrixPass =
+      aSeesA !== null &&
+      bSeesB !== null &&
+      aSeesB === null &&
+      bSeesA === null &&
+      superSeesA !== null &&
+      crossDeleteBlocked;
+
+    if (abMatrixPass) {
+      record({
+        test: 'CS-249/CS-250: Matriz Multi-Tenant A/B — Prova Definitiva de RLS Operacional',
+        classification: 'SECURITY',
+        operation: 'MULTI_TENANT_RLS_AB_PROOF',
+        expected: 'PASS (A->A: PASS, B->B: PASS, A->B: DENY, B->A: DENY, SUPER_ADMIN_TARGET: PASS, Cross-Delete: DENY)',
+        actual: 'PASS (Isolamento A/B 100% comprovado com RLS operacional)',
+        status: 'passed',
+        evidence: `Matriz A/B comprovada: A acessa A (id=${extAlpha.id}), B acessa B (id=${extBeta.id}), cross-access A->B e B->A bloqueados (null), cross-delete barrado, super_admin com SUPER_ADMIN_TARGET auditado.`,
+      });
+    } else {
+      record({
+        test: 'CS-249/CS-250: Matriz Multi-Tenant A/B — Prova Definitiva de RLS Operacional',
+        classification: 'SECURITY',
+        operation: 'MULTI_TENANT_RLS_AB_PROOF',
+        expected: 'PASS',
+        actual: 'FAIL',
+        status: 'failed',
+        evidence: `FALHA: aSeesA=${Boolean(aSeesA)}, bSeesB=${Boolean(bSeesB)}, aSeesB=${Boolean(aSeesB)}, bSeesA=${Boolean(bSeesA)}, superSeesA=${Boolean(superSeesA)}, crossDeleteBlocked=${crossDeleteBlocked}`,
+      });
+    }
+  } catch (err: any) {
+    record({
+      test: 'CS-249/CS-250: Matriz Multi-Tenant A/B — Prova Definitiva de RLS Operacional',
+      classification: 'SECURITY',
+      operation: 'MULTI_TENANT_RLS_AB_PROOF',
+      expected: 'PASS',
+      actual: `EXCEPTION (${err.message})`,
+      status: 'failed',
+      evidence: `Exceção: ${err.message}`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // CONSOLIDAÇÃO DOS RESULTADOS & EVIDÊNCIAS
   // -------------------------------------------------------------------------
   const passed = results.filter((r) => r.status === 'passed').length;
