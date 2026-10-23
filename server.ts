@@ -294,7 +294,7 @@ async function startServer() {
 
     const pgStatus = pgHealth.status === 'UP' ? 'UP' : (pgHealth.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'DOWN');
     const astStatus = asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'NOT_INSTALLED' : 'DOWN');
-    const amiStatus = asteriskHealth.amiConnected ? 'UP' : (asteriskHealth.status === 'UP' ? 'UP' : 'DOWN');
+    const amiStatus = asteriskHealth.amiConnected ? 'UP' : 'DOWN';
 
     // PostgreSQL é a dependência crítica obrigatória de persistência e autenticação
     const isReady = pgHealth.status === 'UP';
