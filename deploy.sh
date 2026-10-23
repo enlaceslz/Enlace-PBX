@@ -186,7 +186,14 @@ fi
 if command -v psql >/dev/null 2>&1 && systemctl is-active --quiet postgresql 2>/dev/null; then
   echo -e "${CYAN}Provisionando/validando banco local 'enlace_pbx' e usuário restrito 'enlace_app'...${NC}"
   sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'enlace_pbx'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE enlace_pbx;"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
+  if sudo -u postgres psql -Atqc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -qx 1; then
+    if [ -z "$EXISTING_DB" ]; then
+      echo "ERRO: role enlace_app ja existe, mas DATABASE_URL nao foi preservada. Informe credenciais existentes; nao sera gerada senha divergente." >&2
+      exit 1
+    fi
+  else
+    sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
+  fi
   sudo -u postgres psql -d enlace_pbx -c "GRANT CONNECT ON DATABASE enlace_pbx TO enlace_app; GRANT USAGE ON SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO enlace_app; REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true
   echo -e "${GREEN}✅ Banco PostgreSQL e role 'enlace_app' verificados.${NC}"
 fi
