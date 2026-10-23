@@ -160,6 +160,10 @@ export class AsteriskAdapter {
           }
           actionCmd += '\r\n';
           socket.write(actionCmd);
+        } else if (authenticated && buffer.includes('Response: Error')) {
+          clearTimeout(timeout);
+          socket.destroy();
+          reject(new Error('Asterisk AMI rejeitou a ação solicitada.'));
         } else if (authenticated && (buffer.includes('\r\n\r\n') || buffer.includes('Response:'))) {
           clearTimeout(timeout);
           socket.write('Action: Logoff\r\n\r\n');
