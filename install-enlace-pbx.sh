@@ -162,62 +162,13 @@ usermod -aG audio,dialout asterisk 2>/dev/null || true
 
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
-# Nunca declarar sucesso com credenciais antigas: exigir reconciliacao manual em instalacoes existentes.
-for config_section in "manager.conf:enlace_ami" "ari.conf:enlace_ari"; do
-  config_file="${config_section%%:*}"
-  section_name="${config_section#*:}"
-  config_path="/etc/asterisk/${config_file}"
-  if [ -f "${config_path}" ] && grep -q "^\\[${section_name}\\]$" "${config_path}"; then
-    echo "ERRO: Secao [${section_name}] existente em ${config_path}. Valide e sincronize as credenciais antes de reinstalar." >&2
-    exit 1
-  fi
-done
-
-# Configuração e Padronização Segura de AMI (manager.conf) e ARI (ari.conf)
-mkdir -p /etc/asterisk
-if [ -f /etc/asterisk/manager.conf ] && ! grep -q "^\[enlace_ami\]$" /etc/asterisk/manager.conf 2>/dev/null; then
-  echo -e "${CYAN}Configurando usuário AMI 'enlace_ami' em /etc/asterisk/manager.conf...${NC}"
-  cat <<EOF_AMI >> /etc/asterisk/manager.conf
-
-[general]
-enabled = yes
-port = 5038
-bindaddr = 127.0.0.1
-
-[enlace_ami]
-secret = ${ASTERISK_AMI_PASSWORD}
-deny = 0.0.0.0/0.0.0.0
-permit = 127.0.0.1/255.255.255.255
-read = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
-write = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
-EOF_AMI
+# Provisionamento idempotente: backup e substituicao atomica apenas das secoes gerenciadas.
+INSTALL_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then
+  echo "ERRO: reconciliador Asterisk ausente. Execute a instalacao a partir do repositorio completo." >&2
+  exit 1
 fi
-
-if [ -f /etc/asterisk/http.conf ] && ! grep -q "bindaddr=127.0.0.1" /etc/asterisk/http.conf 2>/dev/null; then
-  cat <<'EOF_HTTP' >> /etc/asterisk/http.conf
-
-[general]
-enabled = yes
-bindaddr = 127.0.0.1
-bindport = 8088
-EOF_HTTP
-fi
-
-if [ -f /etc/asterisk/ari.conf ] && ! grep -q "^\[enlace_ari\]$" /etc/asterisk/ari.conf 2>/dev/null; then
-  echo -e "${CYAN}Configurando usuário ARI 'enlace_ari' em /etc/asterisk/ari.conf...${NC}"
-  cat <<EOF_ARI >> /etc/asterisk/ari.conf
-
-[general]
-enabled = yes
-pretty = yes
-allowed_origins = http://127.0.0.1:3000
-
-[enlace_ari]
-type = user
-read_only = no
-password = ${ASTERISK_ARI_PASSWORD}
-EOF_ARI
-fi
+python3 "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"
 
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
 chmod -R 750 /var/{lib,log,run,spool}/asterisk /etc/asterisk
