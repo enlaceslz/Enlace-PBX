@@ -153,9 +153,20 @@ usermod -aG audio,dialout asterisk 2>/dev/null || true
 
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
+# Nunca declarar sucesso com credenciais antigas: exigir reconciliacao manual em instalacoes existentes.
+for config_section in "manager.conf:enlace_ami" "ari.conf:enlace_ari"; do
+  config_file="${config_section%%:*}"
+  section_name="${config_section#*:}"
+  config_path="/etc/asterisk/${config_file}"
+  if [ -f "${config_path}" ] && grep -q "^\\[${section_name}\\]$" "${config_path}"; then
+    echo "ERRO: Secao [${section_name}] existente em ${config_path}. Valide e sincronize as credenciais antes de reinstalar." >&2
+    exit 1
+  fi
+done
+
 # Configuração e Padronização Segura de AMI (manager.conf) e ARI (ari.conf)
 mkdir -p /etc/asterisk
-if [ -f /etc/asterisk/manager.conf ] && ! grep -q "enlace_ami" /etc/asterisk/manager.conf 2>/dev/null; then
+if [ -f /etc/asterisk/manager.conf ] && ! grep -q "^\[enlace_ami\]$" /etc/asterisk/manager.conf 2>/dev/null; then
   echo -e "${CYAN}Configurando usuário AMI 'enlace_ami' em /etc/asterisk/manager.conf...${NC}"
   cat <<EOF_AMI >> /etc/asterisk/manager.conf
 
@@ -183,7 +194,7 @@ bindport = 8088
 EOF_HTTP
 fi
 
-if [ -f /etc/asterisk/ari.conf ] && ! grep -q "enlace_ari" /etc/asterisk/ari.conf 2>/dev/null; then
+if [ -f /etc/asterisk/ari.conf ] && ! grep -q "^\[enlace_ari\]$" /etc/asterisk/ari.conf 2>/dev/null; then
   echo -e "${CYAN}Configurando usuário ARI 'enlace_ari' em /etc/asterisk/ari.conf...${NC}"
   cat <<EOF_ARI >> /etc/asterisk/ari.conf
 
