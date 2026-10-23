@@ -55,6 +55,30 @@ def reconcile(path: Path, section: str, body: str) -> None:
         if os.path.exists(tmp):
             os.unlink(tmp)
 
+def ensure_general(path: Path, options: dict[str, str]) -> None:
+    """Set required general options while preserving unrelated keys and comments."""
+    original = path.read_text(encoding="utf-8") if path.exists() else ""
+    matches = list(HEADER.finditer(original))
+    sections = [i for i, m in enumerate(matches) if m.group(1).strip().lower() == "general"]
+    if len(sections) > 1:
+        raise ValueError(f"{path}: duplicate [general] sections")
+    body = ""
+    if sections:
+        idx = sections[0]
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(original)
+        body = original[matches[idx].end():end].strip("\n")
+    lines = body.splitlines() if body else []
+    for key, value in options.items():
+        pattern = re.compile(r"^\\s*" + re.escape(key) + r"\\s*=", re.IGNORECASE)
+        indices = [i for i, line in enumerate(lines) if pattern.match(line)]
+        if indices:
+            lines[indices[0]] = f"{key} = {value}"
+            for i in reversed(indices[1:]):
+                del lines[i]
+        else:
+            lines.append(f"{key} = {value}")
+    reconcile(path, "general", "\n".join(lines))
+
 def main() -> None:
     ami = require_secret("ASTERISK_AMI_PASSWORD")
     ari = require_secret("ASTERISK_ARI_PASSWORD")
@@ -63,6 +87,9 @@ def main() -> None:
     for name in (ami_user, ari_user):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
             raise ValueError("Invalid Asterisk account name")
+    ensure_general(ROOT / "manager.conf", {"enabled": "yes", "port": "5038", "bindaddr": "127.0.0.1"})
+    ensure_general(ROOT / "http.conf", {"enabled": "yes", "bindaddr": "127.0.0.1", "bindport": "8088"})
+    ensure_general(ROOT / "ari.conf", {"enabled": "yes", "pretty": "yes", "allowed_origins": "http://127.0.0.1:3000"})
     reconcile(ROOT / "manager.conf", ami_user,
               "secret = " + ami + "\n"
               "deny = 0.0.0.0/0.0.0.0\n"
