@@ -26,6 +26,14 @@ echo -e "${CYAN}${BOLD}     🐙  Enlace-PBX — Instalador Oficial Asterisk ${A
 echo -e "${CYAN}    PJSIP + WebRTC SRTP + Opus 48kHz + AudioSocket + ARI Stasis     ${NC}"
 echo -e "${BLUE}${BOLD}====================================================================${NC}"
 
+# Exigir segredos explícitos e impedir instalação com credenciais previsíveis.
+: "${ASTERISK_AMI_PASSWORD:?Defina ASTERISK_AMI_PASSWORD antes de executar o instalador}"
+: "${ASTERISK_ARI_PASSWORD:?Defina ASTERISK_ARI_PASSWORD antes de executar o instalador}"
+if [[ "${#ASTERISK_AMI_PASSWORD}" -lt 24 || "${#ASTERISK_ARI_PASSWORD}" -lt 24 ]]; then
+  echo "ERRO: Credenciais AMI e ARI devem ter pelo menos 24 caracteres." >&2
+  exit 1
+fi
+
 # 1. Validação de privilégios de ROOT
 if [ "${EUID}" -ne 0 ]; then
   echo -e "${RED}❌ ERRO: Este script deve ser executado com privilégios de superusuário (root).${NC}"
@@ -149,7 +157,7 @@ chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
 mkdir -p /etc/asterisk
 if [ -f /etc/asterisk/manager.conf ] && ! grep -q "enlace_ami" /etc/asterisk/manager.conf 2>/dev/null; then
   echo -e "${CYAN}Configurando usuário AMI 'enlace_ami' em /etc/asterisk/manager.conf...${NC}"
-  cat <<'EOF_AMI' >> /etc/asterisk/manager.conf
+  cat <<EOF_AMI >> /etc/asterisk/manager.conf
 
 [general]
 enabled = yes
@@ -157,7 +165,7 @@ port = 5038
 bindaddr = 127.0.0.1
 
 [enlace_ami]
-secret = enlace_ami_secret_2026
+secret = ${ASTERISK_AMI_PASSWORD}
 deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.1/255.255.255.255
 read = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
@@ -177,7 +185,7 @@ fi
 
 if [ -f /etc/asterisk/ari.conf ] && ! grep -q "enlace_ari" /etc/asterisk/ari.conf 2>/dev/null; then
   echo -e "${CYAN}Configurando usuário ARI 'enlace_ari' em /etc/asterisk/ari.conf...${NC}"
-  cat <<'EOF_ARI' >> /etc/asterisk/ari.conf
+  cat <<EOF_ARI >> /etc/asterisk/ari.conf
 
 [general]
 enabled = yes
@@ -187,7 +195,7 @@ allowed_origins = http://127.0.0.1:3000
 [enlace_ari]
 type = user
 read_only = no
-password = enlace_ari_secret_2026
+password = ${ASTERISK_ARI_PASSWORD}
 EOF_ARI
 fi
 
