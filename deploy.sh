@@ -217,6 +217,13 @@ if [ ! -f .env.example ]; then
   touch .env.example
 fi
 
+if [ -f .env ]; then
+  ENV_BACKUP=".env.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  cp -p .env "$ENV_BACKUP"
+  chmod 600 "$ENV_BACKUP"
+  echo "Backup da configuracao anterior: $ENV_BACKUP"
+fi
+umask 077
 cat <<EOF > .env
 # ====================================================================
 # Enlace-PBX Enterprise — Configuração de Produção
