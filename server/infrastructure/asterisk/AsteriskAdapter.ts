@@ -54,13 +54,13 @@ export class AsteriskAdapter {
   };
 
   constructor() {
-    this.host = process.env.ASTERISK_HOST || '127.0.0.1';
+    this.host = process.env.ASTERISK_HOST || process.env.ASTERISK_AMI_HOST || '127.0.0.1';
     this.amiPort = parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10);
-    this.amiUser = process.env.ASTERISK_AMI_USER || 'enlace_ami';
-    this.amiPass = process.env.ASTERISK_AMI_PASSWORD || '';
+    this.amiUser = process.env.ASTERISK_AMI_USER || process.env.ASTERISK_AMI_USERNAME || 'enlace_ami';
+    this.amiPass = process.env.ASTERISK_AMI_PASSWORD || process.env.ASTERISK_AMI_PASS || '';
     this.ariUrl = process.env.ASTERISK_ARI_URL || 'http://127.0.0.1:8088';
-    this.ariUser = process.env.ASTERISK_ARI_USER || 'enlace_ari';
-    this.ariPass = process.env.ASTERISK_ARI_PASSWORD || '';
+    this.ariUser = process.env.ASTERISK_ARI_USER || process.env.ASTERISK_ARI_USERNAME || 'enlace_ari';
+    this.ariPass = process.env.ASTERISK_ARI_PASSWORD || process.env.ASTERISK_ARI_PASS || '';
   }
 
   /**

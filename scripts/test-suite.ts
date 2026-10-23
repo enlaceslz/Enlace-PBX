@@ -27,6 +27,7 @@ import { MaiaSessionRepository } from '../server/maia/repositories/MaiaSessionRe
 import { EncryptionService } from '../server/infrastructure/security/EncryptionService.js';
 import { AsteriskTransferExecutor } from '../server/maia/executors/AsteriskExecutor.js';
 import { asteriskService } from '../server/asteriskService.js';
+import { asteriskAdapter, AsteriskAdapter } from '../server/infrastructure/asterisk/AsteriskAdapter.js';
 import { geminiService } from '../server/geminiService.js';
 import { requireTenant, resolveTenantContext, requireSseAuth, SseTicketManager, requireAuth, hasCapability, TenantContext } from '../server/infrastructure/auth/authMiddleware.js';
 
@@ -3574,6 +3575,257 @@ export async function runAllTests(): Promise<{
       test: 'CS-249/CS-250: Matriz Multi-Tenant A/B — Prova Definitiva de RLS Operacional',
       classification: 'SECURITY',
       operation: 'MULTI_TENANT_RLS_AB_PROOF',
+      expected: 'PASS',
+      actual: `EXCEPTION (${err.message})`,
+      status: 'failed',
+      evidence: `Exceção: ${err.message}`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 64. CS-251: P0-01 — Resolução e Interoperabilidade de Credenciais Asterisk (AMI/ARI)
+  // -------------------------------------------------------------------------
+  try {
+    const originalAmiUser = process.env.ASTERISK_AMI_USER;
+    const originalAmiUsername = process.env.ASTERISK_AMI_USERNAME;
+    const originalAriUser = process.env.ASTERISK_ARI_USER;
+    const originalAriUsername = process.env.ASTERISK_ARI_USERNAME;
+
+    // Caso A: Configurado via ASTERISK_AMI_USERNAME e ASTERISK_ARI_USERNAME (formato deploy.sh legado)
+    delete process.env.ASTERISK_AMI_USER;
+    process.env.ASTERISK_AMI_USERNAME = 'ami_legacy_test';
+    delete process.env.ASTERISK_ARI_USER;
+    process.env.ASTERISK_ARI_USERNAME = 'ari_legacy_test';
+
+    const adapterLegacy = new AsteriskAdapter();
+    const amiUserFromLegacy = (adapterLegacy as any).amiUser;
+    const ariUserFromLegacy = (adapterLegacy as any).ariUser;
+
+    // Caso B: Configurado via ASTERISK_AMI_USER e ASTERISK_ARI_USER (formato padrão .env.example)
+    process.env.ASTERISK_AMI_USER = 'ami_standard_test';
+    delete process.env.ASTERISK_AMI_USERNAME;
+    process.env.ASTERISK_ARI_USER = 'ari_standard_test';
+    delete process.env.ASTERISK_ARI_USERNAME;
+
+    const adapterStandard = new AsteriskAdapter();
+    const amiUserFromStandard = (adapterStandard as any).amiUser;
+    const ariUserFromStandard = (adapterStandard as any).ariUser;
+
+    // Restaura ambiente original
+    if (originalAmiUser !== undefined) process.env.ASTERISK_AMI_USER = originalAmiUser; else delete process.env.ASTERISK_AMI_USER;
+    if (originalAmiUsername !== undefined) process.env.ASTERISK_AMI_USERNAME = originalAmiUsername; else delete process.env.ASTERISK_AMI_USERNAME;
+    if (originalAriUser !== undefined) process.env.ASTERISK_ARI_USER = originalAriUser; else delete process.env.ASTERISK_ARI_USER;
+    if (originalAriUsername !== undefined) process.env.ASTERISK_ARI_USERNAME = originalAriUsername; else delete process.env.ASTERISK_ARI_USERNAME;
+
+    const legacyOk = amiUserFromLegacy === 'ami_legacy_test' && ariUserFromLegacy === 'ari_legacy_test';
+    const standardOk = amiUserFromStandard === 'ami_standard_test' && ariUserFromStandard === 'ari_standard_test';
+
+    if (legacyOk && standardOk) {
+      record({
+        test: 'CS-251: P0-01 — Resolução e Interoperabilidade de Credenciais Asterisk (AMI/ARI)',
+        classification: 'INTEGRATION',
+        operation: 'ASTERISK_AUTH_VARIABLES_STANDARDIZATION',
+        expected: 'PASS (Suporte simultâneo a ASTERISK_AMI_USER / USERNAME e ASTERISK_ARI_USER / USERNAME)',
+        actual: 'PASS (Interoperabilidade 100% retrocompatível confirmada)',
+        status: 'passed',
+        evidence: `AsteriskAdapter resolveu com precisão: legado (ami='${amiUserFromLegacy}', ari='${ariUserFromLegacy}') e padrão (ami='${amiUserFromStandard}', ari='${ariUserFromStandard}').`,
+      });
+    } else {
+      record({
+        test: 'CS-251: P0-01 — Resolução e Interoperabilidade de Credenciais Asterisk (AMI/ARI)',
+        classification: 'INTEGRATION',
+        operation: 'ASTERISK_AUTH_VARIABLES_STANDARDIZATION',
+        expected: 'PASS',
+        actual: 'FAIL',
+        status: 'failed',
+        evidence: `Falha na resolução de variáveis: legacyOk=${legacyOk}, standardOk=${standardOk}`,
+      });
+    }
+  } catch (err: any) {
+    record({
+      test: 'CS-251: P0-01 — Resolução e Interoperabilidade de Credenciais Asterisk (AMI/ARI)',
+      classification: 'INTEGRATION',
+      operation: 'ASTERISK_AUTH_VARIABLES_STANDARDIZATION',
+      expected: 'PASS',
+      actual: `EXCEPTION (${err.message})`,
+      status: 'failed',
+      evidence: `Exceção: ${err.message}`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 65. CS-252: P0-02 — Criptografia Autenticada AES-256-GCM e Rotação Segura de Chaves
+  // -------------------------------------------------------------------------
+  try {
+    const sampleSecret = 'MinhaSenhaSIPUltraSecreta2026!';
+    const oldKey = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'; // 32 bytes hex
+    const newKey = 'f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5d4c3b2a1f6e5'; // 32 bytes hex
+
+    // 1. Encriptação inicial
+    const encrypted = EncryptionService.encrypt(sampleSecret);
+    const isEncrypted = EncryptionService.isEncrypted(encrypted);
+    const decrypted = EncryptionService.decrypt(encrypted);
+
+    // 2. Rotação segura de chave
+    // Criptografa especificamente com oldKey e rotaciona para newKey
+    const oldKeyBuffer = crypto.scryptSync(oldKey, 'enlace-pbx-enterprise-aes-salt-v1', 32);
+    const newKeyBuffer = crypto.scryptSync(newKey, 'enlace-pbx-enterprise-aes-salt-v1', 32);
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', oldKeyBuffer, iv);
+    const encWithOld = Buffer.concat([cipher.update(sampleSecret, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const oldEnvelope = `enc:v1:${iv.toString('hex')}:${tag.toString('hex')}:${encWithOld.toString('hex')}`;
+
+    const rotatedEnvelope = EncryptionService.rotateKey(oldEnvelope, oldKey, newKey);
+    const rotatedParts = rotatedEnvelope.split(':');
+    const newIv = Buffer.from(rotatedParts[2], 'hex');
+    const newTag = Buffer.from(rotatedParts[3], 'hex');
+    const newCiphertext = Buffer.from(rotatedParts[4], 'hex');
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', newKeyBuffer, newIv);
+    decipher.setAuthTag(newTag);
+    const decryptedWithNew = Buffer.concat([decipher.update(newCiphertext), decipher.final()]).toString('utf8');
+
+    const encryptionOk = isEncrypted && decrypted === sampleSecret;
+    const rotationOk = rotatedEnvelope.startsWith('enc:v1:') && decryptedWithNew === sampleSecret;
+
+    if (encryptionOk && rotationOk) {
+      record({
+        test: 'CS-252: P0-02 — Criptografia Autenticada AES-256-GCM e Rotação Segura de Chaves',
+        classification: 'SECURITY',
+        operation: 'ENCRYPTION_KEY_AES256_GCM_ROTATION',
+        expected: 'PASS (AES-256-GCM íntegro e rotação atômica com preservação do segredo)',
+        actual: 'PASS (Criptografia e rotação aprovadas sem quebra de segredos)',
+        status: 'passed',
+        evidence: `Envelope validado: '${encrypted.slice(0, 22)}...'. Rotação de chaves executada com sucesso: segredo recuperado intacto sob a nova chave de 256 bits.`,
+      });
+    } else {
+      record({
+        test: 'CS-252: P0-02 — Criptografia Autenticada AES-256-GCM e Rotação Segura de Chaves',
+        classification: 'SECURITY',
+        operation: 'ENCRYPTION_KEY_AES256_GCM_ROTATION',
+        expected: 'PASS',
+        actual: 'FAIL',
+        status: 'failed',
+        evidence: `Falha na criptografia/rotação: encryptionOk=${encryptionOk}, rotationOk=${rotationOk}`,
+      });
+    }
+  } catch (err: any) {
+    record({
+      test: 'CS-252: P0-02 — Criptografia Autenticada AES-256-GCM e Rotação Segura de Chaves',
+      classification: 'SECURITY',
+      operation: 'ENCRYPTION_KEY_AES256_GCM_ROTATION',
+      expected: 'PASS',
+      actual: `EXCEPTION (${err.message})`,
+      status: 'failed',
+      evidence: `Exceção: ${err.message}`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 66. CS-253: P0-03 — Governança PostgreSQL: Papel Operacional enlace_app e Prevenção de Superusuário
+  // -------------------------------------------------------------------------
+  try {
+    // Validação estática da migração 008 de privilégios mínimos
+    const fs = await import('fs');
+    const path = await import('path');
+    const migration008Path = path.join(process.cwd(), 'server', 'infrastructure', 'postgres', 'migrations', '008_db_roles_and_security_definer_hardening.sql');
+    const migration008Sql = fs.readFileSync(migration008Path, 'utf8');
+
+    const restrictsAppRole = migration008Sql.includes('enlace_app WITH') &&
+      migration008Sql.includes('NOBYPASSRLS') &&
+      migration008Sql.includes('NOSUPERUSER') &&
+      migration008Sql.includes('NOCREATEDB') &&
+      migration008Sql.includes('NOCREATEROLE');
+
+    const revokesCreate = migration008Sql.includes('REVOKE CREATE ON SCHEMA public FROM enlace_app');
+    const grantsAppPermissions = migration008Sql.includes('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES');
+
+    // Validação de regras no deploy.sh
+    const deployShPath = path.join(process.cwd(), 'deploy.sh');
+    const deploySh = fs.readFileSync(deployShPath, 'utf8');
+    const deployUsesAppRole = deploySh.includes('enlace_app') && !deploySh.includes('postgres:postgres@');
+
+    if (restrictsAppRole && revokesCreate && grantsAppPermissions && deployUsesAppRole) {
+      record({
+        test: 'CS-253: P0-03 — Governança PostgreSQL: Papel Operacional enlace_app e Prevenção de Superusuário',
+        classification: 'SECURITY',
+        operation: 'POSTGRES_LEAST_PRIVILEGE_GOVERNANCE',
+        expected: 'PASS (enlace_app com privilégios mínimos: NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE)',
+        actual: 'PASS (Políticas de segurança do PostgreSQL e deploy.sh em conformidade estrita)',
+        status: 'passed',
+        evidence: `Migração 008 assegura privilégios mínimos para 'enlace_app' (sem DDL/sem bypass RLS). deploy.sh descontinuou uso de 'postgres:postgres' e adota enlace_app.`,
+      });
+    } else {
+      record({
+        test: 'CS-253: P0-03 — Governança PostgreSQL: Papel Operacional enlace_app e Prevenção de Superusuário',
+        classification: 'SECURITY',
+        operation: 'POSTGRES_LEAST_PRIVILEGE_GOVERNANCE',
+        expected: 'PASS',
+        actual: 'FAIL',
+        status: 'failed',
+        evidence: `Falha na governança de banco: restrictsAppRole=${restrictsAppRole}, revokesCreate=${revokesCreate}, deployUsesAppRole=${deployUsesAppRole}`,
+      });
+    }
+  } catch (err: any) {
+    record({
+      test: 'CS-253: P0-03 — Governança PostgreSQL: Papel Operacional enlace_app e Prevenção de Superusuário',
+      classification: 'SECURITY',
+      operation: 'POSTGRES_LEAST_PRIVILEGE_GOVERNANCE',
+      expected: 'PASS',
+      actual: `EXCEPTION (${err.message})`,
+      status: 'failed',
+      evidence: `Exceção: ${err.message}`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 67. CS-254: P0-04 — Segurança HTTP: Content Security Policy (CSP) e Diretivas Estritas
+  // -------------------------------------------------------------------------
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const serverPath = path.join(process.cwd(), 'server.ts');
+    const serverCode = fs.readFileSync(serverPath, 'utf8');
+
+    // Valida que contentSecurityPolicy não está mais desativado incondicionalmente
+    const cspNotDisabledInProd = !serverCode.includes("contentSecurityPolicy: false, // Desativado no dev");
+    const hasCspDirectives = serverCode.includes("defaultSrc: [\"'self'\"]") &&
+      serverCode.includes("connectSrc:") &&
+      serverCode.includes("'wss:'") &&
+      serverCode.includes("https://generativelanguage.googleapis.com") &&
+      serverCode.includes("objectSrc: [\"'none'\"]");
+    const noUnsafeEval = !serverCode.includes("'unsafe-eval'");
+    const hasSecurityHeaders = serverCode.includes("frameguard: { action: 'sameorigin' }") &&
+      serverCode.includes("noSniff: true") &&
+      serverCode.includes("xssFilter: true");
+
+    if (cspNotDisabledInProd && hasCspDirectives && noUnsafeEval && hasSecurityHeaders) {
+      record({
+        test: 'CS-254: P0-04 — Segurança HTTP: Content Security Policy (CSP) e Diretivas Estritas',
+        classification: 'SECURITY',
+        operation: 'HTTP_SECURITY_CSP_INTEGRITY',
+        expected: 'PASS (CSP robusta com connect-src wss/Gemini, zero unsafe-eval, object-src none e headers defensivos)',
+        actual: 'PASS (Diretiva CSP corporativa ativada e validada com sucesso)',
+        status: 'passed',
+        evidence: `CSP implementada em server.ts: default-src 'self', object-src 'none', frameguard 'sameorigin', noSniff true, wss:/Gemini autorizados, zero unsafe-eval.`,
+      });
+    } else {
+      record({
+        test: 'CS-254: P0-04 — Segurança HTTP: Content Security Policy (CSP) e Diretivas Estritas',
+        classification: 'SECURITY',
+        operation: 'HTTP_SECURITY_CSP_INTEGRITY',
+        expected: 'PASS',
+        actual: 'FAIL',
+        status: 'failed',
+        evidence: `Falha na verificação de CSP: cspNotDisabledInProd=${cspNotDisabledInProd}, hasCspDirectives=${hasCspDirectives}, noUnsafeEval=${noUnsafeEval}, hasSecurityHeaders=${hasSecurityHeaders}`,
+      });
+    }
+  } catch (err: any) {
+    record({
+      test: 'CS-254: P0-04 — Segurança HTTP: Content Security Policy (CSP) e Diretivas Estritas',
+      classification: 'SECURITY',
+      operation: 'HTTP_SECURITY_CSP_INTEGRITY',
       expected: 'PASS',
       actual: `EXCEPTION (${err.message})`,
       status: 'failed',

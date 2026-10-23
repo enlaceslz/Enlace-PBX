@@ -82,10 +82,66 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Middlewares de Segurança Enterprise (Security by Design)
   // -------------------------------------------------------------------------
-  // Helmet - Proteção contra vulnerabilidades web conhecidas
+  // Helmet - Proteção contra vulnerabilidades web conhecidas com CSP configurada
+  const isProduction = process.env.NODE_ENV === 'production';
   app.use(helmet({
-    contentSecurityPolicy: false, // Desativado no dev para permitir assets dinâmicos do Vite
+    contentSecurityPolicy: isProduction
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: [
+              "'self'",
+              "'unsafe-inline'", // Justificativa: Hidratação e scripts modulares dinâmicos do Vite/React
+            ],
+            styleSrc: [
+              "'self'",
+              "'unsafe-inline'", // Justificativa: Injeção de variáveis de tema e utilitários do Tailwind CSS v4
+              'https://fonts.googleapis.com',
+            ],
+            fontSrc: [
+              "'self'",
+              'data:',
+              'https://fonts.gstatic.com',
+            ],
+            imgSrc: [
+              "'self'",
+              'data:',
+              'blob:',
+              'https:',
+            ],
+            mediaSrc: [
+              "'self'",
+              'blob:',
+              'data:', // Gravações Asterisk, player de áudio fonético e WebRTC
+            ],
+            connectSrc: [
+              "'self'",
+              'ws:',
+              'wss:', // WebSockets corporativos, telemetria SSE e WebRTC Asterisk WSS (porta 8089)
+              'https://generativelanguage.googleapis.com', // Google Gemini AI API
+              'https://graph.facebook.com', // WhatsApp Meta Cloud API
+              'https://api.ipify.org',
+              'https://ifconfig.me',
+            ],
+            frameSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+            upgradeInsecureRequests: [],
+          },
+        }
+      : false, // Desativado no modo dev/preview para suporte transparente a ferramentas do Vite
     crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    dnsPrefetchControl: { allow: false },
+    frameguard: { action: 'sameorigin' },
+    hidePoweredBy: true,
+    hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+    ieNoOpen: true,
+    noSniff: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    xssFilter: true,
   }));
 
   // CORS - Restrição de origens controlada por ambiente

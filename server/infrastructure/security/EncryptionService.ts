@@ -129,4 +129,43 @@ export class EncryptionService {
     }
     return '••••••••';
   }
+
+  /**
+   * Procedimento seguro de rotação de chaves criptográficas:
+   * Descriptografa o envelope com a chave antiga e reencripta com a nova chave.
+   * Não altera o dado caso já esteja em texto plano ou a chave antiga seja inválida.
+   */
+  public static rotateKey(value: string, oldKeyRaw: string, newKeyRaw: string): string {
+    if (!value || !this.isEncrypted(value)) {
+      return value;
+    }
+    if (!oldKeyRaw || oldKeyRaw.length < 32 || !newKeyRaw || newKeyRaw.length < 32) {
+      throw new Error('FATAL ROTAÇÃO: As chaves antiga e nova devem possuir no mínimo 32 caracteres (256 bits).');
+    }
+
+    const oldKey = crypto.scryptSync(oldKeyRaw, 'enlace-pbx-enterprise-aes-salt-v1', 32);
+    const newKey = crypto.scryptSync(newKeyRaw, 'enlace-pbx-enterprise-aes-salt-v1', 32);
+
+    const parts = value.split(':');
+    if (parts.length !== 5 || parts[0] !== 'enc' || parts[1] !== 'v1') {
+      throw new Error('Formato de envelope criptográfico inválido para rotação.');
+    }
+
+    const iv = Buffer.from(parts[2], 'hex');
+    const tag = Buffer.from(parts[3], 'hex');
+    const ciphertext = Buffer.from(parts[4], 'hex');
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', oldKey, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const plaintext = decrypted.toString('utf8');
+
+    // Reencripta com a nova chave e novo IV único
+    const newIv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', newKey, newIv);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+    const newTag = cipher.getAuthTag();
+
+    return `enc:v1:${newIv.toString('hex')}:${newTag.toString('hex')}:${encrypted.toString('hex')}`;
+  }
 }

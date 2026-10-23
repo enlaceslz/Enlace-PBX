@@ -47,7 +47,8 @@ echo -e "\n${BOLD}[1/9] Atualizando repositórios e instalando dependências bas
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y curl wget git build-essential ufw nginx certbot python3-certbot-nginx \
-  jq openssl net-tools ca-certificates fail2ban wireguard-tools sngrep tcpdump
+  jq openssl net-tools ca-certificates fail2ban wireguard-tools sngrep tcpdump \
+  postgresql postgresql-contrib
 
 # Garantir criação de diretórios de mídia, gravações e snapshots do Enlace-PBX
 mkdir -p /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
@@ -132,13 +133,63 @@ else
   WHATSAPP_VERIFY_TOKEN=$(openssl rand -hex 24)
 fi
 
-# Credenciais AMI e ARI
-AMI_PASSWORD=$(openssl rand -hex 16)
-ARI_PASSWORD=$(openssl rand -hex 16)
+# Criptografia simétrica AES-256-GCM para segredos SIP e dados confidenciais
+EXISTING_ENC=""
+if [ -f .env ]; then
+  EXISTING_ENC=$(grep "^ENCRYPTION_KEY=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+fi
+if [ -n "$EXISTING_ENC" ] && [ ${#EXISTING_ENC} -ge 32 ]; then
+  ENCRYPTION_KEY="$EXISTING_ENC"
+  echo -e "${GREEN}Chave ENCRYPTION_KEY existente preservada.${NC}"
+else
+  ENCRYPTION_KEY=$(openssl rand -hex 32)
+  echo -e "${YELLOW}🔑 Nova chave ENCRYPTION_KEY (AES-256-GCM 256 bits) gerada com segurança.${NC}"
+fi
 
-# Banco de dados PostgreSQL
-read -p "Informe a URL de conexão PostgreSQL (DATABASE_URL) [postgresql://postgres:postgres@127.0.0.1:5432/enlace_pbx]: " CONF_DB
-DATABASE_URL="${CONF_DB:-postgresql://postgres:postgres@127.0.0.1:5432/enlace_pbx}"
+# Credenciais AMI e ARI (Preservar se já existirem no .env)
+EXISTING_AMI_PASS=""
+EXISTING_ARI_PASS=""
+EXISTING_AMI_USER=""
+EXISTING_ARI_USER=""
+if [ -f .env ]; then
+  EXISTING_AMI_PASS=$(grep -E "^(ASTERISK_AMI_PASSWORD|ASTERISK_AMI_PASS)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+  EXISTING_ARI_PASS=$(grep -E "^(ASTERISK_ARI_PASSWORD|ASTERISK_ARI_PASS)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+  EXISTING_AMI_USER=$(grep -E "^(ASTERISK_AMI_USER|ASTERISK_AMI_USERNAME)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+  EXISTING_ARI_USER=$(grep -E "^(ASTERISK_ARI_USER|ASTERISK_ARI_USERNAME)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+fi
+AMI_PASSWORD="${EXISTING_AMI_PASS:-$(openssl rand -hex 16)}"
+ARI_PASSWORD="${EXISTING_ARI_PASS:-$(openssl rand -hex 16)}"
+AMI_USER="${EXISTING_AMI_USER:-enlace_ami}"
+ARI_USER="${EXISTING_ARI_USER:-enlace_ari}"
+
+# Banco de dados PostgreSQL (Usuário exclusivo operacional enlace_app com privilégios mínimos)
+EXISTING_DB=""
+if [ -f .env ]; then
+  EXISTING_DB=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+fi
+
+DB_APP_PASSWORD=$(openssl rand -hex 16)
+DEFAULT_DB_URL="postgresql://enlace_app:${DB_APP_PASSWORD}@127.0.0.1:5432/enlace_pbx"
+
+if [ -n "$EXISTING_DB" ]; then
+  DATABASE_URL="$EXISTING_DB"
+  echo -e "${GREEN}DATABASE_URL existente preservada do .env.${NC}"
+else
+  echo -e "\n${BOLD}Configuração do Banco de Dados PostgreSQL:${NC}"
+  echo -e "${CYAN}Em produção, o uso do superusuário 'postgres' é bloqueado por segurança (fail-closed).${NC}"
+  echo -e "${CYAN}O Enlace-PBX utiliza o usuário restrito operacional 'enlace_app' com privilégios mínimos.${NC}"
+  read -p "Informe a URL de conexão PostgreSQL (DATABASE_URL) [${DEFAULT_DB_URL}]: " CONF_DB
+  DATABASE_URL="${CONF_DB:-$DEFAULT_DB_URL}"
+fi
+
+# Se o PostgreSQL local estiver ativo, provisionar database enlace_pbx e usuário enlace_app se não existirem
+if command -v psql >/dev/null 2>&1 && systemctl is-active --quiet postgresql 2>/dev/null; then
+  echo -e "${CYAN}Provisionando/validando banco local 'enlace_pbx' e usuário restrito 'enlace_app'...${NC}"
+  sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'enlace_pbx'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE enlace_pbx;"
+  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
+  sudo -u postgres psql -d enlace_pbx -c "GRANT CONNECT ON DATABASE enlace_pbx TO enlace_app; GRANT USAGE ON SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO enlace_app; REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true
+  echo -e "${GREEN}✅ Banco PostgreSQL e role 'enlace_app' verificados.${NC}"
+fi
 
 CURRENT_GEMINI=""
 if [ -f .env ]; then
@@ -153,7 +204,7 @@ else
   GEMINI_KEY="$CURRENT_GEMINI"
 fi
 
-# Atualizar ou criar o .env
+# Atualizar ou criar o .env com permissões restritas
 echo -e "\n${BOLD}[5/9] Escrevendo configurações de ambiente (.env)...${NC}"
 if [ ! -f .env.example ]; then
   touch .env.example
@@ -172,6 +223,9 @@ HOST=0.0.0.0
 JWT_SECRET=${JWT_SECRET}
 CORS_ALLOWED_ORIGINS=https://${DOMAIN},http://127.0.0.1:3000
 
+# Criptografia Bidirecional AES-256-GCM de Segredos SIP e Credenciais
+ENCRYPTION_KEY=${ENCRYPTION_KEY}
+
 # Bootstrap Administrativo Obrigatório (Primeiro Acesso)
 ADMIN_INITIAL_EMAIL=${ADMIN_EMAIL}
 ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD}
@@ -186,14 +240,17 @@ PBX_LAN_SUBNET=${LAN_SUBNET}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 
 # Asterisk AMI (Asterisk Manager Interface)
+ASTERISK_HOST=127.0.0.1
 ASTERISK_AMI_HOST=127.0.0.1
 ASTERISK_AMI_PORT=5038
-ASTERISK_AMI_USERNAME=enlace_ami
+ASTERISK_AMI_USER=${AMI_USER}
+ASTERISK_AMI_USERNAME=${AMI_USER}
 ASTERISK_AMI_PASSWORD=${AMI_PASSWORD}
 
 # Asterisk ARI (Asterisk REST Interface)
 ASTERISK_ARI_URL=http://127.0.0.1:8088
-ASTERISK_ARI_USERNAME=enlace_ari
+ASTERISK_ARI_USER=${ARI_USER}
+ASTERISK_ARI_USERNAME=${ARI_USER}
 ASTERISK_ARI_PASSWORD=${ARI_PASSWORD}
 
 # Inteligência Artificial (Google Gemini)
@@ -202,7 +259,8 @@ GEMINI_API_KEY=${GEMINI_KEY}
 # Segurança e Webhooks Omnichannel
 WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
 EOF
-echo -e "${GREEN}✅ Arquivo .env gravado com sucesso.${NC}"
+chmod 600 .env
+echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 
 # 7. Instalação das dependências e compilação do Enlace-PBX
 echo -e "\n${BOLD}[6/9] Instalando dependências NPM e compilando produção...${NC}"

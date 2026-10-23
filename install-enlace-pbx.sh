@@ -145,6 +145,53 @@ usermod -aG audio,dialout asterisk 2>/dev/null || true
 
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
+# Configuração e Padronização Segura de AMI (manager.conf) e ARI (ari.conf)
+mkdir -p /etc/asterisk
+if [ -f /etc/asterisk/manager.conf ] && ! grep -q "enlace_ami" /etc/asterisk/manager.conf 2>/dev/null; then
+  echo -e "${CYAN}Configurando usuário AMI 'enlace_ami' em /etc/asterisk/manager.conf...${NC}"
+  cat <<'EOF_AMI' >> /etc/asterisk/manager.conf
+
+[general]
+enabled = yes
+port = 5038
+bindaddr = 127.0.0.1
+
+[enlace_ami]
+secret = enlace_ami_secret_2026
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.255
+read = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
+write = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
+EOF_AMI
+fi
+
+if [ -f /etc/asterisk/http.conf ] && ! grep -q "bindaddr=127.0.0.1" /etc/asterisk/http.conf 2>/dev/null; then
+  cat <<'EOF_HTTP' >> /etc/asterisk/http.conf
+
+[general]
+enabled = yes
+bindaddr = 127.0.0.1
+bindport = 8088
+EOF_HTTP
+fi
+
+if [ -f /etc/asterisk/ari.conf ] && ! grep -q "enlace_ari" /etc/asterisk/ari.conf 2>/dev/null; then
+  echo -e "${CYAN}Configurando usuário ARI 'enlace_ari' em /etc/asterisk/ari.conf...${NC}"
+  cat <<'EOF_ARI' >> /etc/asterisk/ari.conf
+
+[general]
+enabled = yes
+pretty = yes
+allowed_origins = http://127.0.0.1:3000
+
+[enlace_ari]
+type = user
+read_only = no
+password = enlace_ari_secret_2026
+EOF_ARI
+fi
+
+chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
 chmod -R 750 /var/{lib,log,run,spool}/asterisk /etc/asterisk
 
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
