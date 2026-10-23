@@ -206,7 +206,7 @@ chmod -R 750 /var/{lib,log,run,spool}/asterisk /etc/asterisk
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
 systemctl daemon-reload
 systemctl enable asterisk
-systemctl restart asterisk || true
+systemctl restart asterisk
 
 sleep 3
 
@@ -216,7 +216,8 @@ if command -v asterisk >/dev/null 2>&1; then
   if [[ "${VERSION_DETECTED}" == *"Asterisk"* ]]; then
     echo -e "${GREEN}✅ SUCESSO: Asterisk Core operacional:${NC} ${VERSION_DETECTED}"
   else
-    echo -e "${YELLOW}⚠️ Aviso: Asterisk instalado com sucesso. Aguardando inicialização completa do daemon.${NC}"
+    echo "ERRO: Asterisk nao respondeu ao teste de inicializacao." >&2
+    exit 1
   fi
 else
   echo -e "${RED}❌ ERRO: Binário asterisk não encontrado em /usr/sbin/asterisk após a compilação.${NC}"
