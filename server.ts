@@ -233,7 +233,7 @@ async function startServer() {
       }
     } catch (err: any) {
       console.error('[Auth Login Error]:', err?.message || err);
-      return res.status(500).json({ error: 'Erro interno durante a autenticação: ' + (err?.message || 'Falha no servidor.') });
+      return res.status(500).json({ error: 'Erro interno durante a autenticação.' });
     }
   });
 
