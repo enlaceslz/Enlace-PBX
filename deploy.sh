@@ -279,7 +279,7 @@ read -p "Deseja compilar e instalar o Asterisk 20 LTS (PJSIP + WebRTC + Opus + A
 if [[ "$INSTALL_AST" =~ ^[Ss]$ ]]; then
   echo -e "${CYAN}🚀 Iniciando script de compilação do Asterisk 20 LTS...${NC}"
   chmod +x install-enlace-pbx.sh
-  ./install-enlace-pbx.sh
+  ASTERISK_AMI_USER="${AMI_USER}" ASTERISK_AMI_PASSWORD="${AMI_PASSWORD}" ASTERISK_ARI_USER="${ARI_USER}" ASTERISK_ARI_PASSWORD="${ARI_PASSWORD}" ./install-enlace-pbx.sh
   echo -e "${GREEN}✅ Asterisk 20 LTS instalado e serviço habilitado!${NC}"
 else
   echo -e "${YELLOW}ℹ️  Compilação do Asterisk ignorada. Caso já esteja instalado, mantenha o serviço ativo.${NC}"
