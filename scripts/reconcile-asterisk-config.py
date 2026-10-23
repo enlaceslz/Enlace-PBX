@@ -69,7 +69,7 @@ def ensure_general(path: Path, options: dict[str, str]) -> None:
         body = original[matches[idx].end():end].strip("\n")
     lines = body.splitlines() if body else []
     for key, value in options.items():
-        pattern = re.compile(r"^\\s*" + re.escape(key) + r"\\s*=", re.IGNORECASE)
+        pattern = re.compile(r"^\s*" + re.escape(key) + r"\s*=", re.IGNORECASE)
         indices = [i for i, line in enumerate(lines) if pattern.match(line)]
         if indices:
             lines[indices[0]] = f"{key} = {value}"
