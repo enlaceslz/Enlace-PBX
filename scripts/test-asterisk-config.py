@@ -41,6 +41,23 @@ class ReconcileTests(unittest.TestCase):
             module.reconcile(self.file, "enlace_ami", "secret = new")
         self.assertEqual(self.file.read_text(), original)
 
+    def test_general_options_are_updated_without_losing_other_settings(self):
+        self.file.write_text("[general]\nenabled = no\ncustom = retained\n\n[other]\nvalue = untouched\n")
+        module.ensure_general(self.file, {"enabled": "yes", "bindaddr": "127.0.0.1"})
+        first = self.file.read_text()
+        self.assertIn("enabled = yes", first)
+        self.assertIn("custom = retained", first)
+        self.assertIn("[other]\nvalue = untouched", first)
+        module.ensure_general(self.file, {"enabled": "yes", "bindaddr": "127.0.0.1"})
+        self.assertEqual(first, self.file.read_text())
+
+    def test_general_duplicates_fail_closed(self):
+        original = "[general]\na = 1\n[general]\na = 2\n"
+        self.file.write_text(original)
+        with self.assertRaises(ValueError):
+            module.ensure_general(self.file, {"enabled": "yes"})
+        self.assertEqual(original, self.file.read_text())
+
     def test_invalid_secret_is_rejected(self):
         with self.assertRaises(ValueError):
             module.require_secret("UNSET_TEST_SECRET")
