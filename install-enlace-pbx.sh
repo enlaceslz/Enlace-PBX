@@ -27,6 +27,8 @@ echo -e "${CYAN}    PJSIP + WebRTC SRTP + Opus 48kHz + AudioSocket + ARI Stasis 
 echo -e "${BLUE}${BOLD}====================================================================${NC}"
 
 # Exigir segredos explícitos e impedir instalação com credenciais previsíveis.
+: "${ASTERISK_AMI_PASSWORD:?Defina ASTERISK_AMI_PASSWORD antes de executar o instalador}"
+: "${ASTERISK_ARI_PASSWORD:?Defina ASTERISK_ARI_PASSWORD antes de executar o instalador}"
 # Validar valores antes de interpolar nos arquivos de configuracao Asterisk.
 # Quebras de linha e delimitadores de configuracao nao sao permitidos.
 for secret_value in "$ASTERISK_AMI_PASSWORD" "$ASTERISK_ARI_PASSWORD"; do
@@ -36,8 +38,6 @@ for secret_value in "$ASTERISK_AMI_PASSWORD" "$ASTERISK_ARI_PASSWORD"; do
   fi
 done
 
-: "${ASTERISK_AMI_PASSWORD:?Defina ASTERISK_AMI_PASSWORD antes de executar o instalador}"
-: "${ASTERISK_ARI_PASSWORD:?Defina ASTERISK_ARI_PASSWORD antes de executar o instalador}"
 if [[ "${#ASTERISK_AMI_PASSWORD}" -lt 24 || "${#ASTERISK_ARI_PASSWORD}" -lt 24 ]]; then
   echo "ERRO: Credenciais AMI e ARI devem ter pelo menos 24 caracteres." >&2
   exit 1
