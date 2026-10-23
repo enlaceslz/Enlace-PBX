@@ -34,5 +34,7 @@ jobs:
         run: npm ci --legacy-peer-deps
       - name: TypeScript checks
         run: npm run lint
+      - name: Application test suite
+        run: npm test
       - name: Production build
         run: npm run build
