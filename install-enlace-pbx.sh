@@ -26,6 +26,23 @@ echo -e "${CYAN}${BOLD}     🐙  Enlace-PBX — Instalador Oficial Asterisk ${A
 echo -e "${CYAN}    PJSIP + WebRTC SRTP + Opus 48kHz + AudioSocket + ARI Stasis     ${NC}"
 echo -e "${BLUE}${BOLD}====================================================================${NC}"
 
+# Exigir segredos explícitos e impedir instalação com credenciais previsíveis.
+: "${ASTERISK_AMI_PASSWORD:?Defina ASTERISK_AMI_PASSWORD antes de executar o instalador}"
+: "${ASTERISK_ARI_PASSWORD:?Defina ASTERISK_ARI_PASSWORD antes de executar o instalador}"
+# Validar valores antes de interpolar nos arquivos de configuracao Asterisk.
+# Quebras de linha e delimitadores de configuracao nao sao permitidos.
+for secret_value in "$ASTERISK_AMI_PASSWORD" "$ASTERISK_ARI_PASSWORD"; do
+  if [[ ! "$secret_value" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "ERRO: Credenciais AMI/ARI devem conter apenas letras, numeros, _ ou -." >&2
+    exit 1
+  fi
+done
+
+if [[ "${#ASTERISK_AMI_PASSWORD}" -lt 24 || "${#ASTERISK_ARI_PASSWORD}" -lt 24 ]]; then
+  echo "ERRO: Credenciais AMI e ARI devem ter pelo menos 24 caracteres." >&2
+  exit 1
+fi
+
 # 1. Validação de privilégios de ROOT
 if [ "${EUID}" -ne 0 ]; then
   echo -e "${RED}❌ ERRO: Este script deve ser executado com privilégios de superusuário (root).${NC}"
@@ -145,51 +162,13 @@ usermod -aG audio,dialout asterisk 2>/dev/null || true
 
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
-# Configuração e Padronização Segura de AMI (manager.conf) e ARI (ari.conf)
-mkdir -p /etc/asterisk
-if [ -f /etc/asterisk/manager.conf ] && ! grep -q "enlace_ami" /etc/asterisk/manager.conf 2>/dev/null; then
-  echo -e "${CYAN}Configurando usuário AMI 'enlace_ami' em /etc/asterisk/manager.conf...${NC}"
-  cat <<'EOF_AMI' >> /etc/asterisk/manager.conf
-
-[general]
-enabled = yes
-port = 5038
-bindaddr = 127.0.0.1
-
-[enlace_ami]
-secret = enlace_ami_secret_2026
-deny = 0.0.0.0/0.0.0.0
-permit = 127.0.0.1/255.255.255.255
-read = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
-write = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
-EOF_AMI
+# Provisionamento idempotente: backup e substituicao atomica apenas das secoes gerenciadas.
+INSTALL_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then
+  echo "ERRO: reconciliador Asterisk ausente. Execute a instalacao a partir do repositorio completo." >&2
+  exit 1
 fi
-
-if [ -f /etc/asterisk/http.conf ] && ! grep -q "bindaddr=127.0.0.1" /etc/asterisk/http.conf 2>/dev/null; then
-  cat <<'EOF_HTTP' >> /etc/asterisk/http.conf
-
-[general]
-enabled = yes
-bindaddr = 127.0.0.1
-bindport = 8088
-EOF_HTTP
-fi
-
-if [ -f /etc/asterisk/ari.conf ] && ! grep -q "enlace_ari" /etc/asterisk/ari.conf 2>/dev/null; then
-  echo -e "${CYAN}Configurando usuário ARI 'enlace_ari' em /etc/asterisk/ari.conf...${NC}"
-  cat <<'EOF_ARI' >> /etc/asterisk/ari.conf
-
-[general]
-enabled = yes
-pretty = yes
-allowed_origins = http://127.0.0.1:3000
-
-[enlace_ari]
-type = user
-read_only = no
-password = enlace_ari_secret_2026
-EOF_ARI
-fi
+python3 "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"
 
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
 chmod -R 750 /var/{lib,log,run,spool}/asterisk /etc/asterisk
@@ -198,7 +177,7 @@ chmod -R 750 /var/{lib,log,run,spool}/asterisk /etc/asterisk
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
 systemctl daemon-reload
 systemctl enable asterisk
-systemctl restart asterisk || true
+systemctl restart asterisk
 
 sleep 3
 
@@ -208,7 +187,8 @@ if command -v asterisk >/dev/null 2>&1; then
   if [[ "${VERSION_DETECTED}" == *"Asterisk"* ]]; then
     echo -e "${GREEN}✅ SUCESSO: Asterisk Core operacional:${NC} ${VERSION_DETECTED}"
   else
-    echo -e "${YELLOW}⚠️ Aviso: Asterisk instalado com sucesso. Aguardando inicialização completa do daemon.${NC}"
+    echo "ERRO: Asterisk nao respondeu ao teste de inicializacao." >&2
+    exit 1
   fi
 else
   echo -e "${RED}❌ ERRO: Binário asterisk não encontrado em /usr/sbin/asterisk após a compilação.${NC}"

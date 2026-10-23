@@ -160,6 +160,10 @@ export class AsteriskAdapter {
           }
           actionCmd += '\r\n';
           socket.write(actionCmd);
+        } else if (authenticated && buffer.includes('Response: Error')) {
+          clearTimeout(timeout);
+          socket.destroy();
+          reject(new Error('Asterisk AMI rejeitou a ação solicitada.'));
         } else if (authenticated && (buffer.includes('\r\n\r\n') || buffer.includes('Response:'))) {
           clearTimeout(timeout);
           socket.write('Action: Logoff\r\n\r\n');
@@ -361,7 +365,10 @@ export class AsteriskAdapter {
     const hasAsterisk = await this.checkBinaryExists();
 
     if (hasAsterisk) {
-      await this.executeCli(`channel originate PJSIP/${caller} extension ${callee}@${context}`);
+      const result = await this.executeCli(`channel originate PJSIP/${caller} extension ${callee}@${context}`);
+      if (!result.success) {
+        throw new Error('Asterisk CLI rejeitou a solicitação de originação.');
+      }
     } else {
       try {
         await this.executeAmiAction('Originate', {
@@ -373,6 +380,7 @@ export class AsteriskAdapter {
         });
       } catch (err: any) {
         console.warn('[AsteriskAdapter] Falha ao originar chamada via AMI:', err.message);
+        throw err;
       }
     }
 

@@ -186,7 +186,14 @@ fi
 if command -v psql >/dev/null 2>&1 && systemctl is-active --quiet postgresql 2>/dev/null; then
   echo -e "${CYAN}Provisionando/validando banco local 'enlace_pbx' e usuário restrito 'enlace_app'...${NC}"
   sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'enlace_pbx'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE enlace_pbx;"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
+  if sudo -u postgres psql -Atqc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -qx 1; then
+    if [ -z "$EXISTING_DB" ]; then
+      echo "ERRO: role enlace_app ja existe, mas DATABASE_URL nao foi preservada. Informe credenciais existentes; nao sera gerada senha divergente." >&2
+      exit 1
+    fi
+  else
+    sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
+  fi
   sudo -u postgres psql -d enlace_pbx -c "GRANT CONNECT ON DATABASE enlace_pbx TO enlace_app; GRANT USAGE ON SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO enlace_app; REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true
   echo -e "${GREEN}✅ Banco PostgreSQL e role 'enlace_app' verificados.${NC}"
 fi
@@ -210,6 +217,13 @@ if [ ! -f .env.example ]; then
   touch .env.example
 fi
 
+if [ -f .env ]; then
+  ENV_BACKUP=".env.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  cp -p .env "$ENV_BACKUP"
+  chmod 600 "$ENV_BACKUP"
+  echo "Backup da configuracao anterior: $ENV_BACKUP"
+fi
+umask 077
 cat <<EOF > .env
 # ====================================================================
 # Enlace-PBX Enterprise — Configuração de Produção
@@ -279,7 +293,7 @@ read -p "Deseja compilar e instalar o Asterisk 20 LTS (PJSIP + WebRTC + Opus + A
 if [[ "$INSTALL_AST" =~ ^[Ss]$ ]]; then
   echo -e "${CYAN}🚀 Iniciando script de compilação do Asterisk 20 LTS...${NC}"
   chmod +x install-enlace-pbx.sh
-  ./install-enlace-pbx.sh
+  ASTERISK_AMI_USER="${AMI_USER}" ASTERISK_AMI_PASSWORD="${AMI_PASSWORD}" ASTERISK_ARI_USER="${ARI_USER}" ASTERISK_ARI_PASSWORD="${ARI_PASSWORD}" ./install-enlace-pbx.sh
   echo -e "${GREEN}✅ Asterisk 20 LTS instalado e serviço habilitado!${NC}"
 else
   echo -e "${YELLOW}ℹ️  Compilação do Asterisk ignorada. Caso já esteja instalado, mantenha o serviço ativo.${NC}"
