@@ -2,11 +2,29 @@
 """Static regression checks for read-only homologation smoke tests."""
 from pathlib import Path
 import unittest
+import os
+import subprocess
+import tempfile
 
 SCRIPT = (Path(__file__).resolve().parent / "homologation-smoke.sh").read_text()
 
 
 class HomologationSmokeTests(unittest.TestCase):
+    def test_inactive_asterisk_reports_failure_at_runtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            fake_systemctl = Path(temp) / "systemctl"
+            fake_systemctl.write_text("#!/bin/sh\\nexit 3\\n")
+            fake_systemctl.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = temp + os.pathsep + env.get("PATH", "")
+            result = subprocess.run(
+                ["bash", str(Path(__file__).resolve().parent / "homologation-smoke.sh")],
+                cwd=temp, env=env, capture_output=True, text=True, timeout=20,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("FAIL Asterisk runtime identity checks skipped", result.stdout)
+            self.assertIn("FAIL asterisk inactive", result.stdout)
+
     def test_identity_check_fails_closed(self):
         self.assertIn('else\n  fail "Asterisk runtime identity checks skipped: systemd unavailable or service inactive"\nfi', SCRIPT)
         self.assertIn('systemctl is-active --quiet asterisk.service; then', SCRIPT)
