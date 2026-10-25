@@ -161,12 +161,16 @@ menuselect/menuselect \
 # 6. Compilação e Instalação
 NCPU=$(nproc 2>/dev/null || echo 2)
 echo -e "\n${BOLD}[6/7] Compilando Asterisk utilizando ${NCPU} threads...${NC}"
+# Capture the original state before make install can create /etc/asterisk.
+# An existing directory (including symlinks) is never treated as a clean install.
+ASTERISK_CONFIG_PREEXISTED=0
+if [ -e /etc/asterisk ] || [ -L /etc/asterisk ]; then
+  ASTERISK_CONFIG_PREEXISTED=1
+fi
 make -j"${NCPU}"
 make install
-# Avoid overwriting ANY pre-existing Asterisk configuration on upgrades.
-# Even an empty or symlinked config directory is not a clean installation.
-if [ -e /etc/asterisk ] || [ -L /etc/asterisk ]; then
-  echo "Existing /etc/asterisk detected; skipping 'make samples' to preserve PBX configuration."
+if [ "${ASTERISK_CONFIG_PREEXISTED}" -eq 1 ]; then
+  echo "Existing /etc/asterisk detected before installation; skipping 'make samples'."
 else
   make samples
 fi
