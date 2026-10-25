@@ -9,7 +9,7 @@
 - [ ] Confirmar que segredos AMI/ARI e banco não são expostos em logs ou histórico do shell.
 - [ ] Validar cópia recuperável do banco PostgreSQL e configurações Asterisk.
 
-## 2. Instalação
+- [ ] Conferir o SHA-256 do pacote Asterisk 20.17.0 com a fonte de distribuição; valor atualmente fixado: `a1c0bfa39b5ff6a5b869a2acc9a749bbd549812f8ab4b37c3e275c18623fe3b9` (referência cruzada: FreeBSD ports `net/asterisk20/distinfo`).\n- [ ] Se usar outra versão Asterisk 20, informar `ASTERISK_EXPECTED_SHA256` obtido de fonte confiável antes de executar o instalador.\n\n## 2. Instalação
 - [ ] Executar `deploy.sh` **somente na VM de testes**, acompanhando a saída e registrando erros.
 - [ ] Confirmar serviços PostgreSQL, aplicação e Asterisk ativos.
 - [ ] Executar, a partir da raiz do repositório, `bash scripts/homologation-smoke.sh`. Este script é somente leitura e retorna código 1 em verificações críticas.
