@@ -151,6 +151,13 @@ menuselect/menuselect \
   --enable format_mp3 \
   menuselect.makeopts
 
+# Resolve installer dependencies before replacing Asterisk binaries or configs.
+INSTALL_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then
+  echo "ERRO: reconciliador Asterisk ausente. Execute a instalacao a partir do repositorio completo." >&2
+  exit 1
+fi
+
 # 6. Compilação e Instalação
 NCPU=$(nproc 2>/dev/null || echo 2)
 echo -e "\n${BOLD}[6/7] Compilando Asterisk utilizando ${NCPU} threads...${NC}"
@@ -174,11 +181,6 @@ usermod -aG audio,dialout asterisk 2>/dev/null || true
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
 # Provisionamento idempotente: backup e substituicao atomica apenas das secoes gerenciadas.
-INSTALL_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then
-  echo "ERRO: reconciliador Asterisk ausente. Execute a instalacao a partir do repositorio completo." >&2
-  exit 1
-fi
 python3 "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"
 
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
