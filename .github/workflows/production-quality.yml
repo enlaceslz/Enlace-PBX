@@ -44,6 +44,8 @@ jobs:
           bash -n install-enlace-pbx.sh
       - name: Test Asterisk configuration reconciler
         run: python3 scripts/test-asterisk-config.py
+      - name: Test environment preservation
+        run: python3 scripts/test-merge-env.py
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
       - name: TypeScript checks
