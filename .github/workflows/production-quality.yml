@@ -43,6 +43,8 @@ jobs:
           bash -n deploy.sh
           bash -n install-enlace-pbx.sh
           bash -n scripts/homologation-smoke.sh
+      - name: Test homologation smoke failure handling
+        run: python3 scripts/test-homologation-smoke.py
       - name: Test Asterisk configuration reconciler
         run: python3 scripts/test-asterisk-config.py
       - name: Test installer safety invariants
