@@ -156,7 +156,13 @@ NCPU=$(nproc 2>/dev/null || echo 2)
 echo -e "\n${BOLD}[6/7] Compilando Asterisk utilizando ${NCPU} threads...${NC}"
 make -j"${NCPU}"
 make install
-make samples
+# Asterisk 'make samples' can overwrite existing configuration files.
+# Install samples only on a genuinely unconfigured instance.
+if [ -e /etc/asterisk/asterisk.conf ] || [ -e /etc/asterisk/pjsip.conf ] || [ -e /etc/asterisk/extensions.conf ] || [ -e /etc/asterisk/manager.conf ]; then
+  echo "Existing Asterisk configuration detected; skipping 'make samples' to preserve it."
+else
+  make samples
+fi
 make config
 ldconfig
 
