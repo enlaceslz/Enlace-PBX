@@ -42,6 +42,11 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('if [ ! -e "${ASTERISK_DROPIN_FILE}" ] && [ ! -L "${ASTERISK_DROPIN_FILE}" ]; then', SCRIPT)
         self.assertLess(SCRIPT.index('ASTERISK_DROPIN_DIR='), SCRIPT.index('systemctl daemon-reload'))
 
+    def test_systemd_service_is_active_after_restart(self):
+        self.assertIn('if ! systemctl is-active --quiet asterisk.service; then', SCRIPT)
+        self.assertLess(SCRIPT.index('systemctl restart asterisk'),
+                        SCRIPT.index('if ! systemctl is-active --quiet asterisk.service; then'))
+
     def test_systemd_unit_must_exist_before_restart(self):
         self.assertIn('if ! systemctl cat asterisk.service >/dev/null 2>&1; then', SCRIPT)
         self.assertLess(SCRIPT.index('if ! systemctl cat asterisk.service'),
