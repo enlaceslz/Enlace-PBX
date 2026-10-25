@@ -78,9 +78,12 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn("if ! id -u asterisk", SCRIPT)
         self.assertIn("if ! getent group asterisk", SCRIPT)
 
-    def test_no_recursive_chmod_of_asterisk_data(self):
+    def test_existing_config_ownership_and_modes_are_preserved(self):
+        self.assertNotIn("chown -R asterisk:asterisk /etc/asterisk", SCRIPT)
         self.assertNotIn("chmod -R 750", SCRIPT)
-        self.assertIn('find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +', SCRIPT)
+        self.assertNotIn('find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +', SCRIPT)
+        self.assertIn("chown asterisk:asterisk /var/{lib,log,run,spool}/asterisk", SCRIPT)
+        self.assertIn("chmod 750 /var/{lib,log,run,spool}/asterisk", SCRIPT)
 
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
