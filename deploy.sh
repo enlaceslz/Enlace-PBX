@@ -303,7 +303,7 @@ echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 
 # 7. Instalação das dependências e compilação do Enlace-PBX
 echo -e "\n${BOLD}[6/9] Instalando dependências NPM e compilando produção...${NC}"
-npm install --legacy-peer-deps
+npm ci --legacy-peer-deps
 npm run build
 # Garantir sincronização de logos e assets visuais
 if [ -d public ]; then
