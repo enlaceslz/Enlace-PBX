@@ -29,7 +29,7 @@ def reconcile(path: Path, section: str, body: str) -> None:
         idx = owned[0]
         begin = matches[idx].start()
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(original)
-        updated = original[:begin] + new_section + ("\n" if end < len(original) else "") + original[end:]
+        updated = original[:begin] + new_section + ("\n" if end < len(original) else "") + original[end:].lstrip("\n")
     else:
         updated = original.rstrip() + ("\n\n" if original.strip() else "") + new_section
     if updated == original:
