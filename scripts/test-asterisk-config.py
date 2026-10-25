@@ -96,6 +96,23 @@ class ReconcileTests(unittest.TestCase):
         module.reconcile(manager, "enlace_ami", "secret = example")
         self.assertEqual(before, {p.name: p.read_bytes() for p in (pjsip, dialplan)})
 
+    def test_duplicate_owned_section_preserves_existing_file_and_no_backup(self):
+        original = "[enlace_ami]\\nsecret = first\\n[enlace_ami]\\nsecret = second\\n"
+        self.file.write_text(original)
+        with self.assertRaises(ValueError):
+            module.reconcile(self.file, "enlace_ami", "secret = replacement")
+        self.assertEqual(self.file.read_text(), original)
+        self.assertFalse(list(self.file.parent.glob("manager.conf.bak.*")))
+
+    def test_existing_config_backup_matches_original_bytes(self):
+        original = b"[general]\\nenabled = no\\n[external]\\nvalue = keep\\n"
+        self.file.write_bytes(original)
+        module.ensure_general(self.file, {"enabled": "yes"})
+        backups = list(self.file.parent.glob("manager.conf.bak.*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_bytes(), original)
+        self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+
     def test_invalid_secret_is_rejected(self):
         with self.assertRaises(ValueError):
             module.require_secret("UNSET_TEST_SECRET")
