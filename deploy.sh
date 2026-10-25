@@ -231,7 +231,7 @@ if [ -f .env ] && [ ! -f scripts/merge-env.py ]; then
 fi
 
 if [ -f .env ]; then
-  ENV_BACKUP=".env.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  ENV_BACKUP=$(mktemp "./.env.backup.$(date -u +%Y%m%dT%H%M%SZ).XXXXXXXX")
   cp -p .env "$ENV_BACKUP"
   chmod 600 "$ENV_BACKUP"
   echo "Backup da configuracao anterior: $ENV_BACKUP"
