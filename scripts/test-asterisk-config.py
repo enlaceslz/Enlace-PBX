@@ -97,7 +97,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(before, {p.name: p.read_bytes() for p in (pjsip, dialplan)})
 
     def test_duplicate_owned_section_preserves_existing_file_and_no_backup(self):
-        original = "[enlace_ami]\\nsecret = first\\n[enlace_ami]\\nsecret = second\\n"
+        original = "[enlace_ami]\nsecret = first\n[enlace_ami]\nsecret = second\n"
         self.file.write_text(original)
         with self.assertRaises(ValueError):
             module.reconcile(self.file, "enlace_ami", "secret = replacement")
