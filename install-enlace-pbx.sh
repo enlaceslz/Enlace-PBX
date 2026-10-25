@@ -67,6 +67,13 @@ if [[ ! "${EXPECTED_SHA256}" =~ ^[a-fA-F0-9]{64}$ ]]; then
 fi
 EXPECTED_SHA256="${EXPECTED_SHA256,,}"
 
+# Resolve installer dependencies before replacing Asterisk binaries or configs.
+INSTALL_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then
+  echo "ERRO: reconciliador Asterisk ausente. Execute a instalacao a partir do repositorio completo." >&2
+  exit 1
+fi
+
 # 2. Instalação de dependências do sistema
 echo -e "\n${BOLD}[1/7] Instalando pacotes e dependências de compilação...${NC}"
 export DEBIAN_FRONTEND=noninteractive
@@ -150,13 +157,6 @@ menuselect/menuselect \
   --enable format_wav \
   --enable format_mp3 \
   menuselect.makeopts
-
-# Resolve installer dependencies before replacing Asterisk binaries or configs.
-INSTALL_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then
-  echo "ERRO: reconciliador Asterisk ausente. Execute a instalacao a partir do repositorio completo." >&2
-  exit 1
-fi
 
 # 6. Compilação e Instalação
 NCPU=$(nproc 2>/dev/null || echo 2)
