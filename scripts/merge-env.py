@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Preserve unmanaged .env keys without interpreting their contents."""
 import os
+import stat
 import re
 import sys
 import tempfile
@@ -30,6 +31,10 @@ def main() -> None:
     if len(sys.argv) != 3:
         raise SystemExit("Usage: merge-env.py OLD_ENV GENERATED_ENV")
     old, new = map(Path, sys.argv[1:])
+    if old.is_symlink() or new.is_symlink():
+        raise ValueError("Refusing symlink environment files")
+    if not stat.S_ISREG(old.stat().st_mode) or not stat.S_ISREG(new.stat().st_mode):
+        raise ValueError("Environment inputs must be regular files")
     merged = merge(old.read_text(encoding="utf-8"), new.read_text(encoding="utf-8"))
     fd, temp = tempfile.mkstemp(prefix=".env.", dir=new.parent)
     try:
