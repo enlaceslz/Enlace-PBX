@@ -243,6 +243,10 @@ elif [ -L "${ASTERISK_DROPIN_FILE}" ] || [ ! -f "${ASTERISK_DROPIN_FILE}" ]; the
   exit 1
 fi
 systemctl daemon-reload
+if ! systemctl cat asterisk.service >/dev/null 2>&1; then
+  echo "ERRO: unidade asterisk.service nao encontrada apos make config." >&2
+  exit 1
+fi
 # Asterisk must not run as root. Validate the effective unit configuration
 # rather than assuming make config selected a safe service account.
 ASTERISK_UNIT_USER="$(systemctl show asterisk.service --property=User --value)"
