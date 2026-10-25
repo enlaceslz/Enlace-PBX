@@ -164,7 +164,15 @@ echo -e "\n${BOLD}[6/7] Compilando Asterisk utilizando ${NCPU} threads...${NC}"
 # Capture the original state before make install can create /etc/asterisk.
 # An existing directory (including symlinks) is never treated as a clean install.
 ASTERISK_CONFIG_PREEXISTED=0
-if [ -e /etc/asterisk ] || [ -L /etc/asterisk ]; then
+if [ -L /etc/asterisk ]; then
+  echo "ERRO: /etc/asterisk e um link simbolico; revise manualmente antes de instalar." >&2
+  exit 1
+fi
+if [ -e /etc/asterisk ]; then
+  if [ ! -d /etc/asterisk ]; then
+    echo "ERRO: /etc/asterisk existe, mas nao e um diretorio." >&2
+    exit 1
+  fi
   ASTERISK_CONFIG_PREEXISTED=1
 fi
 make -j"${NCPU}"
