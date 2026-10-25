@@ -82,6 +82,20 @@ class ReconcileTests(unittest.TestCase):
             module.reconcile(link_dir / "manager.conf", "enlace_ami", "secret = test")
         self.assertFalse((real_dir / "manager.conf").exists())
 
+    def test_sip_and_dialplan_files_are_untouched(self):
+        config_dir = Path(self.tmp.name)
+        pjsip = config_dir / "pjsip.conf"
+        dialplan = config_dir / "extensions.conf"
+        pjsip.write_text("[provider-trunk]\\ntype = endpoint\\ncontext = inbound\\n")
+        dialplan.write_text("[inbound]\\nexten => s,1,Answer()\\n")
+        before = {p.name: p.read_bytes() for p in (pjsip, dialplan)}
+        manager = config_dir / "manager.conf"
+        module.ensure_general(manager, {"enabled": "yes", "bindaddr": "127.0.0.1"})
+        module.reconcile(manager, "enlace_ami", "secret = example")
+        module.ensure_general(manager, {"enabled": "yes", "bindaddr": "127.0.0.1"})
+        module.reconcile(manager, "enlace_ami", "secret = example")
+        self.assertEqual(before, {p.name: p.read_bytes() for p in (pjsip, dialplan)})
+
     def test_invalid_secret_is_rejected(self):
         with self.assertRaises(ValueError):
             module.require_secret("UNSET_TEST_SECRET")
