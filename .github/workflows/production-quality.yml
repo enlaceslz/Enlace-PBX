@@ -42,6 +42,7 @@ jobs:
         run: |
           bash -n deploy.sh
           bash -n install-enlace-pbx.sh
+          bash -n scripts/homologation-smoke.sh
       - name: Test Asterisk configuration reconciler
         run: python3 scripts/test-asterisk-config.py
       - name: Test environment preservation
