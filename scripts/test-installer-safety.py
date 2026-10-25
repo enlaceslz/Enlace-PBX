@@ -24,6 +24,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then', SCRIPT)
         self.assertLess(SCRIPT.index('if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"'), SCRIPT.index("apt-get update"))
 
+    def test_prerequisite_installation_must_fail_closed(self):
+        self.assertNotIn('contrib/scripts/install_prereq install || true', SCRIPT)
+        self.assertIn('if [ ! -f "contrib/scripts/install_prereq" ]; then', SCRIPT)
+        self.assertIn('if ! contrib/scripts/install_prereq install; then', SCRIPT)
+        self.assertLess(SCRIPT.index('if ! contrib/scripts/install_prereq install; then'),
+                        SCRIPT.index('./configure'))
+
     def test_systemd_service_must_use_unprivileged_account(self):
         self.assertIn('systemctl show asterisk.service --property=User --value', SCRIPT)
         self.assertIn('systemctl show asterisk.service --property=Group --value', SCRIPT)
