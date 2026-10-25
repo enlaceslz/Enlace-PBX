@@ -113,6 +113,20 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(backups[0].read_bytes(), original)
         self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
 
+    def test_atomic_replace_failure_preserves_original_and_cleans_temp(self):
+        from unittest.mock import patch
+
+        original = "[general]\nenabled = no\n[custom]\nvalue = retained\n"
+        self.file.write_text(original)
+        with patch.object(module.os, "replace", side_effect=OSError("simulated disk error")):
+            with self.assertRaises(OSError):
+                module.ensure_general(self.file, {"enabled": "yes"})
+        self.assertEqual(self.file.read_text(), original)
+        self.assertFalse(list(self.file.parent.glob(".manager.conf.*")))
+        backups = list(self.file.parent.glob("manager.conf.bak.*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), original)
+
     def test_invalid_secret_is_rejected(self):
         with self.assertRaises(ValueError):
             module.require_secret("UNSET_TEST_SECRET")
