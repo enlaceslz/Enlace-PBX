@@ -156,10 +156,10 @@ NCPU=$(nproc 2>/dev/null || echo 2)
 echo -e "\n${BOLD}[6/7] Compilando Asterisk utilizando ${NCPU} threads...${NC}"
 make -j"${NCPU}"
 make install
-# Asterisk 'make samples' can overwrite existing configuration files.
-# Install samples only on a genuinely unconfigured instance.
-if [ -e /etc/asterisk/asterisk.conf ] || [ -e /etc/asterisk/pjsip.conf ] || [ -e /etc/asterisk/extensions.conf ] || [ -e /etc/asterisk/manager.conf ]; then
-  echo "Existing Asterisk configuration detected; skipping 'make samples' to preserve it."
+# Avoid overwriting ANY pre-existing Asterisk configuration on upgrades.
+# Even an empty or symlinked config directory is not a clean installation.
+if [ -e /etc/asterisk ] || [ -L /etc/asterisk ]; then
+  echo "Existing /etc/asterisk detected; skipping 'make samples' to preserve PBX configuration."
 else
   make samples
 fi
