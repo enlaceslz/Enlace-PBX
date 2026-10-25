@@ -174,9 +174,17 @@ make config
 ldconfig
 
 # Criação de usuário e permissões estritas
-groupadd -r asterisk 2>/dev/null || true
-useradd -r -g asterisk -d /var/lib/asterisk -s /usr/sbin/nologin -c "Asterisk PBX Daemon" asterisk 2>/dev/null || true
-usermod -aG audio,dialout asterisk 2>/dev/null || true
+if ! getent group asterisk >/dev/null; then
+  groupadd -r asterisk
+fi
+if ! id -u asterisk >/dev/null 2>&1; then
+  useradd -r -g asterisk -d /var/lib/asterisk -s /usr/sbin/nologin -c "Asterisk PBX Daemon" asterisk
+fi
+for supplementary_group in audio dialout; do
+  if getent group "$supplementary_group" >/dev/null; then
+    usermod -aG "$supplementary_group" asterisk
+  fi
+done
 
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
 # Provisionamento idempotente: backup e substituicao atomica apenas das secoes gerenciadas.
