@@ -33,6 +33,10 @@ class InstallerSafetyTests(unittest.TestCase):
 
     def test_systemd_override_is_created_without_overwriting_existing_file(self):
         self.assertIn('ASTERISK_DROPIN_FILE=', SCRIPT)
+        self.assertIn('if [ -L "${ASTERISK_DROPIN_DIR}" ]; then', SCRIPT)
+        self.assertIn('if [ -e "${ASTERISK_DROPIN_DIR}" ] && [ ! -d "${ASTERISK_DROPIN_DIR}" ]; then', SCRIPT)
+        self.assertLess(SCRIPT.index('if [ -L "${ASTERISK_DROPIN_DIR}" ]; then'),
+                        SCRIPT.index('mkdir -p "${ASTERISK_DROPIN_DIR}"'))
         self.assertIn('User=asterisk', SCRIPT)
         self.assertIn('Group=asterisk', SCRIPT)
         self.assertIn('if [ ! -e "${ASTERISK_DROPIN_FILE}" ] && [ ! -L "${ASTERISK_DROPIN_FILE}" ]; then', SCRIPT)
