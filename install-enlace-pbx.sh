@@ -121,8 +121,13 @@ cd "asterisk-${ASTERISK_VER}"
 
 # 4. Resolução de pré-requisitos internos do Asterisk
 echo -e "\n${BOLD}[4/7] Executando install_prereq oficial...${NC}"
-if [ -f "contrib/scripts/install_prereq" ]; then
-  contrib/scripts/install_prereq install || true
+if [ ! -f "contrib/scripts/install_prereq" ]; then
+  echo "ERRO: script oficial de pre-requisitos do Asterisk nao encontrado." >&2
+  exit 1
+fi
+if ! contrib/scripts/install_prereq install; then
+  echo "ERRO: instalacao dos pre-requisitos do Asterisk falhou." >&2
+  exit 1
 fi
 
 # 5. Configuração e Habilitação de Módulos Críticos
