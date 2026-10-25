@@ -13,7 +13,7 @@ class HomologationSmokeTests(unittest.TestCase):
     def test_inactive_asterisk_reports_failure_at_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
             fake_systemctl = Path(temp) / "systemctl"
-            fake_systemctl.write_text("#!/bin/sh\\nexit 3\\n")
+            fake_systemctl.write_text("#!/bin/sh\nexit 3\n")
             fake_systemctl.chmod(0o755)
             env = os.environ.copy()
             env["PATH"] = temp + os.pathsep + env.get("PATH", "")
