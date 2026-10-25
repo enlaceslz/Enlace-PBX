@@ -127,6 +127,20 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(), original)
 
+    def test_staging_write_failure_preserves_original_and_removes_temp(self):
+        from unittest.mock import patch
+
+        original = "[general]\nenabled = no\n"
+        self.file.write_text(original)
+        with patch.object(module.os, "fsync", side_effect=OSError("simulated write failure")):
+            with self.assertRaises(OSError):
+                module.ensure_general(self.file, {"enabled": "yes"})
+        self.assertEqual(self.file.read_text(), original)
+        self.assertFalse(list(self.file.parent.glob(".manager.conf.*")))
+        backups = list(self.file.parent.glob("manager.conf.bak.*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), original)
+
     def test_invalid_secret_is_rejected(self):
         with self.assertRaises(ValueError):
             module.require_secret("UNSET_TEST_SECRET")
