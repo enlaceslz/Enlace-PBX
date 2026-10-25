@@ -159,10 +159,10 @@ class ReconcileTests(unittest.TestCase):
         self.file.write_text(original)
         real_chmod = module.os.chmod
 
-        def fail_staging_chmod(path, mode):
+        def fail_staging_chmod(path, mode, **kwargs):
             if str(path).startswith(str(self.file.parent / ".manager.conf.")):
                 raise OSError("simulated permission error")
-            return real_chmod(path, mode)
+            return real_chmod(path, mode, **kwargs)
 
         with patch.object(module.os, "chmod", side_effect=fail_staging_chmod):
             with self.assertRaises(OSError):
