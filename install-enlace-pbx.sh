@@ -70,6 +70,14 @@ declare -A KNOWN_ASTERISK_SHA256=(
   ["20.17.0"]="a38b5847e93050cb25391a9b2c3c4314c1d7634f19bca4020a67e584f29ee873"
 )
 
+# Fail before network access when the selected release has no trusted checksum.
+EXPECTED_SHA256="${ASTERISK_EXPECTED_SHA256:-${KNOWN_ASTERISK_SHA256[${ASTERISK_VER}]:-}}"
+if [[ ! "${EXPECTED_SHA256}" =~ ^[a-fA-F0-9]{64}$ ]]; then
+  echo "ERRO: checksum SHA-256 obrigatório para Asterisk ${ASTERISK_VER}. Configure ASTERISK_EXPECTED_SHA256." >&2
+  exit 1
+fi
+EXPECTED_SHA256="${EXPECTED_SHA256,,}"
+
 # 3. Download seguro e extração
 cd "${DOWNLOAD_DIR}"
 echo -e "\n${BOLD}[2/7] Obtendo pacote oficial do Asterisk ${ASTERISK_VER}...${NC}"
@@ -91,12 +99,6 @@ if [ ! -s "${ARCHIVE_FILE}" ]; then
 fi
 
 FILE_SHA256=$(sha256sum "${ARCHIVE_FILE}" | awk '{print $1}')
-EXPECTED_SHA256="${ASTERISK_EXPECTED_SHA256:-${KNOWN_ASTERISK_SHA256[${ASTERISK_VER}]:-}}"
-
-if [[ ! "${EXPECTED_SHA256}" =~ ^[a-fA-F0-9]{64}$ ]]; then
-  echo "ERRO: SHA-256 obrigatório para Asterisk ${ASTERISK_VER}. Defina ASTERISK_EXPECTED_SHA256 com 64 dígitos hexadecimais verificados." >&2
-  exit 1
-fi
 if [ "${FILE_SHA256}" != "${EXPECTED_SHA256,,}" ]; then
   echo -e "${RED}❌ ERRO CRÍTICO: SHA-256 do pacote Asterisk não confere com o valor esperado.${NC}" >&2
   rm -f "${ARCHIVE_FILE}"
