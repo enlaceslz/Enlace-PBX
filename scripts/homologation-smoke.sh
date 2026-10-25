@@ -23,7 +23,7 @@ else
   warn "OS release not readable"
 fi
 
-for binary in python3 node npm psql asterisk systemctl; do check_command "$binary"; done
+for binary in python3 node npm psql asterisk systemctl curl; do check_command "$binary"; done
 
 if command -v systemctl >/dev/null 2>&1; then
   for service in postgresql asterisk; do
