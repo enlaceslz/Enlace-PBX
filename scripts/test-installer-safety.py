@@ -46,7 +46,9 @@ class InstallerSafetyTests(unittest.TestCase):
 
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -e /etc/asterisk ] || [ -L /etc/asterisk ]; then', SCRIPT)
-        self.assertRegex(SCRIPT, r'else\s+make samples\s+fi')
+        self.assertIn('ASTERISK_CONFIG_PREEXISTED=1', SCRIPT)
+        self.assertLess(SCRIPT.index('ASTERISK_CONFIG_PREEXISTED=1'), SCRIPT.index('make install'))
+        self.assertRegex(SCRIPT, r'if \[ "\\$\{ASTERISK_CONFIG_PREEXISTED\}" -eq 1 \]; then.*?else\s+make samples\s+fi')
 
 
 if __name__ == "__main__":
