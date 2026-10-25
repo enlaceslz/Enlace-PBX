@@ -31,6 +31,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertLess(SCRIPT.index('if ! contrib/scripts/install_prereq install; then'),
                         SCRIPT.index('./configure'))
 
+    def test_systemd_override_is_created_without_overwriting_existing_file(self):
+        self.assertIn('ASTERISK_DROPIN_FILE=', SCRIPT)
+        self.assertIn('User=asterisk', SCRIPT)
+        self.assertIn('Group=asterisk', SCRIPT)
+        self.assertIn('if [ ! -e "${ASTERISK_DROPIN_FILE}" ] && [ ! -L "${ASTERISK_DROPIN_FILE}" ]; then', SCRIPT)
+        self.assertLess(SCRIPT.index('ASTERISK_DROPIN_DIR='), SCRIPT.index('systemctl daemon-reload'))
+
     def test_systemd_service_must_use_unprivileged_account(self):
         self.assertIn('systemctl show asterisk.service --property=User --value', SCRIPT)
         self.assertIn('systemctl show asterisk.service --property=Group --value', SCRIPT)
