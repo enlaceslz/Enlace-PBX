@@ -152,6 +152,27 @@ class ReconcileTests(unittest.TestCase):
         module.reconcile(self.file, "enlace_ami", "secret = example")
         self.assertEqual(self.file.stat().st_mode & 0o777, 0o640)
 
+    def test_staging_chmod_failure_preserves_original(self):
+        from unittest.mock import patch
+
+        original = "[general]\nenabled = no\n"
+        self.file.write_text(original)
+        real_chmod = module.os.chmod
+
+        def fail_staging_chmod(path, mode):
+            if str(path).startswith(str(self.file.parent / ".manager.conf.")):
+                raise OSError("simulated permission error")
+            return real_chmod(path, mode)
+
+        with patch.object(module.os, "chmod", side_effect=fail_staging_chmod):
+            with self.assertRaises(OSError):
+                module.ensure_general(self.file, {"enabled": "yes"})
+        self.assertEqual(self.file.read_text(), original)
+        self.assertFalse(list(self.file.parent.glob(".manager.conf.*")))
+        backups = list(self.file.parent.glob("manager.conf.bak.*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), original)
+
     def test_invalid_secret_is_rejected(self):
         with self.assertRaises(ValueError):
             module.require_secret("UNSET_TEST_SECRET")
