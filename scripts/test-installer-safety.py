@@ -45,7 +45,9 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +', SCRIPT)
 
     def test_samples_are_not_installed_on_existing_config(self):
-        self.assertIn('if [ -e /etc/asterisk ] || [ -L /etc/asterisk ]; then', SCRIPT)
+        self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
+        self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
+        self.assertIn('if [ -e /etc/asterisk ]; then', SCRIPT)
         self.assertIn('ASTERISK_CONFIG_PREEXISTED=1', SCRIPT)
         self.assertLess(SCRIPT.index('ASTERISK_CONFIG_PREEXISTED=1'), SCRIPT.index('make install'))
         self.assertIn('if [ "${ASTERISK_CONFIG_PREEXISTED}" -eq 1 ]; then', SCRIPT)
