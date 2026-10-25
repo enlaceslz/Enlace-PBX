@@ -228,7 +228,7 @@ ASTERISK_DROPIN_DIR="/etc/systemd/system/asterisk.service.d"
 ASTERISK_DROPIN_FILE="${ASTERISK_DROPIN_DIR}/10-enlace-pbx-user.conf"
 mkdir -p "${ASTERISK_DROPIN_DIR}"
 if [ ! -e "${ASTERISK_DROPIN_FILE}" ] && [ ! -L "${ASTERISK_DROPIN_FILE}" ]; then
-  printf '[Service]\\nUser=asterisk\\nGroup=asterisk\\n' > "${ASTERISK_DROPIN_FILE}"
+  printf '[Service]\nUser=asterisk\nGroup=asterisk\n' > "${ASTERISK_DROPIN_FILE}"
   chmod 644 "${ASTERISK_DROPIN_FILE}"
 elif [ -L "${ASTERISK_DROPIN_FILE}" ] || [ ! -f "${ASTERISK_DROPIN_FILE}" ]; then
   echo "ERRO: override systemd do Enlace-PBX nao e um arquivo regular." >&2
