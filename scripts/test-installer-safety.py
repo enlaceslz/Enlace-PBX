@@ -24,6 +24,10 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then', SCRIPT)
         self.assertLess(SCRIPT.index('if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"'), SCRIPT.index("apt-get update"))
 
+    def test_existing_account_must_use_asterisk_primary_group(self):
+        self.assertIn('if [ "$(id -gn asterisk)" != "asterisk" ]; then', SCRIPT)
+        self.assertIn('usuario asterisk existente nao possui grupo primario asterisk', SCRIPT)
+
     def test_asterisk_account_creation_is_not_silently_ignored(self):
         self.assertNotIn("groupadd -r asterisk 2>/dev/null || true", SCRIPT)
         self.assertNotIn("useradd -r -g asterisk -d /var/lib/asterisk -s /usr/sbin/nologin -c \"Asterisk PBX Daemon\" asterisk 2>/dev/null || true", SCRIPT)
