@@ -50,6 +50,8 @@ if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet asterisk.
   else
     fail "Asterisk runtime process identity unavailable"
   fi
+else
+  fail "Asterisk runtime identity checks skipped: systemd unavailable or service inactive"
 fi
 
 if command -v asterisk >/dev/null 2>&1; then
