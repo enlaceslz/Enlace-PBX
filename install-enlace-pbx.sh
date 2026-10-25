@@ -213,11 +213,12 @@ mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/rec
 # Provisionamento idempotente: backup e substituicao atomica apenas das secoes gerenciadas.
 python3 "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"
 
-chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
-chmod 750 /etc/asterisk /var/{lib,log,run,spool}/asterisk
-# Keep configuration files private without destroying executable bits or
-# changing permissions of recording directories recursively.
-find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +
+# Preserve existing operator-owned configuration, SIP trunks, dialplans and
+# recording permissions. Only provision the service-owned runtime directories.
+chown asterisk:asterisk /var/{lib,log,run,spool}/asterisk
+chmod 750 /var/{lib,log,run,spool}/asterisk
+# The reconciler preserves existing config modes and sets 0640 on new files.
+# Never recursively change ownership or permissions under /etc/asterisk.
 
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
