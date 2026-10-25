@@ -257,6 +257,11 @@ if [ "$ASTERISK_UNIT_USER" != "asterisk" ] || [ "$ASTERISK_UNIT_GROUP" != "aster
 fi
 systemctl enable asterisk
 systemctl restart asterisk
+if ! systemctl is-active --quiet asterisk.service; then
+  echo "ERRO: asterisk.service nao esta ativo apos reinicializacao." >&2
+  systemctl --no-pager --full status asterisk.service >&2 || true
+  exit 1
+fi
 
 sleep 3
 
