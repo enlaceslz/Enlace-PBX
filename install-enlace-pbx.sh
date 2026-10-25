@@ -257,6 +257,17 @@ if [ "$ASTERISK_UNIT_USER" != "asterisk" ] || [ "$ASTERISK_UNIT_GROUP" != "aster
 fi
 systemctl enable asterisk
 systemctl restart asterisk
+# Check the effective runtime identity, not only the unit's configured User/Group.
+ASTERISK_MAIN_PID="$(systemctl show asterisk.service --property=MainPID --value)"
+if [[ ! "${ASTERISK_MAIN_PID}" =~ ^[1-9][0-9]*$ ]] || [ ! -r "/proc/${ASTERISK_MAIN_PID}/status" ]; then
+  echo "ERRO: PID principal do Asterisk indisponivel apos reinicializacao." >&2
+  exit 1
+fi
+ASTERISK_RUNTIME_UID="$(awk '/^Uid:/ {print $2}' "/proc/${ASTERISK_MAIN_PID}/status")"
+if [ "${ASTERISK_RUNTIME_UID}" != "$(id -u asterisk)" ]; then
+  echo "ERRO: processo principal do Asterisk nao executa como usuario asterisk." >&2
+  exit 1
+fi
 if ! systemctl is-active --quiet asterisk.service; then
   echo "ERRO: asterisk.service nao esta ativo apos reinicializacao." >&2
   systemctl --no-pager --full status asterisk.service >&2 || true
