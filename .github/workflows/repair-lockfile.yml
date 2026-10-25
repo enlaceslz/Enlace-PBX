@@ -6,6 +6,7 @@ on:
       - chore/producao-hardening-20261023
     paths:
       - .github/workflows/repair-lockfile.yml
+      - package.json
   workflow_dispatch:
 
 permissions:
