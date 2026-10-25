@@ -217,6 +217,14 @@ if [ ! -f .env.example ]; then
   touch .env.example
 fi
 
+if [ -L .env ]; then
+  echo -e "${RED}❌ Arquivo .env é um link simbólico; implantação interrompida.${NC}"
+  exit 1
+fi
+if [ -e .env ] && [ ! -f .env ]; then
+  echo -e "${RED}❌ Arquivo .env não é um arquivo regular; implantação interrompida.${NC}"
+  exit 1
+fi
 if [ -f .env ] && [ ! -f scripts/merge-env.py ]; then
   echo -e "${RED}❌ Rotina scripts/merge-env.py ausente; deploy interrompido antes de alterar .env.${NC}"
   exit 1
