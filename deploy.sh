@@ -217,6 +217,11 @@ if [ ! -f .env.example ]; then
   touch .env.example
 fi
 
+if [ -f .env ] && [ ! -f scripts/merge-env.py ]; then
+  echo -e "${RED}❌ Rotina scripts/merge-env.py ausente; deploy interrompido antes de alterar .env.${NC}"
+  exit 1
+fi
+
 if [ -f .env ]; then
   ENV_BACKUP=".env.backup.$(date -u +%Y%m%dT%H%M%SZ)"
   cp -p .env "$ENV_BACKUP"
