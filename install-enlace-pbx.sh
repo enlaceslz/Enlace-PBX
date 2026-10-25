@@ -205,6 +205,14 @@ find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
 systemctl daemon-reload
+# Asterisk must not run as root. Validate the effective unit configuration
+# rather than assuming make config selected a safe service account.
+ASTERISK_UNIT_USER="$(systemctl show asterisk.service --property=User --value)"
+ASTERISK_UNIT_GROUP="$(systemctl show asterisk.service --property=Group --value)"
+if [ "$ASTERISK_UNIT_USER" != "asterisk" ] || [ "$ASTERISK_UNIT_GROUP" != "asterisk" ]; then
+  echo "ERRO: asterisk.service deve executar como User=asterisk e Group=asterisk (atual: User=${ASTERISK_UNIT_USER:-root}, Group=${ASTERISK_UNIT_GROUP:-default})." >&2
+  exit 1
+fi
 systemctl enable asterisk
 systemctl restart asterisk
 
