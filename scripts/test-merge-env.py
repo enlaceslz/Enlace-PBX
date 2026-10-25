@@ -3,6 +3,7 @@
 import importlib.util
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("merge_env", Path(__file__).with_name("merge-env.py"))
@@ -29,6 +30,20 @@ class MergeEnvTests(unittest.TestCase):
     def test_duplicate_custom_keys_are_not_reintroduced(self):
         result = module.merge("EXTRA=first\nEXTRA=second\n", "SAFE=yes\n")
         self.assertEqual(result.count("EXTRA="), 1)
+
+    def test_rejects_symlink_input_without_modifying_generated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "original.env"
+            original.write_text("CUSTOM=kept\\n")
+            symlink = root / "linked.env"
+            symlink.symlink_to(original)
+            generated = root / "generated.env"
+            generated.write_text("SAFE=yes\\n")
+            with self.assertRaises(ValueError):
+                with mock.patch.object(module.sys, "argv", ["merge-env.py", str(symlink), str(generated)]):
+                    module.main()
+            self.assertEqual(generated.read_text(), "SAFE=yes\\n")
 
     def test_merge_is_idempotent(self):
         initial = "SAFE=yes\n"
