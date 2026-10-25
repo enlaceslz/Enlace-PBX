@@ -49,7 +49,7 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
         self.assertIn('if [ -e /etc/asterisk ]; then', SCRIPT)
         self.assertIn('ASTERISK_CONFIG_PREEXISTED=1', SCRIPT)
-        self.assertLess(SCRIPT.index('ASTERISK_CONFIG_PREEXISTED=1'), SCRIPT.index('make install'))
+        self.assertLess(SCRIPT.index('ASTERISK_CONFIG_PREEXISTED=1'), SCRIPT.index('\nmake install\n'))
         self.assertIn('if [ "${ASTERISK_CONFIG_PREEXISTED}" -eq 1 ]; then', SCRIPT)
         self.assertRegex(SCRIPT, r'else\s+make samples\s+fi')
 
