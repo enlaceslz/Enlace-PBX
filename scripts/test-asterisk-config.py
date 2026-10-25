@@ -60,18 +60,27 @@ class ReconcileTests(unittest.TestCase):
 
     def test_symlinked_config_is_rejected_without_changing_target(self):
         target = Path(self.tmp.name) / "original.conf"
-        target.write_text("[general]\\nenabled = no\\n")
+        target.write_text("[general]\nenabled = no\n")
         self.file.symlink_to(target)
         with self.assertRaises(ValueError):
             module.reconcile(self.file, "general", "enabled = yes")
         with self.assertRaises(ValueError):
             module.ensure_general(self.file, {"enabled": "yes"})
-        self.assertEqual(target.read_text(), "[general]\\nenabled = no\\n")
+        self.assertEqual(target.read_text(), "[general]\nenabled = no\n")
 
     def test_nonregular_config_is_rejected(self):
         self.file.mkdir()
         with self.assertRaises(ValueError):
             module.reconcile(self.file, "general", "enabled = yes")
+
+    def test_symlinked_parent_directory_is_rejected(self):
+        real_dir = Path(self.tmp.name) / "real"
+        real_dir.mkdir()
+        link_dir = Path(self.tmp.name) / "linked"
+        link_dir.symlink_to(real_dir, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            module.reconcile(link_dir / "manager.conf", "enlace_ami", "secret = test")
+        self.assertFalse((real_dir / "manager.conf").exists())
 
     def test_invalid_secret_is_rejected(self):
         with self.assertRaises(ValueError):
