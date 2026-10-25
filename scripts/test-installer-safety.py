@@ -24,6 +24,12 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then', SCRIPT)
         self.assertLess(SCRIPT.index('if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"'), SCRIPT.index("apt-get update"))
 
+    def test_systemd_service_must_use_unprivileged_account(self):
+        self.assertIn('systemctl show asterisk.service --property=User --value', SCRIPT)
+        self.assertIn('systemctl show asterisk.service --property=Group --value', SCRIPT)
+        self.assertLess(SCRIPT.index('if [ "$ASTERISK_UNIT_USER" != "asterisk" ]'),
+                        SCRIPT.index('systemctl restart asterisk'))
+
     def test_existing_account_must_use_asterisk_primary_group(self):
         self.assertIn('if [ "$(id -gn asterisk)" != "asterisk" ]; then', SCRIPT)
         self.assertIn('usuario asterisk existente nao possui grupo primario asterisk', SCRIPT)
