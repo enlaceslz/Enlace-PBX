@@ -56,7 +56,7 @@ fi
 
 # Tabela oficial de Checksums SHA-256 para versões homologadas do Asterisk 20 LTS
 declare -A KNOWN_ASTERISK_SHA256=(
-  ["20.17.0"]="a38b5847e93050cb25391a9b2c3c4314c1d7634f19bca4020a67e584f29ee873"
+  ["20.17.0"]="a1c0bfa39b5ff6a5b869a2acc9a749bbd549812f8ab4b37c3e275c18623fe3b9"
 )
 
 # Fail before network access when the selected release has no trusted checksum.
