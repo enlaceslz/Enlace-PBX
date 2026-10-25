@@ -229,7 +229,9 @@ if [ -f .env ]; then
   echo "Backup da configuracao anterior: $ENV_BACKUP"
 fi
 umask 077
-cat <<EOF > .env
+ENV_STAGING=$(mktemp ./.env.staging.XXXXXXXX)
+chmod 600 "$ENV_STAGING"
+cat <<EOF > "$ENV_STAGING"
 # ====================================================================
 # Enlace-PBX Enterprise — Configuração de Produção
 # Gerado automaticamente pelo deploy.sh em $(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -278,12 +280,14 @@ GEMINI_API_KEY=${GEMINI_KEY}
 # Segurança e Webhooks Omnichannel
 WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
 EOF
-chmod 600 .env
+chmod 600 "$ENV_STAGING"
 # Preserve custom integrations and secrets not managed by the installer.
 # Write to a temporary file and replace atomically, keeping the backup for rollback.
 if [ -n "${ENV_BACKUP:-}" ] && [ -f "$ENV_BACKUP" ]; then
-  python3 scripts/merge-env.py "$ENV_BACKUP" .env
+  python3 scripts/merge-env.py "$ENV_BACKUP" "$ENV_STAGING"
 fi
+mv -f "$ENV_STAGING" .env
+chmod 600 .env
 echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 
 # 7. Instalação das dependências e compilação do Enlace-PBX
