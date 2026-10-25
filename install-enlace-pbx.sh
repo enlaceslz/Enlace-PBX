@@ -9,6 +9,10 @@ set -euo pipefail
 
 # Configuração de Versão
 ASTERISK_VER="${ASTERISK_VERSION:-20.17.0}"
+if [[ ! "$ASTERISK_VER" =~ ^20\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERRO: ASTERISK_VERSION deve ser uma versão numérica da série 20 (ex.: 20.17.0)." >&2
+  exit 1
+fi
 DOWNLOAD_URL="https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VER}.tar.gz"
 DOWNLOAD_DIR="/usr/src"
 
@@ -89,17 +93,16 @@ fi
 FILE_SHA256=$(sha256sum "${ARCHIVE_FILE}" | awk '{print $1}')
 EXPECTED_SHA256="${ASTERISK_EXPECTED_SHA256:-${KNOWN_ASTERISK_SHA256[${ASTERISK_VER}]:-}}"
 
-if [ -n "${EXPECTED_SHA256}" ]; then
-  if [ "${FILE_SHA256}" != "${EXPECTED_SHA256}" ]; then
-    echo -e "${RED}❌ ERRO CRÍTICO DE INTEGRIDADE: O checksum SHA-256 calculado (${FILE_SHA256}) não confere com o esperado (${EXPECTED_SHA256}).${NC}"
-    echo -e "${RED}Abortando compilação imediatamente por segurança contra adulteração.${NC}"
-    rm -f "${ARCHIVE_FILE}"
-    exit 1
-  fi
-  echo -e "${GREEN}✓ Checksum SHA-256 verificado e aprovado com precisão:${NC} ${FILE_SHA256}"
-else
-  echo -e "${YELLOW}⚠️ Aviso: Nenhum hash pré-definido para versão ${ASTERISK_VER}. Hash calculado:${NC} ${FILE_SHA256}"
+if [[ ! "${EXPECTED_SHA256}" =~ ^[a-fA-F0-9]{64}$ ]]; then
+  echo "ERRO: SHA-256 obrigatório para Asterisk ${ASTERISK_VER}. Defina ASTERISK_EXPECTED_SHA256 com 64 dígitos hexadecimais verificados." >&2
+  exit 1
 fi
+if [ "${FILE_SHA256}" != "${EXPECTED_SHA256,,}" ]; then
+  echo -e "${RED}❌ ERRO CRÍTICO: SHA-256 do pacote Asterisk não confere com o valor esperado.${NC}" >&2
+  rm -f "${ARCHIVE_FILE}"
+  exit 1
+fi
+echo -e "${GREEN}✓ Integridade SHA-256 verificada: ${FILE_SHA256}${NC}"
 
 # Extração
 echo -e "\n${BOLD}[3/7] Extraindo fontes...${NC}"
