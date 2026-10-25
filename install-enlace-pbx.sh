@@ -54,17 +54,6 @@ if [ "${EUID}" -ne 0 ]; then
   exit 1
 fi
 
-# 2. Instalação de dependências do sistema
-echo -e "\n${BOLD}[1/7] Instalando pacotes e dependências de compilação...${NC}"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -y --no-install-recommends \
-  build-essential git curl wget libnewt-dev libssl-dev \
-  libncurses5-dev subversion libsqlite3-dev libjansson-dev \
-  libxml2-dev uuid-dev libedit-dev libsrtp2-dev libopus-dev \
-  libcurl4-openssl-dev pkg-config ca-certificates libspeexdsp-dev \
-  sox libsox-fmt-all fail2ban sngrep
-
 # Tabela oficial de Checksums SHA-256 para versões homologadas do Asterisk 20 LTS
 declare -A KNOWN_ASTERISK_SHA256=(
   ["20.17.0"]="a38b5847e93050cb25391a9b2c3c4314c1d7634f19bca4020a67e584f29ee873"
@@ -77,6 +66,17 @@ if [[ ! "${EXPECTED_SHA256}" =~ ^[a-fA-F0-9]{64}$ ]]; then
   exit 1
 fi
 EXPECTED_SHA256="${EXPECTED_SHA256,,}"
+
+# 2. Instalação de dependências do sistema
+echo -e "\n${BOLD}[1/7] Instalando pacotes e dependências de compilação...${NC}"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q
+apt-get install -y --no-install-recommends \
+  build-essential git curl wget libnewt-dev libssl-dev \
+  libncurses5-dev subversion libsqlite3-dev libjansson-dev \
+  libxml2-dev uuid-dev libedit-dev libsrtp2-dev libopus-dev \
+  libcurl4-openssl-dev pkg-config ca-certificates libspeexdsp-dev \
+  sox libsox-fmt-all fail2ban sngrep
 
 # 3. Download seguro e extração
 cd "${DOWNLOAD_DIR}"
