@@ -184,7 +184,9 @@ python3 "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"
 
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
 chmod 750 /etc/asterisk /var/{lib,log,run,spool}/asterisk
-# Keep configuration files private without destroying executable bits or\n# changing permissions of recording directories recursively.\nfind /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +
+# Keep configuration files private without destroying executable bits or
+# changing permissions of recording directories recursively.
+find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +
 
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
