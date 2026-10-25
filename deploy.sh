@@ -230,6 +230,7 @@ if [ -f .env ]; then
 fi
 umask 077
 ENV_STAGING=$(mktemp ./.env.staging.XXXXXXXX)
+trap 'rm -f -- "$ENV_STAGING"' EXIT
 chmod 600 "$ENV_STAGING"
 cat <<EOF > "$ENV_STAGING"
 # ====================================================================
@@ -287,6 +288,7 @@ if [ -n "${ENV_BACKUP:-}" ] && [ -f "$ENV_BACKUP" ]; then
   python3 scripts/merge-env.py "$ENV_BACKUP" "$ENV_STAGING"
 fi
 mv -f "$ENV_STAGING" .env
+trap - EXIT
 chmod 600 .env
 echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 
