@@ -18,7 +18,18 @@ def require_secret(name: str) -> str:
         raise ValueError(f"{name} must contain at least 24 safe characters")
     return value
 
+def reject_unsafe_config_path(path: Path) -> None:
+    """Never read, back up or replace a symlink or non-regular config file."""
+    if path.is_symlink():
+        raise ValueError(f"{path}: symbolic links are not supported")
+    if path.exists() and not path.is_file():
+        raise ValueError(f"{path}: expected a regular configuration file")
+    if path.parent.is_symlink():
+        raise ValueError(f"{path.parent}: symbolic link configuration directory")
+
+
 def reconcile(path: Path, section: str, body: str) -> None:
+    reject_unsafe_config_path(path)
     original = path.read_text(encoding="utf-8") if path.exists() else ""
     matches = list(HEADER.finditer(original))
     owned = [i for i, m in enumerate(matches) if m.group(1).strip().lower() == section.lower()]
@@ -57,6 +68,7 @@ def reconcile(path: Path, section: str, body: str) -> None:
 
 def ensure_general(path: Path, options: dict[str, str]) -> None:
     """Set required general options while preserving unrelated keys and comments."""
+    reject_unsafe_config_path(path)
     original = path.read_text(encoding="utf-8") if path.exists() else ""
     matches = list(HEADER.finditer(original))
     sections = [i for i, m in enumerate(matches) if m.group(1).strip().lower() == "general"]
