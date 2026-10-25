@@ -226,6 +226,14 @@ echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
 # remain under operator control.
 ASTERISK_DROPIN_DIR="/etc/systemd/system/asterisk.service.d"
 ASTERISK_DROPIN_FILE="${ASTERISK_DROPIN_DIR}/10-enlace-pbx-user.conf"
+if [ -L "${ASTERISK_DROPIN_DIR}" ]; then
+  echo "ERRO: diretorio de override systemd e um link simbolico." >&2
+  exit 1
+fi
+if [ -e "${ASTERISK_DROPIN_DIR}" ] && [ ! -d "${ASTERISK_DROPIN_DIR}" ]; then
+  echo "ERRO: caminho de override systemd nao e um diretorio." >&2
+  exit 1
+fi
 mkdir -p "${ASTERISK_DROPIN_DIR}"
 if [ ! -e "${ASTERISK_DROPIN_FILE}" ] && [ ! -L "${ASTERISK_DROPIN_FILE}" ]; then
   printf '[Service]\nUser=asterisk\nGroup=asterisk\n' > "${ASTERISK_DROPIN_FILE}"
