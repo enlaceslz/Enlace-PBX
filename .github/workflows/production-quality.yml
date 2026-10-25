@@ -24,6 +24,20 @@ jobs:
         with:
           node-version: '20'
           cache: npm
+      - name: Verify dependency manifest and lockfile agree
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const root = lock.packages[''];
+          if (pkg.name !== lock.name || pkg.version !== lock.version ||
+              JSON.stringify(pkg.dependencies) !== JSON.stringify(root.dependencies) ||
+              JSON.stringify(pkg.devDependencies) !== JSON.stringify(root.devDependencies)) {
+            console.error('package-lock.json differs from package.json; regenerate lockfile.');
+            process.exit(1);
+          }
+          NODE
       - name: Check shell syntax
         run: |
           bash -n deploy.sh
