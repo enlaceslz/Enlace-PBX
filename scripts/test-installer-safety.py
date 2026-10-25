@@ -24,6 +24,10 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then', SCRIPT)
         self.assertLess(SCRIPT.index('if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"'), SCRIPT.index("apt-get update"))
 
+    def test_no_recursive_chmod_of_asterisk_data(self):
+        self.assertNotIn("chmod -R 750", SCRIPT)
+        self.assertIn('find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +', SCRIPT)
+
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -e /etc/asterisk ] || [ -L /etc/asterisk ]; then', SCRIPT)
         self.assertRegex(SCRIPT, r'else\s+make samples\s+fi')
