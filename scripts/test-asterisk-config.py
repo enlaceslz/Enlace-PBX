@@ -86,8 +86,8 @@ class ReconcileTests(unittest.TestCase):
         config_dir = Path(self.tmp.name)
         pjsip = config_dir / "pjsip.conf"
         dialplan = config_dir / "extensions.conf"
-        pjsip.write_text("[provider-trunk]\\ntype = endpoint\\ncontext = inbound\\n")
-        dialplan.write_text("[inbound]\\nexten => s,1,Answer()\\n")
+        pjsip.write_text("[provider-trunk]\ntype = endpoint\ncontext = inbound\n")
+        dialplan.write_text("[inbound]\nexten => s,1,Answer()\n")
         before = {p.name: p.read_bytes() for p in (pjsip, dialplan)}
         manager = config_dir / "manager.conf"
         module.ensure_general(manager, {"enabled": "yes", "bindaddr": "127.0.0.1"})
@@ -105,7 +105,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertFalse(list(self.file.parent.glob("manager.conf.bak.*")))
 
     def test_existing_config_backup_matches_original_bytes(self):
-        original = b"[general]\\nenabled = no\\n[external]\\nvalue = keep\\n"
+        original = b"[general]\nenabled = no\n[external]\nvalue = keep\n"
         self.file.write_bytes(original)
         module.ensure_general(self.file, {"enabled": "yes"})
         backups = list(self.file.parent.glob("manager.conf.bak.*"))
