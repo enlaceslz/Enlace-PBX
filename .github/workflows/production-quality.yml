@@ -45,6 +45,8 @@ jobs:
           bash -n scripts/homologation-smoke.sh
       - name: Test Asterisk configuration reconciler
         run: python3 scripts/test-asterisk-config.py
+      - name: Test installer safety invariants
+        run: python3 scripts/test-installer-safety.py
       - name: Test environment preservation
         run: python3 scripts/test-merge-env.py
       - name: Install dependencies
