@@ -11,7 +11,7 @@
 
 - [ ] Conferir o SHA-256 do pacote Asterisk 20.17.0 com a fonte de distribuição; valor atualmente fixado: `a1c0bfa39b5ff6a5b869a2acc9a749bbd549812f8ab4b37c3e275c18623fe3b9` (referência cruzada: FreeBSD ports `net/asterisk20/distinfo`).\n- [ ] Se usar outra versão Asterisk 20, informar `ASTERISK_EXPECTED_SHA256` obtido de fonte confiável antes de executar o instalador.\n\n## 2. Instalação
 - [ ] Executar `deploy.sh` **somente na VM de testes**, acompanhando a saída e registrando erros.
-- [ ] Confirmar serviços PostgreSQL, aplicação e Asterisk ativos.
+- [ ] Confirmar serviços PostgreSQL, aplicação e Asterisk ativos.\n- [ ] Conferir `systemctl show asterisk.service -p User -p Group`; ambos devem indicar `asterisk`. Caso o serviço instalado pelo `make config` não configure isso, registrar o bloqueio e preparar um override systemd homologado antes de reiniciar.
 - [ ] Executar, a partir da raiz do repositório, `bash scripts/homologation-smoke.sh`. Este script é somente leitura e retorna código 1 em verificações críticas.
 - [ ] Verificar o endpoint HTTP(S) da aplicação e o login administrativo sem compartilhar senhas.
 - [ ] Validar conectividade AMI e ARI autenticadas e módulos PJSIP/WebSocket no Asterisk.
