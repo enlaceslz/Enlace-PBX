@@ -180,6 +180,12 @@ fi
 if ! id -u asterisk >/dev/null 2>&1; then
   useradd -r -g asterisk -d /var/lib/asterisk -s /usr/sbin/nologin -c "Asterisk PBX Daemon" asterisk
 fi
+# An existing account must have the expected primary group. Do not silently
+# reassign an unrelated service account or chown PBX data to the wrong identity.
+if [ "$(id -gn asterisk)" != "asterisk" ]; then
+  echo "ERRO: usuario asterisk existente nao possui grupo primario asterisk." >&2
+  exit 1
+fi
 for supplementary_group in audio dialout; do
   if getent group "$supplementary_group" >/dev/null; then
     usermod -aG "$supplementary_group" asterisk
