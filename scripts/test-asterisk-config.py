@@ -141,6 +141,17 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(), original)
 
+    def test_existing_config_permissions_are_preserved(self):
+        self.file.write_text("[general]\nenabled = no\n")
+        self.file.chmod(0o600)
+        module.ensure_general(self.file, {"enabled": "yes"})
+        self.assertEqual(self.file.stat().st_mode & 0o777, 0o600)
+        self.assertIn("enabled = yes", self.file.read_text())
+
+    def test_new_config_is_not_world_readable(self):
+        module.reconcile(self.file, "enlace_ami", "secret = example")
+        self.assertEqual(self.file.stat().st_mode & 0o777, 0o640)
+
     def test_invalid_secret_is_rejected(self):
         with self.assertRaises(ValueError):
             module.require_secret("UNSET_TEST_SECRET")
