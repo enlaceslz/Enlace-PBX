@@ -221,6 +221,19 @@ find /etc/asterisk -maxdepth 1 -type f -name "*.conf" -exec chmod 640 {} +
 
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
+# Provide a dedicated systemd drop-in so fresh installations do not depend
+# on the defaults produced by 'make config'. Existing local overrides must
+# remain under operator control.
+ASTERISK_DROPIN_DIR="/etc/systemd/system/asterisk.service.d"
+ASTERISK_DROPIN_FILE="${ASTERISK_DROPIN_DIR}/10-enlace-pbx-user.conf"
+mkdir -p "${ASTERISK_DROPIN_DIR}"
+if [ ! -e "${ASTERISK_DROPIN_FILE}" ] && [ ! -L "${ASTERISK_DROPIN_FILE}" ]; then
+  printf '[Service]\\nUser=asterisk\\nGroup=asterisk\\n' > "${ASTERISK_DROPIN_FILE}"
+  chmod 644 "${ASTERISK_DROPIN_FILE}"
+elif [ -L "${ASTERISK_DROPIN_FILE}" ] || [ ! -f "${ASTERISK_DROPIN_FILE}" ]; then
+  echo "ERRO: override systemd do Enlace-PBX nao e um arquivo regular." >&2
+  exit 1
+fi
 systemctl daemon-reload
 # Asterisk must not run as root. Validate the effective unit configuration
 # rather than assuming make config selected a safe service account.
