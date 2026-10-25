@@ -31,6 +31,27 @@ if command -v systemctl >/dev/null 2>&1; then
   done
 fi
 
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet asterisk.service; then
+  unit_user="$(systemctl show asterisk.service --property=User --value 2>/dev/null)"
+  unit_group="$(systemctl show asterisk.service --property=Group --value 2>/dev/null)"
+  if [ "$unit_user" = asterisk ] && [ "$unit_group" = asterisk ]; then
+    pass "Asterisk systemd unit uses dedicated account"
+  else
+    fail "Asterisk systemd unit User/Group mismatch"
+  fi
+  main_pid="$(systemctl show asterisk.service --property=MainPID --value 2>/dev/null)"
+  if [[ "$main_pid" =~ ^[1-9][0-9]*$ ]] && [ -r "/proc/$main_pid/status" ] && id -u asterisk >/dev/null 2>&1; then
+    runtime_uid="$(awk '/^Uid:/ {print $3}' "/proc/$main_pid/status")"
+    if [ "$runtime_uid" = "$(id -u asterisk)" ]; then
+      pass "Asterisk runtime effective UID matches service account"
+    else
+      fail "Asterisk runtime effective UID mismatch"
+    fi
+  else
+    fail "Asterisk runtime process identity unavailable"
+  fi
+fi
+
 if command -v asterisk >/dev/null 2>&1; then
   if asterisk -rx "core show version" 2>/dev/null | grep -q "Asterisk"; then
     pass "Asterisk CLI responsive"
