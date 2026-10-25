@@ -274,6 +274,31 @@ GEMINI_API_KEY=${GEMINI_KEY}
 WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
 EOF
 chmod 600 .env
+# Preserve custom integrations and secrets not managed by the installer.
+# Only read KEY=VALUE lines as text; never source or evaluate the previous file.
+if [ -n "${ENV_BACKUP:-}" ] && [ -f "$ENV_BACKUP" ]; then
+  python3 - "$ENV_BACKUP" .env <<'PY_ENV_MERGE'
+import re
+import sys
+from pathlib import Path
+
+old_path, new_path = map(Path, sys.argv[1:])
+pattern = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
+generated = new_path.read_text(encoding="utf-8")
+managed = {m.group(1) for line in generated.splitlines() if (m := pattern.match(line))}
+preserved = []
+seen = set()
+for line in old_path.read_text(encoding="utf-8").splitlines(keepends=True):
+    match = pattern.match(line)
+    if match and match.group(1) not in managed and match.group(1) not in seen:
+        preserved.append(line if line.endswith("\n") else line + "\n")
+        seen.add(match.group(1))
+if preserved:
+    with new_path.open("a", encoding="utf-8") as out:
+        out.write("\n# Custom environment variables preserved from previous deployment\n")
+        out.writelines(preserved)
+PY_ENV_MERGE
+fi
 echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 
 # 7. Instalação das dependências e compilação do Enlace-PBX
