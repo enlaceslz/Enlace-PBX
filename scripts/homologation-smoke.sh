@@ -44,9 +44,11 @@ if command -v asterisk >/dev/null 2>&1; then
   fi
 fi
 
-if [ -f .env ]; then
-  if [ -L .env ]; then
-    fail ".env is a symlink"
+if [ -L .env ]; then
+  fail ".env is a symlink"
+elif [ -f .env ]; then
+  if [ ! -r .env ]; then
+    fail ".env not readable by current user"
   elif [ "$(stat -c '%a' .env)" = 600 ]; then
     pass ".env permissions 600"
   else
@@ -57,7 +59,7 @@ else
 fi
 
 if command -v curl >/dev/null 2>&1; then
-  if curl --silent --show-error --max-time 5 --output /dev/null http://127.0.0.1:8088/ari/api-docs/resources.json; then
+  if curl --fail --silent --show-error --max-time 5 --output /dev/null http://127.0.0.1:8088/ari/api-docs/resources.json; then
     pass "Local Asterisk HTTP endpoint reachable"
   else
     warn "Asterisk ARI HTTP endpoint unavailable (check service and credentials)"
