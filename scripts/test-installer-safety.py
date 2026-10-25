@@ -45,6 +45,9 @@ class InstallerSafetyTests(unittest.TestCase):
     def test_asterisk_runtime_uid_matches_service_account(self):
         self.assertIn('systemctl show asterisk.service --property=MainPID --value', SCRIPT)
         self.assertIn('ASTERISK_RUNTIME_UID=', SCRIPT)
+        self.assertIn("awk '/^Uid:/ {print $3}'", SCRIPT)
+        self.assertLess(SCRIPT.index('if ! systemctl is-active --quiet asterisk.service; then'),
+                        SCRIPT.index('ASTERISK_RUNTIME_UID='))
         self.assertIn('if [ "${ASTERISK_RUNTIME_UID}" != "$(id -u asterisk)" ]; then', SCRIPT)
         self.assertLess(SCRIPT.index('systemctl restart asterisk'),
                         SCRIPT.index('ASTERISK_RUNTIME_UID='))
