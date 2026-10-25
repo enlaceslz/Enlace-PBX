@@ -42,6 +42,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('if [ ! -e "${ASTERISK_DROPIN_FILE}" ] && [ ! -L "${ASTERISK_DROPIN_FILE}" ]; then', SCRIPT)
         self.assertLess(SCRIPT.index('ASTERISK_DROPIN_DIR='), SCRIPT.index('systemctl daemon-reload'))
 
+    def test_asterisk_runtime_uid_matches_service_account(self):
+        self.assertIn('systemctl show asterisk.service --property=MainPID --value', SCRIPT)
+        self.assertIn('ASTERISK_RUNTIME_UID=', SCRIPT)
+        self.assertIn('if [ "${ASTERISK_RUNTIME_UID}" != "$(id -u asterisk)" ]; then', SCRIPT)
+        self.assertLess(SCRIPT.index('systemctl restart asterisk'),
+                        SCRIPT.index('ASTERISK_RUNTIME_UID='))
+
     def test_systemd_service_is_active_after_restart(self):
         self.assertIn('if ! systemctl is-active --quiet asterisk.service; then', SCRIPT)
         self.assertLess(SCRIPT.index('systemctl restart asterisk'),
