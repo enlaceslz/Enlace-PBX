@@ -20,7 +20,7 @@
 ## 3. Atualização e recuperação
 - [ ] Adicionar variável de teste não gerenciada ao `.env`; repetir o deploy e verificar que ela permanece.
 - [ ] Confirmar que variáveis gerenciadas recebem os novos valores e o `.env` continua com permissão 600.
-- [ ] Fazer duas atualizações consecutivas e verificar backups únicos e restauráveis.
+- [ ] Fazer duas atualizações consecutivas e verificar backups únicos e restauráveis.\n- [ ] Criar uma configuração SIP/dialplan de teste antes da reinstalação do Asterisk; após executar novamente o instalador, verificar que `pjsip.conf`, `extensions.conf` e demais arquivos preexistentes não foram substituídos por exemplos de fábrica.\n
 - [ ] Em snapshot descartável, simular falha de reconciliação e confirmar que o `.env` anterior não é substituído.
 - [ ] Restaurar backup de banco e configurações em uma segunda VM isolada; validar integridade e login.
 - [ ] Medir tempos de indisponibilidade e recuperação e registrar evidências.
