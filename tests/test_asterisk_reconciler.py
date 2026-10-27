@@ -96,6 +96,16 @@ class ReconcilerTests(unittest.TestCase):
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.glob("*.conf")})
         self.assertEqual(backups_before, sorted(p.name for p in self.root.glob("*.bak.*")))
 
+    def test_rejects_duplicate_credentials_without_changing_existing_files(self):
+        self.assertEqual(self.run_reconciler().returncode, 0)
+        before = {p.name: p.read_bytes() for p in self.root.glob("*.conf")}
+        backups_before = sorted(p.name for p in self.root.glob("*.bak.*"))
+        result = self.run_reconciler(ASTERISK_ARI_PASSWORD=AMI_SECRET)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("distinct", result.stderr)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.glob("*.conf")})
+        self.assertEqual(backups_before, sorted(p.name for p in self.root.glob("*.bak.*")))
+
     def test_rejects_shared_password_without_writing_files(self):
         original = (self.root / "manager.conf").read_bytes()
         result = self.run_reconciler(ASTERISK_ARI_PASSWORD=AMI_SECRET)
