@@ -2,6 +2,7 @@
 import importlib.util
 import pathlib
 import unittest
+from unittest.mock import patch
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "check-asterisk-runtime.py"
 spec = importlib.util.spec_from_file_location("asterisk_runtime", SCRIPT)
@@ -44,6 +45,32 @@ class RuntimePreflightTests(unittest.TestCase):
 
     def test_service_drops_during_observation(self):
         self.assertFalse(module.stable((True, PROPERTIES), (False, PROPERTIES)))
+
+    def test_cli_failure_after_observation_blocks_preflight(self):
+        responses = [
+            (True, ""),
+            (True, PROPERTIES),
+            (True, LISTENERS),
+            (True, "System uptime: 1 hour"),
+            (True, ""),
+            (True, PROPERTIES),
+            (False, ""),
+        ]
+        with patch.object(module, "run", side_effect=responses), patch.object(module.time, "sleep"):
+            self.assertEqual(module.main(), 1)
+
+    def test_cli_success_after_observation_allows_preflight(self):
+        responses = [
+            (True, ""),
+            (True, PROPERTIES),
+            (True, LISTENERS),
+            (True, "System uptime: 1 hour"),
+            (True, ""),
+            (True, PROPERTIES),
+            (True, "System uptime: 1 hour"),
+        ]
+        with patch.object(module, "run", side_effect=responses), patch.object(module.time, "sleep"):
+            self.assertEqual(module.main(), 0)
 
     def test_healthy_loopback(self):
         self.assertTrue(all(self.check().values()))
