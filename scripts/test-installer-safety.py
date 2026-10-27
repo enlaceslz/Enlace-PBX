@@ -147,6 +147,15 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_pbx_archive_restore_functional_suite(self):
+        import subprocess
+        import sys
+        suite = Path(__file__).resolve().with_name("test-pbx-archive-restore.py")
+        result = subprocess.run(
+            [sys.executable, str(suite)], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_postgres_restore_safety_guards(self):
         root = Path(__file__).resolve().parent
         restore = (root / "restore-postgres-test.sh").read_text()
