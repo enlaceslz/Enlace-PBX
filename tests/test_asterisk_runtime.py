@@ -38,7 +38,7 @@ class RuntimePreflightTests(unittest.TestCase):
 
     def test_missing_restart_counter_fails_closed(self):
         self.assertFalse(module.stable(
-            (True, PROPERTIES.replace("NRestarts=0\\n", "")),
+            (True, PROPERTIES.replace("NRestarts=0\n", "")),
             (True, PROPERTIES.replace("NRestarts=0\\n", "")),
         ))
 
