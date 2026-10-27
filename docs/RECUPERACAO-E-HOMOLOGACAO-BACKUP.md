@@ -27,7 +27,7 @@ Use uma variável de ambiente local e temporária para não inserir a senha dire
 ```bash
 read -r -s -p 'URL PostgreSQL de homologação: ' RESTORE_TEST_URL
 printf '\n'
-printf '%s' "$RESTORE_TEST_URL" | bash scripts/restore-postgres-test.sh \\
+printf '%s' "$RESTORE_TEST_URL" | bash scripts/restore-postgres-test.sh \
   /caminho/seguro/enlace-pbx-postgres-YYYYMMDDTHHMMSSZ.dump --stdin
 unset RESTORE_TEST_URL
 ```
