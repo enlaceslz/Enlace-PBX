@@ -17,9 +17,9 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('check "Asterisk responde ao CLI"', preflight)
         self.assertIn('check "PostgreSQL local aceita conexoes"', preflight)
         forbidden = (
-            r"\\b(?:apt|apt-get|dpkg|npm|rm|mv|cp|chmod|chown|tee|sed|truncate|reboot|shutdown)\\b",
-            r"\\bsystemctl\\s+(?:start|stop|restart|reload|enable|disable)\\b",
-            r"\\basterisk\\s+-rx\\s+['\\\"](?:core restart|core stop|module reload)",
+            r"\b(?:apt|apt-get|dpkg|npm|rm|mv|cp|chmod|chown|tee|sed|truncate|reboot|shutdown)\b",
+            r"\bsystemctl\s+(?:start|stop|restart|reload|enable|disable)\b",
+            r"\basterisk\s+-rx\s+['\\"](?:core restart|core stop|module reload)",
         )
         for pattern in forbidden:
             self.assertNotRegex(preflight, pattern)
