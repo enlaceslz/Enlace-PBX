@@ -217,7 +217,24 @@ python3 "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py"
 # recording permissions. Only provision the service-owned runtime directories.
 chown asterisk:asterisk /var/{lib,log,run,spool}/asterisk
 chmod 750 /var/{lib,log,run,spool}/asterisk
-# The reconciler preserves existing config modes and sets 0640 on new files.
+# Existing configuration ownership/modes remain unchanged. New files written
+# by the reconciler as root require the asterisk service group for mode 0640.
+# Asterisk must also be able to traverse the configuration directory.
+if [ ! -e /etc/asterisk/manager.conf ] || [ ! -e /etc/asterisk/http.conf ] || [ ! -e /etc/asterisk/ari.conf ]; then
+  echo "ERRO: configuracoes essenciais do Asterisk ausentes apos reconciliacao." >&2
+  exit 1
+fi
+for config_file in /etc/asterisk/manager.conf /etc/asterisk/http.conf /etc/asterisk/ari.conf; do
+  if [ "$(stat -c '%U:%G' "$config_file")" = "root:root" ] && [ "$(stat -c '%a' "$config_file")" = "640" ]; then
+    chgrp asterisk "$config_file"
+  fi
+done
+if ! runuser -u asterisk -- test -r /etc/asterisk/manager.conf ||
+   ! runuser -u asterisk -- test -r /etc/asterisk/http.conf ||
+   ! runuser -u asterisk -- test -r /etc/asterisk/ari.conf; then
+  echo "ERRO: usuario asterisk nao consegue ler configuracoes essenciais; revise permissoes e acesso ao diretorio." >&2
+  exit 1
+fi
 # Never recursively change ownership or permissions under /etc/asterisk.
 
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
