@@ -27,6 +27,7 @@ check "Asterisk CLI disponivel" command -v asterisk
 check "PostgreSQL pg_isready disponivel" command -v pg_isready
 check "Systemd disponivel" command -v systemctl
 check "NGINX disponivel" command -v nginx
+check "curl disponivel" command -v curl
 check "Configuracao Asterisk presente" test -d /etc/asterisk
 check "Aplicacao instalada" test -d /opt/enlace-pbx
 if command -v systemctl >/dev/null 2>&1; then
@@ -34,6 +35,9 @@ if command -v systemctl >/dev/null 2>&1; then
   check "PostgreSQL ativo" systemctl is-active --quiet postgresql
   check "NGINX ativo" systemctl is-active --quiet nginx
   check "Aplicacao Enlace-PBX ativa" systemctl is-active --quiet enlace-pbx.service
+fi
+if command -v curl >/dev/null 2>&1; then
+  check "API health HTTP local (porta 3000)" curl --fail --silent --show-error --max-time 3 --output /dev/null http://127.0.0.1:3000/api/v1/health
 fi
 if command -v pg_isready >/dev/null 2>&1; then
   check "PostgreSQL local aceita conexoes" pg_isready -h 127.0.0.1
