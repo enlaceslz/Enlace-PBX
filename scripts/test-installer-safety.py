@@ -5,6 +5,7 @@ import re
 import unittest
 
 SCRIPT = (Path(__file__).resolve().parent.parent / "install-enlace-pbx.sh").read_text()
+DEPLOY = (Path(__file__).resolve().parent.parent / "deploy.sh").read_text()
 
 
 class InstallerSafetyTests(unittest.TestCase):
@@ -92,6 +93,12 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('chgrp asterisk "$config_file"', SCRIPT)
         self.assertLess(SCRIPT.index('runuser -u asterisk -- test -r'),
                         SCRIPT.index('systemctl restart asterisk'))
+
+    def test_webrtc_proxy_uses_local_asterisk_http_and_no_public_8089(self):
+        self.assertIn('location = /ws {', DEPLOY)
+        self.assertIn('proxy_pass http://127.0.0.1:8088/ws;', DEPLOY)
+        self.assertNotIn('proxy_pass http://127.0.0.1:8089/ws;', DEPLOY)
+        self.assertNotIn('ufw allow 8089/tcp', DEPLOY)
 
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
