@@ -107,6 +107,14 @@ class ReconcilerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("[enlace_ami]", (self.root / "manager.conf").read_text())
 
+    def test_rejects_config_root_that_is_regular_file(self):
+        root_file = self.root / "not-a-directory"
+        root_file.write_text("preserve", encoding="utf-8")
+        result = self.run_reconciler(ASTERISK_CONFIG_DIR=str(root_file))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected a configuration directory", result.stderr)
+        self.assertEqual(root_file.read_text(encoding="utf-8"), "preserve")
+
     def test_rejects_symlink_configuration(self):
         target = self.root / "target.conf"
         target.write_text("[general]\nenabled = no\n", encoding="utf-8")
