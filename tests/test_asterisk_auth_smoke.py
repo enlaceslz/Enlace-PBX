@@ -25,12 +25,12 @@ class AuthSmokeTests(unittest.TestCase):
                 client, _ = listener.accept()
                 with client:
                     client.settimeout(3)
-                    client.sendall(b"Asterisk Call Manager/6.0\r\\n")
+                    client.sendall(b"Asterisk Call Manager/6.0\r\n")
                     request = b""
-                    while b"\r\\n\r\\n" not in request:
+                    while b"\r\n\r\n" not in request:
                         request += client.recv(4096)
                     received.append(request)
-                    client.sendall(b"Response: Success\r\\nMessage: Authentication accepted\r\\n\r\\n")
+                    client.sendall(b"Response: Success\r\nMessage: Authentication accepted\r\n\r\n")
                     received.append(client.recv(4096))
             finally:
                 listener.close()
@@ -51,9 +51,9 @@ class AuthSmokeTests(unittest.TestCase):
                 client, _ = listener.accept()
                 with client:
                     client.settimeout(3)
-                    client.sendall(b"Asterisk Call Manager/6.0\r\\n")
+                    client.sendall(b"Asterisk Call Manager/6.0\r\n")
                     client.recv(4096)
-                    client.sendall(b"Response: Error\r\\nMessage: Authentication failed\r\\n\r\\n")
+                    client.sendall(b"Response: Error\r\nMessage: Authentication failed\r\n\r\n")
             finally:
                 listener.close()
         thread = threading.Thread(target=serve, daemon=True)
