@@ -34,6 +34,33 @@ fi
 
 tar -C / -czpf "$temporary" -- "${paths[@]}"
 tar -tzf "$temporary" >/dev/null
+# Validate the same archive member policy used by staging restore BEFORE publication.
+# GNU tar can archive nested symlinks, hardlinks, FIFOs and device nodes.
+python3 - "$temporary" <<'PY'
+import sys
+import tarfile
+from pathlib import PurePosixPath
+
+allowed = ("etc/asterisk", "var/spool/asterisk/recording", "var/lib/enlace-pbx")
+try:
+    with tarfile.open(sys.argv[1], "r:gz") as archive:
+        members = archive.getmembers()
+        if not members:
+            raise ValueError("arquivo vazio")
+        for item in members:
+            raw = item.name
+            path = PurePosixPath(raw)
+            normalized = str(path)
+            if raw.startswith("/") or ".." in path.parts or chr(92) in raw:
+                raise ValueError("caminho inseguro")
+            if not (item.isfile() or item.isdir()):
+                raise ValueError("links e arquivos especiais nao podem ser restaurados")
+            if not any(normalized == root or normalized.startswith(root + "/") for root in allowed):
+                raise ValueError("caminho fora da lista permitida: " + normalized)
+except (tarfile.TarError, OSError, ValueError) as error:
+    print("ERRO: backup nao restauravel: " + str(error), file=sys.stderr)
+    sys.exit(1)
+PY
 chmod 600 "$temporary"
 mv -n -- "$temporary" "$destination"
 if [ -e "$temporary" ]; then
