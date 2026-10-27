@@ -31,6 +31,8 @@ class PrivilegeAuditTests(unittest.TestCase):
         self.assertIsNotNone(match, 'AMI write privileges must be explicitly configured')
         privileges = match.group(1).split(',')
         self.assertEqual(len(privileges), len(set(privileges)), 'Duplicate AMI privileges')
+        allowed = {'system', 'call', 'log', 'verbose', 'command', 'agent', 'user', 'config', 'dtmf', 'reporting', 'cdr', 'dialplan', 'originate', 'agi', 'cc', 'aoc', 'test', 'security', 'message'}
+        self.assertTrue(set(privileges) <= allowed, 'Unknown AMI privilege class')
         self.assertNotIn('all', privileges, 'AMI must not grant unrestricted privileges')
         self.assertNotIn('none', privileges, 'Unexpected AMI write policy')
         evidence = (ROOT / "docs" / "EVIDENCIAS_HOMOLOGACAO_DEBIAN12.md").read_text(encoding="utf-8")
