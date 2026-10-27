@@ -53,6 +53,11 @@ class BundleVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "extras"):
             module.validate(self.root)
 
+    def test_unexpected_empty_directory(self):
+        (self.root / "untracked-empty").mkdir()
+        with self.assertRaisesRegex(ValueError, "Diretorios extras"):
+            module.validate(self.root)
+
     def test_symlink(self):
         (self.root / "rotas/rotas.txt").unlink()
         (self.root / "rotas/rotas.txt").symlink_to(self.root / "RESUMO.txt")
