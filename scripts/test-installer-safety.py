@@ -11,6 +11,13 @@ DEPLOY = (Path(__file__).resolve().parent.parent / "deploy.sh").read_text()
 MIGRATOR = (Path(__file__).resolve().parent.parent / "server/infrastructure/postgres/migrations/migrator.ts").read_text()
 
 class InstallerSafetyTests(unittest.TestCase):
+    def test_coordinated_backup_requires_one_archive_per_component(self):
+        coordinated = (Path(__file__).resolve().parent / "backup-coordinated.sh").read_text()
+        self.assertIn('if [ "$db_count" -ne 1 ] || [ "$pbx_count" -ne 1 ]; then', coordinated)
+        self.assertIn('if [ ! -f "$BACKUP_DIR/$pbx_file.sha256" ] || [ -L "$BACKUP_DIR/$pbx_file.sha256" ]; then', coordinated)
+        self.assertLess(coordinated.index('if [ "$db_count" -ne 1 ]'),
+                        coordinated.index('sha256sum -- "$db_file" "$pbx_file"'))
+
     def test_strict_shell_mode(self):
         self.assertIn("set -euo pipefail", SCRIPT)
 
