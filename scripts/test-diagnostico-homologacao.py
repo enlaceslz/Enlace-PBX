@@ -58,10 +58,10 @@ class DiagnosticBundleTests(unittest.TestCase):
         for collector in ("inventory-homologation-isolation.sh", "collect-asterisk-evidence.sh"):
             script = self.scripts / collector
             script.write_text(
-                '#!/bin/bash\\n'
-                'mkdir -m 700 -- "$1"\\n'
-                'printf "synthetic\\\\n" > "$1/report.txt"\\n'
-                '( cd "$1" && sha256sum report.txt > SHA256SUMS )\\n'
+                '#!/bin/bash\n'
+                'mkdir -m 700 -- "$1"\n'
+                'printf "synthetic\\n" > "$1/report.txt"\n'
+                '( cd "$1" && sha256sum report.txt > SHA256SUMS )\n'
             )
         result = self.run_bundle()
         self.assertEqual(result.returncode, 0, result.stderr)
