@@ -418,13 +418,57 @@ if [[ ! "$CONF_UFW" =~ ^[Nn]$ ]]; then
   echo -e "${GREEN}✅ Regras do UFW aplicadas e firewall ativado com segurança.${NC}"
 fi
 
-# 11. Inicialização do Enlace-PBX com PM2
-echo -e "\n${CYAN}🚀 Iniciando o serviço Enlace-PBX com PM2...${NC}"
-pm2 stop enlace-pbx 2>/dev/null || true
-pm2 delete enlace-pbx 2>/dev/null || true
-pm2 start dist/server.cjs --name "enlace-pbx"
-pm2 save
-pm2 startup systemd -u root --hp /root 2>/dev/null || pm2 startup 2>/dev/null || true
+# 11. Run the application with a dedicated unprivileged systemd identity.
+echo -e "\n${CYAN}🚀 Configurando serviço Enlace-PBX sem privilégios de root...${NC}"
+APP_DIR="$(pwd -P)"
+if [[ "${APP_DIR}" == /root || "${APP_DIR}" == /root/* ]]; then
+  echo "ERRO: mova o projeto para /opt/enlace-pbx (ou outro diretorio acessivel) antes do deploy." >&2
+  exit 1
+fi
+if ! getent group enlace-pbx >/dev/null; then groupadd --system enlace-pbx; fi
+if ! id -u enlace-pbx >/dev/null 2>&1; then
+  useradd --system --gid enlace-pbx --home-dir /var/lib/enlace-pbx --shell /usr/sbin/nologin enlace-pbx
+fi
+if [ "$(id -gn enlace-pbx)" != enlace-pbx ]; then
+  echo "ERRO: conta enlace-pbx possui grupo primario inesperado." >&2
+  exit 1
+fi
+install -d -o enlace-pbx -g enlace-pbx -m 750 /var/lib/enlace-pbx /var/log/enlace-pbx
+chown root:enlace-pbx .env
+chmod 640 .env
+if ! runuser -u enlace-pbx -- test -r "${APP_DIR}/.env" ||
+   ! runuser -u enlace-pbx -- test -r "${APP_DIR}/dist/server.cjs"; then
+  echo "ERRO: usuario enlace-pbx nao consegue ler o ambiente ou a aplicacao." >&2
+  exit 1
+fi
+cat > /etc/systemd/system/enlace-pbx.service <<SERVICE
+[Unit]
+Description=Enlace-PBX application
+After=network-online.target postgresql.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=enlace-pbx
+Group=enlace-pbx
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
+ExecStart=/usr/bin/env node ${APP_DIR}/dist/server.cjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/enlace-pbx /var/log/enlace-pbx
+[Install]
+WantedBy=multi-user.target
+SERVICE
+systemctl daemon-reload
+systemctl enable enlace-pbx.service
+systemctl restart enlace-pbx.service
+if ! systemctl is-active --quiet enlace-pbx.service; then
+  echo "ERRO: servico enlace-pbx nao iniciou." >&2
+  exit 1
+fi
 
 # 12. Teste de Saúde (Smoke Test)
 sleep 2
@@ -433,7 +477,7 @@ if curl -s -f http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
   HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
 else
   echo -e "${RED}❌ ERRO: aplicação não respondeu ao health check HTTP após inicialização.${NC}" >&2
-  pm2 status enlace-pbx >&2 || true
+  systemctl status enlace-pbx.service --no-pager >&2 || true
   exit 1
 fi
 
@@ -451,8 +495,8 @@ echo -e "  • Webhook WhatsApp:    ${CYAN}https://${DOMAIN}/api/v1/webhooks/wha
 echo -e "  • Health Check API:    ${CYAN}https://${DOMAIN}/api/v1/health${NC}"
 echo ""
 echo -e "${BOLD}📋 Comandos de Gerenciamento:${NC}"
-echo -e "  • Ver logs da aplicação:      ${YELLOW}pm2 logs enlace-pbx${NC}"
-echo -e "  • Reiniciar aplicação:        ${YELLOW}pm2 restart enlace-pbx${NC}"
+echo -e "  • Ver logs da aplicação:      ${YELLOW}journalctl -u enlace-pbx -f${NC}"
+echo -e "  • Reiniciar aplicação:        ${YELLOW}systemctl restart enlace-pbx${NC}"
 echo -e "  • Acessar CLI do Asterisk:    ${YELLOW}asterisk -rvvvv${NC}"
 echo -e "  • Recarregar NGINX:           ${YELLOW}systemctl reload nginx${NC}"
 echo -e "  • Renovar Certificados SSL:   ${YELLOW}certbot renew${NC}"
