@@ -75,6 +75,8 @@ def main():
     for value in (ami_user, ami_password, ari_user, ari_password):
         if "\r" in value or "\n" in value:
             raise ValueError("Credentials must not contain line breaks")
+    if ami_user == ari_user or ami_password == ari_password:
+        raise ValueError("AMI and ARI must use distinct users and passwords")
     check_ami(host, 5038, ami_user, ami_password, timeout)
     print("PASS: AMI login and logoff")
     check_ari(host, 8088, ari_user, ari_password, timeout)
