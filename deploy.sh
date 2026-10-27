@@ -394,7 +394,8 @@ NGINX_CONF
       }
     fi
   else
-    echo -e "${RED}❌ Erro no arquivo de configuração do NGINX. Verifique com: nginx -t${NC}"
+    echo -e "${RED}❌ Erro no arquivo de configuração do NGINX. Verifique com: nginx -t${NC}" >&2
+    exit 1
   fi
 fi
 
@@ -431,7 +432,9 @@ echo -e "\n${CYAN}🔍 Executando teste de integridade local...${NC}"
 if curl -s -f http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
   HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
 else
-  HEALTH_STATUS="${YELLOW}INICIANDO (Aguarde alguns segundos)${NC}"
+  echo -e "${RED}❌ ERRO: aplicação não respondeu ao health check HTTP após inicialização.${NC}" >&2
+  pm2 status enlace-pbx >&2 || true
+  exit 1
 fi
 
 # 13. Resumo Final
