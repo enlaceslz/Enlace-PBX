@@ -79,6 +79,14 @@ def validate(directory: Path):
                 os.close(fd)
         if digest.hexdigest() != expected_digest:
             raise ValueError("Hash divergente: " + name)
+    summary = (directory / "RESUMO.txt").read_text(encoding="utf-8")
+    expected_summary = {
+        "resultado=0", "isolamento=NAO CONFIRMADO",
+        "homologacao=NAO EXECUTADA",
+    }
+    actual_summary = set(summary.splitlines())
+    if len(summary.splitlines()) != 3 or actual_summary != expected_summary:
+        raise ValueError("Resumo invalido ou declaracao de homologacao indevida")
     return True
 
 
