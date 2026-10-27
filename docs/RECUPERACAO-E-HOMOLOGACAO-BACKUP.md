@@ -121,6 +121,8 @@ realiza registro SIP, chamadas, reloads ou testes de áudio. Os hashes detectam
 alterações acidentais, mas não atestam a origem das evidências. Revisar os
 arquivos antes de compartilhar, mesmo sem credenciais previstas.
 
+Os testes de chamadas e mídia devem seguir `docs/PLANO-ENSAIOS-SIP-RTP-WEBRTC.md`, com isolamento de troncos externos e registro individual TEL-01 a TEL-10.
+
 ## Critérios de aprovação
 
 - Manifesto e hashes aprovados.
