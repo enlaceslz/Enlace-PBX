@@ -61,6 +61,24 @@ Em uma segunda máquina da rede de laboratório, verifique que não é possível
 
 Para testar AMI/ARI, exporte as quatro variáveis de autenticação no shell **sem imprimir seus valores** e execute `python3 scripts/check-asterisk-auth.py`. Não use `set -x`. Registre somente PASS/FAIL e logs higienizados. Teste também rejeição de senha inválida em laboratório.
 
+## Cenários SIP/PJSIP e RTP em laboratório
+
+Use dois ramais **exclusivamente de laboratório**, em softphones distintos, sem troncos públicos. Registre o horário UTC, o ID da chamada e o resultado de cada cenário, removendo números e identificadores pessoais antes de anexar evidências.
+
+| ID | Cenário | Critério de aprovação | Resultado |
+| --- | --- | --- | --- |
+| SIP-01 | Registro de dois ramais | Ambos aparecem disponíveis em `pjsip show contacts` | NÃO EXECUTADO |
+| SIP-02 | Chamada ramal A → B | B toca, atende e ambos encerram normalmente | NÃO EXECUTADO |
+| SIP-03 | Chamada ramal B → A | Mesmo comportamento no sentido inverso | NÃO EXECUTADO |
+| RTP-01 | Áudio A → B e B → A | Ambos ouvem e são ouvidos, sem áudio unilateral | NÃO EXECUTADO |
+| DTMF-01 | Dígitos DTMF durante chamada | Dígitos recebidos corretamente no destino de teste | NÃO EXECUTADO |
+| SIP-04 | Encerramento pelo originador e pelo destino | Canais liberados; sem chamada órfã | NÃO EXECUTADO |
+| SIP-05 | Re-registro após interrupção controlada de rede | Ramais recuperam registro sem intervenção indevida | NÃO EXECUTADO |
+
+Comandos de apoio: `asterisk -rx 'pjsip show endpoints'`, `asterisk -rx 'pjsip show contacts'` e `asterisk -rx 'core show channels count'`. Capturas RTP e logs de sinalização só devem ser coletados em rede de laboratório, com autorização e higienização de dados. Para áudio, registre também codec, duração aproximada e eventuais perdas percebidas.
+
+**Falha crítica:** áudio unilateral, chamada órfã, registro instável ou DTMF incorreto em cenário obrigatório. Testes automatizados de configuração não comprovam qualidade de voz nem funcionamento SIP real.
+
 ## Matriz de aceitação
 
 | Cenário | Esperado | Resultado | Evidência |
