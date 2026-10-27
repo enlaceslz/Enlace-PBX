@@ -2,7 +2,6 @@
 """Validate homologation evidence statuses without accepting implicit approval."""
 import argparse
 from pathlib import Path
-import re
 import sys
 
 EXPECTED = [
@@ -21,11 +20,25 @@ def validate(text):
         cells = [part.strip() for part in line.strip().strip("|").split("|")]
         if len(cells) < 4 or cells[0] not in EXPECTED:
             continue
-        identifier, status = cells[0], cells[2]
+        identifier, status, evidence = cells[0], cells[2], cells[3]
         if identifier in found:
             raise ValueError(f"ID duplicado: {identifier}")
         if status not in VALID:
             raise ValueError(f"Estado invalido para {identifier}: {status}")
+        if status == "APROVADO" and (
+            not evidence or evidence.startswith("Log sanitizado,")
+            or evidence.startswith("Resultado do ")
+            or evidence.startswith("Relatório ")
+            or evidence.startswith("Status e ")
+            or evidence.startswith("Logs sanitizados")
+            or evidence.startswith("Versão de ")
+            or evidence.startswith("Inventário ")
+            or evidence.startswith("Cenários ")
+            or evidence.startswith("Casos de ")
+            or evidence.startswith("Bloqueio de ")
+            or evidence.startswith("Cronologia ")
+        ):
+            raise ValueError(f"Evidencia nao preenchida para {identifier}")
         found[identifier] = status
     missing = sorted(set(EXPECTED) - set(found))
     if missing:
