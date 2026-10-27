@@ -71,6 +71,11 @@ def main():
     findings.append(("service-stable-60s", stable(first, snapshot())))
     cli_after_ok, _ = run("asterisk", "-rx", "core show uptime")
     findings.append(("asterisk-cli-after-60s", cli_after_ok))
+    ss_after_ok, listeners_after = run("ss", "-lnt")
+    after_network = dict(evaluate(True, properties, listeners_after if ss_after_ok else "", True))
+    for port in (5038, 8088):
+        key = f"tcp-{port}-loopback-only"
+        findings.append((f"{key}-after-60s", after_network[key]))
     for name, passed in findings:
         print(f"{'PASS' if passed else 'FAIL'} {name}")
     print("NOTE: static runtime preflight only; SIP/RTP/AI and rollback require lab testing.")
