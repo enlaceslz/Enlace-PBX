@@ -358,9 +358,9 @@ server {
         proxy_send_timeout 86400s;
     }
 
-    # Proxy para sinalização WebRTC WSS do Asterisk (porta 8089)
-    location /ws {
-        proxy_pass http://127.0.0.1:8089/ws;
+    # TLS/WSS terminates at NGINX; Asterisk listens on loopback HTTP 8088.
+    location = /ws {
+        proxy_pass http://127.0.0.1:8088/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
