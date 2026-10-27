@@ -11,6 +11,14 @@ DEPLOY = (Path(__file__).resolve().parent.parent / "deploy.sh").read_text()
 MIGRATOR = (Path(__file__).resolve().parent.parent / "server/infrastructure/postgres/migrations/migrator.ts").read_text()
 
 class InstallerSafetyTests(unittest.TestCase):
+    def test_pbx_backup_rejects_duplicate_archive_entries(self):
+        backup = (Path(__file__).resolve().parent / "backup-pbx-files.sh").read_text()
+        restore = (Path(__file__).resolve().parent / "restore-pbx-files-staging.sh").read_text()
+        for script in (backup, restore):
+            self.assertIn('seen_paths = set()', script)
+            self.assertIn('if normalized in seen_paths:', script)
+            self.assertIn('seen_paths.add(normalized)', script)
+
     def test_coordinated_backup_requires_one_archive_per_component(self):
         coordinated = (Path(__file__).resolve().parent / "backup-coordinated.sh").read_text()
         self.assertIn('if [ "$db_count" -ne 1 ] || [ "$pbx_count" -ne 1 ]; then', coordinated)
