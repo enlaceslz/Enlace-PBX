@@ -133,6 +133,11 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertEqual(DEPLOY.count('# 13. Resumo Final'), 1)
         self.assertIn('pm2 pid enlace-pbx', DEPLOY)
 
+    def test_media_and_backup_directories_are_not_group_writable(self):
+        self.assertIn('install -d -m 750 /var/backups/enlace-pbx', DEPLOY)
+        self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
+        self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
+
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
         self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
