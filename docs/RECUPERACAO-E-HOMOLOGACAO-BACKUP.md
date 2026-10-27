@@ -56,6 +56,21 @@ bash scripts/restore-pbx-files-staging.sh \
 
 O diretório de staging deve existir e estar vazio. Inspecionar `etc/asterisk`, `var/spool/asterisk/recording` e `var/lib/enlace-pbx` **dentro do staging**. Não copiar automaticamente para os caminhos reais.
 
+## Pré-diagnóstico somente leitura na VM Debian 12
+
+Antes dos testes TEL-01 a TEL-10, executar:
+
+```bash
+bash scripts/preflight-homologacao.sh
+```
+
+O script não instala pacotes, não reinicia serviços, não modifica arquivos e
+não cria conexões SIP. Ele confere ferramentas, diretórios, status dos serviços
+Asterisk/PostgreSQL/NGINX, resposta do CLI Asterisk e disponibilidade local
+do PostgreSQL. Um resultado aprovado **não** valida mídia, WebRTC, firewall,
+credenciais ou configuração completa. O serviço da aplicação deve ser validado
+separadamente conforme a unidade systemd efetivamente instalada.
+
 ## Homologação da aplicação e telefonia
 
 1. Conferir arquivos de configuração e permissões antes de qualquer promoção para diretórios ativos.
