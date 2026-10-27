@@ -19,6 +19,18 @@ destination="$2"
 }
 [ -d "$destination" ] && [ ! -L "$destination" ] || { echo "ERRO: staging deve existir e nao ser link simbolico." >&2; exit 1; }
 [ -z "$(ls -A -- "$destination")" ] || { echo "ERRO: staging nao esta vazio." >&2; exit 1; }
+# Reject a staging path reached through symlinked ancestor directories.
+python3 - "$destination" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+target = Path(os.path.abspath(sys.argv[1]))
+for component in (target, *target.parents):
+    if component.is_symlink():
+        print("ERRO: staging possui componente de caminho simbolico.", file=sys.stderr)
+        sys.exit(1)
+PY
 
 # Prevent traversal, absolute paths, links and unexpected top-level entries.
 python3 - "$archive" <<'PY'
