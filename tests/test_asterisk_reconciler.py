@@ -136,6 +136,15 @@ class ReconcilerTests(unittest.TestCase):
         self.assertIn("expected a configuration directory", result.stderr)
         self.assertEqual(root_file.read_text(encoding="utf-8"), "preserve")
 
+    def test_rejects_fifo_config_without_blocking_or_writes(self):
+        fifo = self.root / "ari.conf"
+        os.mkfifo(fifo)
+        original = (self.root / "manager.conf").read_bytes()
+        result = self.run_reconciler()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected a regular configuration file", result.stderr)
+        self.assertEqual((self.root / "manager.conf").read_bytes(), original)
+
     def test_rejects_symlink_configuration(self):
         target = self.root / "target.conf"
         target.write_text("[general]\nenabled = no\n", encoding="utf-8")
