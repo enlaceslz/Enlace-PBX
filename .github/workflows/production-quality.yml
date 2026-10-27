@@ -118,7 +118,7 @@ jobs:
           printf 'CI disposable PBX fixture\n' | sudo tee /var/lib/enlace-pbx/ci-backup-fixture/README >/dev/null
           sudo env APP_DIR="$temp_dir/app" BACKUP_DIR="$temp_dir/backups" bash scripts/backup-coordinated.sh
           test "$(find "$temp_dir/backups" -maxdepth 1 -name 'enlace-pbx-backup-*.manifest' -type f | wc -l)" -eq 1
-          bash scripts/verify-backup-manifest.sh "$temp_dir/backups"/enlace-pbx-backup-*.manifest
+          sudo bash scripts/verify-backup-manifest.sh "$temp_dir/backups"/enlace-pbx-backup-*.manifest
           pg_restore --list "$temp_dir/backups"/enlace-pbx-postgres-*.dump >/dev/null
           tar -tzf "$temp_dir/backups"/enlace-pbx-files-*.tar.gz | grep -q 'ci-backup-fixture/README'
       - name: Test real PostgreSQL dump and restore
