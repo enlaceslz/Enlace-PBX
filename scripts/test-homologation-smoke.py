@@ -34,6 +34,12 @@ class HomologationSmokeTests(unittest.TestCase):
         self.assertIn('runtime_uid', SCRIPT)
         self.assertIn('id -u asterisk', SCRIPT)
 
+    def test_reverse_proxy_and_backend_health_are_verified(self):
+        self.assertIn('nginx -t >/dev/null 2>&1', SCRIPT)
+        self.assertIn('NGINX configuration syntax invalid', SCRIPT)
+        self.assertIn('http://127.0.0.1:3000/api/v1/health', SCRIPT)
+        self.assertIn('Enlace-PBX local HTTP health unavailable', SCRIPT)
+
     def test_node_service_identity_is_verified(self):
         self.assertIn('systemctl is-active --quiet enlace-pbx.service', SCRIPT)
         self.assertIn('Enlace-PBX systemd unit User/Group mismatch', SCRIPT)
