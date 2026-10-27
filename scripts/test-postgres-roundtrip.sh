@@ -14,7 +14,7 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf -- "$tmpdir"' EXIT
 
 # Guard target before creating anything.
-python3 "$script_dir/validate-restore-target.py" "$target_url" >/dev/null || exit 1
+printf '%s' "$target_url" | python3 "$script_dir/validate-restore-target.py" --stdin >/dev/null || exit 1
 
 command -v psql >/dev/null
 command -v pg_dump >/dev/null
