@@ -53,5 +53,5 @@ if [ "$existing_objects" != "0" ]; then
 fi
 
 echo "Restaurando backup em banco isolado: $target_db"
-pg_restore --no-owner --no-acl --exit-on-error --single-transaction "$archive"
+pg_restore --dbname="$PGDATABASE" --no-owner --no-acl --exit-on-error --single-transaction "$archive"
 echo "Restauracao concluida em $target_db. Execute testes funcionais antes de considerar o backup homologado."
