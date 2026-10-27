@@ -32,6 +32,27 @@ class EvidenceTests(unittest.TestCase):
             approved + "\nEVIDENCIA: TEL-01 | artefato=evidencias/tel01.txt | data=2026-10-27 | responsavel=tecnico01\n"
         ))
 
+    def test_structured_evidence_invalid_inputs(self):
+        row = next(line for line in TEMPLATE.splitlines() if line.startswith("| TEL-01 |"))
+        approved = TEMPLATE.replace(row, row.replace("NÃO EXECUTADO", "APROVADO").replace(
+            "Log sanitizado, horário e responsável", "evidencias/tel01.txt"))
+        valid = "EVIDENCIA: TEL-01 | artefato=evidencias/tel01.txt | data=2026-10-27 | responsavel=tecnico01"
+        invalid = [
+            valid.replace("2026-10-27", "2026-02-30"),
+            valid.replace("evidencias/tel01.txt", "../segredo"),
+            valid.replace("evidencias/tel01.txt", "https://example.invalid/arquivo"),
+            valid.replace("responsavel=tecnico01", "responsavel="),
+            valid.replace("TEL-01", "TEL-99"),
+            valid.replace(" | data=", " | data-invalida="),
+        ]
+        for line in invalid:
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                module.validate(approved + "\n" + line + "\n")
+        with self.assertRaisesRegex(ValueError, "duplicada"):
+            module.validate(approved + "\n" + valid + "\n" + valid + "\n")
+        with self.assertRaisesRegex(ValueError, "Evidencia sem aprovacao"):
+            module.validate(TEMPLATE + "\n" + valid + "\n")
+
     def test_invalid_status_rejected(self):
         with self.assertRaises(ValueError):
             module.validate(TEMPLATE.replace("| NÃO EXECUTADO |", "| CONCLUIDO |", 1))
