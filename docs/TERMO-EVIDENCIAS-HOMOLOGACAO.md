@@ -44,6 +44,18 @@ Não marcar APROVADO sem artefato verificável, data e responsável.
 | OPS-02 | RTO/RPO observado | NÃO EXECUTADO | Cronologia e lacuna medida |
 | SEC-01 | Ausência de chamadas externas | NÃO EXECUTADO | Bloqueio de troncos e tentativa negativa |
 
+## Registro estruturado de evidências
+
+Para cada item marcado como **APROVADO**, acrescentar um registro abaixo com
+o formato exato (uma linha por item, sem dados pessoais ou segredos):
+
+`EVIDENCIA: ID | artefato=<referencia-relativa> | data=<AAAA-MM-DD> | responsavel=<identificador-tecnico>`
+
+A referência deve apontar para artefato rastreável do ambiente isolado;
+não usar URLs com tokens, caminhos contendo senhas ou dados reais de clientes.
+A validação automática verifica apenas o preenchimento e a consistência
+formal, não a existência nem a autenticidade dos artefatos.
+
 ## Bloqueadores e decisão
 
 - **Bloqueadores atuais:** VM Debian 12 real não homologada; SIP/RTP/WebRTC
