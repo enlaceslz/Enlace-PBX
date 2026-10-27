@@ -9,6 +9,7 @@ on:
       - 'scripts/reconcile-asterisk-config.py'
       - 'tests/test_asterisk_reconciler.py'
       - 'tests/test_asterisk_auth_smoke.py'
+      - 'tests/test_asterisk_installer_safety.py'
       - 'scripts/check-asterisk-auth.py'
       - 'install-enlace-pbx.sh'
       - '.github/workflows/asterisk-config-tests.yml'
@@ -19,6 +20,7 @@ on:
       - 'install-enlace-pbx.sh'
       - 'tests/test_asterisk_reconciler.py'
       - 'tests/test_asterisk_auth_smoke.py'
+      - 'tests/test_asterisk_installer_safety.py'
       - '.github/workflows/asterisk-config-tests.yml'
   workflow_dispatch:
 
