@@ -64,6 +64,18 @@ class DiagnosticBundleTests(unittest.TestCase):
         )
         self.assertNotEqual(verification.returncode, 0)
 
+    def test_bundle_verifier_rejects_missing_and_extra_files(self):
+        result = self.run_bundle()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        verifier = Path(__file__).with_name("verify-diagnostic-bundle.py")
+        # Mock child collectors do not produce real file inventories, so the
+        # verifier must reject their incomplete output.
+        check = subprocess.run(
+            ["python3", str(verifier), str(self.target)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(check.returncode, 2)
+
     def test_partial_failure_is_reported_and_other_collectors_run(self):
         result = self.run_bundle(FAIL_PREFLIGHT="1")
         self.assertEqual(result.returncode, 1)
