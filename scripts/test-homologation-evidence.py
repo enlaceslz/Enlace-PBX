@@ -26,6 +26,11 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.validate(TEMPLATE.replace(line, ""))
 
+    def test_each_telephony_row_is_required(self):
+        line = next(line for line in TEMPLATE.splitlines() if line.startswith("| TEL-07 |"))
+        with self.assertRaises(ValueError):
+            module.validate(TEMPLATE.replace(line, ""))
+
     def test_duplicate_row_rejected(self):
         line = next(line for line in TEMPLATE.splitlines() if line.startswith("| INF-01 |"))
         with self.assertRaises(ValueError):
