@@ -27,7 +27,7 @@ class PrivilegeAuditTests(unittest.TestCase):
         self.assertIn("ami == ari or ami_user == ari_user", self.source)
 
     def test_ami_write_privileges_remain_explicitly_audited(self):
-        self.assertRegex(self.source, r'write = [^"\\n]*originate')
+        self.assertIn('write = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate', self.source)
         evidence = (ROOT / "docs" / "EVIDENCIAS_HOMOLOGACAO_DEBIAN12.md").read_text(encoding="utf-8")
         self.assertIn("menor privilégio", evidence)
         self.assertIn("BLOQUEADO", evidence)
