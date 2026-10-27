@@ -132,7 +132,7 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertEqual(DEPLOY.count('apt-get update -y'), 1)
         self.assertEqual(DEPLOY.count('systemctl restart enlace-pbx.service'), 1)
         self.assertEqual(DEPLOY.count('# 2. Identificação do Sistema Operacional'), 1)
-        self.assertNotIn('\\n; then\\n', DEPLOY)
+        self.assertNotIn('\n; then\n', DEPLOY)
         self.assertEqual(DEPLOY.count('if command -v pm2 >/dev/null'), 1)
 
     def test_deploy_has_one_configuration_and_one_summary(self):
