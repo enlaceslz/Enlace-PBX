@@ -77,6 +77,16 @@ class ReconcilerTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(manager.stat().st_mode), 0o640)
         self.assertEqual(backups_before, sorted(p.name for p in self.root.glob("*.bak.*")))
 
+    def test_reconciler_preserves_more_restrictive_existing_mode(self):
+        manager = self.root / "manager.conf"
+        manager.chmod(0o600)
+        result = self.run_reconciler()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(stat.S_IMODE(manager.stat().st_mode), 0o600)
+        second = self.run_reconciler()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(stat.S_IMODE(manager.stat().st_mode), 0o600)
+
     def test_second_run_is_idempotent(self):
         self.assertEqual(self.run_reconciler().returncode, 0)
         before = {p.name: p.read_bytes() for p in self.root.glob("*.conf")}
