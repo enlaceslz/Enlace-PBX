@@ -41,5 +41,9 @@ if [ -e "$temporary" ]; then
   exit 1
 fi
 trap - EXIT
+# The digest detects accidental corruption, but is not an authenticity signature.
+sha256sum -- "$destination" > "$destination.sha256"
+chmod 600 "$destination.sha256"
 echo "Backup de arquivos do PBX criado: $destination"
+echo "SHA-256 registrado: $destination.sha256"
 echo "ATENCAO: PostgreSQL e .env nao incluidos. Para consistencia, execute com servicos parados ou em janela de manutencao."
