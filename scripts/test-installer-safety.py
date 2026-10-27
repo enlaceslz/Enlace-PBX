@@ -147,64 +147,8 @@ class InstallerSafetyTests(unittest.TestCase):
 
     def test_ufw_activation_fails_closed(self):
         self.assertIn('if ! ufw --force enable; then', DEPLOY)
-        self.assertIn("ufw status | grep -Eq '^Status: active
-        self.assertIn('NGINX_DEFAULT_TARGET=$(readlink /etc/nginx/sites-enabled/default)', DEPLOY)
-        self.assertIn('ln -s "$NGINX_DEFAULT_TARGET" /etc/nginx/sites-enabled/default', DEPLOY)
-        self.assertIn('site NGINX padrao nao e link simbolico', DEPLOY)
-        self.assertNotIn('ln -s ../sites-available/default /etc/nginx/sites-enabled/default', DEPLOY)
-
-    def test_nginx_reload_failure_restores_previous_site(self):
-        self.assertIn('NGINX_ENABLED_TARGET=$(readlink /etc/nginx/sites-enabled/enlace-pbx)', DEPLOY)
-        self.assertIn('rollback_nginx_site() {', DEPLOY)
-        self.assertIn('if ! systemctl reload nginx; then', DEPLOY)
-        self.assertIn('ERRO: falha ao recarregar NGINX; configuracao anterior restaurada.', DEPLOY)
-        self.assertIn('ERRO: configuracao NGINX nao pode ser link simbolico.', DEPLOY)
-
-    def test_nginx_configuration_is_backed_up_and_restored_on_failure(self):
-        self.assertIn('NGINX_BACKUP=$(mktemp /etc/nginx/sites-available/.enlace-pbx.backup.', DEPLOY)
-        self.assertIn('cp -p "$NGINX_SITE" "$NGINX_BACKUP"', DEPLOY)
-        self.assertIn('configuracao anterior restaurada', DEPLOY)
-        self.assertLess(DEPLOY.index('if nginx -t >/dev/null 2>&1; then'), DEPLOY.index('rm -f /etc/nginx/sites-enabled/default'))
-
-    def test_pm2_conflict_is_checked_before_host_changes(self):
-        self.assertEqual(DEPLOY.count('pm2 pid enlace-pbx'), 1)
-        self.assertLess(DEPLOY.index('pm2 pid enlace-pbx'), DEPLOY.index('apt-get update -y'))
-        self.assertLess(DEPLOY.index('ERRO: Enlace-PBX ainda executa sob PM2'), DEPLOY.index('apt-get update -y'))
-
-    def test_deploy_preflight_rejects_unsafe_location_and_env_symlink(self):
-        self.assertEqual(DEPLOY.count('APP_DIR="$(pwd -P)"'), 1)
-        self.assertIn('if [[ "${APP_DIR}" != /opt/* && "${APP_DIR}" != /srv/* ]]; then', DEPLOY)
-        self.assertIn('if [ -L .env ]; then', DEPLOY)
-        self.assertLess(DEPLOY.index('APP_DIR="$(pwd -P)"'), DEPLOY.index('apt-get update -y'))
-        self.assertLess(DEPLOY.index('if [ -L .env ]; then'), DEPLOY.index('apt-get update -y'))
-
-    def test_network_input_is_validated_before_config_generation(self):
-        self.assertIn('ERRO: dominio/FQDN invalido.', DEPLOY)
-        self.assertIn('ERRO: IP publico deve ser um endereco IPv4 valido.', DEPLOY)
-        self.assertIn('octeto IPv4 fora do intervalo permitido', DEPLOY)
-        self.assertLess(DEPLOY.index('ERRO: dominio/FQDN invalido.'), DEPLOY.index('CORS_ALLOWED_ORIGINS=https://'))
-        self.assertLess(DEPLOY.index('ERRO: IP publico deve ser um endereco IPv4 valido.'), DEPLOY.index('PBX_PUBLIC_IP=${PUBLIC_IP}'))
-
-    def test_health_check_retries_before_declaring_deploy_failure(self):
-        self.assertIn('for attempt in $(seq 1 30); do', DEPLOY)
-        self.assertIn('if ! systemctl is-active --quiet enlace-pbx.service; then', DEPLOY)
-        self.assertIn('journalctl -u enlace-pbx.service -n 30 --no-pager', DEPLOY)
-        self.assertNotIn('sleep 2\necho -e', DEPLOY)
-
-    def test_samples_are_not_installed_on_existing_config(self):
-        self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
-        self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
-        self.assertIn('if [ -e /etc/asterisk ]; then', SCRIPT)
-        self.assertIn('ASTERISK_CONFIG_PREEXISTED=1', SCRIPT)
-        self.assertLess(SCRIPT.index('ASTERISK_CONFIG_PREEXISTED=1'), SCRIPT.index('\nmake install\n'))
-        self.assertIn('if [ "${ASTERISK_CONFIG_PREEXISTED}" -eq 1 ]; then', SCRIPT)
-        self.assertRegex(SCRIPT, r'else\s+make samples\s+fi')
-
-
-if __name__ == "__main__":
-    unittest.main()
-", DEPLOY)
-        self.assertIn('ERRO: UFW nao esta ativo', DEPLOY)
+        self.assertIn('ufw status | grep -Fqx "Status: active"', DEPLOY)
+        self.assertIn('ERRO: UFW nao esta ativo.', DEPLOY)
         self.assertNotIn('ufw enable || true', DEPLOY)
 
     def test_nginx_default_symlink_target_is_preserved(self):
