@@ -138,6 +138,11 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_pm2_conflict_is_checked_before_host_changes(self):
+        self.assertEqual(DEPLOY.count('pm2 pid enlace-pbx'), 1)
+        self.assertLess(DEPLOY.index('pm2 pid enlace-pbx'), DEPLOY.index('apt-get update -y'))
+        self.assertLess(DEPLOY.index('ERRO: Enlace-PBX ainda executa sob PM2'), DEPLOY.index('apt-get update -y'))
+
     def test_deploy_preflight_rejects_unsafe_location_and_env_symlink(self):
         self.assertEqual(DEPLOY.count('APP_DIR="$(pwd -P)"'), 1)
         self.assertIn('if [[ "${APP_DIR}" != /opt/* && "${APP_DIR}" != /srv/* ]]; then', DEPLOY)
