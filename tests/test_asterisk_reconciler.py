@@ -57,6 +57,22 @@ class ReconcilerTests(unittest.TestCase):
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.glob("*.conf")})
         self.assertEqual(backups_before, sorted(p.name for p in self.root.glob("*.bak.*")))
 
+    def test_rejects_shared_password_without_writing_files(self):
+        original = (self.root / "manager.conf").read_bytes()
+        result = self.run_reconciler(ASTERISK_ARI_PASSWORD=AMI_SECRET)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("distinct", result.stderr)
+        self.assertEqual((self.root / "manager.conf").read_bytes(), original)
+        self.assertFalse((self.root / "ari.conf").exists())
+
+    def test_rejects_shared_username_without_writing_files(self):
+        original = (self.root / "manager.conf").read_bytes()
+        result = self.run_reconciler(ASTERISK_ARI_USER="enlace_ami")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("distinct", result.stderr)
+        self.assertEqual((self.root / "manager.conf").read_bytes(), original)
+        self.assertFalse((self.root / "ari.conf").exists())
+
     def test_rejects_unsafe_password(self):
         result = self.run_reconciler(ASTERISK_AMI_PASSWORD="bad\n[admin]\n" + "x" * 24)
         self.assertNotEqual(result.returncode, 0)
