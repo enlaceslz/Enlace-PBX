@@ -74,6 +74,16 @@ if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then
   exit 1
 fi
 
+# Installation compiles and restarts Asterisk. Protect existing PBX systems
+# against accidental destructive upgrades, even when run as root.
+if [ -e /etc/asterisk ] || [ -L /etc/asterisk ] || command -v asterisk >/dev/null 2>&1; then
+  if [ "${ENLACE_ALLOW_EXISTING_PBX:-}" != "I_UNDERSTAND_THE_RISK" ]; then
+    echo "ERRO: instalacao existente do Asterisk detectada. Backup, janela de manutencao e ENLACE_ALLOW_EXISTING_PBX=I_UNDERSTAND_THE_RISK sao obrigatorios." >&2
+    exit 1
+  fi
+  echo "AVISO: instalacao existente detectada; autorizacao explicita recebida." >&2
+fi
+
 # 2. Instalação de dependências do sistema
 echo -e "\n${BOLD}[1/7] Instalando pacotes e dependências de compilação...${NC}"
 export DEBIAN_FRONTEND=noninteractive
