@@ -23,6 +23,16 @@
 
 **Aprovação:** instalação sem erros; serviço ativo; CLI operacional; processo sob usuário não privilegiado; nenhuma configuração de terceiros sobrescrita.
 
+## Etapa 1A — Estabilidade após inicialização
+
+1. Após a instalação, executar `systemctl is-active --quiet asterisk` e registrar o resultado; confirmar `systemctl show asterisk -p User -p Group -p MainPID -p NRestarts`.
+2. Registrar `asterisk -rx 'core show uptime'` e `asterisk -rx 'core show channels count'`. Repetir após 60 segundos para detectar reinicializações e encerramentos prematuros.
+3. Executar `runuser -u asterisk -- test -r /etc/asterisk/manager.conf`, repetindo para `http.conf` e `ari.conf`. Registrar somente o resultado, nunca o conteúdo dos arquivos.
+4. Confirmar `ss -lntup`: AMI (5038) e HTTP/ARI (8088) devem estar vinculados a 127.0.0.1, salvo arquitetura remota expressamente aprovada e protegida.
+5. Registrar `journalctl -u asterisk --since '-5 min' --no-pager` com dados sensíveis removidos. Verificar falhas de carregamento de módulos, autenticação, permissões e reinícios.
+
+**Aprovação:** processo estável durante a observação, usuário de serviço sem privilégios, arquivos legíveis pelo serviço e nenhuma exposição não autorizada. A verificação estática ou CI não substitui estes passos em VM real.
+
 ## Etapa 2 — Autenticação e superfície de rede
 
 1. Executar `scripts/check-asterisk-auth.py` com variáveis de ambiente de laboratório, a partir do próprio PBX.
