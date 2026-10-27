@@ -79,6 +79,25 @@ Comandos de apoio: `asterisk -rx 'pjsip show endpoints'`, `asterisk -rx 'pjsip s
 
 **Falha crítica:** áudio unilateral, chamada órfã, registro instável ou DTMF incorreto em cenário obrigatório. Testes automatizados de configuração não comprovam qualidade de voz nem funcionamento SIP real.
 
+## Cenários de integração com IA e contingência
+
+Execute somente com ramais e destinos de laboratório, sem tráfego de clientes. Registre versão da integração, gateway de IA configurado, horário UTC, ID técnico da sessão (anonimizado), tempo de resposta, estado final dos canais e resultado. Nunca inclua chaves de API, áudio de clientes ou transcrições pessoais nas evidências.
+
+| ID | Cenário | Critério de aprovação | Resultado |
+| --- | --- | --- | --- |
+| IA-01 | Chamada atendida pela IA | Sessão criada, resposta audível e encerramento controlado | NÃO EXECUTADO |
+| IA-02 | Gateway IA indisponível antes do atendimento | Falha detectada; fluxo de contingência executado sem chamada presa | NÃO EXECUTADO |
+| IA-03 | Timeout de resposta do gateway | Timeout limitado; mensagem/fallback conforme política configurada | NÃO EXECUTADO |
+| IA-04 | Transferência para agente humano | Agente recebe a chamada com contexto autorizado; IA deixa de atuar | NÃO EXECUTADO |
+| IA-05 | Agente humano indisponível | Encaminhamento alternativo ou encerramento seguro, sem loop | NÃO EXECUTADO |
+| IA-06 | Queda de conexão durante sessão | Recursos e canais liberados; evento de falha registrado | NÃO EXECUTADO |
+| IA-07 | Chamadas simultâneas no limite definido | Sessões isoladas, sem vazamento de contexto ou degradação inaceitável | NÃO EXECUTADO |
+| IA-08 | Reinício controlado do serviço | Retorno do serviço e novas chamadas funcionais; sessões antigas tratadas | NÃO EXECUTADO |
+
+Após cada cenário, compare `asterisk -rx 'core show channels count'` com a linha de base, inspecione erros de AMI/ARI e confirme que não restaram sessões, canais ou recursos de áudio órfãos. O limite de timeout e a capacidade de simultaneidade devem ser definidos e aprovados antes da execução; não presumir valores não documentados.
+
+**Falha crítica:** chamada presa, ausência de fallback exigido, sessão não encerrada, transferência incorreta, exposição de credenciais ou vazamento de contexto entre chamadas.
+
 ## Matriz de aceitação
 
 | Cenário | Esperado | Resultado | Evidência |
