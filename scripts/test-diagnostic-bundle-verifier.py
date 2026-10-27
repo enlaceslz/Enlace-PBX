@@ -62,6 +62,14 @@ class BundleVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "excessivamente grande"):
             module.validate(self.root)
 
+    def test_oversized_evidence_opened_descriptor_guard(self):
+        path = self.root / "rotas/rotas.txt"
+        with path.open("wb") as stream:
+            stream.truncate(8 * 1024 * 1024 + 1)
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, "excessivamente grande"):
+            module.validate(self.root)
+
     def test_oversized_manifest_is_rejected(self):
         manifest = self.root / "SHA256SUMS"
         manifest.write_text("x" * 16385)
