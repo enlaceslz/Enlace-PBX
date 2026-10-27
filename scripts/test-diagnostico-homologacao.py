@@ -54,6 +54,16 @@ class DiagnosticBundleTests(unittest.TestCase):
                            capture_output=True).returncode, 0,
         )
 
+    def test_tampered_child_report_breaks_bundle_integrity(self):
+        result = self.run_bundle()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (self.target / "asterisk/report.txt").write_text("tampered")
+        verification = subprocess.run(
+            ["sha256sum", "--check", "SHA256SUMS"], cwd=self.target,
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(verification.returncode, 0)
+
     def test_partial_failure_is_reported_and_other_collectors_run(self):
         result = self.run_bundle(FAIL_PREFLIGHT="1")
         self.assertEqual(result.returncode, 1)
