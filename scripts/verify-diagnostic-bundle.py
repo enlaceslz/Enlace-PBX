@@ -57,8 +57,13 @@ def validate(directory: Path):
         raise ValueError("Arquivos extras ou ausentes no pacote")
     for name, expected_digest in listed.items():
         path = directory / name
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual != expected_digest:
+        if path.stat().st_size > 8 * 1024 * 1024:
+            raise ValueError("Arquivo de evidencia excessivamente grande: " + name)
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(65536), b""):
+                digest.update(block)
+        if digest.hexdigest() != expected_digest:
             raise ValueError("Hash divergente: " + name)
     return True
 
