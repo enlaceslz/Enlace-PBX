@@ -147,6 +147,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_postgres_connection_checked_before_build(self):
+        self.assertIn('DATABASE_URL="$DATABASE_URL" node -e', DEPLOY)
+        self.assertIn('pool.query("SELECT 1")', DEPLOY)
+        self.assertIn('ERRO: teste de conexao PostgreSQL falhou.', DEPLOY)
+        self.assertLess(DEPLOY.index('pool.query("SELECT 1")'), DEPLOY.index('npm run build'))
+        self.assertLess(DEPLOY.index('pool.query("SELECT 1")'), DEPLOY.index('systemctl restart enlace-pbx.service'))
+
     def test_migration_lock_and_ddl_use_one_connection(self):
         self.assertIn('migrationClient = await postgresClient.getClient()', MIGRATOR)
         self.assertIn("await migrationClient.query('SELECT pg_advisory_lock($1)'", MIGRATOR)
