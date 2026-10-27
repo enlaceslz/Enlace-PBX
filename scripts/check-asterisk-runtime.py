@@ -34,7 +34,7 @@ def evaluate(active, properties, listeners, cli_ok):
             if re.search(r":" + str(port) + r"$", local):
                 bound.append(local)
         findings.append((f"tcp-{port}-loopback-only", bool(bound) and all(
-            address.startswith("127.0.0.1:") for address in bound
+            address == f"127.0.0.1:{port}" for address in bound
         )))
     return findings
 
