@@ -26,6 +26,8 @@ def reject_unsafe_config_path(path: Path) -> None:
         raise ValueError(f"{path}: expected a regular configuration file")
     if path.parent.is_symlink():
         raise ValueError(f"{path.parent}: symbolic link configuration directory")
+    if path.parent.resolve(strict=False) != path.parent.absolute():
+        raise ValueError(f"{path.parent}: symbolic link in configuration directory ancestry")
     if path.parent.exists() and not path.parent.is_dir():
         raise ValueError(f"{path.parent}: expected a configuration directory")
 
