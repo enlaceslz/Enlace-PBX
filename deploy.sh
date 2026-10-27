@@ -421,8 +421,8 @@ fi
 # 11. Run the application with a dedicated unprivileged systemd identity.
 echo -e "\n${CYAN}🚀 Configurando serviço Enlace-PBX sem privilégios de root...${NC}"
 APP_DIR="$(pwd -P)"
-if [[ "${APP_DIR}" == /root || "${APP_DIR}" == /root/* ]]; then
-  echo "ERRO: mova o projeto para /opt/enlace-pbx (ou outro diretorio acessivel) antes do deploy." >&2
+if [[ "${APP_DIR}" != /opt/* && "${APP_DIR}" != /srv/* ]]; then
+  echo "ERRO: mova o projeto para /opt/enlace-pbx ou /srv/enlace-pbx antes do deploy." >&2
   exit 1
 fi
 if ! getent group enlace-pbx >/dev/null; then groupadd --system enlace-pbx; fi
