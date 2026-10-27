@@ -56,7 +56,8 @@ def stable(before, after):
             and first.get("MainPID", "0").isdigit()
             and int(first.get("MainPID", "0")) > 0
             and first.get("MainPID") == second.get("MainPID")
-            and first.get("NRestarts") is not None
+            and first.get("NRestarts", "").isdigit()
+            and second.get("NRestarts", "").isdigit()
             and first.get("NRestarts") == second.get("NRestarts"))
 
 
