@@ -44,7 +44,7 @@ def validate(text):
         found[identifier] = status
     evidence = {}
     pattern = re.compile(
-        r"^EVIDENCIA: (\\S+) \\| artefato=([^|]+) \\| data=(\\d{4}-\\d{2}-\\d{2}) \\| responsavel=([^|]+)$"
+        r"^EVIDENCIA: (\S+) \| artefato=([^|]+) \| data=(\d{4}-\d{2}-\d{2}) \| responsavel=([^|]+)$"
     )
     for line in text.splitlines():
         if not line.startswith("EVIDENCIA: "):
