@@ -47,6 +47,15 @@ if [[ "${#ASTERISK_AMI_PASSWORD}" -lt 24 || "${#ASTERISK_ARI_PASSWORD}" -lt 24 ]
   exit 1
 fi
 
+# Validate AMI/ARI usernames before package installation. The reconciler
+# applies the same allowlist; reject unsafe input before any system changes.
+for account_name in "${ASTERISK_AMI_USER:-enlace_ami}" "${ASTERISK_ARI_USER:-enlace_ari}"; do
+  if [[ ! "${account_name}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "ERRO: usuarios AMI/ARI devem conter apenas letras, numeros, _ ou -." >&2
+    exit 1
+  fi
+done
+
 # Keep AMI and ARI identities separate before changing any system state.
 if [[ "${ASTERISK_AMI_PASSWORD}" == "${ASTERISK_ARI_PASSWORD}" ||
       "${ASTERISK_AMI_USER:-enlace_ami}" == "${ASTERISK_ARI_USER:-enlace_ari}" ]]; then
