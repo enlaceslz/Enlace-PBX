@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Validate homologation evidence statuses without accepting implicit approval."""
 import argparse
+import datetime
+import re
 from pathlib import Path
 import sys
 
@@ -40,6 +42,33 @@ def validate(text):
         ):
             raise ValueError(f"Evidencia nao preenchida para {identifier}")
         found[identifier] = status
+    evidence = {}
+    pattern = re.compile(
+        r"^EVIDENCIA: (\\S+) \\| artefato=([^|]+) \\| data=(\\d{4}-\\d{2}-\\d{2}) \\| responsavel=([^|]+)$"
+    )
+    for line in text.splitlines():
+        if not line.startswith("EVIDENCIA: "):
+            continue
+        match = pattern.fullmatch(line.strip())
+        if not match:
+            raise ValueError("Registro EVIDENCIA malformado")
+        identifier, artifact, date, owner = (item.strip() for item in match.groups())
+        if identifier not in EXPECTED or identifier in evidence:
+            raise ValueError(f"Evidencia duplicada ou ID desconhecido: {identifier}")
+        if not artifact or artifact.startswith(("/", "http:", "https:")) or ".." in artifact.split("/") or any(ch.isspace() for ch in artifact):
+            raise ValueError(f"Referencia de artefato invalida: {identifier}")
+        if not owner or len(owner) > 80 or any(ch.isspace() for ch in owner):
+            raise ValueError(f"Responsavel invalido: {identifier}")
+        try:
+            datetime.date.fromisoformat(date)
+        except ValueError as exc:
+            raise ValueError(f"Data invalida: {identifier}") from exc
+        evidence[identifier] = (artifact, date, owner)
+    for identifier, status in found.items():
+        if status == "APROVADO" and identifier not in evidence:
+            raise ValueError(f"Evidencia estruturada ausente: {identifier}")
+        if status != "APROVADO" and identifier in evidence:
+            raise ValueError(f"Evidencia sem aprovacao: {identifier}")
     missing = sorted(set(EXPECTED) - set(found))
     if missing:
         raise ValueError("Itens ausentes: " + ", ".join(missing))
