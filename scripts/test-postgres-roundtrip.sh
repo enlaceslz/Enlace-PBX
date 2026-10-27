@@ -9,7 +9,7 @@ if [ "$#" -ne 1 ]; then
   exit 2
 fi
 target_url="$1"
-app_dir="${APP_DIR:-/opt/enlace-pbx}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf -- "$tmpdir"' EXIT
 
@@ -42,7 +42,7 @@ psql "$target_url" -X -v ON_ERROR_STOP=1 -c "CREATE TABLE pbx_backup_smoke (id i
 pg_dump --dbname="$target_url" --format=custom --no-owner --no-acl --file="$tmpdir/smoke.dump"
 pg_restore --list "$tmpdir/smoke.dump" >/dev/null
 psql "$target_url" -X -v ON_ERROR_STOP=1 -c "DROP TABLE pbx_backup_smoke;"
-bash "$app_dir/scripts/restore-postgres-test.sh" "$tmpdir/smoke.dump" "$target_url"
+bash "$script_dir/restore-postgres-test.sh" "$tmpdir/smoke.dump" "$target_url"
 result="$(psql "$target_url" -XAt -v ON_ERROR_STOP=1 -c "SELECT payload FROM pbx_backup_smoke WHERE id=1;")"
 [ "$result" = "enlace-backup-check" ] || { echo "ERRO: divergencia de dados apos restauracao." >&2; exit 1; }
 echo "SUCESSO: backup e restauracao PostgreSQL com integridade verificada."
