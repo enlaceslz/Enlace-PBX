@@ -44,6 +44,13 @@ def reconcile(path: Path, section: str, body: str) -> None:
     else:
         updated = original.rstrip() + ("\n\n" if original.strip() else "") + new_section
     if updated == original:
+        # Idempotence includes permissions: correct unsafe existing modes
+        # without rewriting contents or creating a redundant backup.
+        if path.exists():
+            current_mode = stat.S_IMODE(path.stat().st_mode)
+            safe_mode = current_mode & 0o640
+            if safe_mode != current_mode:
+                os.chmod(path, safe_mode)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
