@@ -27,6 +27,10 @@ try:
         if not match:
             raise ValueError('linha invalida ou caminho nao permitido')
         names.append(match.group(2))
+    for name in names:
+        candidate = manifest.parent / name
+        if candidate.is_symlink() or not candidate.is_file():
+            raise ValueError('arquivo de backup ausente ou link simbolico: ' + name)
     if sum(n.startswith('enlace-pbx-postgres-') for n in names) != 1:
         raise ValueError('backup PostgreSQL ausente ou duplicado')
     if sum(n.startswith('enlace-pbx-files-') for n in names) != 1:
