@@ -50,7 +50,7 @@ def reconcile(path: Path, section: str, body: str) -> None:
         backup = path.with_name(path.name + ".bak." + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
         # Create the backup private from the first byte: copy2() can briefly
         # expose credentials when the source configuration is world-readable.
-        with path.open("rb") as source, backup.open("xb", opener=lambda p, flags: os.open(p, flags, 0o600)) as destination:
+        with path.open("rb") as source, open(backup, "xb", opener=lambda p, flags: os.open(p, flags, 0o600)) as destination:
             shutil.copyfileobj(source, destination)
             destination.flush()
             os.fsync(destination.fileno())
