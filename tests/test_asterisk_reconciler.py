@@ -73,7 +73,7 @@ class ReconcilerTests(unittest.TestCase):
     def test_late_symlink_does_not_modify_manager(self):
         original = (self.root / "manager.conf").read_bytes()
         target = self.root / "target.conf"
-        target.write_text("[general]\\nenabled = no\\n", encoding="utf-8")
+        target.write_text("[general]\nenabled = no\n", encoding="utf-8")
         (self.root / "ari.conf").symlink_to(target)
         result = self.run_reconciler()
         self.assertNotEqual(result.returncode, 0)
@@ -82,7 +82,7 @@ class ReconcilerTests(unittest.TestCase):
     def test_late_duplicate_does_not_modify_manager(self):
         original = (self.root / "manager.conf").read_bytes()
         (self.root / "ari.conf").write_text(
-            "[general]\\nenabled = yes\\n[general]\\nenabled = no\\n",
+            "[general]\nenabled = yes\n[general]\nenabled = no\n",
             encoding="utf-8",
         )
         result = self.run_reconciler()
