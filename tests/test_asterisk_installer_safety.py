@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 
@@ -50,6 +51,41 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("GUARD_CONTINUED", result.stdout)
         self.assertIn("autorizacao explicita recebida", result.stderr)
+
+    def test_os_gate_rejects_unsupported_distribution_in_isolated_shell(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        start = source.index("# Reject unsupported operating systems")
+        end = source.index("# Resolve installer dependencies", start)
+        gate = source[start:end]
+        # Source the original gate, but replace the system release file in
+        # the extracted shell snippet with a temporary test fixture.
+        with tempfile.TemporaryDirectory() as directory:
+            release = Path(directory) / "os-release"
+            release.write_text('ID=arch\\nVERSION_ID=rolling\\n', encoding="utf-8")
+            gate = gate.replace("/etc/os-release", str(release))
+            result = subprocess.run(
+                ["bash", "-c", "set -e\\n" + gate + "\\necho GATE_CONTINUED\\n"],
+                capture_output=True, text=True, timeout=5,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("nao suportado", result.stderr)
+            self.assertNotIn("GATE_CONTINUED", result.stdout)
+
+    def test_os_gate_accepts_debian_12_in_isolated_shell(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        start = source.index("# Reject unsupported operating systems")
+        end = source.index("# Resolve installer dependencies", start)
+        gate = source[start:end]
+        with __import__("tempfile").TemporaryDirectory() as directory:
+            release = Path(directory) / "os-release"
+            release.write_text('ID=debian\\nVERSION_ID="12"\\n', encoding="utf-8")
+            gate = gate.replace("/etc/os-release", str(release))
+            result = subprocess.run(
+                ["bash", "-c", "set -e\\n" + gate + "\\necho GATE_CONTINUED\\n"],
+                capture_output=True, text=True, timeout=5,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("GATE_CONTINUED", result.stdout)
 
     def test_missing_credentials_fail_before_any_package_install(self):
         env = os.environ.copy()
