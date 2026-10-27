@@ -15,7 +15,7 @@ def validate_target(raw):
         if url.hostname not in ("127.0.0.1", "localhost", "::1"):
             raise ValueError("Restauracao permitida apenas para PostgreSQL local (loopback)")
         username = unquote(url.username or "")
-        if not username or username in ("postgres", "enlace_app") or "/" in username or "\\x00" in username:
+        if not username or username in ("postgres", "enlace_app") or "/" in username or chr(0) in username:
             raise ValueError("Use uma conta exclusiva de homologacao, nunca postgres ou enlace_app")
         if not url.password:
             raise ValueError("Senha explicita de homologacao obrigatoria")
