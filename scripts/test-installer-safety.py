@@ -122,6 +122,12 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertNotIn('pm2 start dist/server.cjs', DEPLOY)
         self.assertNotIn('pm2 startup systemd -u root', DEPLOY)
 
+    def test_legacy_pm2_migration_is_explicit(self):
+        self.assertIn('pm2 pid enlace-pbx', DEPLOY)
+        self.assertIn('ERRO: Enlace-PBX ainda executa sob PM2', DEPLOY)
+        self.assertNotIn('npm install -g pm2', DEPLOY)
+        self.assertNotIn('pm2 delete enlace-pbx', DEPLOY)
+
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
         self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
