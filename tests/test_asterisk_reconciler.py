@@ -117,6 +117,17 @@ class ReconcilerTests(unittest.TestCase):
         self.assertIn("symbolic link", result.stderr)
         self.assertEqual(list(actual.iterdir()), [])
 
+    def test_rejects_symlinked_ancestor_without_writes(self):
+        actual = self.root / "actual-parent"
+        actual.mkdir()
+        linked = self.root / "linked-parent"
+        linked.symlink_to(actual, target_is_directory=True)
+        nested = linked / "asterisk"
+        result = self.run_reconciler(ASTERISK_CONFIG_DIR=str(nested))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symbolic link", result.stderr)
+        self.assertEqual(list(actual.iterdir()), [])
+
     def test_rejects_config_root_that_is_regular_file(self):
         root_file = self.root / "not-a-directory"
         root_file.write_text("preserve", encoding="utf-8")
