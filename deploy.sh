@@ -368,6 +368,7 @@ if [[ ! "$CONF_NGINX" =~ ^[Nn]$ ]]; then
   NGINX_BACKUP=""
   NGINX_SITE_PREEXISTED=false
   NGINX_DEFAULT_ENABLED=false
+  NGINX_DEFAULT_TARGET=""
   NGINX_ENABLED_PREEXISTED=false
   NGINX_ENABLED_TARGET=""
   if [ -L /etc/nginx/sites-enabled/enlace-pbx ]; then
@@ -386,8 +387,12 @@ if [[ ! "$CONF_NGINX" =~ ^[Nn]$ ]]; then
     NGINX_BACKUP=$(mktemp /etc/nginx/sites-available/.enlace-pbx.backup.XXXXXXXX)
     cp -p "$NGINX_SITE" "$NGINX_BACKUP"
   fi
-  if [ -e /etc/nginx/sites-enabled/default ] || [ -L /etc/nginx/sites-enabled/default ]; then
+  if [ -L /etc/nginx/sites-enabled/default ]; then
     NGINX_DEFAULT_ENABLED=true
+    NGINX_DEFAULT_TARGET=$(readlink /etc/nginx/sites-enabled/default)
+  elif [ -e /etc/nginx/sites-enabled/default ]; then
+    echo "ERRO: site NGINX padrao nao e link simbolico; preserve manualmente antes do deploy." >&2
+    exit 1
   fi
   cat <<NGINX_CONF > "$NGINX_SITE"
 # ====================================================================
@@ -443,7 +448,7 @@ NGINX_CONF
       rm -f /etc/nginx/sites-enabled/enlace-pbx
     fi
     if [ "$NGINX_DEFAULT_ENABLED" = true ] && [ ! -e /etc/nginx/sites-enabled/default ] && [ ! -L /etc/nginx/sites-enabled/default ]; then
-      ln -s ../sites-available/default /etc/nginx/sites-enabled/default
+      ln -s "$NGINX_DEFAULT_TARGET" /etc/nginx/sites-enabled/default
     fi
   }
   # Validate first, then remove the default site only after the new site is usable.
