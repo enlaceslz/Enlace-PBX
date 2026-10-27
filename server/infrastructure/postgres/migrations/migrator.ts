@@ -27,7 +27,7 @@ export class DatabaseMigrator {
       migrationClient = await postgresClient.getClient();
       await migrationClient.query('SELECT pg_advisory_lock($1)', [this.MIGRATION_LOCK_ID]);
       hasLock = true;
-      const query: typeof postgresClient.query = (sql, params) => migrationClient!.query(sql, params);
+      const query = (sql: string, params?: any[]) => migrationClient!.query(sql, params);
 
       // 2. Cria ou atualiza a tabela de schema_migrations com checksum SHA-256
       await query(`
