@@ -348,12 +348,25 @@ if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/check-asterisk-auth.py" ]; then
   exit 1
 fi
 echo "Verificando autenticacao AMI e ARI no loopback..."
-if ! ASTERISK_AMI_USER="${ASTERISK_AMI_USER:-enlace_ami}" \
+# Allow bounded startup time for AMI/ARI listeners after systemd becomes active.
+# Every attempt still requires both authenticated checks to pass.
+ASTERISK_AUTH_READY=0
+for auth_attempt in 1 2 3 4 5; do
+  if ASTERISK_AMI_USER="${ASTERISK_AMI_USER:-enlace_ami}" \
      ASTERISK_ARI_USER="${ASTERISK_ARI_USER:-enlace_ari}" \
      ASTERISK_AMI_PASSWORD="${ASTERISK_AMI_PASSWORD}" \
      ASTERISK_ARI_PASSWORD="${ASTERISK_ARI_PASSWORD}" \
      python3 "${INSTALL_SCRIPT_DIR}/scripts/check-asterisk-auth.py"; then
-  echo "ERRO: Asterisk iniciou, mas a autenticacao AMI/ARI falhou; instalacao nao homologada." >&2
+    ASTERISK_AUTH_READY=1
+    break
+  fi
+  if [ "${auth_attempt}" -lt 5 ]; then
+    echo "AMI/ARI ainda indisponiveis (tentativa ${auth_attempt}/5); aguardando 2s..." >&2
+    sleep 2
+  fi
+done
+if [ "${ASTERISK_AUTH_READY}" -ne 1 ]; then
+  echo "ERRO: autenticacao AMI/ARI nao validada apos 5 tentativas; instalacao nao homologada." >&2
   exit 1
 fi
 
