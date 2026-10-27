@@ -17,8 +17,8 @@ elif [ "$#" -ne 0 ]; then
 fi
 record() {
   local line="$1"
-  printf '%s\\n' "$line"
-  if [ -n "${report_path:-}" ]; then printf '%s\\n' "$line" >> "$report_path"; fi
+  printf '%s\n' "$line"
+  if [ -n "${report_path:-}" ]; then printf '%s\n' "$line" >> "$report_path"; fi
 }
 check() {
   local label="$1"; shift
