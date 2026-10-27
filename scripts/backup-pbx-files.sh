@@ -40,10 +40,14 @@ if [ -e "$temporary" ]; then
   echo "ERRO: arquivo de backup nao publicado." >&2
   exit 1
 fi
-trap - EXIT
+# Publish the archive and checksum together as far as possible. On failure,
+# remove the published archive so it cannot be mistaken for a complete backup.
+trap 'rm -f -- "$temporary" "$destination.sha256"; if [ -f "$destination" ]; then rm -f -- "$destination"; fi' ERR
 # The digest detects accidental corruption, but is not an authenticity signature.
 sha256sum -- "$destination" > "$destination.sha256"
 chmod 600 "$destination.sha256"
+trap - ERR
+trap - EXIT
 echo "Backup de arquivos do PBX criado: $destination"
 echo "SHA-256 registrado: $destination.sha256"
 echo "ATENCAO: PostgreSQL e .env nao incluidos. Para consistencia, execute com servicos parados ou em janela de manutencao."
