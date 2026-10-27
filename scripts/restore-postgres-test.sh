@@ -19,7 +19,7 @@ pg_restore --list "$archive" >/dev/null || { echo "ERRO: arquivo nao e um backup
 
 # Parse with Python to reject malformed URLs and non-test database names.
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-target_db="$(python3 "$script_dir/validate-restore-target.py" "$target_url")" || exit 1
+target_db="$(printf '%s' "$target_url" | python3 "$script_dir/validate-restore-target.py" --stdin)" || exit 1
 
 # Refuse a populated database, including existing tables outside the public schema.
 existing_objects="$(PGDATABASE="$target_url" psql -X -A -t -v ON_ERROR_STOP=1 -c "
