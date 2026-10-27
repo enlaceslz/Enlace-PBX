@@ -68,7 +68,7 @@ O script não instala pacotes, não reinicia serviços, não modifica arquivos e
 não cria conexões SIP. Ele confere ferramentas, diretórios, status dos serviços
 Asterisk/PostgreSQL/NGINX e enlace-pbx.service, resposta do CLI Asterisk e disponibilidade local
 do PostgreSQL. Um resultado aprovado **não** valida mídia, WebRTC, firewall,
-credenciais ou configuração completa. O teste da aplicação verifica apenas se a unidade systemd `enlace-pbx.service` está ativa; disponibilidade HTTP, autenticação e integrações exigem testes separados.
+credenciais ou configuração completa. O diagnóstico verifica a unidade systemd `enlace-pbx.service` e consulta `http://127.0.0.1:3000/api/v1/health` com timeout de 3 segundos. A resposta HTTP não substitui testes de autenticação, autorização, integrações ou fluxos de negócio.
 
 ## Homologação da aplicação e telefonia
 
