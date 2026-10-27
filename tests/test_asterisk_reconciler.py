@@ -60,6 +60,13 @@ class ReconcilerTests(unittest.TestCase):
             with self.subTest(backup=backup.name):
                 self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o600)
 
+    def test_active_managed_config_is_not_world_readable(self):
+        manager = self.root / "manager.conf"
+        manager.chmod(0o666)
+        result = self.run_reconciler()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(stat.S_IMODE(manager.stat().st_mode), 0o640)
+
     def test_second_run_is_idempotent(self):
         self.assertEqual(self.run_reconciler().returncode, 0)
         before = {p.name: p.read_bytes() for p in self.root.glob("*.conf")}
