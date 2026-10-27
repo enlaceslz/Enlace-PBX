@@ -82,7 +82,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          test -x /usr/lib/postgresql/16/bin/pg_dump
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
       - name: Validate roundtrip shell syntax
         run: |
           bash -n scripts/test-postgres-roundtrip.sh
