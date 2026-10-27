@@ -145,6 +145,12 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_nginx_configuration_is_backed_up_and_restored_on_failure(self):
+        self.assertIn('NGINX_BACKUP=$(mktemp /etc/nginx/sites-available/.enlace-pbx.backup.', DEPLOY)
+        self.assertIn('cp -p "$NGINX_SITE" "$NGINX_BACKUP"', DEPLOY)
+        self.assertIn('configuracao anterior restaurada', DEPLOY)
+        self.assertLess(DEPLOY.index('if nginx -t >/dev/null 2>&1; then'), DEPLOY.index('rm -f /etc/nginx/sites-enabled/default'))
+
     def test_pm2_conflict_is_checked_before_host_changes(self):
         self.assertEqual(DEPLOY.count('pm2 pid enlace-pbx'), 1)
         self.assertLess(DEPLOY.index('pm2 pid enlace-pbx'), DEPLOY.index('apt-get update -y'))
