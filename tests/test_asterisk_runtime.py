@@ -55,6 +55,7 @@ class RuntimePreflightTests(unittest.TestCase):
             (True, ""),
             (True, PROPERTIES),
             (False, ""),
+            (True, LISTENERS),
         ]
         with patch.object(module, "run", side_effect=responses), patch.object(module.time, "sleep"):
             self.assertEqual(module.main(), 1)
@@ -68,6 +69,7 @@ class RuntimePreflightTests(unittest.TestCase):
             (True, ""),
             (True, PROPERTIES),
             (True, "System uptime: 1 hour"),
+            (True, LISTENERS),
         ]
         with patch.object(module, "run", side_effect=responses), patch.object(module.time, "sleep"):
             self.assertEqual(module.main(), 0)
@@ -94,6 +96,17 @@ class RuntimePreflightTests(unittest.TestCase):
     def test_ipv6_wildcard_ami_is_rejected(self):
         listeners = LISTENERS + "LISTEN 0 128 [::]:5038 [::]:*\\n"
         self.assertFalse(self.check(listeners=listeners)["tcp-5038-loopback-only"])
+
+    def test_network_exposure_after_observation_blocks_preflight(self):
+        exposed = LISTENERS.replace("127.0.0.1:5038", "0.0.0.0:5038")
+        responses = [
+            (True, ""), (True, PROPERTIES), (True, LISTENERS),
+            (True, "System uptime: 1 hour"),
+            (True, ""), (True, PROPERTIES),
+            (True, "System uptime: 1 hour"), (True, exposed),
+        ]
+        with patch.object(module, "run", side_effect=responses), patch.object(module.time, "sleep"):
+            self.assertEqual(module.main(), 1)
 
     def test_healthy_loopback(self):
         self.assertTrue(all(self.check().values()))
