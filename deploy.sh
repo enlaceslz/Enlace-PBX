@@ -368,6 +368,19 @@ if [[ ! "$CONF_NGINX" =~ ^[Nn]$ ]]; then
   NGINX_BACKUP=""
   NGINX_SITE_PREEXISTED=false
   NGINX_DEFAULT_ENABLED=false
+  NGINX_ENABLED_PREEXISTED=false
+  NGINX_ENABLED_TARGET=""
+  if [ -L /etc/nginx/sites-enabled/enlace-pbx ]; then
+    NGINX_ENABLED_PREEXISTED=true
+    NGINX_ENABLED_TARGET=$(readlink /etc/nginx/sites-enabled/enlace-pbx)
+  elif [ -e /etc/nginx/sites-enabled/enlace-pbx ]; then
+    echo "ERRO: site habilitado enlace-pbx nao e link simbolico; preserve manualmente antes do deploy." >&2
+    exit 1
+  fi
+  if [ -L "$NGINX_SITE" ]; then
+    echo "ERRO: configuracao NGINX nao pode ser link simbolico." >&2
+    exit 1
+  fi
   if [ -e "$NGINX_SITE" ]; then
     NGINX_SITE_PREEXISTED=true
     NGINX_BACKUP=$(mktemp /etc/nginx/sites-available/.enlace-pbx.backup.XXXXXXXX)
@@ -418,6 +431,21 @@ server {
 }
 NGINX_CONF
 
+  rollback_nginx_site() {
+    if [ "$NGINX_SITE_PREEXISTED" = true ]; then
+      cp -p "$NGINX_BACKUP" "$NGINX_SITE"
+    else
+      rm -f "$NGINX_SITE"
+    fi
+    if [ "$NGINX_ENABLED_PREEXISTED" = true ]; then
+      ln -sfn "$NGINX_ENABLED_TARGET" /etc/nginx/sites-enabled/enlace-pbx
+    else
+      rm -f /etc/nginx/sites-enabled/enlace-pbx
+    fi
+    if [ "$NGINX_DEFAULT_ENABLED" = true ] && [ ! -e /etc/nginx/sites-enabled/default ] && [ ! -L /etc/nginx/sites-enabled/default ]; then
+      ln -s ../sites-available/default /etc/nginx/sites-enabled/default
+    fi
+  }
   # Validate first, then remove the default site only after the new site is usable.
   ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/enlace-pbx
 
@@ -425,17 +453,17 @@ NGINX_CONF
     if [ "$NGINX_DEFAULT_ENABLED" = true ]; then
       rm -f /etc/nginx/sites-enabled/default
       if ! nginx -t >/dev/null 2>&1; then
-        ln -s ../sites-available/default /etc/nginx/sites-enabled/default
-        if [ "$NGINX_SITE_PREEXISTED" = true ]; then
-          cp -p "$NGINX_BACKUP" "$NGINX_SITE"
-        else
-          rm -f "$NGINX_SITE" /etc/nginx/sites-enabled/enlace-pbx
-        fi
+        rollback_nginx_site
         echo "ERRO: NGINX invalido apos desabilitar site padrao; configuracao restaurada." >&2
         exit 1
       fi
     fi
-    systemctl reload nginx
+    if ! systemctl reload nginx; then
+      rollback_nginx_site
+      systemctl reload nginx || true
+      echo "ERRO: falha ao recarregar NGINX; configuracao anterior restaurada." >&2
+      exit 1
+    fi
     echo -e "${GREEN}✅ NGINX configurado e recarregado com sucesso.${NC}"
     
     # Tentativa de emissão do SSL com Certbot se o domínio resolver
@@ -449,11 +477,7 @@ NGINX_CONF
       }
     fi
   else
-    if [ "$NGINX_SITE_PREEXISTED" = true ]; then
-      cp -p "$NGINX_BACKUP" "$NGINX_SITE"
-    else
-      rm -f "$NGINX_SITE" /etc/nginx/sites-enabled/enlace-pbx
-    fi
+    rollback_nginx_site
     echo -e "${RED}❌ Erro no arquivo de configuração do NGINX; configuracao anterior restaurada. Verifique com: nginx -t${NC}" >&2
     exit 1
   fi
