@@ -99,6 +99,24 @@ class RestorePbxArchiveTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(names, ["keep"])
 
+    def test_reject_tampered_archive_checksum_without_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            archive = root / "backup.tar.gz"
+            destination = root / "staging"
+            destination.mkdir()
+            archive_at(archive, [("etc/asterisk/test.conf", "file")])
+            (root / "backup.tar.gz.sha256").write_text(
+                "0" * 64 + "  backup.tar.gz\n"
+            )
+            result = subprocess.run(
+                ["bash", str(SCRIPT), str(archive), str(destination)],
+                text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("checksum SHA-256 divergente", result.stderr)
+            self.assertFalse(list(destination.iterdir()))
+
     def test_reject_symlinked_staging_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
