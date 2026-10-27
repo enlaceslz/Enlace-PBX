@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 if [ "$#" -ne 1 ]; then
-  echo "Uso: $0 postgresql://usuario_teste@127.0.0.1:5432/enlace_pbx_restore_test" >&2
+  echo "Uso: $0 postgresql://usuario_teste:senha@127.0.0.1:5432/enlace_pbx_restore_test" >&2
   exit 2
 fi
 target_url="$1"
@@ -14,18 +14,7 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf -- "$tmpdir"' EXIT
 
 # Guard target before creating anything.
-python3 - "$target_url" <<'PY'
-import sys
-from urllib.parse import urlsplit, unquote
-url = urlsplit(sys.argv[1])
-name = unquote(url.path.lstrip('/'))
-if url.scheme not in ('postgres', 'postgresql') or url.hostname not in ('127.0.0.1', 'localhost', '::1'):
-    raise SystemExit('ERRO: apenas PostgreSQL local e permitido')
-if not (name.endswith('_restore_test') or name.endswith('_homologacao')):
-    raise SystemExit('ERRO: banco deve ter sufixo de homologacao')
-if not url.username or url.username in ('postgres', 'enlace_app'):
-    raise SystemExit('ERRO: use uma conta exclusiva de homologacao')
-PY
+python3 "$script_dir/validate-restore-target.py" "$target_url" >/dev/null || exit 1
 
 command -v psql >/dev/null
 command -v pg_dump >/dev/null
