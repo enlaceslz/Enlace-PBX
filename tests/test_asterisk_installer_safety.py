@@ -87,6 +87,30 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("GATE_CONTINUED", result.stdout)
 
+    def test_installer_rejects_reused_passwords_before_installation(self):
+        env = os.environ.copy()
+        env["ASTERISK_AMI_PASSWORD"] = "A" * 32
+        env["ASTERISK_ARI_PASSWORD"] = "A" * 32
+        result = subprocess.run(
+            ["bash", str(INSTALLER)], env=env,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("usuarios e senhas diferentes", result.stderr)
+
+    def test_installer_rejects_reused_usernames_before_installation(self):
+        env = os.environ.copy()
+        env["ASTERISK_AMI_PASSWORD"] = "A" * 32
+        env["ASTERISK_ARI_PASSWORD"] = "B" * 32
+        env["ASTERISK_AMI_USER"] = "shared_account"
+        env["ASTERISK_ARI_USER"] = "shared_account"
+        result = subprocess.run(
+            ["bash", str(INSTALLER)], env=env,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("usuarios e senhas diferentes", result.stderr)
+
     def test_missing_credentials_fail_before_any_package_install(self):
         env = os.environ.copy()
         env.pop("ASTERISK_AMI_PASSWORD", None)
