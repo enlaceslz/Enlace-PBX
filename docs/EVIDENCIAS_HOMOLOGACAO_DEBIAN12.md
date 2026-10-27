@@ -177,6 +177,24 @@ Os valores abaixo são decisões de operação e **não foram definidos nem medi
 
 **Regra de bloqueio:** cenários que dependem de um parâmetro pendente não podem receber PASS. Os resultados possíveis são PASS, FAIL, BLOQUEADO ou NÃO EXECUTADO, sempre com evidência vinculada.
 
+## Critérios negativos de autenticação AMI/ARI — evidência obrigatória
+
+O CI cobre respostas simuladas; repetir os cenários relevantes em laboratório isolado, com logs sanitizados e sem expor segredos. Os resultados abaixo permanecem **NÃO EXECUTADO** em Asterisk real.
+
+| Interface | Cenário de negação | Resultado em laboratório | Evidência |
+| --- | --- | --- | --- |
+| AMI | Credenciais inválidas e credenciais compartilhadas com ARI | NÃO EXECUTADO | — |
+| AMI | Resposta truncada, sem terminador de bloco | NÃO EXECUTADO | — |
+| AMI | Campos `Response` duplicados e contraditórios | NÃO EXECUTADO | — |
+| AMI | Resposta de autenticação com 16 KiB ou mais sem encerramento válido | NÃO EXECUTADO | — |
+| ARI | HTTP 401/403 com credenciais inválidas | NÃO EXECUTADO | — |
+| ARI | HTTP 200 com JSON inválido ou sem `system.version` | NÃO EXECUTADO | — |
+| ARI | `system.version` vazio, com caracteres de controle ou acima de 128 caracteres | NÃO EXECUTADO | — |
+| ARI | Corpo de resposta superior a 64 KiB | NÃO EXECUTADO | — |
+| Ambos | Tentativa de acesso a partir de interface não loopback | NÃO EXECUTADO | — |
+
+**Evidência mínima:** versão exata do Asterisk, configuração AMI/ARI sem senhas, comando executado, resultado esperado/observado, data, responsável e vínculo ao registro da execução. Testes de protocolo com servidores simulados não substituem testes de integração com Asterisk real.
+
 ## Matriz de aceitação
 
 | Cenário | Esperado | Resultado | Evidência |
