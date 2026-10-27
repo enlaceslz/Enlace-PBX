@@ -30,7 +30,16 @@ Não marcar APROVADO sem artefato verificável, data e responsável.
 | PBX-01 | Extração isolada de arquivos | NÃO EXECUTADO | Inventário do staging |
 | APP-01 | Autenticação e autorização | NÃO EXECUTADO | Cenários com contas sintéticas |
 | APP-02 | Fluxos CRM/filas/histórico | NÃO EXECUTADO | Casos de aceitação e resultados |
-| TEL-01 a TEL-10 | Matriz SIP/RTP/WebRTC | NÃO EXECUTADO | Evidência individual para cada TEL |
+| TEL-01 | Inicialização do Asterisk | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-02 | Registro SIP sintético A | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-03 | Registro SIP sintético B | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-04 | Chamada interna e CDR | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-05 | Áudio RTP bidirecional | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-06 | WebRTC WSS e DTLS-SRTP | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-07 | Fila e URA | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-08 | Gravação sintética | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-09 | Reinício controlado | NÃO EXECUTADO | Log sanitizado, horário e responsável |
+| TEL-10 | Recuperação após falha do PostgreSQL | NÃO EXECUTADO | Log sanitizado, horário e responsável |
 | OPS-01 | Reinício e recuperação controlada | NÃO EXECUTADO | Logs sanitizados e sequência de eventos |
 | OPS-02 | RTO/RPO observado | NÃO EXECUTADO | Cronologia e lacuna medida |
 | SEC-01 | Ausência de chamadas externas | NÃO EXECUTADO | Bloqueio de troncos e tentativa negativa |
