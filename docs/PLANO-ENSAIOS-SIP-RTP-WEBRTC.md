@@ -40,6 +40,8 @@ bash scripts/diagnostico-homologacao.sh /tmp/enlace-diagnostico-001
 (cd /tmp/enlace-diagnostico-001/asterisk && sha256sum --check SHA256SUMS)
 ```
 
+Após a coleta, executar `python3 scripts/verify-diagnostic-bundle.py /tmp/enlace-diagnostico-001` para exigir a estrutura completa e conferir hashes, rejeitando arquivos extras, ausentes e links simbólicos. A validação de integridade não comprova a autenticidade da origem nem substitui os testes TEL.
+
 O `SHA256SUMS` na raiz cobre todos os arquivos do pacote, inclusive os relatórios dos subdiretórios. A verificação detecta adulteração de conteúdo existente; conferir também a lista esperada de arquivos e a origem do pacote.
 
 O script registra falhas e retorna código não zero quando algum diagnóstico
