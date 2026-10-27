@@ -502,8 +502,109 @@ if [[ ! "$CONF_UFW" =~ ^[Nn]$ ]]; then
   ufw allow 10000:20000/udp comment "Asterisk RTP Audio Media"
   ufw allow 51820/udp comment "WireGuard VPN"
   
-  # Habilitar sem travar SSH
-  echo "y" | ufw enable || true
+  # Do not report success if firewall activation failed; verify its active state.
+  if ! ufw --force enable; then
+    echo "ERRO: UFW nao pode ser ativado; revise as regras e o acesso SSH." >&2
+    exit 1
+  fi
+  if ! ufw status | grep -Eq '^Status: active
+fi
+
+# 11. Run the application with a dedicated unprivileged systemd identity.
+echo -e "\n${CYAN}🚀 Configurando serviço Enlace-PBX sem privilégios de root...${NC}"
+if ! getent group enlace-pbx >/dev/null; then groupadd --system enlace-pbx; fi
+if ! id -u enlace-pbx >/dev/null 2>&1; then
+  useradd --system --gid enlace-pbx --home-dir /var/lib/enlace-pbx --shell /usr/sbin/nologin enlace-pbx
+fi
+if [ "$(id -gn enlace-pbx)" != enlace-pbx ]; then
+  echo "ERRO: conta enlace-pbx possui grupo primario inesperado." >&2
+  exit 1
+fi
+install -d -o enlace-pbx -g enlace-pbx -m 750 /var/lib/enlace-pbx /var/log/enlace-pbx
+# Keep Asterisk recordings private; do not grant the web application blanket filesystem access.
+# Knowledge-base uploads are processed in memory and persisted through the repository layer.
+chown root:enlace-pbx .env
+chmod 640 .env
+if ! runuser -u enlace-pbx -- test -r "${APP_DIR}/.env" ||
+   ! runuser -u enlace-pbx -- test -r "${APP_DIR}/dist/server.cjs"; then
+  echo "ERRO: usuario enlace-pbx nao consegue ler o ambiente ou a aplicacao." >&2
+  exit 1
+fi
+cat > /etc/systemd/system/enlace-pbx.service <<SERVICE
+[Unit]
+Description=Enlace-PBX application
+After=network-online.target postgresql.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=enlace-pbx
+Group=enlace-pbx
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
+ExecStart=/usr/bin/env node ${APP_DIR}/dist/server.cjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/enlace-pbx /var/log/enlace-pbx
+[Install]
+WantedBy=multi-user.target
+SERVICE
+systemctl daemon-reload
+systemctl enable enlace-pbx.service
+systemctl restart enlace-pbx.service
+if ! systemctl is-active --quiet enlace-pbx.service; then
+  echo "ERRO: servico enlace-pbx nao iniciou." >&2
+  exit 1
+fi
+
+# 12. Teste de Saúde (Smoke Test)
+echo -e "\n${CYAN}🔍 Executando teste de integridade local (até 60 segundos)...${NC}"
+HEALTH_OK=false
+for attempt in $(seq 1 30); do
+  if curl --fail --silent --show-error --max-time 2 --output /dev/null http://127.0.0.1:3000/api/v1/health 2>/dev/null; then
+    HEALTH_OK=true
+    break
+  fi
+  if ! systemctl is-active --quiet enlace-pbx.service; then
+    break
+  fi
+  sleep 2
+done
+if [ "$HEALTH_OK" = true ]; then
+  HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
+else
+  echo -e "${RED}❌ ERRO: aplicação não respondeu ao health check HTTP após inicialização.${NC}" >&2
+  systemctl status enlace-pbx.service --no-pager >&2 || true
+  journalctl -u enlace-pbx.service -n 30 --no-pager >&2 || true
+  exit 1
+fi
+
+# 13. Resumo Final
+echo ""
+echo -e "${GREEN}${BOLD}====================================================================${NC}"
+echo -e "${GREEN}${BOLD}       🎉 DEPLOY DO ENLACE-PBX CONCLUÍDO COM SUCESSO! 🎉       ${NC}"
+echo -e "${GREEN}${BOLD}====================================================================${NC}"
+echo -e "Status da Aplicação: ${HEALTH_STATUS}"
+echo ""
+echo -e "${BOLD}🌐 URLs de Acesso:${NC}"
+echo -e "  • Painel Web / PWA:    ${CYAN}https://${DOMAIN}${NC} (ou ${CYAN}http://${PUBLIC_IP}:3000${NC})"
+echo -e "  • Webphone WebRTC:     ${CYAN}https://${DOMAIN}#webphone${NC}"
+echo -e "  • Webhook WhatsApp:    ${CYAN}https://${DOMAIN}/api/v1/webhooks/whatsapp${NC}"
+echo -e "  • Health Check API:    ${CYAN}https://${DOMAIN}/api/v1/health${NC}"
+echo ""
+echo -e "${BOLD}📋 Comandos de Gerenciamento:${NC}"
+echo -e "  • Ver logs da aplicação:      ${YELLOW}journalctl -u enlace-pbx -f${NC}"
+echo -e "  • Reiniciar aplicação:        ${YELLOW}systemctl restart enlace-pbx${NC}"
+echo -e "  • Acessar CLI do Asterisk:    ${YELLOW}asterisk -rvvvv${NC}"
+echo -e "  • Recarregar NGINX:           ${YELLOW}systemctl reload nginx${NC}"
+echo -e "  • Renovar Certificados SSL:   ${YELLOW}certbot renew${NC}"
+echo -e "${GREEN}${BOLD}====================================================================${NC}"
+; then
+    echo "ERRO: UFW nao esta ativo apos a tentativa de habilitacao." >&2
+    exit 1
+  fi
   echo -e "${GREEN}✅ Regras do UFW aplicadas e firewall ativado com segurança.${NC}"
 fi
 
