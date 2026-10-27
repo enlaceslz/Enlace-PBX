@@ -42,7 +42,7 @@ class BundleVerifierTests(unittest.TestCase):
 
     def test_false_homologation_is_rejected_even_with_matching_hashes(self):
         (self.root / "RESUMO.txt").write_text(
-            "resultado=0\\nisolamento=CONFIRMADO\\nhomologacao=APROVADA\\n"
+            "resultado=0\nisolamento=CONFIRMADO\nhomologacao=APROVADA\n"
         )
         self.write_manifest()
         with self.assertRaisesRegex(ValueError, "Resumo invalido"):
@@ -50,7 +50,7 @@ class BundleVerifierTests(unittest.TestCase):
 
     def test_failed_diagnostic_summary_remains_valid_evidence(self):
         (self.root / "RESUMO.txt").write_text(
-            "resultado=1\\nisolamento=NAO CONFIRMADO\\nhomologacao=NAO EXECUTADA\\n"
+            "resultado=1\nisolamento=NAO CONFIRMADO\nhomologacao=NAO EXECUTADA\n"
         )
         self.write_manifest()
         self.assertTrue(module.validate(self.root))
