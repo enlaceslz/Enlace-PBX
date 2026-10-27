@@ -6,6 +6,7 @@ This tool does not originate calls or change Asterisk configuration.
 """
 import base64
 import http.client
+import json
 import os
 import socket
 import sys
@@ -68,6 +69,12 @@ def check_ari(host, port, username, password, timeout):
             raise RuntimeError("ARI readiness response exceeds size limit")
         if response.status != 200:
             raise RuntimeError(f"ARI authentication/readiness failed (HTTP {response.status})")
+        try:
+            payload = json.loads(body)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise RuntimeError("ARI readiness returned invalid JSON") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("system"), dict):
+            raise RuntimeError("ARI readiness returned unexpected Asterisk information")
     finally:
         conn.close()
 
