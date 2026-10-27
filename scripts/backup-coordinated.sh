@@ -48,7 +48,13 @@ newfiles="$(comm -13 "$before" "$after")"
 db_file="$(printf '%s\n' "$newfiles" | grep -E '^enlace-pbx-postgres-[0-9TZ]+\.dump$' | head -n 1 || true)"
 pbx_file="$(printf '%s\n' "$newfiles" | grep -E '^enlace-pbx-files-[0-9TZ]+\.tar\.gz$' | head -n 1 || true)"
 # A coordinated run must produce exactly one archive of each type.
-db_count="$(printf '%s\n' "$newfiles" | grep -Ec '^enlace-pbx-postgres-[0-9TZ]+\.dump
+db_count="$(printf '%s\\n' "$newfiles" | grep -Ec '^enlace-pbx-postgres-[0-9TZ]+\\.dump$' || true)"
+pbx_count="$(printf '%s\\n' "$newfiles" | grep -Ec '^enlace-pbx-files-[0-9TZ]+\\.tar\\.gz$' || true)"
+if [ "$db_count" -ne 1 ] || [ "$pbx_count" -ne 1 ]; then
+  echo "ERRO: execucao deve produzir exatamente um backup PostgreSQL e um PBX." >&2
+  exit 1
+fi
+if [ -z "$db_file" ] || [ -z "$pbx_file" ]; then
   echo "ERRO: backups nao identificados; manifesto nao publicado." >&2
   exit 1
 fi
