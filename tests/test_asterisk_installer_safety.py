@@ -11,6 +11,14 @@ INSTALLER = Path(__file__).resolve().parents[1] / "install-enlace-pbx.sh"
 
 
 class InstallerSafetyTests(unittest.TestCase):
+    def test_installer_verifies_asterisk_service_can_read_managed_configs(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('runuser -u asterisk -- test -r /etc/asterisk/manager.conf', source)
+        self.assertIn('runuser -u asterisk -- test -r /etc/asterisk/http.conf', source)
+        self.assertIn('runuser -u asterisk -- test -r /etc/asterisk/ari.conf', source)
+        self.assertIn('chgrp asterisk "$config_file"', source)
+        self.assertIn("Never recursively change ownership or permissions under /etc/asterisk", source)
+
     def test_existing_pbx_gate_precedes_package_installation(self):
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertIn('ENLACE_ALLOW_EXISTING_PBX', source)
