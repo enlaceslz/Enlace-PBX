@@ -33,8 +33,9 @@ def validate(directory: Path):
         if not match:
             raise ValueError("Linha de hash invalida")
         digest, name = match.groups()
-        if name.startswith("./"):
-            name = name[2:]
+        if not name.startswith("./") or name.count("./") != 1:
+            raise ValueError("Caminho de manifesto nao canonico")
+        name = name[2:]
         if name not in EXPECTED or name in listed:
             raise ValueError("Arquivo inesperado ou duplicado")
         listed[name] = digest
