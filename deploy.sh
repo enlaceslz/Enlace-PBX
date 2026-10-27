@@ -51,8 +51,14 @@ apt-get install -y curl wget git build-essential ufw nginx certbot python3-certb
   postgresql postgresql-contrib
 
 # Garantir criação de diretórios de mídia, gravações e snapshots do Enlace-PBX
-mkdir -p /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
-chmod 775 /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
+# Create storage with explicit identities; avoid world-writable media and backup directories.
+install -d -m 750 /var/backups/enlace-pbx
+install -d -m 750 /var/log/enlace-pbx
+if id -u asterisk >/dev/null 2>&1; then
+  install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording
+else
+  install -d -m 750 /var/spool/asterisk/recording
+fi
 
 # 4. Instalação e Validação do Node.js 20 LTS
 echo -e "\n${BOLD}[2/9] Verificando runtime Node.js 20 LTS...${NC}"
