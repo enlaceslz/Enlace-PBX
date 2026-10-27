@@ -145,6 +145,12 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_nginx_default_symlink_target_is_preserved(self):
+        self.assertIn('NGINX_DEFAULT_TARGET=$(readlink /etc/nginx/sites-enabled/default)', DEPLOY)
+        self.assertIn('ln -s "$NGINX_DEFAULT_TARGET" /etc/nginx/sites-enabled/default', DEPLOY)
+        self.assertIn('site NGINX padrao nao e link simbolico', DEPLOY)
+        self.assertNotIn('ln -s ../sites-available/default /etc/nginx/sites-enabled/default', DEPLOY)
+
     def test_nginx_reload_failure_restores_previous_site(self):
         self.assertIn('NGINX_ENABLED_TARGET=$(readlink /etc/nginx/sites-enabled/enlace-pbx)', DEPLOY)
         self.assertIn('rollback_nginx_site() {', DEPLOY)
