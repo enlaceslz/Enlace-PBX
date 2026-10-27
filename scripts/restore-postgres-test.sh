@@ -28,6 +28,10 @@ try:
         raise ValueError('URL invalida')
     if not (name.endswith('_restore_test') or name.endswith('_homologacao')):
         raise ValueError('O nome do banco deve terminar em _restore_test ou _homologacao')
+    if url.hostname not in ('127.0.0.1', 'localhost', '::1'):
+        raise ValueError('Restauracao permitida apenas para PostgreSQL local (loopback)')
+    if url.username in ('postgres', 'enlace_app'):
+        raise ValueError('Use uma conta exclusiva de homologacao, nunca postgres ou enlace_app')
     print(name)
 except ValueError as error:
     print(f'ERRO: {error}', file=sys.stderr)
