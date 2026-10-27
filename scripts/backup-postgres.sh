@@ -43,7 +43,7 @@ temporary="$(mktemp "$BACKUP_DIR/.postgres-backup.XXXXXXXX")"
 trap 'rm -f -- "$temporary"' EXIT
 
 # Custom format supports pg_restore --list and selective restore.
-if ! pg_dump --dbname="$DATABASE_URL" --format=custom --file="$temporary" --no-owner --no-acl; then
+if ! PGDATABASE="$DATABASE_URL" pg_dump --format=custom --file="$temporary" --no-owner --no-acl; then
   echo "ERRO: pg_dump falhou; nenhum backup foi publicado." >&2
   exit 1
 fi
