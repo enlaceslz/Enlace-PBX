@@ -67,6 +67,21 @@ if [[ ! "${EXPECTED_SHA256}" =~ ^[a-fA-F0-9]{64}$ ]]; then
 fi
 EXPECTED_SHA256="${EXPECTED_SHA256,,}"
 
+# Reject unsupported operating systems before any package or service changes.
+if [ ! -r /etc/os-release ]; then
+  echo "ERRO: /etc/os-release ausente; sistema operacional nao identificado." >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+. /etc/os-release
+case "${ID:-}:${VERSION_ID:-}" in
+  debian:11|debian:12|ubuntu:20.04|ubuntu:22.04|ubuntu:24.04) ;;
+  *)
+    echo "ERRO: sistema operacional nao suportado: ${ID:-desconhecido} ${VERSION_ID:-desconhecida}." >&2
+    exit 1
+    ;;
+esac
+
 # Resolve installer dependencies before replacing Asterisk binaries or configs.
 INSTALL_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/reconcile-asterisk-config.py" ]; then
