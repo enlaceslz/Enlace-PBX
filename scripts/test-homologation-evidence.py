@@ -22,6 +22,16 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.validate(altered)
 
+    def test_structured_evidence_required_for_approval(self):
+        row = next(line for line in TEMPLATE.splitlines() if line.startswith("| TEL-01 |"))
+        approved = TEMPLATE.replace(row, row.replace("NÃO EXECUTADO", "APROVADO").replace(
+            "Log sanitizado, horário e responsável", "evidencias/tel01.txt"))
+        with self.assertRaisesRegex(ValueError, "Evidencia estruturada ausente"):
+            module.validate(approved)
+        self.assertFalse(module.validate(
+            approved + "\\nEVIDENCIA: TEL-01 | artefato=evidencias/tel01.txt | data=2026-10-27 | responsavel=tecnico01\\n"
+        ))
+
     def test_invalid_status_rejected(self):
         with self.assertRaises(ValueError):
             module.validate(TEMPLATE.replace("| NÃO EXECUTADO |", "| CONCLUIDO |", 1))
