@@ -60,7 +60,8 @@ def reconcile(path: Path, section: str, body: str) -> None:
             out.write(updated)
             out.flush()
             os.fsync(out.fileno())
-        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o640
+        # Credential-bearing managed files must never remain group/world writable or world readable.
+        mode = (stat.S_IMODE(path.stat().st_mode) & 0o640) if path.exists() else 0o640
         os.chmod(tmp, mode)
         if path.exists():
             st = path.stat()
