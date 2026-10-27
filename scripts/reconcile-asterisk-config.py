@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ASTERISK_CONFIG_DIR", "/etc/asterisk"))
-HEADER = re.compile(r"(?m)^\s*\[([^\]\r\n]+)\]\s*$")
+HEADER = re.compile(r"(?m)^[ \t]*\[([^\]\r\n]+)\][ \t]*$")
 
 def require_secret(name: str) -> str:
     value = os.environ.get(name, "")
