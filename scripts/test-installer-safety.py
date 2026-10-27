@@ -16,6 +16,7 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn("set -Eeuo pipefail", preflight)
         self.assertIn('check "Asterisk responde ao CLI"', preflight)
         self.assertIn('check "PostgreSQL local aceita conexoes"', preflight)
+        self.assertIn('check "Aplicacao Enlace-PBX ativa" systemctl is-active --quiet enlace-pbx.service', preflight)
         forbidden = (
             r"\b(?:apt|apt-get|dpkg|npm|rm|mv|cp|chmod|chown|tee|sed|truncate|reboot|shutdown)\b",
             r"\bsystemctl\s+(?:start|stop|restart|reload|enable|disable)\b",
