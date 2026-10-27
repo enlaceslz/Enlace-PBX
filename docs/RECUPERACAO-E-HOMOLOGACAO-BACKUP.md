@@ -22,13 +22,26 @@ Confirmar que o manifesto corresponde ao par de arquivos recebido. A verificaç�
 
 ## Recuperação do banco de dados
 
+Use uma variável de ambiente local e temporária para não inserir a senha diretamente no comando ou no histórico do shell. Evite registrar seu conteúdo em logs. O script recebe a URL exclusivamente por **stdin**:
+
 ```bash
-bash scripts/restore-postgres-test.sh \
-  /caminho/seguro/enlace-pbx-postgres-YYYYMMDDTHHMMSSZ.dump \
-  'postgresql://usuario_teste:senha@127.0.0.1:5432/enlace_pbx_restore_test'
+read -r -s -p 'URL PostgreSQL de homologação: ' RESTORE_TEST_URL
+printf '\\n'
+printf '%s' "$RESTORE_TEST_URL" | bash scripts/restore-postgres-test.sh \\
+  /caminho/seguro/enlace-pbx-postgres-YYYYMMDDTHHMMSSZ.dump --stdin
+unset RESTORE_TEST_URL
 ```
 
-Substituir as credenciais pelos valores de homologação. **Atenção:** a senha na URL passada como argumento poderá ficar visível na lista de processos; usar apenas credenciais descartáveis. Não copiar credenciais reais para o ambiente de teste.
+Para executar o teste de ida e volta em um **banco de teste vazio e descartável**, use:
+
+```bash
+read -r -s -p 'URL PostgreSQL de homologação: ' RESTORE_TEST_URL
+printf '\\n'
+printf '%s' "$RESTORE_TEST_URL" | bash scripts/test-postgres-roundtrip.sh --stdin
+unset RESTORE_TEST_URL
+```
+
+A URL deve apontar para PostgreSQL local, conter usuário e senha de homologação e nome terminado em `_restore_test` ou `_homologacao`. Não usar credenciais de produção. O teste de ida e volta cria e exclui uma tabela temporária no banco de teste; **não execute contra bancos com dados relevantes**.
 
 Verificar no PostgreSQL: tabelas esperadas, contagens de registros, constraints, índices e ausência de erros de restauração. Registrar os resultados, sem exportar dados pessoais para logs públicos.
 
