@@ -25,10 +25,13 @@ def evaluate(active, properties, listeners, cli_ok):
     for port in (5038, 8088):
         bound = []
         for line in listeners.splitlines():
-            if not line.startswith("LISTEN"):
-                continue
             parts = line.split()
+            if not parts or parts[0] != "LISTEN":
+                continue
+            # ss -lnt: State Recv-Q Send-Q Local Address:Port Peer Address:Port
+            # Treat unexpected formats as unsafe rather than silently ignoring them.
             if len(parts) < 5:
+                bound.append("<unparseable>")
                 continue
             local = parts[3]
             if re.search(r":" + str(port) + r"$", local):
