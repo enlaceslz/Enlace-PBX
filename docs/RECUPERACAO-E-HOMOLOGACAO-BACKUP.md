@@ -62,6 +62,8 @@ Antes dos testes TEL-01 a TEL-10, executar:
 
 ```bash
 bash scripts/preflight-homologacao.sh
+# Para salvar evidencias em arquivo novo, com permissoes restritas:
+bash scripts/preflight-homologacao.sh --report /tmp/enlace-preflight-homologacao.txt
 ```
 
 O script não instala pacotes, não reinicia serviços, não modifica arquivos e
