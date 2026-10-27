@@ -66,6 +66,8 @@ def main():
     print("INFO observing service stability for 60 seconds")
     time.sleep(60)
     findings.append(("service-stable-60s", stable(first, snapshot())))
+    cli_after_ok, _ = run("asterisk", "-rx", "core show uptime")
+    findings.append(("asterisk-cli-after-60s", cli_after_ok))
     for name, passed in findings:
         print(f"{'PASS' if passed else 'FAIL'} {name}")
     print("NOTE: static runtime preflight only; SIP/RTP/AI and rollback require lab testing.")
