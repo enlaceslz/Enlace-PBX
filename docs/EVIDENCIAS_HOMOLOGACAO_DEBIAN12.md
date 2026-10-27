@@ -134,6 +134,16 @@ Para cada cenário, registre o tempo de interrupção, o tempo até recuperaçã
 
 **Falha crítica:** backup irrestaurável, perda não autorizada de configuração, falha na autenticação após restauração, exposição AMI/ARI, ausência de rollback funcional ou recuperação acima dos limites aprovados.
 
+## Auditoria de privilégios AMI/ARI — pendência de segurança
+
+O provisionador atual concede ao usuário AMI privilégios de leitura e escrita amplos, incluindo `system`, `command`, `config`, `originate` e `dialplan`. O vínculo à interface loopback **não elimina** o risco de uma aplicação local comprometida usar essas capacidades.
+
+Antes da liberação, inventariar as ações AMI realmente utilizadas pelo Enlace-PBX e seus módulos, com evidência de chamadas em laboratório. Reduzir `read` e `write` às classes estritamente necessárias, criar testes de regressão para ações permitidas e negadas e validar novamente os fluxos de atendimento, transferência e chamadas. **Não reduzir permissões às cegas**, pois isso pode interromper operações legítimas.
+
+A conta ARI também requer revisão de escopo: `read_only = no` permite operações de escrita necessárias a determinados fluxos, mas exige autenticação, segregação de credenciais e acesso local controlado. Registrar decisão técnica e responsável.
+
+**Estado: BLOQUEADO — menor privilégio ainda não demonstrado.**
+
 ## Parâmetros obrigatórios antes da execução
 
 Os valores abaixo são decisões de operação e **não foram definidos nem medidos pelo CI**. Preencher e aprovar antes dos testes correspondentes; não inferir valores a partir de exemplos ou defaults de bibliotecas.
