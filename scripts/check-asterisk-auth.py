@@ -78,6 +78,8 @@ def check_ari(host, port, username, password, timeout):
         version = payload["system"].get("version")
         if not isinstance(version, str) or not version.strip():
             raise RuntimeError("ARI readiness missing Asterisk system version")
+        if len(version) > 128:
+            raise RuntimeError("ARI readiness returned oversized Asterisk version")
         if any(ord(char) < 32 or ord(char) == 127 for char in version):
             raise RuntimeError("ARI readiness returned invalid Asterisk version characters")
     finally:
