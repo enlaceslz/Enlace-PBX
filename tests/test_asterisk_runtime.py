@@ -108,6 +108,14 @@ class RuntimePreflightTests(unittest.TestCase):
         with patch.object(module, "run", side_effect=responses), patch.object(module.time, "sleep"):
             self.assertEqual(module.main(), 1)
 
+    def test_empty_restart_counter_fails_closed(self):
+        properties = PROPERTIES.replace("NRestarts=0", "NRestarts=")
+        self.assertFalse(module.stable((True, properties), (True, properties)))
+
+    def test_non_numeric_restart_counter_fails_closed(self):
+        properties = PROPERTIES.replace("NRestarts=0", "NRestarts=unknown")
+        self.assertFalse(module.stable((True, properties), (True, properties)))
+
     def test_healthy_loopback(self):
         self.assertTrue(all(self.check().values()))
 
