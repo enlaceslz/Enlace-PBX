@@ -29,7 +29,7 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Evidencia estruturada ausente"):
             module.validate(approved)
         self.assertFalse(module.validate(
-            approved + "\\nEVIDENCIA: TEL-01 | artefato=evidencias/tel01.txt | data=2026-10-27 | responsavel=tecnico01\\n"
+            approved + "\nEVIDENCIA: TEL-01 | artefato=evidencias/tel01.txt | data=2026-10-27 | responsavel=tecnico01\n"
         ))
 
     def test_invalid_status_rejected(self):
