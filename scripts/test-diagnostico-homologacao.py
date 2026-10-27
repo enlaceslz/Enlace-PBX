@@ -74,6 +74,26 @@ class DiagnosticBundleTests(unittest.TestCase):
         )
         self.assertEqual(check.returncode, 0, check.stderr)
 
+    def test_real_collectors_produce_strictly_valid_bundle(self):
+        for name in ("inventory-homologation-isolation.sh", "collect-asterisk-evidence.sh"):
+            shutil.copy2(Path(__file__).with_name(name), self.scripts / name)
+        mockbin = self.root / "mockbin"
+        mockbin.mkdir()
+        ip = mockbin / "ip"
+        ip.write_text('#!/bin/bash\nexit 0\n')
+        ip.chmod(0o755)
+        asterisk = mockbin / "asterisk"
+        asterisk.write_text('#!/bin/bash\nprintf "synthetic aggregate evidence\\n"\n')
+        asterisk.chmod(0o755)
+        result = self.run_bundle(PATH=str(mockbin) + os.pathsep + os.environ["PATH"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        verifier = Path(__file__).with_name("verify-diagnostic-bundle.py")
+        check = subprocess.run(
+            ["python3", str(verifier), str(self.target)],
+            capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(check.returncode, 0, check.stderr)
+
     def test_tampered_child_report_breaks_bundle_integrity(self):
         result = self.run_bundle()
         self.assertEqual(result.returncode, 0, result.stderr)
