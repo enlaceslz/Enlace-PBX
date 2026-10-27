@@ -43,7 +43,24 @@ temporary="$(mktemp "$BACKUP_DIR/.postgres-backup.XXXXXXXX")"
 trap 'rm -f -- "$temporary"' EXIT
 
 # Custom format supports pg_restore --list and selective restore.
-if ! PGDATABASE="$DATABASE_URL" pg_dump --format=custom --file="$temporary" --no-owner --no-acl; then
+# libpq does not interpret a URI stored in PGDATABASE as a connection string.
+# Keep credentials out of process arguments by using libpq environment fields.
+mapfile -d '' -t connection_parts < <(printf '%s' "$DATABASE_URL" | python3 -c '
+import sys
+from urllib.parse import unquote, urlsplit
+u = urlsplit(sys.stdin.read())
+if u.scheme not in ("postgresql", "postgres") or not u.hostname or not u.username or not u.path.strip("/"):
+    sys.exit(1)
+values = (u.hostname, str(u.port or 5432), unquote(u.username), unquote(u.password or ""), unquote(u.path[1:]))
+sys.stdout.buffer.write(("\0".join(values) + "\0").encode())
+')
+[ "${#connection_parts[@]}" -eq 5 ] || { echo "ERRO: DATABASE_URL invalida." >&2; exit 1; }
+export PGHOST="${connection_parts[0]}" PGPORT="${connection_parts[1]}"
+export PGUSER="${connection_parts[2]}" PGPASSWORD="${connection_parts[3]}"
+export PGDATABASE="${connection_parts[4]}"
+unset DATABASE_URL connection_parts
+
+if ! pg_dump --format=custom --file="$temporary" --no-owner --no-acl; then
   echo "ERRO: pg_dump falhou; nenhum backup foi publicado." >&2
   exit 1
 fi
