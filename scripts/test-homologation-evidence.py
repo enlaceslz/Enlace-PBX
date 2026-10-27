@@ -17,6 +17,11 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(module.EXPECTED), 21)
         self.assertFalse(module.validate(TEMPLATE.replace("NÃO EXECUTADO", "REPROVADO")))
 
+    def test_approved_without_evidence_rejected(self):
+        altered = TEMPLATE.replace("| NÃO EXECUTADO |", "| APROVADO |", 1)
+        with self.assertRaises(ValueError):
+            module.validate(altered)
+
     def test_invalid_status_rejected(self):
         with self.assertRaises(ValueError):
             module.validate(TEMPLATE.replace("| NÃO EXECUTADO |", "| CONCLUIDO |", 1))
