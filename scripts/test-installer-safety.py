@@ -110,7 +110,17 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('Erro no arquivo de configuração do NGINX', DEPLOY)
         self.assertIn('ERRO: aplicação não respondeu ao health check HTTP', DEPLOY)
         self.assertNotIn('INICIANDO (Aguarde alguns segundos)', DEPLOY)
-        self.assertIn('pm2 status enlace-pbx >&2 || true', DEPLOY)
+        self.assertIn('systemctl status enlace-pbx.service --no-pager >&2 || true', DEPLOY)
+
+    def test_application_runs_as_unprivileged_systemd_user(self):
+        self.assertIn('User=enlace-pbx', DEPLOY)
+        self.assertIn('Group=enlace-pbx', DEPLOY)
+        self.assertIn('NoNewPrivileges=true', DEPLOY)
+        self.assertIn('ProtectSystem=strict', DEPLOY)
+        self.assertIn('runuser -u enlace-pbx -- test -r', DEPLOY)
+        self.assertIn('systemctl restart enlace-pbx.service', DEPLOY)
+        self.assertNotIn('pm2 start dist/server.cjs', DEPLOY)
+        self.assertNotIn('pm2 startup systemd -u root', DEPLOY)
 
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
