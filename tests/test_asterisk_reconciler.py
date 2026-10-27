@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the Asterisk configuration reconciler (no PBX required)."""
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -47,6 +48,17 @@ class ReconcilerTests(unittest.TestCase):
         self.assertIn("[enlace_ari]\ntype = user", ari)
         self.assertIn("password = " + ARI_SECRET, ari)
         self.assertIn("bindaddr = 127.0.0.1", manager)
+
+    def test_backup_is_private_even_when_original_is_world_readable(self):
+        manager = self.root / "manager.conf"
+        manager.chmod(0o644)
+        result = self.run_reconciler()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        backups = list(self.root.glob("manager.conf.bak.*"))
+        self.assertTrue(backups)
+        for backup in backups:
+            with self.subTest(backup=backup.name):
+                self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o600)
 
     def test_second_run_is_idempotent(self):
         self.assertEqual(self.run_reconciler().returncode, 0)
