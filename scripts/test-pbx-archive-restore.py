@@ -85,6 +85,15 @@ class RestorePbxArchiveTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(names)
 
+    def test_reject_duplicate_archive_member(self):
+        result, names = self.run_restore([
+            ("etc/asterisk/test.conf", "file"),
+            ("etc/asterisk/test.conf", "file"),
+        ])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("entrada duplicada", result.stderr)
+        self.assertFalse(names)
+
     def test_reject_nonempty_staging(self):
         result, names = self.run_restore([("etc/asterisk/test.conf", "file")], existing=True)
         self.assertNotEqual(result.returncode, 0)
