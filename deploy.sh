@@ -108,6 +108,22 @@ PUBLIC_IP="${CONF_WAN:-$DETECTED_WAN}"
 
 read -p "Informe o Domínio/FQDN do PBX (ex: pbx.suaempresa.com.br) [pbx.enlacetelecom.com.br]: " CONF_DOMAIN
 DOMAIN="${CONF_DOMAIN:-pbx.enlacetelecom.com.br}"
+# Never interpolate unvalidated operator input into NGINX or dotenv configuration.
+if [[ ${#DOMAIN} -gt 253 || ! "${DOMAIN}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]; then
+  echo "ERRO: dominio/FQDN invalido." >&2
+  exit 1
+fi
+if [[ ! "${PUBLIC_IP}" =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]]; then
+  echo "ERRO: IP publico deve ser um endereco IPv4 valido." >&2
+  exit 1
+fi
+IFS='.' read -r ip1 ip2 ip3 ip4 <<< "${PUBLIC_IP}"
+for octet in "$ip1" "$ip2" "$ip3" "$ip4"; do
+  if (( 10#$octet > 255 )); then
+    echo "ERRO: octeto IPv4 fora do intervalo permitido." >&2
+    exit 1
+  fi
+done
 
 read -p "Informe a Sub-rede LAN local para NAT Traversal [192.168.1.0/24]: " CONF_LAN
 LAN_SUBNET="${CONF_LAN:-192.168.1.0/24}"
