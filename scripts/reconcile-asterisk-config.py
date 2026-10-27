@@ -48,8 +48,12 @@ def reconcile(path: Path, section: str, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         backup = path.with_name(path.name + ".bak." + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
-        shutil.copy2(path, backup)
-        os.chmod(backup, 0o600)
+        # Create the backup private from the first byte: copy2() can briefly
+        # expose credentials when the source configuration is world-readable.
+        with path.open("rb") as source, backup.open("xb", opener=lambda p, flags: os.open(p, flags, 0o600)) as destination:
+            shutil.copyfileobj(source, destination)
+            destination.flush()
+            os.fsync(destination.fileno())
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as out:
