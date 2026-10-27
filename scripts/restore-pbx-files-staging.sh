@@ -11,6 +11,12 @@ fi
 archive="$1"
 destination="$2"
 [ -f "$archive" ] && [ ! -L "$archive" ] || { echo "ERRO: backup invalido." >&2; exit 1; }
+[ -f "$archive.sha256" ] && [ ! -L "$archive.sha256" ] || { echo "ERRO: checksum SHA-256 obrigatorio e ausente." >&2; exit 1; }
+# Verify the checksum in the archive directory, not from an arbitrary working directory.
+( cd -- "$(dirname -- "$archive")" && sha256sum --check --status -- "$(basename -- "$archive").sha256" ) || {
+  echo "ERRO: checksum SHA-256 divergente." >&2
+  exit 1
+}
 [ -d "$destination" ] && [ ! -L "$destination" ] || { echo "ERRO: staging deve existir e nao ser link simbolico." >&2; exit 1; }
 [ -z "$(ls -A -- "$destination")" ] || { echo "ERRO: staging nao esta vazio." >&2; exit 1; }
 
