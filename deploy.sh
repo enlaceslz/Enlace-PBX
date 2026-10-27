@@ -477,13 +477,24 @@ if ! systemctl is-active --quiet enlace-pbx.service; then
 fi
 
 # 12. Teste de Saúde (Smoke Test)
-sleep 2
-echo -e "\n${CYAN}🔍 Executando teste de integridade local...${NC}"
-if curl -s -f http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
+echo -e "\n${CYAN}🔍 Executando teste de integridade local (até 60 segundos)...${NC}"
+HEALTH_OK=false
+for attempt in $(seq 1 30); do
+  if curl --fail --silent --show-error --max-time 2 --output /dev/null http://127.0.0.1:3000/api/v1/health 2>/dev/null; then
+    HEALTH_OK=true
+    break
+  fi
+  if ! systemctl is-active --quiet enlace-pbx.service; then
+    break
+  fi
+  sleep 2
+done
+if [ "$HEALTH_OK" = true ]; then
   HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
 else
   echo -e "${RED}❌ ERRO: aplicação não respondeu ao health check HTTP após inicialização.${NC}" >&2
   systemctl status enlace-pbx.service --no-pager >&2 || true
+  journalctl -u enlace-pbx.service -n 30 --no-pager >&2 || true
   exit 1
 fi
 
