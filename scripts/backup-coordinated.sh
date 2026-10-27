@@ -70,6 +70,11 @@ if [ -e "$temporary" ]; then
   echo "ERRO: manifesto nao publicado." >&2
   exit 1
 fi
+if ! bash "$script_dir/verify-backup-manifest.sh" "$manifest"; then
+  rm -f -- "$manifest"
+  echo "ERRO: manifesto nao passou na verificacao; publicacao cancelada." >&2
+  exit 1
+fi
 trap - EXIT
 rm -f -- "$before" "$after"
 echo "Manifesto publicado: $manifest"
