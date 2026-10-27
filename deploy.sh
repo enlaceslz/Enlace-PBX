@@ -338,6 +338,20 @@ echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 # 7. Instalação das dependências e compilação do Enlace-PBX
 echo -e "\n${BOLD}[6/9] Instalando dependências NPM e compilando produção...${NC}"
 npm ci --legacy-peer-deps
+# Verify the configured PostgreSQL credentials before building or starting services.
+# Pass the URL through the environment, not command-line arguments.
+if ! DATABASE_URL="$DATABASE_URL" node -e '
+  const { Pool } = require("pg");
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 });
+  pool.query("SELECT 1").then(() => pool.end()).catch(async (error) => {
+    console.error("ERRO: PostgreSQL indisponivel ou credenciais invalidas: " + error.message);
+    await pool.end().catch(() => {});
+    process.exitCode = 1;
+  });
+'; then
+  echo "ERRO: teste de conexao PostgreSQL falhou. Deploy interrompido." >&2
+  exit 1
+fi
 npm run build
 # Garantir sincronização de logos e assets visuais
 if [ -d public ]; then
