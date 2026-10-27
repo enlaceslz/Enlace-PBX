@@ -11,8 +11,8 @@ VALIDATOR = Path(__file__).resolve().with_name("validate-restore-target.py")
 class RestorePostgresGuardTests(unittest.TestCase):
     def validate(self, uri):
         return subprocess.run(
-            [sys.executable, str(VALIDATOR), uri],
-            capture_output=True, text=True, check=False,
+            [sys.executable, str(VALIDATOR), "--stdin"],
+            input=uri, capture_output=True, text=True, check=False,
         )
 
     def test_missing_username(self):
