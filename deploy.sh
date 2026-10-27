@@ -404,7 +404,7 @@ if [[ ! "$CONF_UFW" =~ ^[Nn]$ ]]; then
   ufw allow 443/tcp comment "HTTPS Webphone/PWA/WhatsApp"
   ufw allow 5060/udp comment "Asterisk SIP UDP"
   ufw allow 5061/tcp comment "Asterisk SIP TLS"
-  ufw allow 8089/tcp comment "Asterisk WebRTC WSS"
+  # WSS is served via NGINX on 443; Asterisk HTTP 8088 stays on loopback.
   ufw allow 10000:20000/udp comment "Asterisk RTP Audio Media"
   ufw allow 51820/udp comment "WireGuard VPN"
   
