@@ -51,6 +51,14 @@ for config in manager.conf http.conf ari.conf; do
 done
 ```
 
+### Verificação da superfície AMI/ARI
+
+Execute `ss -lntup` e registre as linhas referentes às portas TCP 5038 (AMI) e 8088 (HTTP/ARI). A aprovação exige que ambas escutem **somente em 127.0.0.1**, conforme a configuração padrão do projeto. Não basta que o firewall bloqueie o acesso externo se o serviço estiver vinculado a `0.0.0.0` ou `::`.
+
+Em uma segunda máquina da rede de laboratório, verifique que não é possível estabelecer conexão TCP com essas portas no IP da VM. Documente IPs de laboratório, origem do teste, horário e resultado; não execute varreduras em redes de terceiros ou produção.
+
+**Falha crítica:** listener AMI/ARI em interface pública ou privada não autorizada, conexão externa bem-sucedida ou divergência entre o bind esperado e o observado. Nesse caso, interrompa a homologação até corrigir a exposição.
+
 Para testar AMI/ARI, exporte as quatro variáveis de autenticação no shell **sem imprimir seus valores** e execute `python3 scripts/check-asterisk-auth.py`. Não use `set -x`. Registre somente PASS/FAIL e logs higienizados. Teste também rejeição de senha inválida em laboratório.
 
 ## Matriz de aceitação
