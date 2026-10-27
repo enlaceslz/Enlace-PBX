@@ -28,6 +28,22 @@ locais, regras NAT, túneis e troncos SIP ainda podem permitir tráfego externo.
 A ausência de rota padrão **não autoriza** iniciar testes de chamada sem
 revisão humana do isolamento e bloqueio de operadoras.
 
+## Diagnóstico consolidado (somente leitura)
+
+Para reunir preflight, inventário de rotas e evidências agregadas do Asterisk
+em um único diretório novo:
+
+```bash
+bash scripts/diagnostico-homologacao.sh /tmp/enlace-diagnostico-001
+(cd /tmp/enlace-diagnostico-001 && sha256sum --check SHA256SUMS)
+(cd /tmp/enlace-diagnostico-001/rotas && sha256sum --check SHA256SUMS)
+(cd /tmp/enlace-diagnostico-001/asterisk && sha256sum --check SHA256SUMS)
+```
+
+O script registra falhas e retorna código não zero quando algum diagnóstico
+falha. O relatório **não confirma isolamento**, não aprova homologação e não
+realiza chamadas. Revisar conteúdo antes de compartilhar.
+
 ## Procedimento de execução manual
 
 | ID | Ação | Resultado esperado | Evidência mínima |
