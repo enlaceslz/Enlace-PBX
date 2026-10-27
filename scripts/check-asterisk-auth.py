@@ -40,6 +40,8 @@ def check_ami(host, port, username, password, timeout):
             if ": " in line:
                 key, value = line.split(": ", 1)
                 fields[key.lower()] = value
+        if b"\r\n\r\n" not in response:
+            raise RuntimeError("AMI returned an incomplete authentication response")
         if fields.get("response", "").lower() != "success":
             raise RuntimeError("AMI authentication rejected")
         conn.sendall(b"Action: Logoff\r\n\r\n")
