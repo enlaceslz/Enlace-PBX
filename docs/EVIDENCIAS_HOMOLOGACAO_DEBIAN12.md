@@ -26,13 +26,29 @@ date -u
 cat /etc/os-release
 uname -a
 systemctl is-active asterisk.service
-systemctl show asterisk.service -p User -p Group -p MainPID
+systemctl show asterisk.service -p User -p Group -p MainPID -p NRestarts
+asterisk -rx 'core show uptime'
+asterisk -rx 'core show channels count'
 asterisk -rx 'core show version'
 asterisk -rx 'module show like res_pjsip'
 asterisk -rx 'module show like res_ari'
 asterisk -rx 'module show like res_http_websocket'
 asterisk -rx 'pjsip show endpoints'
 ss -lntup
+```
+
+Após 60 segundos, repita `systemctl is-active asterisk.service`, `systemctl show asterisk.service -p MainPID -p NRestarts` e `asterisk -rx 'core show uptime'`. Compare os resultados e registre qualquer reinicialização inesperada.
+
+Confirme acesso de leitura pelo usuário de serviço, **sem imprimir o conteúdo dos arquivos**:
+
+```bash
+for config in manager.conf http.conf ari.conf; do
+  if runuser -u asterisk -- test -r "/etc/asterisk/$config"; then
+    printf '%s: PASS\\n' "$config"
+  else
+    printf '%s: FAIL\\n' "$config"
+  fi
+done
 ```
 
 Para testar AMI/ARI, exporte as quatro variáveis de autenticação no shell **sem imprimir seus valores** e execute `python3 scripts/check-asterisk-auth.py`. Não use `set -x`. Registre somente PASS/FAIL e logs higienizados. Teste também rejeição de senha inválida em laboratório.
@@ -43,6 +59,8 @@ Para testar AMI/ARI, exporte as quatro variáveis de autenticação no shell **s
 | --- | --- | --- | --- |
 | Instalação limpa | Exit 0, sem alterações em PBX anterior | NÃO EXECUTADO | — |
 | Inicialização | Serviço ativo como usuário `asterisk` | NÃO EXECUTADO | — |
+| Estabilidade após 60 segundos | PID estável, sem reinício inesperado, CLI responde | NÃO EXECUTADO | — |
+| Leitura das configurações | Usuário `asterisk` lê manager.conf, http.conf e ari.conf | NÃO EXECUTADO | — |
 | AMI/ARI | Login válido e credenciais inválidas rejeitadas | NÃO EXECUTADO | — |
 | Exposição de rede | AMI/ARI somente loopback, sem acesso externo | NÃO EXECUTADO | — |
 | SIP/PJSIP | Dois ramais registrados, chamada e desligamento | NÃO EXECUTADO | — |
