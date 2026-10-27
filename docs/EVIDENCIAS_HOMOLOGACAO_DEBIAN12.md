@@ -98,6 +98,23 @@ Após cada cenário, compare `asterisk -rx 'core show channels count'` com a lin
 
 **Falha crítica:** chamada presa, ausência de fallback exigido, sessão não encerrada, transferência incorreta, exposição de credenciais ou vazamento de contexto entre chamadas.
 
+## Cenários de recuperação, backup e rollback
+
+Antes de executar qualquer teste destrutivo, registre o identificador do snapshot, o horário UTC, a versão do sistema e o commit instalado. O backup deve permanecer em armazenamento de laboratório com acesso restrito, incluindo configuração e dados necessários para restauração, **sem publicar credenciais**. Uma cópia sem restauração verificada não comprova recuperação.
+
+| ID | Cenário | Critério de aprovação | Resultado |
+| --- | --- | --- | --- |
+| REC-01 | Backup antes de alteração | Arquivos e inventário registrados; integridade verificável | NÃO EXECUTADO |
+| REC-02 | Restauração em VM descartável | Configurações recuperadas, Asterisk inicia e AMI/ARI autenticam | NÃO EXECUTADO |
+| REC-03 | Reinicialização completa da VM | Serviços retornam automaticamente; ramais voltam a registrar | NÃO EXECUTADO |
+| REC-04 | Falha controlada de serviço | Monitoramento detecta indisponibilidade e recuperação segue procedimento | NÃO EXECUTADO |
+| REC-05 | Rollback após alteração simulada | Snapshot anterior restaurado, chamadas de laboratório funcionam | NÃO EXECUTADO |
+| REC-06 | Verificação pós-rollback | AMI/ARI permanecem locais, arquivos legíveis e nenhum canal órfão | NÃO EXECUTADO |
+
+Para cada cenário, registre o tempo de interrupção, o tempo até recuperação, a evidência de serviço ativo, os testes de autenticação e ao menos uma chamada SIP bidirecional. O responsável técnico deve definir previamente os limites aceitáveis de RTO e RPO; **não** considerar aprovado sem valores definidos e evidência correspondente.
+
+**Falha crítica:** backup irrestaurável, perda não autorizada de configuração, falha na autenticação após restauração, exposição AMI/ARI, ausência de rollback funcional ou recuperação acima dos limites aprovados.
+
 ## Matriz de aceitação
 
 | Cenário | Esperado | Resultado | Evidência |
