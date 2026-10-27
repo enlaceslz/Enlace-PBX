@@ -53,6 +53,12 @@ class BundleVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "extras"):
             module.validate(self.root)
 
+    def test_oversized_manifest_is_rejected(self):
+        manifest = self.root / "SHA256SUMS"
+        manifest.write_text("x" * 16385)
+        with self.assertRaisesRegex(ValueError, "excessivamente grande"):
+            module.validate(self.root)
+
     def test_unexpected_empty_directory(self):
         (self.root / "untracked-empty").mkdir()
         with self.assertRaisesRegex(ValueError, "Diretorios extras"):
