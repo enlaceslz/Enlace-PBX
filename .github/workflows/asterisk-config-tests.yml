@@ -43,7 +43,7 @@ jobs:
         run: bash -n install-enlace-pbx.sh
       - name: Validate Python syntax
         run: |
-          python -m py_compile scripts/reconcile-asterisk-config.py scripts/check-asterisk-auth.py tests/test_asterisk_reconciler.py tests/test_asterisk_auth_smoke.py
+          python -m py_compile scripts/reconcile-asterisk-config.py scripts/check-asterisk-auth.py tests/test_asterisk_reconciler.py tests/test_asterisk_auth_smoke.py tests/test_asterisk_installer_safety.py
       - name: Run isolated reconciler regression tests
         run: |
           python -m unittest discover -s tests -p 'test_asterisk_*.py' -v
