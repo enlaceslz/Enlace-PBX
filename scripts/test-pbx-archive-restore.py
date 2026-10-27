@@ -99,6 +99,27 @@ class RestorePbxArchiveTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(names, ["keep"])
 
+    def test_reject_symlinked_staging_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            actual = root / "actual"
+            actual.mkdir()
+            parent = root / "linked"
+            parent.symlink_to(actual, target_is_directory=True)
+            destination = parent / "staging"
+            destination.mkdir()
+            archive = root / "backup.tar.gz"
+            archive_at(archive, [("etc/asterisk/test.conf", "file")])
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            (root / "backup.tar.gz.sha256").write_text(f"{checksum}  backup.tar.gz\\n")
+            result = subprocess.run(
+                ["bash", str(SCRIPT), str(archive), str(destination)],
+                text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("componente de caminho simbolico", result.stderr)
+            self.assertFalse(list(destination.iterdir()))
+
     def test_reject_empty_archive(self):
         result, names = self.run_restore([])
         self.assertNotEqual(result.returncode, 0)
