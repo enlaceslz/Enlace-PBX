@@ -18,26 +18,8 @@ command -v psql >/dev/null 2>&1 || { echo "ERRO: psql ausente." >&2; exit 1; }
 pg_restore --list "$archive" >/dev/null || { echo "ERRO: arquivo nao e um backup PostgreSQL valido." >&2; exit 1; }
 
 # Parse with Python to reject malformed URLs and non-test database names.
-target_db="$(python3 - "$target_url" <<'PY'
-from urllib.parse import urlsplit, unquote
-import sys
-try:
-    url = urlsplit(sys.argv[1])
-    name = unquote(url.path.lstrip('/'))
-    if url.scheme not in ('postgres', 'postgresql') or not url.hostname or not name or '/' in name or url.query or url.fragment:
-        raise ValueError('URL invalida')
-    if not (name.endswith('_restore_test') or name.endswith('_homologacao')):
-        raise ValueError('O nome do banco deve terminar em _restore_test ou _homologacao')
-    if url.hostname not in ('127.0.0.1', 'localhost', '::1'):
-        raise ValueError('Restauracao permitida apenas para PostgreSQL local (loopback)')
-    if not url.username or url.username in ('postgres', 'enlace_app'):
-        raise ValueError('Use uma conta exclusiva de homologacao, nunca postgres ou enlace_app')
-    print(name)
-except ValueError as error:
-    print(f'ERRO: {error}', file=sys.stderr)
-    sys.exit(1)
-PY
-)" || exit 1
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+target_db="$(python3 "$script_dir/validate-restore-target.py" "$target_url")" || exit 1
 
 # Refuse a populated database, including existing tables outside the public schema.
 existing_objects="$(PGDATABASE="$target_url" psql -X -A -t -v ON_ERROR_STOP=1 -c "
