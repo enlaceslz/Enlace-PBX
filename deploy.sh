@@ -32,6 +32,17 @@ if [ "$EUID" -ne 0 ]; then
 fi
 echo -e "${GREEN}✅ Privilégios de ROOT validados.${NC}"
 
+# Validate installation location and environment before changing the host.
+APP_DIR="$(pwd -P)"
+if [[ "${APP_DIR}" != /opt/* && "${APP_DIR}" != /srv/* ]]; then
+  echo "ERRO: mova o projeto para /opt/enlace-pbx ou /srv/enlace-pbx antes do deploy." >&2
+  exit 1
+fi
+if [ -L .env ]; then
+  echo "ERRO: .env nao pode ser um link simbolico." >&2
+  exit 1
+fi
+
 # 2. Identificação do Sistema Operacional
 if [ -f /etc/os-release ]; then
   . /etc/os-release
@@ -424,11 +435,6 @@ fi
 
 # 11. Run the application with a dedicated unprivileged systemd identity.
 echo -e "\n${CYAN}🚀 Configurando serviço Enlace-PBX sem privilégios de root...${NC}"
-APP_DIR="$(pwd -P)"
-if [[ "${APP_DIR}" != /opt/* && "${APP_DIR}" != /srv/* ]]; then
-  echo "ERRO: mova o projeto para /opt/enlace-pbx ou /srv/enlace-pbx antes do deploy." >&2
-  exit 1
-fi
 if ! getent group enlace-pbx >/dev/null; then groupadd --system enlace-pbx; fi
 if ! id -u enlace-pbx >/dev/null 2>&1; then
   useradd --system --gid enlace-pbx --home-dir /var/lib/enlace-pbx --shell /usr/sbin/nologin enlace-pbx
