@@ -107,7 +107,7 @@ fi
 
 # Installation compiles and restarts Asterisk. Protect existing PBX systems
 # against accidental destructive upgrades, even when run as root.
-if [ -e /etc/asterisk ] || [ -L /etc/asterisk ] || command -v asterisk >/dev/null 2>&1; then
+if [ -e /etc/asterisk ] || [ -L /etc/asterisk ] || command -v asterisk >/dev/null 2>&1 || [ -x /usr/sbin/asterisk ] || [ -x /usr/local/sbin/asterisk ] || [ -f /etc/systemd/system/asterisk.service ] || [ -f /lib/systemd/system/asterisk.service ] || [ -f /usr/lib/systemd/system/asterisk.service ]; then
   if [ "${ENLACE_ALLOW_EXISTING_PBX:-}" != "I_UNDERSTAND_THE_RISK" ]; then
     echo "ERRO: instalacao existente do Asterisk detectada. Backup, janela de manutencao e ENLACE_ALLOW_EXISTING_PBX=I_UNDERSTAND_THE_RISK sao obrigatorios." >&2
     exit 1
