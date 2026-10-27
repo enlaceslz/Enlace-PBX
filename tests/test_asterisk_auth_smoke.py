@@ -200,6 +200,27 @@ class AuthSmokeTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=3)
 
+    def test_ari_rejects_oversized_version(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"system": {"version": "' + b"A" * 129 + b'"}}')
+
+            def log_message(self, *_):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "oversized Asterisk version"):
+                smoke.check_ari("127.0.0.1", server.server_port, "user", "secret", 3)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
     def test_ari_rejects_control_characters_in_version(self):
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
