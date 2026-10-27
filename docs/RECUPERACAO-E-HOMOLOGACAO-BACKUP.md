@@ -104,6 +104,8 @@ Não utilizar trunks reais ou destinos externos na VM isolada.
 **Portão de aprovação:** nenhum TEL-01 a TEL-10 pode ser marcado como aprovado
 sem evidência coletada na VM. CI de scripts não equivale à homologação SIP/RTP/WebRTC.
 
+O registro formal dos resultados deve utilizar `docs/TERMO-EVIDENCIAS-HOMOLOGACAO.md`, mantendo todos os itens como **NÃO EXECUTADO** até a coleta de evidências reais na VM.
+
 ## Critérios de aprovação
 
 - Manifesto e hashes aprovados.
