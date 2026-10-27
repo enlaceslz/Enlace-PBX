@@ -63,7 +63,9 @@ def check_ari(host, port, username, password, timeout):
             "Accept": "application/json",
         })
         response = conn.getresponse()
-        response.read(1024)
+        body = response.read(1025)
+        if len(body) > 1024:
+            raise RuntimeError("ARI readiness response exceeds size limit")
         if response.status != 200:
             raise RuntimeError(f"ARI authentication/readiness failed (HTTP {response.status})")
     finally:
