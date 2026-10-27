@@ -46,7 +46,12 @@ fi
 # Preflight: prevent conflicting legacy root-owned PM2 processes.
 # Migration requires an explicit operator decision to avoid unexpected downtime.
 echo -e "\n${BOLD}Verificando processos legados antes de modificar o host...${NC}"
-if command -v pm2 >/dev/null 2>&1 && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '^[1-9][0-9]*
+if command -v pm2 >/dev/null 2>&1 && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '^[1-9][0-9]*$'; then
+  echo "ERRO: Enlace-PBX ainda executa sob PM2. Pare e remova o processo legado manualmente antes de migrar para systemd." >&2
+  exit 1
+fi
+
+# 2. Identificação do Sistema Operacional
 if [ -f /etc/os-release ]; then
   . /etc/os-release
   OS_NAME=$NAME
