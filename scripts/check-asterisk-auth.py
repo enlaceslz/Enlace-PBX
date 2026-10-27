@@ -37,6 +37,8 @@ def check_ami(host, port, username, password, timeout):
             response += chunk
             if len(response) > 16384:
                 raise RuntimeError("AMI authentication response exceeds size limit")
+        if len(response) >= 16384 and b"\r\n\r\n" not in response:
+            raise RuntimeError("AMI authentication response exceeds size limit")
         if b"\r\n\r\n" not in response:
             raise RuntimeError("AMI returned an incomplete authentication response")
         fields = {}
