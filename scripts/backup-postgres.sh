@@ -47,11 +47,19 @@ trap 'rm -f -- "$temporary"' EXIT
 # Keep credentials out of process arguments by using libpq environment fields.
 mapfile -d '' -t connection_parts < <(printf '%s' "$DATABASE_URL" | python3 -c '
 import sys
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, parse_qsl
 u = urlsplit(sys.stdin.read())
-if u.scheme not in ("postgresql", "postgres") or not u.hostname or not u.username or not u.path.strip("/"):
+if u.scheme not in ("postgresql", "postgres") or not u.hostname or not u.username or not u.path.strip("/") or u.fragment:
     sys.exit(1)
-values = (u.hostname, str(u.port or 5432), unquote(u.username), unquote(u.password or ""), unquote(u.path[1:]))
+try:
+    port = u.port or 5432
+    options = parse_qsl(u.query, keep_blank_values=True, strict_parsing=True)
+except ValueError:
+    sys.exit(1)
+if options:
+    # Never silently ignore connection security settings from DATABASE_URL.
+    sys.exit(1)
+values = (u.hostname, str(port), unquote(u.username), unquote(u.password or ""), unquote(u.path[1:]))
 sys.stdout.buffer.write(("\0".join(values) + "\0").encode())
 ')
 [ "${#connection_parts[@]}" -eq 5 ] || { echo "ERRO: DATABASE_URL invalida." >&2; exit 1; }
