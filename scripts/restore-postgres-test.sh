@@ -40,7 +40,7 @@ PY
 )" || exit 1
 
 # Refuse a populated database, including existing tables outside the public schema.
-existing_objects="$(psql "$target_url" -X -A -t -v ON_ERROR_STOP=1 -c "
+existing_objects="$(PGDATABASE="$target_url" psql -X -A -t -v ON_ERROR_STOP=1 -c "
 SELECT count(*)
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -54,5 +54,5 @@ if [ "$existing_objects" != "0" ]; then
 fi
 
 echo "Restaurando backup em banco isolado: $target_db"
-pg_restore --dbname="$target_url" --no-owner --no-acl --exit-on-error --single-transaction "$archive"
+PGDATABASE="$target_url" pg_restore --no-owner --no-acl --exit-on-error --single-transaction "$archive"
 echo "Restauracao concluida em $target_db. Execute testes funcionais antes de considerar o backup homologado."
