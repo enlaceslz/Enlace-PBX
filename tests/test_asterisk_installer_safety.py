@@ -26,7 +26,7 @@ class InstallerSafetyTests(unittest.TestCase):
             """set -e
 command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin command "$@"; }
 """
-            + guard + "\\necho GUARD_CONTINUED\\n"
+            + guard + "\necho GUARD_CONTINUED\n"
         )
         env = os.environ.copy()
         if allow:
