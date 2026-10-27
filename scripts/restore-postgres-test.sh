@@ -29,7 +29,7 @@ import sys
 from urllib.parse import unquote, urlsplit
 u = urlsplit(sys.stdin.read())
 values = (u.hostname, str(u.port or 5432), unquote(u.username), unquote(u.password), unquote(u.path[1:]))
-sys.stdout.buffer.write(("\\0".join(values) + "\\0").encode())
+sys.stdout.buffer.write(("\0".join(values) + "\0").encode())
 ')
 [ "${#connection_parts[@]}" -eq 5 ] || { echo "ERRO: conexao de teste invalida." >&2; exit 1; }
 export PGHOST="${connection_parts[0]}" PGPORT="${connection_parts[1]}"
