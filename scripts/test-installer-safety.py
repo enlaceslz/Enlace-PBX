@@ -147,6 +147,15 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_backup_manifest_functional_suite(self):
+        import subprocess
+        import sys
+        suite = Path(__file__).resolve().with_name("test-backup-manifest.py")
+        result = subprocess.run(
+            [sys.executable, str(suite)], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_pbx_archive_restore_functional_suite(self):
         import subprocess
         import sys
