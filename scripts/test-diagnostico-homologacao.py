@@ -94,6 +94,37 @@ class DiagnosticBundleTests(unittest.TestCase):
         )
         self.assertEqual(check.returncode, 0, check.stderr)
 
+    def test_real_collectors_generate_strictly_valid_bundle(self):
+        for name in ("inventory-homologation-isolation.sh", "collect-asterisk-evidence.sh"):
+            shutil.copy2(Path(__file__).with_name(name), self.scripts / name)
+        fake_bin = self.root / "bin"
+        fake_bin.mkdir()
+        (fake_bin / "ip").write_text(
+            '#!/bin/bash\n'
+            'if [ "$1" = "-4" ]; then printf "default via synthetic\\n"; fi\n'
+        )
+        (fake_bin / "asterisk").write_text(
+            '#!/bin/bash\n'
+            'if [ "$1" != "-rx" ]; then exit 2; fi\n'
+            'printf "synthetic aggregate evidence\\n"\n'
+        )
+        for name in ("ip", "asterisk"):
+            (fake_bin / name).chmod(0o700)
+        result = self.run_bundle(PATH=str(fake_bin) + os.pathsep + os.environ["PATH"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        verifier = Path(__file__).with_name("verify-diagnostic-bundle.py")
+        check = subprocess.run(
+            ["python3", str(verifier), str(self.target)],
+            capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(check.returncode, 0, check.stderr)
+        (self.target / "rotas/SHA256SUMS").write_text("tampered")
+        invalid = subprocess.run(
+            ["python3", str(verifier), str(self.target)],
+            capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(invalid.returncode, 2, invalid.stdout)
+
     def test_tampered_child_report_breaks_bundle_integrity(self):
         result = self.run_bundle()
         self.assertEqual(result.returncode, 0, result.stderr)
