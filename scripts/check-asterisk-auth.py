@@ -65,7 +65,10 @@ def main():
     host = os.environ.get("ASTERISK_SMOKE_HOST", "127.0.0.1")
     if host not in ("127.0.0.1", "::1", "localhost"):
         raise ValueError("Only loopback Asterisk endpoints are permitted")
-    timeout = float(os.environ.get("ASTERISK_SMOKE_TIMEOUT", "5"))
+    try:
+        timeout = float(os.environ.get("ASTERISK_SMOKE_TIMEOUT", "5"))
+    except ValueError as exc:
+        raise ValueError("ASTERISK_SMOKE_TIMEOUT must be numeric") from exc
     if not 0 < timeout <= 30:
         raise ValueError("ASTERISK_SMOKE_TIMEOUT must be between 0 and 30 seconds")
     ami_user = require("ASTERISK_AMI_USER")
