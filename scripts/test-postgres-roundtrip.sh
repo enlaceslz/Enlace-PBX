@@ -29,7 +29,7 @@ sys.stdout.buffer.write(("\\0".join(values) + "\\0").encode())
 export PGHOST="${connection_parts[0]}" PGPORT="${connection_parts[1]}"
 export PGUSER="${connection_parts[2]}" PGPASSWORD="${connection_parts[3]}"
 export PGDATABASE="${connection_parts[4]}"
-unset target_url connection_parts
+unset connection_parts
 
 
 command -v psql >/dev/null
@@ -47,7 +47,7 @@ psql -X -v ON_ERROR_STOP=1 -c "CREATE TABLE pbx_backup_smoke (id integer PRIMARY
 pg_dump --format=custom --no-owner --no-acl --file="$tmpdir/smoke.dump"
 pg_restore --list "$tmpdir/smoke.dump" >/dev/null
 psql -X -v ON_ERROR_STOP=1 -c "DROP TABLE pbx_backup_smoke;"
-printf 'postgresql://%s:%s@%s:%s/%s' "$PGUSER" "$PGPASSWORD" "$PGHOST" "$PGPORT" "$PGDATABASE" | bash "$script_dir/restore-postgres-test.sh" "$tmpdir/smoke.dump" --stdin
+printf '%s' "$target_url" | bash "$script_dir/restore-postgres-test.sh" "$tmpdir/smoke.dump" --stdin
 result="$(psql -XAt -v ON_ERROR_STOP=1 -c "SELECT payload FROM pbx_backup_smoke WHERE id=1;")"
 [ "$result" = "enlace-backup-check" ] || { echo "ERRO: divergencia de dados apos restauracao." >&2; exit 1; }
 echo "SUCESSO: backup e restauracao PostgreSQL com integridade verificada."
