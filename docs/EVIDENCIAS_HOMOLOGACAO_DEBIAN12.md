@@ -33,6 +33,8 @@ Antes de iniciar os cenários, o responsável técnico deve registrar PASS ou BL
 
 **Estado inicial: NO-GO — não há evidência de execução de laboratório.** Alterar os estados somente mediante verificação real e registro da evidência. O resultado do GitHub Actions é complementar, não substitui nenhum item acima.
 
+Antes da coleta manual, execute `python3 scripts/check-asterisk-runtime.py` na VM de laboratório. O comando é somente leitura, retorna código 1 quando encontra falhas e não substitui os testes de chamadas, áudio, IA ou rollback. Registre a saída PASS/FAIL sem acrescentar credenciais.
+
 ## Captura segura das evidências
 
 Execute os comandos abaixo **somente depois da instalação em laboratório**. Revise as saídas antes de anexá-las: não publique senhas, tokens, endereços pessoais, números telefônicos ou gravações.
