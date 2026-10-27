@@ -75,6 +75,9 @@ def check_ari(host, port, username, password, timeout):
             raise RuntimeError("ARI readiness returned invalid JSON") from exc
         if not isinstance(payload, dict) or not isinstance(payload.get("system"), dict):
             raise RuntimeError("ARI readiness returned unexpected Asterisk information")
+        version = payload["system"].get("version")
+        if not isinstance(version, str) or not version.strip():
+            raise RuntimeError("ARI readiness missing Asterisk system version")
     finally:
         conn.close()
 
