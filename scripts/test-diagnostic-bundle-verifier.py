@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Positive and negative cases for the strict diagnostic bundle verifier."""
 import hashlib
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -70,6 +71,13 @@ class BundleVerifierTests(unittest.TestCase):
     def test_unexpected_empty_directory(self):
         (self.root / "untracked-empty").mkdir()
         with self.assertRaisesRegex(ValueError, "Diretorios extras"):
+            module.validate(self.root)
+
+    def test_fifo_is_rejected_without_blocking(self):
+        path = self.root / "rotas/rotas.txt"
+        path.unlink()
+        os.mkfifo(path)
+        with self.assertRaises(ValueError):
             module.validate(self.root)
 
     def test_symlink(self):
