@@ -72,10 +72,10 @@ if [ -L .env ]; then
 elif [ -f .env ]; then
   if [ ! -r .env ]; then
     fail ".env not readable by current user"
-  elif [ "$(stat -c '%a' .env)" = 600 ]; then
-    pass ".env permissions 600"
+  elif [ "$(stat -c '%a:%U:%G' .env)" = "640:root:enlace-pbx" ]; then
+    pass ".env permissions 640 root:enlace-pbx"
   else
-    fail ".env permissions are not 600"
+    fail ".env permissions/ownership must be 640 root:enlace-pbx"
   fi
 else
   fail ".env missing in working directory"
