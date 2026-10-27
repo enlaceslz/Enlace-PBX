@@ -47,6 +47,13 @@ if [[ "${#ASTERISK_AMI_PASSWORD}" -lt 24 || "${#ASTERISK_ARI_PASSWORD}" -lt 24 ]
   exit 1
 fi
 
+# Keep AMI and ARI identities separate before changing any system state.
+if [[ "${ASTERISK_AMI_PASSWORD}" == "${ASTERISK_ARI_PASSWORD}" ||
+      "${ASTERISK_AMI_USER:-enlace_ami}" == "${ASTERISK_ARI_USER:-enlace_ari}" ]]; then
+  echo "ERRO: AMI e ARI devem usar usuarios e senhas diferentes." >&2
+  exit 1
+fi
+
 # 1. Validação de privilégios de ROOT
 if [ "${EUID}" -ne 0 ]; then
   echo -e "${RED}❌ ERRO: Este script deve ser executado com privilégios de superusuário (root).${NC}"
