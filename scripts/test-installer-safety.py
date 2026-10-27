@@ -128,6 +128,23 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertNotIn('npm install -g pm2', DEPLOY)
         self.assertNotIn('pm2 delete enlace-pbx', DEPLOY)
 
+    def test_deploy_has_one_configuration_and_one_summary(self):
+        self.assertEqual(DEPLOY.count('# 6. Parâmetros de Configuração de Rede'), 1)
+        self.assertEqual(DEPLOY.count('# 13. Resumo Final'), 1)
+        self.assertIn("grep -Eq '^[1-9][0-9]*
+        self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
+        self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
+        self.assertIn('if [ -e /etc/asterisk ]; then', SCRIPT)
+        self.assertIn('ASTERISK_CONFIG_PREEXISTED=1', SCRIPT)
+        self.assertLess(SCRIPT.index('ASTERISK_CONFIG_PREEXISTED=1'), SCRIPT.index('\nmake install\n'))
+        self.assertIn('if [ "${ASTERISK_CONFIG_PREEXISTED}" -eq 1 ]; then', SCRIPT)
+        self.assertRegex(SCRIPT, r'else\s+make samples\s+fi')
+
+
+if __name__ == "__main__":
+    unittest.main()
+; then", DEPLOY)
+
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
         self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
