@@ -17,6 +17,8 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('check "Asterisk responde ao CLI"', preflight)
         self.assertIn('check "PostgreSQL local aceita conexoes"', preflight)
         self.assertIn('check "Aplicacao Enlace-PBX ativa" systemctl is-active --quiet enlace-pbx.service', preflight)
+        self.assertIn("http://127.0.0.1:3000/api/v1/health", preflight)
+        self.assertIn("--max-time 3", preflight)
         forbidden = (
             r"\b(?:apt|apt-get|dpkg|npm|rm|mv|cp|chmod|chown|tee|sed|truncate|reboot|shutdown)\b",
             r"\bsystemctl\s+(?:start|stop|restart|reload|enable|disable)\b",
