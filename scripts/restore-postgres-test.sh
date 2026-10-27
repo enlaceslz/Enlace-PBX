@@ -24,13 +24,13 @@ import sys
 try:
     url = urlsplit(sys.argv[1])
     name = unquote(url.path.lstrip('/'))
-    if url.scheme not in ('postgres', 'postgresql') or not url.hostname or not name or '/' in name:
+    if url.scheme not in ('postgres', 'postgresql') or not url.hostname or not name or '/' in name or url.query or url.fragment:
         raise ValueError('URL invalida')
     if not (name.endswith('_restore_test') or name.endswith('_homologacao')):
         raise ValueError('O nome do banco deve terminar em _restore_test ou _homologacao')
     if url.hostname not in ('127.0.0.1', 'localhost', '::1'):
         raise ValueError('Restauracao permitida apenas para PostgreSQL local (loopback)')
-    if url.username in ('postgres', 'enlace_app'):
+    if not url.username or url.username in ('postgres', 'enlace_app'):
         raise ValueError('Use uma conta exclusiva de homologacao, nunca postgres ou enlace_app')
     print(name)
 except ValueError as error:
