@@ -364,7 +364,19 @@ read -p "Deseja configurar o NGINX com suporte a WebSockets e SSL para '${DOMAIN
 if [[ ! "$CONF_NGINX" =~ ^[Nn]$ ]]; then
   echo -e "${CYAN}⚙️ Gerando configuração do NGINX para ${DOMAIN}...${NC}"
   
-  cat <<NGINX_CONF > "/etc/nginx/sites-available/enlace-pbx"
+  NGINX_SITE=/etc/nginx/sites-available/enlace-pbx
+  NGINX_BACKUP=""
+  NGINX_SITE_PREEXISTED=false
+  NGINX_DEFAULT_ENABLED=false
+  if [ -e "$NGINX_SITE" ]; then
+    NGINX_SITE_PREEXISTED=true
+    NGINX_BACKUP=$(mktemp /etc/nginx/sites-available/.enlace-pbx.backup.XXXXXXXX)
+    cp -p "$NGINX_SITE" "$NGINX_BACKUP"
+  fi
+  if [ -e /etc/nginx/sites-enabled/default ] || [ -L /etc/nginx/sites-enabled/default ]; then
+    NGINX_DEFAULT_ENABLED=true
+  fi
+  cat <<NGINX_CONF > "$NGINX_SITE"
 # ====================================================================
 # Enlace-PBX — NGINX Reverse Proxy com Suporte WebRTC WSS e WebSockets
 # Domínio: ${DOMAIN}
@@ -406,11 +418,23 @@ server {
 }
 NGINX_CONF
 
-  # Habilitar o site
-  ln -sf /etc/nginx/sites-available/enlace-pbx /etc/nginx/sites-enabled/enlace-pbx
-  rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+  # Validate first, then remove the default site only after the new site is usable.
+  ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/enlace-pbx
 
   if nginx -t >/dev/null 2>&1; then
+    if [ "$NGINX_DEFAULT_ENABLED" = true ]; then
+      rm -f /etc/nginx/sites-enabled/default
+      if ! nginx -t >/dev/null 2>&1; then
+        ln -s ../sites-available/default /etc/nginx/sites-enabled/default
+        if [ "$NGINX_SITE_PREEXISTED" = true ]; then
+          cp -p "$NGINX_BACKUP" "$NGINX_SITE"
+        else
+          rm -f "$NGINX_SITE" /etc/nginx/sites-enabled/enlace-pbx
+        fi
+        echo "ERRO: NGINX invalido apos desabilitar site padrao; configuracao restaurada." >&2
+        exit 1
+      fi
+    fi
     systemctl reload nginx
     echo -e "${GREEN}✅ NGINX configurado e recarregado com sucesso.${NC}"
     
@@ -425,7 +449,12 @@ NGINX_CONF
       }
     fi
   else
-    echo -e "${RED}❌ Erro no arquivo de configuração do NGINX. Verifique com: nginx -t${NC}" >&2
+    if [ "$NGINX_SITE_PREEXISTED" = true ]; then
+      cp -p "$NGINX_BACKUP" "$NGINX_SITE"
+    else
+      rm -f "$NGINX_SITE" /etc/nginx/sites-enabled/enlace-pbx
+    fi
+    echo -e "${RED}❌ Erro no arquivo de configuração do NGINX; configuracao anterior restaurada. Verifique com: nginx -t${NC}" >&2
     exit 1
   fi
 fi
