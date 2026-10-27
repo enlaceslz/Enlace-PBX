@@ -200,6 +200,27 @@ class AuthSmokeTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=3)
 
+    def test_ari_rejects_http_200_with_invalid_metadata(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *_):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "unexpected Asterisk information"):
+                smoke.check_ari("127.0.0.1", server.server_port, "user", "secret", 3)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
     def test_ari_accepts_200_and_rejects_401(self):
         class Handler(BaseHTTPRequestHandler):
             status = 200
@@ -208,7 +229,7 @@ class AuthSmokeTests(unittest.TestCase):
                 self.server.last_authorization = self.headers.get("Authorization")
                 self.send_response(self.status)
                 self.end_headers()
-                self.wfile.write(b"{}")
+                self.wfile.write(b'{"system": {}}')
             def log_message(self, *_):
                 pass
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
