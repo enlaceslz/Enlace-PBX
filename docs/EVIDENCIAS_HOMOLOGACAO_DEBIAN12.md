@@ -115,6 +115,23 @@ Para cada cenário, registre o tempo de interrupção, o tempo até recuperaçã
 
 **Falha crítica:** backup irrestaurável, perda não autorizada de configuração, falha na autenticação após restauração, exposição AMI/ARI, ausência de rollback funcional ou recuperação acima dos limites aprovados.
 
+## Parâmetros obrigatórios antes da execução
+
+Os valores abaixo são decisões de operação e **não foram definidos nem medidos pelo CI**. Preencher e aprovar antes dos testes correspondentes; não inferir valores a partir de exemplos ou defaults de bibliotecas.
+
+| Parâmetro | Valor aprovado | Evidência/autoridade |
+| --- | --- | --- |
+| Timeout máximo de resposta do gateway IA | PENDENTE | PENDENTE |
+| Timeout de transferência para humano | PENDENTE | PENDENTE |
+| Limite de chamadas simultâneas por instância | PENDENTE | PENDENTE |
+| Critério de qualidade RTP (perda, jitter, latência) | PENDENTE | PENDENTE |
+| RTO máximo após falha | PENDENTE | PENDENTE |
+| RPO máximo após falha | PENDENTE | PENDENTE |
+| Janela de observação pós-reinício | PENDENTE | PENDENTE |
+| Responsável pela aprovação de homologação | PENDENTE | PENDENTE |
+
+**Regra de bloqueio:** cenários que dependem de um parâmetro pendente não podem receber PASS. Os resultados possíveis são PASS, FAIL, BLOQUEADO ou NÃO EXECUTADO, sempre com evidência vinculada.
+
 ## Matriz de aceitação
 
 | Cenário | Esperado | Resultado | Evidência |
