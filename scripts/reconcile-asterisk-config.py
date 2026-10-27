@@ -96,6 +96,8 @@ def main() -> None:
     ari = require_secret("ASTERISK_ARI_PASSWORD")
     ami_user = os.environ.get("ASTERISK_AMI_USER", "enlace_ami")
     ari_user = os.environ.get("ASTERISK_ARI_USER", "enlace_ari")
+    if ami == ari or ami_user == ari_user:
+        raise ValueError("AMI and ARI must use distinct users and passwords")
     for name in (ami_user, ari_user):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
             raise ValueError("Invalid Asterisk account name")
