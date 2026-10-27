@@ -86,6 +86,13 @@ class BundleVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "excessivamente grande"):
             module.validate(self.root)
 
+    def test_valid_file_exactly_at_size_limit(self):
+        path = self.root / "asterisk/asterisk-version.txt"
+        with path.open("wb") as stream:
+            stream.truncate(8 * 1024 * 1024)
+        self.write_manifest()
+        self.assertTrue(module.validate(self.root))
+
     def test_oversized_manifest_is_rejected(self):
         manifest = self.root / "SHA256SUMS"
         manifest.write_text("x" * 16385)
