@@ -41,6 +41,36 @@ class AuthSmokeTests(unittest.TestCase):
                 smoke.main()
             ami.assert_not_called()
 
+    def test_ami_rejects_truncated_success_response(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+
+        def serve():
+            try:
+                client, _ = listener.accept()
+                with client:
+                    client.settimeout(3)
+                    client.sendall(b"Asterisk Call Manager/6.0\r\n")
+                    request = b""
+                    while b"\r\n\r\n" not in request:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        request += chunk
+                    client.sendall(b"Response: Success\r\n")
+            finally:
+                listener.close()
+
+        worker = threading.Thread(target=serve, daemon=True)
+        worker.start()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "incomplete"):
+                smoke.check_ami("127.0.0.1", port, "ami", "secret", 3)
+        finally:
+            worker.join(timeout=4)
+
     def test_ami_accepts_success_and_logs_off(self):
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0))
