@@ -2,6 +2,8 @@
 """Local protocol regression tests for the read-only AMI/ARI smoke checker."""
 import importlib.util
 import pathlib
+import os
+from unittest.mock import patch
 import socket
 import threading
 import unittest
@@ -14,6 +16,18 @@ spec.loader.exec_module(smoke)
 
 
 class AuthSmokeTests(unittest.TestCase):
+    def test_rejects_shared_ami_ari_credentials_before_network(self):
+        credentials = {
+            "ASTERISK_AMI_USER": "shared",
+            "ASTERISK_AMI_PASSWORD": "A" * 32,
+            "ASTERISK_ARI_USER": "shared",
+            "ASTERISK_ARI_PASSWORD": "A" * 32,
+        }
+        with patch.dict(os.environ, credentials), patch.object(smoke, "check_ami") as ami:
+            with self.assertRaisesRegex(ValueError, "distinct"):
+                smoke.main()
+            ami.assert_not_called()
+
     def test_ami_accepts_success_and_logs_off(self):
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0))
