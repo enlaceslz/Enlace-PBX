@@ -5,12 +5,14 @@ set -Eeuo pipefail
 umask 077
 
 usage() {
-  echo "Uso: $0 /caminho/backup.dump postgresql://usuario@host:5432/enlace_pbx_restore_test" >&2
+  echo "Uso: printf %s URL_TESTE | $0 /caminho/backup.dump --stdin" >&2
   exit 2
 }
 [ "$#" -eq 2 ] || usage
 archive="$1"
-target_url="$2"
+[ "$2" = "--stdin" ] || usage
+target_url="$(cat)"
+[ -n "$target_url" ] || { echo "ERRO: URL de homologacao ausente na entrada padrao." >&2; exit 1; }
 
 [ -f "$archive" ] && [ ! -L "$archive" ] || { echo "ERRO: arquivo de backup invalido." >&2; exit 1; }
 command -v pg_restore >/dev/null 2>&1 || { echo "ERRO: pg_restore ausente." >&2; exit 1; }
