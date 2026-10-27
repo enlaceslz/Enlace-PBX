@@ -67,6 +67,16 @@ class ReconcilerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(stat.S_IMODE(manager.stat().st_mode), 0o640)
 
+    def test_unchanged_config_repairs_unsafe_mode_without_backup(self):
+        self.assertEqual(self.run_reconciler().returncode, 0)
+        manager = self.root / "manager.conf"
+        manager.chmod(0o666)
+        backups_before = sorted(p.name for p in self.root.glob("*.bak.*"))
+        result = self.run_reconciler()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(stat.S_IMODE(manager.stat().st_mode), 0o640)
+        self.assertEqual(backups_before, sorted(p.name for p in self.root.glob("*.bak.*")))
+
     def test_second_run_is_idempotent(self):
         self.assertEqual(self.run_reconciler().returncode, 0)
         before = {p.name: p.read_bytes() for p in self.root.glob("*.conf")}
