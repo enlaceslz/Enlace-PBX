@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Functional regression tests for isolated PBX archive staging restore."""
 import io
+import hashlib
 import os
 import pathlib
 import subprocess
@@ -40,6 +41,8 @@ class RestorePbxArchiveTests(unittest.TestCase):
             destination = root / "staging"
             destination.mkdir()
             archive_at(archive, entries)
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            (root / "backup.tar.gz.sha256").write_text(f"{checksum}  backup.tar.gz\\n")
             if existing:
                 (destination / "keep").write_text("original")
             result = subprocess.run(
