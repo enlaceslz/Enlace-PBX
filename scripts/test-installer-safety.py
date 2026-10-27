@@ -147,6 +147,15 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_pbx_backup_rejects_non_restorable_archive_before_publication(self):
+        backup = (Path(__file__).resolve().with_name("backup-pbx-files.sh")).read_text()
+        self.assertIn('tarfile.open(sys.argv[1], "r:gz")', backup)
+        self.assertIn('if not (item.isfile() or item.isdir()):', backup)
+        self.assertIn('links e arquivos especiais nao podem ser restaurados', backup)
+        self.assertIn('caminho fora da lista permitida:', backup)
+        self.assertLess(backup.index('tarfile.open(sys.argv[1], "r:gz")'),
+                        backup.index('mv -n -- "$temporary" "$destination"'))
+
     def test_postgres_restore_target_guard_suite(self):
         import subprocess
         import sys
