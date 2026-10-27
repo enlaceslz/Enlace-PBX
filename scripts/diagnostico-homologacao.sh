@@ -34,7 +34,7 @@ fi
 printf 'resultado=%s\nisolamento=NAO CONFIRMADO\nhomologacao=NAO EXECUTADA\n' "$status" > "$target/RESUMO.txt"
 (
   cd "$target"
-  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+  find . -type f ! -path './SHA256SUMS' -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
 )
 echo "Diagnosticos concluidos; validar isolamento e TEL-01 a TEL-10 manualmente."
 exit "$status"
