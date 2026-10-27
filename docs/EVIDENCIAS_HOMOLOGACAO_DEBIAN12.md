@@ -16,6 +16,23 @@
 | Segmento de rede / firewall | PENDENTE |
 | GitHub Actions regressão / quality gate | PENDENTE |
 
+## Checklist de entrada em homologação (go/no-go)
+
+Antes de iniciar os cenários, o responsável técnico deve registrar PASS ou BLOQUEADO para cada pré-requisito. Um item obrigatório BLOQUEADO impede o início de testes destrutivos e a emissão de aprovação.
+
+| Pré-requisito | Critério | Estado |
+| --- | --- | --- |
+| Ambiente isolado | VM descartável, sem clientes ou troncos reais | BLOQUEADO |
+| Snapshot anterior | ID e procedimento de restauração registrados | BLOQUEADO |
+| Inventário e versão | Commit, sistema operacional, recursos e rede identificados | BLOQUEADO |
+| Acesso restrito | Credenciais de laboratório e firewall revisados | BLOQUEADO |
+| Parâmetros aprovados | Limites de IA, RTP, capacidade, RTO e RPO preenchidos | BLOQUEADO |
+| Testes controlados | Dois ramais de laboratório e plano de chamadas definido | BLOQUEADO |
+| Procedimento de rollback | Responsável, gatilho e passos de recuperação aprovados | BLOQUEADO |
+| Evidências protegidas | Local de armazenamento restrito e rotina de higienização | BLOQUEADO |
+
+**Estado inicial: NO-GO — não há evidência de execução de laboratório.** Alterar os estados somente mediante verificação real e registro da evidência. O resultado do GitHub Actions é complementar, não substitui nenhum item acima.
+
 ## Captura segura das evidências
 
 Execute os comandos abaixo **somente depois da instalação em laboratório**. Revise as saídas antes de anexá-las: não publique senhas, tokens, endereços pessoais, números telefônicos ou gravações.
