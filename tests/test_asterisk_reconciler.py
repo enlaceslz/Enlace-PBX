@@ -70,6 +70,25 @@ class ReconcilerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(target.read_text(), "[general]\nenabled = no\n")
 
+    def test_late_symlink_does_not_modify_manager(self):
+        original = (self.root / "manager.conf").read_bytes()
+        target = self.root / "target.conf"
+        target.write_text("[general]\\nenabled = no\\n", encoding="utf-8")
+        (self.root / "ari.conf").symlink_to(target)
+        result = self.run_reconciler()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.root / "manager.conf").read_bytes(), original)
+
+    def test_late_duplicate_does_not_modify_manager(self):
+        original = (self.root / "manager.conf").read_bytes()
+        (self.root / "ari.conf").write_text(
+            "[general]\\nenabled = yes\\n[general]\\nenabled = no\\n",
+            encoding="utf-8",
+        )
+        result = self.run_reconciler()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.root / "manager.conf").read_bytes(), original)
+
     def test_rejects_duplicate_managed_section(self):
         (self.root / "manager.conf").write_text(
             "[enlace_ami]\nsecret = old\n[enlace_ami]\nsecret = other\n",
