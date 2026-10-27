@@ -134,6 +134,22 @@ Para cada cenário, registre o tempo de interrupção, o tempo até recuperaçã
 
 **Falha crítica:** backup irrestaurável, perda não autorizada de configuração, falha na autenticação após restauração, exposição AMI/ARI, ausência de rollback funcional ou recuperação acima dos limites aprovados.
 
+## Inventário de operações AMI — autorização por evidência
+
+Antes de alterar as classes `read` e `write` em `manager.conf`, preencher a tabela com as operações **observadas** em cada fluxo. A classe AMI exigida deve ser validada contra a versão do Asterisk instalada, não inferida apenas do nome da ação.
+
+| Fluxo | Ação AMI / evento observado | Classe necessária | Teste positivo | Teste de negação |
+| --- | --- | --- | --- | --- |
+| Originação de chamada | PENDENTE | PENDENTE | NÃO EXECUTADO | NÃO EXECUTADO |
+| Atendimento e transferência | PENDENTE | PENDENTE | NÃO EXECUTADO | NÃO EXECUTADO |
+| Consulta de canais e estado | PENDENTE | PENDENTE | NÃO EXECUTADO | NÃO EXECUTADO |
+| Encerramento e limpeza de sessão | PENDENTE | PENDENTE | NÃO EXECUTADO | NÃO EXECUTADO |
+| Integração IA e contingência | PENDENTE | PENDENTE | NÃO EXECUTADO | NÃO EXECUTADO |
+
+**Método de validação:** instrumentar somente chamadas de laboratório; registrar nome da ação, resposta de autorização e classe requerida sem incluir cabeçalhos `Secret`, tokens ou payloads de clientes. Em seguida, testar o usuário AMI de produção simulada com a política candidata e verificar que ações não utilizadas são negadas. Reexecutar os cenários SIP e IA após cada redução.
+
+**Regra de liberação:** manter a pendência BLOQUEADA até existir inventário assinado, política mínima aprovada e testes positivos/negativos concluídos. O CI atual não demonstra essas condições.
+
 ## Auditoria de privilégios AMI/ARI — pendência de segurança
 
 O provisionador atual concede ao usuário AMI privilégios de leitura e escrita amplos, incluindo `system`, `command`, `config`, `originate` e `dialplan`. O vínculo à interface loopback **não elimina** o risco de uma aplicação local comprometida usar essas capacidades.
