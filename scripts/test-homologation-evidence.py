@@ -14,7 +14,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(module.validate(TEMPLATE))
 
     def test_all_statuses_are_explicit(self):
-        self.assertEqual(len(module.EXPECTED), 12)
+        self.assertEqual(len(module.EXPECTED), 21)
         self.assertFalse(module.validate(TEMPLATE.replace("NÃO EXECUTADO", "REPROVADO")))
 
     def test_invalid_status_rejected(self):
