@@ -40,6 +40,8 @@ bash scripts/diagnostico-homologacao.sh /tmp/enlace-diagnostico-001
 (cd /tmp/enlace-diagnostico-001/asterisk && sha256sum --check SHA256SUMS)
 ```
 
+O `SHA256SUMS` na raiz cobre todos os arquivos do pacote, inclusive os relatórios dos subdiretórios. A verificação detecta adulteração de conteúdo existente; conferir também a lista esperada de arquivos e a origem do pacote.
+
 O script registra falhas e retorna código não zero quando algum diagnóstico
 falha. O relatório **não confirma isolamento**, não aprova homologação e não
 realiza chamadas. Revisar conteúdo antes de compartilhar.
