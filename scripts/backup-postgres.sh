@@ -56,16 +56,20 @@ try:
     options = parse_qsl(u.query, keep_blank_values=True, strict_parsing=True)
 except ValueError:
     sys.exit(1)
-if options:
-    # Never silently ignore connection security settings from DATABASE_URL.
+allowed = {"sslmode"}
+if len(options) != len({key for key, _ in options}) or any(key not in allowed for key, _ in options):
     sys.exit(1)
-values = (u.hostname, str(port), unquote(u.username), unquote(u.password or ""), unquote(u.path[1:]))
+sslmode = dict(options).get("sslmode", "")
+if sslmode not in ("", "disable", "allow", "prefer", "require", "verify-ca", "verify-full"):
+    sys.exit(1)
+values = (u.hostname, str(port), unquote(u.username), unquote(u.password or ""), unquote(u.path[1:]), sslmode)
 sys.stdout.buffer.write(("\0".join(values) + "\0").encode())
 ')
-[ "${#connection_parts[@]}" -eq 5 ] || { echo "ERRO: DATABASE_URL invalida." >&2; exit 1; }
+[ "${#connection_parts[@]}" -eq 6 ] || { echo "ERRO: DATABASE_URL invalida." >&2; exit 1; }
 export PGHOST="${connection_parts[0]}" PGPORT="${connection_parts[1]}"
 export PGUSER="${connection_parts[2]}" PGPASSWORD="${connection_parts[3]}"
 export PGDATABASE="${connection_parts[4]}"
+if [ -n "${connection_parts[5]}" ]; then export PGSSLMODE="${connection_parts[5]}"; fi
 unset DATABASE_URL connection_parts
 
 if ! pg_dump --format=custom --file="$temporary" --no-owner --no-acl; then
