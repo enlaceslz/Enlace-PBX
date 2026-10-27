@@ -27,10 +27,11 @@ def validate_target(raw):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Uso: validate-restore-target.py postgresql://usuario:senha@127.0.0.1/banco_restore_test", file=sys.stderr)
+        print("Uso: validate-restore-target.py --stdin | URL", file=sys.stderr)
         sys.exit(2)
     try:
-        print(validate_target(sys.argv[1]))
+        raw = sys.stdin.read() if sys.argv[1] == "--stdin" else sys.argv[1]
+        print(validate_target(raw))
     except ValueError as error:
         print(f"ERRO: {error}", file=sys.stderr)
         sys.exit(1)
