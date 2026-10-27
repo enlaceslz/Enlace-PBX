@@ -76,7 +76,7 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
         start = source.index("# Reject unsupported operating systems")
         end = source.index("# Resolve installer dependencies", start)
         gate = source[start:end]
-        with __import__("tempfile").TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory:
             release = Path(directory) / "os-release"
             release.write_text('ID=debian\nVERSION_ID="12"\n', encoding="utf-8")
             gate = gate.replace("/etc/os-release", str(release))
@@ -86,6 +86,21 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("GATE_CONTINUED", result.stdout)
+
+    def test_os_gate_rejects_missing_release_file(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        start = source.index("# Reject unsupported operating systems")
+        end = source.index("# Resolve installer dependencies", start)
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing-os-release"
+            gate = source[start:end].replace("/etc/os-release", str(missing))
+            result = subprocess.run(
+                ["bash", "-c", "set -e\n" + gate + "\necho GATE_CONTINUED\n"],
+                capture_output=True, text=True, timeout=5,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("ausente", result.stderr)
+            self.assertNotIn("GATE_CONTINUED", result.stdout)
 
     def test_installer_rejects_reused_passwords_before_installation(self):
         env = os.environ.copy()
