@@ -121,6 +121,10 @@ jobs:
           sudo bash scripts/verify-backup-manifest.sh "$temp_dir/backups"/enlace-pbx-backup-*.manifest
           sudo pg_restore --list "$temp_dir/backups"/enlace-pbx-postgres-*.dump >/dev/null
           sudo tar -tzf "$temp_dir/backups"/enlace-pbx-files-*.tar.gz | grep -q 'ci-backup-fixture/README'
+          sudo mkdir -p "$temp_dir/restore-staging"
+          sudo bash scripts/restore-pbx-files-staging.sh "$temp_dir/backups"/enlace-pbx-files-*.tar.gz "$temp_dir/restore-staging"
+          sudo test -f "$temp_dir/restore-staging/var/lib/enlace-pbx/ci-backup-fixture/README"
+          sudo grep -Fxq 'CI disposable PBX fixture' "$temp_dir/restore-staging/var/lib/enlace-pbx/ci-backup-fixture/README"
       - name: Test real PostgreSQL dump and restore
         env:
           CI_TEST_DB_URL: postgresql://pbx_ci_tester:ci_disposable_only@127.0.0.1:5432/enlace_restore_test
