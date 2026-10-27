@@ -54,6 +54,30 @@ else
   fail "Asterisk runtime identity checks skipped: systemd unavailable or service inactive"
 fi
 
+# Verify application service identity independently of Asterisk.
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet enlace-pbx.service; then
+  app_user="$(systemctl show enlace-pbx.service --property=User --value 2>/dev/null)"
+  app_group="$(systemctl show enlace-pbx.service --property=Group --value 2>/dev/null)"
+  if [ "$app_user" = enlace-pbx ] && [ "$app_group" = enlace-pbx ]; then
+    pass "Enlace-PBX systemd unit uses dedicated account"
+  else
+    fail "Enlace-PBX systemd unit User/Group mismatch"
+  fi
+  app_pid="$(systemctl show enlace-pbx.service --property=MainPID --value 2>/dev/null)"
+  if [[ "$app_pid" =~ ^[1-9][0-9]*$ ]] && [ -r "/proc/$app_pid/status" ] && id -u enlace-pbx >/dev/null 2>&1; then
+    app_uid="$(awk '/^Uid:/ {print $3}' "/proc/$app_pid/status")"
+    if [ "$app_uid" = "$(id -u enlace-pbx)" ]; then
+      pass "Enlace-PBX runtime effective UID matches service account"
+    else
+      fail "Enlace-PBX runtime effective UID mismatch"
+    fi
+  else
+    fail "Enlace-PBX runtime process identity unavailable"
+  fi
+else
+  fail "Enlace-PBX service inactive or systemd unavailable"
+fi
+
 if command -v asterisk >/dev/null 2>&1; then
   if asterisk -rx "core show version" 2>/dev/null | grep -q "Asterisk"; then
     pass "Asterisk CLI responsive"
