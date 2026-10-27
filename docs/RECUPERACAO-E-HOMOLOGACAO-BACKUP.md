@@ -106,6 +106,21 @@ sem evidência coletada na VM. CI de scripts não equivale à homologação SIP/
 
 O registro formal dos resultados deve utilizar `docs/TERMO-EVIDENCIAS-HOMOLOGACAO.md`, mantendo todos os itens como **NÃO EXECUTADO** até a coleta de evidências reais na VM.
 
+### Coleta limitada de evidências do Asterisk
+
+Na VM isolada, com acesso autorizado ao CLI do Asterisk:
+
+```bash
+bash scripts/collect-asterisk-evidence.sh /tmp/enlace-asterisk-evidencia-001
+(cd /tmp/enlace-asterisk-evidencia-001 && sha256sum --check SHA256SUMS)
+```
+
+O destino deve ser novo; os arquivos são privados e incluem somente uptime,
+versão, presença do módulo PJSIP e contagem agregada de canais. A coleta não
+realiza registro SIP, chamadas, reloads ou testes de áudio. Os hashes detectam
+alterações acidentais, mas não atestam a origem das evidências. Revisar os
+arquivos antes de compartilhar, mesmo sem credenciais previstas.
+
 ## Critérios de aprovação
 
 - Manifesto e hashes aprovados.
