@@ -73,8 +73,14 @@ def validate(directory: Path):
                 raise ValueError("Arquivo de evidencia excessivamente grande: " + name)
             with os.fdopen(fd, "rb") as stream:
                 fd = -1
+                bytes_read = 0
                 for block in iter(lambda: stream.read(65536), b""):
+                    bytes_read += len(block)
+                    if bytes_read > 8 * 1024 * 1024:
+                        raise ValueError("Arquivo cresceu durante leitura: " + name)
                     digest.update(block)
+                if bytes_read != opened_stat.st_size:
+                    raise ValueError("Tamanho alterado durante leitura: " + name)
         finally:
             if fd >= 0:
                 os.close(fd)
