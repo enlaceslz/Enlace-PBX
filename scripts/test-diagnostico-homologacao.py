@@ -54,6 +54,26 @@ class DiagnosticBundleTests(unittest.TestCase):
                            capture_output=True).returncode, 0,
         )
 
+    def test_root_manifest_includes_nested_checksum_manifests(self):
+        for collector in ("inventory-homologation-isolation.sh", "collect-asterisk-evidence.sh"):
+            script = self.scripts / collector
+            script.write_text(
+                '#!/bin/bash\\n'
+                'mkdir -m 700 -- "$1"\\n'
+                'printf "synthetic\\\\n" > "$1/report.txt"\\n'
+                '( cd "$1" && sha256sum report.txt > SHA256SUMS )\\n'
+            )
+        result = self.run_bundle()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = (self.target / "SHA256SUMS").read_text()
+        self.assertIn("./rotas/SHA256SUMS", manifest)
+        self.assertIn("./asterisk/SHA256SUMS", manifest)
+        check = subprocess.run(
+            ["sha256sum", "--check", "SHA256SUMS"],
+            cwd=self.target, capture_output=True, text=True,
+        )
+        self.assertEqual(check.returncode, 0, check.stderr)
+
     def test_tampered_child_report_breaks_bundle_integrity(self):
         result = self.run_bundle()
         self.assertEqual(result.returncode, 0, result.stderr)
