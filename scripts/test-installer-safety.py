@@ -11,6 +11,19 @@ DEPLOY = (Path(__file__).resolve().parent.parent / "deploy.sh").read_text()
 MIGRATOR = (Path(__file__).resolve().parent.parent / "server/infrastructure/postgres/migrations/migrator.ts").read_text()
 
 class InstallerSafetyTests(unittest.TestCase):
+    def test_homologation_preflight_is_read_only(self):
+        preflight = (Path(__file__).resolve().parent / "preflight-homologacao.sh").read_text()
+        self.assertIn("set -Eeuo pipefail", preflight)
+        self.assertIn('check "Asterisk responde ao CLI"', preflight)
+        self.assertIn('check "PostgreSQL local aceita conexoes"', preflight)
+        forbidden = (
+            r"\\b(?:apt|apt-get|dpkg|npm|rm|mv|cp|chmod|chown|tee|sed|truncate|reboot|shutdown)\\b",
+            r"\\bsystemctl\\s+(?:start|stop|restart|reload|enable|disable)\\b",
+            r"\\basterisk\\s+-rx\\s+['\\\"](?:core restart|core stop|module reload)",
+        )
+        for pattern in forbidden:
+            self.assertNotRegex(preflight, pattern)
+
     def test_pbx_backup_rejects_duplicate_archive_entries(self):
         backup = (Path(__file__).resolve().parent / "backup-pbx-files.sh").read_text()
         restore = (Path(__file__).resolve().parent / "restore-pbx-files-staging.sh").read_text()
