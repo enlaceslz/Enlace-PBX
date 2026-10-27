@@ -20,6 +20,31 @@ class RuntimePreflightTests(unittest.TestCase):
     def check(self, active=True, properties=PROPERTIES, listeners=LISTENERS, cli=True):
         return dict(module.evaluate(active, properties, listeners, cli))
 
+    def test_stable_service(self):
+        first = (True, PROPERTIES)
+        self.assertTrue(module.stable(first, first))
+
+    def test_pid_change_is_unstable(self):
+        self.assertFalse(module.stable(
+            (True, PROPERTIES),
+            (True, PROPERTIES.replace("MainPID=1234", "MainPID=5678")),
+        ))
+
+    def test_restart_counter_change_is_unstable(self):
+        self.assertFalse(module.stable(
+            (True, PROPERTIES),
+            (True, PROPERTIES.replace("NRestarts=0", "NRestarts=1")),
+        ))
+
+    def test_missing_restart_counter_fails_closed(self):
+        self.assertFalse(module.stable(
+            (True, PROPERTIES.replace("NRestarts=0\\n", "")),
+            (True, PROPERTIES.replace("NRestarts=0\\n", "")),
+        ))
+
+    def test_service_drops_during_observation(self):
+        self.assertFalse(module.stable((True, PROPERTIES), (False, PROPERTIES)))
+
     def test_healthy_loopback(self):
         self.assertTrue(all(self.check().values()))
 
