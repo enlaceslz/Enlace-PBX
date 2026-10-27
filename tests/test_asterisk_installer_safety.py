@@ -61,10 +61,10 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
         # the extracted shell snippet with a temporary test fixture.
         with tempfile.TemporaryDirectory() as directory:
             release = Path(directory) / "os-release"
-            release.write_text('ID=arch\\nVERSION_ID=rolling\\n', encoding="utf-8")
+            release.write_text('ID=arch\nVERSION_ID=rolling\n', encoding="utf-8")
             gate = gate.replace("/etc/os-release", str(release))
             result = subprocess.run(
-                ["bash", "-c", "set -e\\n" + gate + "\\necho GATE_CONTINUED\\n"],
+                ["bash", "-c", "set -e\n" + gate + "\necho GATE_CONTINUED\n"],
                 capture_output=True, text=True, timeout=5,
             )
             self.assertNotEqual(result.returncode, 0)
@@ -78,10 +78,10 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
         gate = source[start:end]
         with __import__("tempfile").TemporaryDirectory() as directory:
             release = Path(directory) / "os-release"
-            release.write_text('ID=debian\\nVERSION_ID="12"\\n', encoding="utf-8")
+            release.write_text('ID=debian\nVERSION_ID="12"\n', encoding="utf-8")
             gate = gate.replace("/etc/os-release", str(release))
             result = subprocess.run(
-                ["bash", "-c", "set -e\\n" + gate + "\\necho GATE_CONTINUED\\n"],
+                ["bash", "-c", "set -e\n" + gate + "\necho GATE_CONTINUED\n"],
                 capture_output=True, text=True, timeout=5,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
