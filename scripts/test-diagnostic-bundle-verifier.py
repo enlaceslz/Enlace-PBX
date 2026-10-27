@@ -27,6 +27,7 @@ class BundleVerifierTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("synthetic evidence: " + name + "\n")
+        (self.root / "RESUMO.txt").write_text("resultado=0\nisolamento=NAO CONFIRMADO\nhomologacao=NAO EXECUTADA\n")
         self.write_manifest()
 
     def write_manifest(self):
@@ -37,6 +38,21 @@ class BundleVerifierTests(unittest.TestCase):
         (self.root / "SHA256SUMS").write_text("".join(lines))
 
     def test_valid_complete_bundle(self):
+        self.assertTrue(module.validate(self.root))
+
+    def test_false_homologation_is_rejected_even_with_matching_hashes(self):
+        (self.root / "RESUMO.txt").write_text(
+            "resultado=0\\nisolamento=CONFIRMADO\\nhomologacao=APROVADA\\n"
+        )
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, "Resumo invalido"):
+            module.validate(self.root)
+
+    def test_failed_diagnostic_summary_remains_valid_evidence(self):
+        (self.root / "RESUMO.txt").write_text(
+            "resultado=1\\nisolamento=NAO CONFIRMADO\\nhomologacao=NAO EXECUTADA\\n"
+        )
+        self.write_manifest()
         self.assertTrue(module.validate(self.root))
 
     def test_tampered_file(self):
