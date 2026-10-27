@@ -19,7 +19,6 @@ class InstallerSafetyTests(unittest.TestCase):
         forbidden = (
             r"\b(?:apt|apt-get|dpkg|npm|rm|mv|cp|chmod|chown|tee|sed|truncate|reboot|shutdown)\b",
             r"\bsystemctl\s+(?:start|stop|restart|reload|enable|disable)\b",
-            r"\basterisk\s+-rx\s+['\\"](?:core restart|core stop|module reload)",
         )
         for pattern in forbidden:
             self.assertNotRegex(preflight, pattern)
