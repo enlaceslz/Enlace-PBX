@@ -128,6 +128,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertNotIn('npm install -g pm2', DEPLOY)
         self.assertNotIn('pm2 delete enlace-pbx', DEPLOY)
 
+    def test_deploy_has_no_duplicate_installation_or_broken_shell_fragment(self):
+        self.assertEqual(DEPLOY.count('apt-get update -y'), 1)
+        self.assertEqual(DEPLOY.count('systemctl restart enlace-pbx.service'), 1)
+        self.assertEqual(DEPLOY.count('# 2. Identificação do Sistema Operacional'), 1)
+        self.assertNotIn('\\n; then\\n', DEPLOY)
+        self.assertEqual(DEPLOY.count('if command -v pm2 >/dev/null'), 1)
+
     def test_deploy_has_one_configuration_and_one_summary(self):
         self.assertEqual(DEPLOY.count('# 6. Parâmetros de Configuração de Rede'), 1)
         self.assertEqual(DEPLOY.count('# 13. Resumo Final'), 1)
