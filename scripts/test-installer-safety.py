@@ -147,6 +147,19 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_postgres_restore_safety_guards(self):
+        root = Path(__file__).resolve().parent
+        restore = (root / "restore-postgres-test.sh").read_text()
+        roundtrip = (root / "test-postgres-roundtrip.sh").read_text()
+        backup = (root / "backup-postgres.sh").read_text()
+        self.assertIn("url.hostname not in ('127.0.0.1', 'localhost', '::1')", restore)
+        self.assertIn("url.username in ('postgres', 'enlace_app')", restore)
+        self.assertIn('existing_objects', restore)
+        self.assertIn('--single-transaction', restore)
+        self.assertIn('pg_restore --list "$temporary"', backup)
+        self.assertIn('bash "$script_dir/restore-postgres-test.sh"', roundtrip)
+        self.assertIn('divergencia de dados apos restauracao', roundtrip)
+
     def test_postgres_connection_checked_before_build(self):
         self.assertIn('DATABASE_URL="$DATABASE_URL" node -e', DEPLOY)
         self.assertIn('pool.query("SELECT 1")', DEPLOY)
