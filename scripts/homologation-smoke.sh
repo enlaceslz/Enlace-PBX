@@ -105,6 +105,25 @@ else
   fail ".env missing in working directory"
 fi
 
+# Validate reverse proxy configuration and the application's local HTTP health.
+if command -v nginx >/dev/null 2>&1; then
+  if nginx -t >/dev/null 2>&1; then
+    pass "NGINX configuration syntax valid"
+  else
+    fail "NGINX configuration syntax invalid"
+  fi
+else
+  fail "nginx missing"
+fi
+
+if command -v curl >/dev/null 2>&1; then
+  if curl --fail --silent --show-error --max-time 5 --output /dev/null http://127.0.0.1:3000/api/v1/health; then
+    pass "Enlace-PBX local HTTP health responsive"
+  else
+    fail "Enlace-PBX local HTTP health unavailable"
+  fi
+fi
+
 if command -v curl >/dev/null 2>&1; then
   if curl --fail --silent --show-error --max-time 5 --output /dev/null http://127.0.0.1:8088/ari/api-docs/resources.json; then
     pass "Local Asterisk HTTP endpoint reachable"
