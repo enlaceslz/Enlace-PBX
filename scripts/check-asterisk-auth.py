@@ -39,7 +39,10 @@ def check_ami(host, port, username, password, timeout):
         for line in response.decode("utf-8", errors="replace").splitlines():
             if ": " in line:
                 key, value = line.split(": ", 1)
-                fields[key.lower()] = value
+                normalized = key.lower()
+                if normalized in fields:
+                    raise RuntimeError("AMI returned duplicate authentication response fields")
+                fields[normalized] = value
         if b"\r\n\r\n" not in response:
             raise RuntimeError("AMI returned an incomplete authentication response")
         if fields.get("response", "").lower() != "success":
