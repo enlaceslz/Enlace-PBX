@@ -52,6 +52,10 @@ export class DatabaseMigrator {
         }
       }
 
+      if (files.length === 0) {
+        throw new Error('Nenhuma migracao SQL encontrada. Implantacao interrompida para evitar banco incompleto.');
+      }
+
       let appliedCount = 0;
       for (const file of files) {
         const version = file.split('_')[0];
