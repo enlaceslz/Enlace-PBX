@@ -34,6 +34,12 @@ class HomologationSmokeTests(unittest.TestCase):
         self.assertIn('runtime_uid', SCRIPT)
         self.assertIn('id -u asterisk', SCRIPT)
 
+    def test_node_service_identity_is_verified(self):
+        self.assertIn('systemctl is-active --quiet enlace-pbx.service', SCRIPT)
+        self.assertIn('Enlace-PBX systemd unit User/Group mismatch', SCRIPT)
+        self.assertIn('Enlace-PBX runtime effective UID mismatch', SCRIPT)
+        self.assertIn('Enlace-PBX service inactive or systemd unavailable', SCRIPT)
+
     def test_failure_causes_nonzero_exit(self):
         self.assertIn('if [ "$FAIL" -gt 0 ]; then exit 1; fi', SCRIPT)
 
