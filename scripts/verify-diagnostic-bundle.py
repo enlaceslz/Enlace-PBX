@@ -2,6 +2,8 @@
 """Validate diagnostic bundle structure and SHA-256 without trusting symlinks."""
 import argparse
 import hashlib
+import os
+import stat
 from pathlib import Path
 import re
 import sys
@@ -60,9 +62,18 @@ def validate(directory: Path):
         if path.stat().st_size > 8 * 1024 * 1024:
             raise ValueError("Arquivo de evidencia excessivamente grande: " + name)
         digest = hashlib.sha256()
-        with path.open("rb") as stream:
-            for block in iter(lambda: stream.read(65536), b""):
-                digest.update(block)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path, flags)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("Arquivo nao regular: " + name)
+            with os.fdopen(fd, "rb") as stream:
+                fd = -1
+                for block in iter(lambda: stream.read(65536), b""):
+                    digest.update(block)
+        finally:
+            if fd >= 0:
+                os.close(fd)
         if digest.hexdigest() != expected_digest:
             raise ValueError("Hash divergente: " + name)
     return True
