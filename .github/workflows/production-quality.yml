@@ -104,6 +104,19 @@ jobs:
           APP_DIR="$temp_dir/app" BACKUP_DIR="$temp_dir/backups" bash scripts/backup-postgres.sh
           test "$(find "$temp_dir/backups" -maxdepth 1 -name 'enlace-pbx-postgres-*.dump' -type f | wc -l)" -eq 1
           pg_restore --list "$temp_dir/backups"/enlace-pbx-postgres-*.dump >/dev/null
+          # Verify explicit libpq sslmode handling with a fresh backup directory.
+          mkdir -p "$temp_dir/backups-sslmode"
+          printf 'DATABASE_URL=%s?sslmode=disable\n' "$CI_TEST_DB_URL" > "$temp_dir/app/.env"
+          APP_DIR="$temp_dir/app" BACKUP_DIR="$temp_dir/backups-sslmode" bash scripts/backup-postgres.sh
+          pg_restore --list "$temp_dir/backups-sslmode"/enlace-pbx-postgres-*.dump >/dev/null
+          # Unsupported options must fail closed without publishing an archive.
+          mkdir -p "$temp_dir/backups-invalid"
+          printf 'DATABASE_URL=%s?sslmode=disable&unsupported_option=1\n' "$CI_TEST_DB_URL" > "$temp_dir/app/.env"
+          if APP_DIR="$temp_dir/app" BACKUP_DIR="$temp_dir/backups-invalid" bash scripts/backup-postgres.sh; then
+            echo "ERRO: parametro PostgreSQL desconhecido aceito." >&2
+            exit 1
+          fi
+          test "$(find "$temp_dir/backups-invalid" -maxdepth 1 -name '*.dump' | wc -l)" -eq 0
       - name: Test coordinated backup and manifest on disposable runner
         env:
           CI_TEST_DB_URL: postgresql://pbx_ci_tester:ci_disposable_only@127.0.0.1:5432/enlace_restore_test
