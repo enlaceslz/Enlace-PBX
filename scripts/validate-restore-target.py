@@ -30,7 +30,9 @@ if __name__ == "__main__":
         print("Uso: validate-restore-target.py --stdin | URL", file=sys.stderr)
         sys.exit(2)
     try:
-        raw = sys.stdin.read() if sys.argv[1] == "--stdin" else sys.argv[1]
+        if sys.argv[1] != "--stdin":
+            raise ValueError("Use --stdin para impedir exposicao de credenciais nos argumentos")
+        raw = sys.stdin.read()
         print(validate_target(raw))
     except ValueError as error:
         print(f"ERRO: {error}", file=sys.stderr)
