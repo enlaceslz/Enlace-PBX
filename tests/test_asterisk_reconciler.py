@@ -130,6 +130,14 @@ class ReconcilerTests(unittest.TestCase):
         self.assertEqual((self.root / "manager.conf").read_bytes(), original)
         self.assertFalse((self.root / "ari.conf").exists())
 
+    def test_rejects_section_injection_in_ari_username_without_writes(self):
+        original = (self.root / "manager.conf").read_bytes()
+        result = self.run_reconciler(ASTERISK_ARI_USER="operator\\n[general]")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid Asterisk account name", result.stderr)
+        self.assertEqual((self.root / "manager.conf").read_bytes(), original)
+        self.assertFalse((self.root / "ari.conf").exists())
+
     def test_rejects_unsafe_password(self):
         result = self.run_reconciler(ASTERISK_AMI_PASSWORD="bad\n[admin]\n" + "x" * 24)
         self.assertNotEqual(result.returncode, 0)
