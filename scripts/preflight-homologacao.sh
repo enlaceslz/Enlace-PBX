@@ -4,16 +4,32 @@ set -Eeuo pipefail
 export LC_ALL=C
 fail=0
 warn=0
+# Optional evidence file: new file only, private permissions, no command output.
+if [ "${1:-}" = "--report" ] && [ "$#" -eq 2 ]; then
+  report_path="$2"
+  ( umask 077; set -C; : > "$report_path" ) || {
+    echo "ERRO: relatorio ja existe ou nao pode ser criado." >&2
+    exit 2
+  }
+elif [ "$#" -ne 0 ]; then
+  echo "Uso: $0 [--report CAMINHO_NOVO]" >&2
+  exit 2
+fi
+record() {
+  local line="$1"
+  printf '%s\\n' "$line"
+  if [ -n "${report_path:-}" ]; then printf '%s\\n' "$line" >> "$report_path"; fi
+}
 check() {
   local label="$1"; shift
   if "$@" >/dev/null 2>&1; then
-    printf 'OK: %s\n' "$label"
+    record "OK: $label"
   else
-    printf 'FALHA: %s\n' "$label" >&2
+    record "FALHA: $label" >&2
     fail=$((fail + 1))
   fi
 }
-notice() { printf 'AVISO: %s\n' "$1" >&2; warn=$((warn + 1)); }
+notice() { record "AVISO: $1" >&2; warn=$((warn + 1)); }
 if [ -r /etc/os-release ]; then
   # shellcheck disable=SC1091
   . /etc/os-release
@@ -45,6 +61,6 @@ fi
 if command -v asterisk >/dev/null 2>&1; then
   check "Asterisk responde ao CLI" asterisk -rx 'core show uptime'
 fi
-printf 'Resumo: %s falha(s), %s aviso(s).\n' "$fail" "$warn"
+record "Resumo: $fail falha(s), $warn aviso(s)."
 if [ "$fail" -gt 0 ]; then exit 1; fi
 exit 0
