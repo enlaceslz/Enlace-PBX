@@ -24,9 +24,9 @@ class InstallerSafetyTests(unittest.TestCase):
         # Evaluate the exact guard from the installer in a subshell. The shell
         # function shadows the external asterisk lookup; no host files are changed.
         harness = (
-            "set -e\\n"
-            "command() { if [ \\"$1\\" = -v ] && [ \\"$2\\" = asterisk ]; "
-            "then return 0; fi; builtin command \\"$@\\"; }\\n"
+            """set -e
+command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin command "$@"; }
+"""
             + guard + "\\necho UNEXPECTED_CONTINUATION\\n"
         )
         env = os.environ.copy()
