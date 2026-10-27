@@ -33,6 +33,7 @@ if command -v systemctl >/dev/null 2>&1; then
   check "Asterisk ativo" systemctl is-active --quiet asterisk
   check "PostgreSQL ativo" systemctl is-active --quiet postgresql
   check "NGINX ativo" systemctl is-active --quiet nginx
+  check "Aplicacao Enlace-PBX ativa" systemctl is-active --quiet enlace-pbx.service
 fi
 if command -v pg_isready >/dev/null 2>&1; then
   check "PostgreSQL local aceita conexoes" pg_isready -h 127.0.0.1
