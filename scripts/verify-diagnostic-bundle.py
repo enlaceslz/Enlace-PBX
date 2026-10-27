@@ -22,6 +22,8 @@ def validate(directory: Path):
     manifest = directory / "SHA256SUMS"
     if not manifest.is_file() or manifest.is_symlink():
         raise ValueError("Manifesto ausente ou simbolico")
+    if manifest.stat().st_size > 16384:
+        raise ValueError("Manifesto excessivamente grande")
     lines = manifest.read_text(encoding="utf-8").splitlines()
     listed = {}
     for line in lines:
