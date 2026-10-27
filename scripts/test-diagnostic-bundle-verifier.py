@@ -110,6 +110,18 @@ class BundleVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "simbolico"):
             module.validate(self.root)
 
+    def test_noncanonical_manifest_path(self):
+        manifest = self.root / "SHA256SUMS"
+        manifest.write_text(manifest.read_text().replace("./RESUMO.txt", "RESUMO.txt"))
+        with self.assertRaisesRegex(ValueError, "nao canonico"):
+            module.validate(self.root)
+
+    def test_manifest_path_with_double_prefix(self):
+        manifest = self.root / "SHA256SUMS"
+        manifest.write_text(manifest.read_text().replace("./RESUMO.txt", "././RESUMO.txt"))
+        with self.assertRaisesRegex(ValueError, "nao canonico"):
+            module.validate(self.root)
+
     def test_duplicate_manifest_entry(self):
         manifest = self.root / "SHA256SUMS"
         first = manifest.read_text().splitlines()[0]
