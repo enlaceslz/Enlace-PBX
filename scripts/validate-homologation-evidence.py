@@ -7,7 +7,8 @@ import sys
 
 EXPECTED = [
     "INF-01", "INF-02", "DB-01", "DB-02", "DB-03", "PBX-01",
-    "APP-01", "APP-02", "TEL-01 a TEL-10", "OPS-01", "OPS-02", "SEC-01",
+    "APP-01", "APP-02", *(f"TEL-{n:02d}" for n in range(1, 11)),
+    "OPS-01", "OPS-02", "SEC-01",
 ]
 VALID = {"APROVADO", "REPROVADO", "NÃO EXECUTADO"}
 
