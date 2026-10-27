@@ -105,6 +105,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('ERRO: nao foi possivel configurar os privilegios PostgreSQL', DEPLOY)
         self.assertNotIn('REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true', DEPLOY)
 
+    def test_deploy_must_fail_when_nginx_or_application_health_fails(self):
+        self.assertIn('if nginx -t >/dev/null 2>&1; then', DEPLOY)
+        self.assertIn('Erro no arquivo de configuração do NGINX', DEPLOY)
+        self.assertIn('ERRO: aplicação não respondeu ao health check HTTP', DEPLOY)
+        self.assertNotIn('INICIANDO (Aguarde alguns segundos)', DEPLOY)
+        self.assertIn('pm2 status enlace-pbx >&2 || true', DEPLOY)
+
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
         self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
