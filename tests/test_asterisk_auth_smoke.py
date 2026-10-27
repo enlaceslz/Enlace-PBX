@@ -16,6 +16,19 @@ spec.loader.exec_module(smoke)
 
 
 class AuthSmokeTests(unittest.TestCase):
+    def test_invalid_timeout_is_rejected_before_network(self):
+        credentials = {
+            "ASTERISK_SMOKE_TIMEOUT": "invalid",
+            "ASTERISK_AMI_USER": "ami",
+            "ASTERISK_AMI_PASSWORD": "A" * 32,
+            "ASTERISK_ARI_USER": "ari",
+            "ASTERISK_ARI_PASSWORD": "B" * 32,
+        }
+        with patch.dict(os.environ, credentials), patch.object(smoke, "check_ami") as ami:
+            with self.assertRaisesRegex(ValueError, "must be numeric"):
+                smoke.main()
+            ami.assert_not_called()
+
     def test_rejects_shared_ami_ari_credentials_before_network(self):
         credentials = {
             "ASTERISK_AMI_USER": "shared",
