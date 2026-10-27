@@ -309,6 +309,22 @@ else
   exit 1
 fi
 
+# Verify actual AMI and ARI authentication before reporting installation success.
+# This is read-only and only connects to loopback. It must fail closed.
+if [ ! -f "${INSTALL_SCRIPT_DIR}/scripts/check-asterisk-auth.py" ]; then
+  echo "ERRO: verificador autenticado AMI/ARI ausente no repositorio." >&2
+  exit 1
+fi
+echo "Verificando autenticacao AMI e ARI no loopback..."
+if ! ASTERISK_AMI_USER="${ASTERISK_AMI_USER:-enlace_ami}" \
+     ASTERISK_ARI_USER="${ASTERISK_ARI_USER:-enlace_ari}" \
+     ASTERISK_AMI_PASSWORD="${ASTERISK_AMI_PASSWORD}" \
+     ASTERISK_ARI_PASSWORD="${ASTERISK_ARI_PASSWORD}" \
+     python3 "${INSTALL_SCRIPT_DIR}/scripts/check-asterisk-auth.py"; then
+  echo "ERRO: Asterisk iniciou, mas a autenticacao AMI/ARI falhou; instalacao nao homologada." >&2
+  exit 1
+fi
+
 echo -e "\n${GREEN}${BOLD}====================================================================${NC}"
 echo -e "${GREEN}${BOLD}  ✅ Asterisk ${ASTERISK_VER} LTS instalado e pronto para o Enlace-PBX!    ${NC}"
 echo -e "${GREEN}${BOLD}====================================================================${NC}"
