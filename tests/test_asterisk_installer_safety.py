@@ -17,6 +17,22 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('I_UNDERSTAND_THE_RISK', source)
         self.assertLess(source.index('ENLACE_ALLOW_EXISTING_PBX'), source.index('apt-get update -q'))
 
+    def test_existing_pbx_gate_checks_binary_and_systemd_locations(self):
+        source = INSTALLER.read_text(encoding="utf-8")
+        gate = source[
+            source.index("# Installation compiles and restarts Asterisk."):
+            source.index("# 2. Instalação de dependências do sistema")
+        ]
+        for marker in (
+            "/usr/sbin/asterisk",
+            "/usr/local/sbin/asterisk",
+            "/etc/systemd/system/asterisk.service",
+            "/lib/systemd/system/asterisk.service",
+            "/usr/lib/systemd/system/asterisk.service",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, gate)
+
     def run_existing_pbx_guard(self, allow=False):
         source = INSTALLER.read_text(encoding="utf-8")
         start = source.index("# Installation compiles and restarts Asterisk.")
