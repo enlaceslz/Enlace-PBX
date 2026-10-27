@@ -8,6 +8,8 @@ on:
     paths:
       - 'scripts/reconcile-asterisk-config.py'
       - 'tests/test_asterisk_reconciler.py'
+      - 'tests/test_asterisk_auth_smoke.py'
+      - 'scripts/check-asterisk-auth.py'
       - '.github/workflows/asterisk-config-tests.yml'
   pull_request:
     paths:
@@ -33,7 +35,7 @@ jobs:
           python-version: '3.12'
       - name: Validate Python syntax
         run: |
-          python -m py_compile scripts/reconcile-asterisk-config.py tests/test_asterisk_reconciler.py
+          python -m py_compile scripts/reconcile-asterisk-config.py scripts/check-asterisk-auth.py tests/test_asterisk_reconciler.py tests/test_asterisk_auth_smoke.py
       - name: Run isolated reconciler regression tests
         run: |
-          python -m unittest discover -s tests -p 'test_asterisk_reconciler.py' -v
+          python -m unittest discover -s tests -p 'test_asterisk_*.py' -v
