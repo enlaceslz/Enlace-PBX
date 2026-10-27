@@ -65,8 +65,11 @@ def validate(directory: Path):
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         fd = os.open(path, flags)
         try:
-            if not stat.S_ISREG(os.fstat(fd).st_mode):
+            opened_stat = os.fstat(fd)
+            if not stat.S_ISREG(opened_stat.st_mode):
                 raise ValueError("Arquivo nao regular: " + name)
+            if opened_stat.st_size > 8 * 1024 * 1024:
+                raise ValueError("Arquivo de evidencia excessivamente grande: " + name)
             with os.fdopen(fd, "rb") as stream:
                 fd = -1
                 for block in iter(lambda: stream.read(65536), b""):
