@@ -10,7 +10,7 @@ SCRIPT = pathlib.Path(__file__).resolve().with_name("verify-backup-manifest.sh")
 
 
 class BackupManifestTests(unittest.TestCase):
-    def check_manifest(self, *, tamper=False, traversal=False, missing=False):
+    def check_manifest(self, *, tamper=False, traversal=False, missing=False, symlink=False):
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
             db = root / "enlace-pbx-postgres-20261026T010101Z.dump"
@@ -30,6 +30,11 @@ class BackupManifestTests(unittest.TestCase):
                 pbx.write_bytes(b"corrupted")
             if missing:
                 db.unlink()
+            if symlink:
+                external = root / 'original-archive'
+                external.write_bytes(db.read_bytes())
+                db.unlink()
+                db.symlink_to(external)
             return subprocess.run(
                 ["bash", str(SCRIPT), str(manifest)],
                 capture_output=True, text=True, check=False,
@@ -45,6 +50,10 @@ class BackupManifestTests(unittest.TestCase):
 
     def test_path_traversal_rejected(self):
         result = self.check_manifest(traversal=True)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_symlinked_archive_rejected(self):
+        result = self.check_manifest(symlink=True)
         self.assertNotEqual(result.returncode, 0)
 
     def test_missing_archive_rejected(self):
