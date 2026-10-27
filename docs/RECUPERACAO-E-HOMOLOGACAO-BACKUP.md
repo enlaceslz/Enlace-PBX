@@ -66,6 +66,28 @@ O diretório de staging deve existir e estar vazio. Inspecionar `etc/asterisk`, 
 6. Registrar tempo de recuperação (RTO observado), perda máxima de dados (RPO observado) e evidências.
 7. Encerrar serviços e descartar credenciais de teste após homologação.
 
+## Matriz de testes de telefonia (somente laboratório)
+
+Registrar para cada caso: horário UTC, versão/commit, identificação sintética do ramal,
+resultado esperado, resultado observado, logs pertinentes sem segredos e responsável.
+Não utilizar trunks reais ou destinos externos na VM isolada.
+
+| ID | Cenário | Critério de aceite |
+| --- | --- | --- |
+| TEL-01 | Asterisk inicia com configuração restaurada | Serviço ativo, configuração carregada sem erros críticos |
+| TEL-02 | Registro SIP de dois ramais sintéticos | Ambos registrados, autenticação válida e rejeição de senha inválida |
+| TEL-03 | Chamada interna A → B | Estabelece e encerra corretamente; CDR consistente |
+| TEL-04 | Áudio RTP A ↔ B | Áudio bidirecional, sem fluxo unidirecional |
+| TEL-05 | WebRTC via WSS e DTLS-SRTP | Registro, chamada e mídia segura em navegador de laboratório |
+| TEL-06 | Fila/URA interna | Roteamento e eventos corretos, sem acesso a troncos externos |
+| TEL-07 | Gravação sintética | Arquivo gerado, metadados corretos, reprodução e permissões conferidas |
+| TEL-08 | Reinício controlado | Recuperação de registros e serviços sem intervenção indevida |
+| TEL-09 | Falha de PostgreSQL | Aplicação falha de modo observável, sem perda silenciosa; recuperação validada |
+| TEL-10 | Troncos externos desabilitados | Nenhuma tentativa de discagem externa possível durante testes |
+
+**Portão de aprovação:** nenhum TEL-01 a TEL-10 pode ser marcado como aprovado
+sem evidência coletada na VM. CI de scripts não equivale à homologação SIP/RTP/WebRTC.
+
 ## Critérios de aprovação
 
 - Manifesto e hashes aprovados.
