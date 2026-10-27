@@ -8,6 +8,8 @@ SCRIPT = (Path(__file__).resolve().parent.parent / "install-enlace-pbx.sh").read
 DEPLOY = (Path(__file__).resolve().parent.parent / "deploy.sh").read_text()
 
 
+MIGRATOR = (Path(__file__).resolve().parent.parent / "server/infrastructure/postgres/migrations/migrator.ts").read_text()
+
 class InstallerSafetyTests(unittest.TestCase):
     def test_strict_shell_mode(self):
         self.assertIn("set -euo pipefail", SCRIPT)
@@ -144,6 +146,14 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -m 750 /var/backups/enlace-pbx', DEPLOY)
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
+
+    def test_migration_lock_and_ddl_use_one_connection(self):
+        self.assertIn('migrationClient = await postgresClient.getClient()', MIGRATOR)
+        self.assertIn("await migrationClient.query('SELECT pg_advisory_lock($1)'", MIGRATOR)
+        self.assertIn("await migrationClient.query('SELECT pg_advisory_unlock($1)'", MIGRATOR)
+        self.assertIn('migrationClient.release()', MIGRATOR)
+        self.assertIn('Nenhuma migracao SQL encontrada.', MIGRATOR)
+        self.assertNotIn("await postgresClient.query('SELECT pg_advisory_lock", MIGRATOR)
 
     def test_ufw_activation_fails_closed(self):
         self.assertIn('if ! ufw --force enable; then', DEPLOY)
