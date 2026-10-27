@@ -59,3 +59,35 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+
+  postgres-roundtrip:
+    name: PostgreSQL disposable backup/restore roundtrip
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pbx_ci_tester
+          POSTGRES_PASSWORD: ci_disposable_only
+          POSTGRES_DB: enlace_restore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pbx_ci_tester -d enlace_restore_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Validate roundtrip shell syntax
+        run: |
+          bash -n scripts/test-postgres-roundtrip.sh
+          bash -n scripts/restore-postgres-test.sh
+      - name: Test real PostgreSQL dump and restore
+        env:
+          CI_TEST_DB_URL: postgresql://pbx_ci_tester:ci_disposable_only@127.0.0.1:5432/enlace_restore_test
+        run: printf '%s' "$CI_TEST_DB_URL" | bash scripts/test-postgres-roundtrip.sh --stdin
