@@ -72,6 +72,15 @@ class RuntimePreflightTests(unittest.TestCase):
         with patch.object(module, "run", side_effect=responses), patch.object(module.time, "sleep"):
             self.assertEqual(module.main(), 0)
 
+    def test_similar_ipv4_prefix_is_not_loopback(self):
+        listeners = LISTENERS.replace("127.0.0.1:5038", "127.0.0.1:5038")
+        listeners += "LISTEN 0 128 127.0.0.1:5038 0.0.0.0:*\\n"
+        self.assertTrue(self.check(listeners=listeners)["tcp-5038-loopback-only"])
+
+    def test_nonstandard_loopback_address_is_rejected_by_policy(self):
+        listeners = LISTENERS.replace("127.0.0.1:5038", "127.0.0.2:5038")
+        self.assertFalse(self.check(listeners=listeners)["tcp-5038-loopback-only"])
+
     def test_healthy_loopback(self):
         self.assertTrue(all(self.check().values()))
 
