@@ -51,7 +51,7 @@ if [ -z "$db_file" ] || [ -z "$pbx_file" ]; then
   echo "ERRO: backups nao identificados; manifesto nao publicado." >&2
   exit 1
 fi
-if [ ! -f "$BACKUP_DIR/$pbx_file.sha256" ]; then
+if [ ! -f "$BACKUP_DIR/$pbx_file.sha256" ] || [ -L "$BACKUP_DIR/$pbx_file.sha256" ]; then
   echo "ERRO: checksum do PBX ausente." >&2
   exit 1
 fi
