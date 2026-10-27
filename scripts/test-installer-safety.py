@@ -145,6 +145,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_nginx_reload_failure_restores_previous_site(self):
+        self.assertIn('NGINX_ENABLED_TARGET=$(readlink /etc/nginx/sites-enabled/enlace-pbx)', DEPLOY)
+        self.assertIn('rollback_nginx_site() {', DEPLOY)
+        self.assertIn('if ! systemctl reload nginx; then', DEPLOY)
+        self.assertIn('ERRO: falha ao recarregar NGINX; configuracao anterior restaurada.', DEPLOY)
+        self.assertIn('ERRO: configuracao NGINX nao pode ser link simbolico.', DEPLOY)
+
     def test_nginx_configuration_is_backed_up_and_restored_on_failure(self):
         self.assertIn('NGINX_BACKUP=$(mktemp /etc/nginx/sites-available/.enlace-pbx.backup.', DEPLOY)
         self.assertIn('cp -p "$NGINX_SITE" "$NGINX_BACKUP"', DEPLOY)
