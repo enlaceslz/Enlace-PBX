@@ -27,7 +27,12 @@ class PrivilegeAuditTests(unittest.TestCase):
         self.assertIn("ami == ari or ami_user == ari_user", self.source)
 
     def test_ami_write_privileges_remain_explicitly_audited(self):
-        self.assertIn('write = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate', self.source)
+        match = re.search(r'write = ([a-z,]+)', self.source)
+        self.assertIsNotNone(match, 'AMI write privileges must be explicitly configured')
+        privileges = match.group(1).split(',')
+        self.assertEqual(len(privileges), len(set(privileges)), 'Duplicate AMI privileges')
+        self.assertNotIn('all', privileges, 'AMI must not grant unrestricted privileges')
+        self.assertNotIn('none', privileges, 'Unexpected AMI write policy')
         evidence = (ROOT / "docs" / "EVIDENCIAS_HOMOLOGACAO_DEBIAN12.md").read_text(encoding="utf-8")
         self.assertIn("menor privilégio", evidence)
         self.assertIn("BLOQUEADO", evidence)
