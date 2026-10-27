@@ -111,7 +111,7 @@ class RestorePbxArchiveTests(unittest.TestCase):
             archive = root / "backup.tar.gz"
             archive_at(archive, [("etc/asterisk/test.conf", "file")])
             checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
-            (root / "backup.tar.gz.sha256").write_text(f"{checksum}  backup.tar.gz\\n")
+            (root / "backup.tar.gz.sha256").write_text(f"{checksum}  backup.tar.gz\n")
             result = subprocess.run(
                 ["bash", str(SCRIPT), str(archive), str(destination)],
                 text=True, capture_output=True, check=False,
