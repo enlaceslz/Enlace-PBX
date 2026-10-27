@@ -36,6 +36,7 @@ try:
         members = archive.getmembers()
         if not members:
             raise ValueError('arquivo vazio')
+        seen_paths = set()
         for item in members:
             raw = item.name
             path = PurePosixPath(raw)
@@ -44,6 +45,9 @@ try:
             if not (item.isfile() or item.isdir()):
                 raise ValueError('links e arquivos especiais proibidos')
             normalized = str(path)
+            if normalized in seen_paths:
+                raise ValueError('entrada duplicada no arquivo: ' + normalized)
+            seen_paths.add(normalized)
             if not any(normalized == root or normalized.startswith(root + '/') for root in allowed):
                 raise ValueError('caminho fora da lista permitida: ' + normalized)
         print('Arquivo validado: %d entradas.' % len(members))
