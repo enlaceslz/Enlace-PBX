@@ -111,6 +111,40 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("usuarios e senhas diferentes", result.stderr)
 
+    def run_auth_retry_guard(self, fail_until):
+        source = INSTALLER.read_text(encoding="utf-8")
+        start = source.index("ASTERISK_AUTH_READY=0")
+        end = source.index('echo -e "\\n${GREEN}${BOLD}====', start)
+        guard = source[start:end]
+        # Replace the real authentication process with a deterministic shell
+        # function. No Asterisk daemon, network, or system files are touched.
+        guard = guard.replace(
+            'python3 "${INSTALL_SCRIPT_DIR}/scripts/check-asterisk-auth.py"',
+            'fake_auth',
+        )
+        harness = (
+            "set -e\\n"
+            "ATTEMPTS=0\\n"
+            "fake_auth() { ATTEMPTS=$((ATTEMPTS + 1)); "
+            f"[ \"$ATTEMPTS\" -gt {fail_until} ]; }}\\n"
+            "sleep() { :; }\\n"
+            + guard + "\\nprintf 'ATTEMPTS=%s\\n' \"$ATTEMPTS\"\\n"
+        )
+        return subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True, text=True, timeout=5,
+        )
+
+    def test_auth_retry_succeeds_on_third_attempt(self):
+        result = self.run_auth_retry_guard(fail_until=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ATTEMPTS=3", result.stdout)
+
+    def test_auth_retry_fails_closed_after_five_attempts(self):
+        result = self.run_auth_retry_guard(fail_until=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("apos 5 tentativas", result.stderr)
+
     def test_missing_credentials_fail_before_any_package_install(self):
         env = os.environ.copy()
         env.pop("ASTERISK_AMI_PASSWORD", None)
