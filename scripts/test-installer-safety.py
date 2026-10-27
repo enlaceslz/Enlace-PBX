@@ -138,6 +138,12 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_health_check_retries_before_declaring_deploy_failure(self):
+        self.assertIn('for attempt in $(seq 1 30); do', DEPLOY)
+        self.assertIn('if ! systemctl is-active --quiet enlace-pbx.service; then', DEPLOY)
+        self.assertIn('journalctl -u enlace-pbx.service -n 30 --no-pager', DEPLOY)
+        self.assertNotIn('sleep 2\necho -e', DEPLOY)
+
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
         self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
