@@ -85,6 +85,14 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn("chown asterisk:asterisk /var/{lib,log,run,spool}/asterisk", SCRIPT)
         self.assertIn("chmod 750 /var/{lib,log,run,spool}/asterisk", SCRIPT)
 
+    def test_service_account_can_read_reconciled_configuration(self):
+        self.assertIn('runuser -u asterisk -- test -r /etc/asterisk/manager.conf', SCRIPT)
+        self.assertIn('runuser -u asterisk -- test -r /etc/asterisk/http.conf', SCRIPT)
+        self.assertIn('runuser -u asterisk -- test -r /etc/asterisk/ari.conf', SCRIPT)
+        self.assertIn('chgrp asterisk "$config_file"', SCRIPT)
+        self.assertLess(SCRIPT.index('runuser -u asterisk -- test -r'),
+                        SCRIPT.index('systemctl restart asterisk'))
+
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
         self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
