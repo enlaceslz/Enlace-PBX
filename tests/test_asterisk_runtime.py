@@ -81,6 +81,20 @@ class RuntimePreflightTests(unittest.TestCase):
         listeners = LISTENERS.replace("127.0.0.1:5038", "127.0.0.2:5038")
         self.assertFalse(self.check(listeners=listeners)["tcp-5038-loopback-only"])
 
+    def test_malformed_listen_line_fails_closed(self):
+        listeners = LISTENERS + "LISTEN malformed\\n"
+        findings = self.check(listeners=listeners)
+        self.assertFalse(findings["tcp-5038-loopback-only"])
+        self.assertFalse(findings["tcp-8088-loopback-only"])
+
+    def test_ipv6_loopback_is_not_accepted_by_ipv4_policy(self):
+        listeners = LISTENERS.replace("127.0.0.1:8088", "[::1]:8088")
+        self.assertFalse(self.check(listeners=listeners)["tcp-8088-loopback-only"])
+
+    def test_ipv6_wildcard_ami_is_rejected(self):
+        listeners = LISTENERS + "LISTEN 0 128 [::]:5038 [::]:*\\n"
+        self.assertFalse(self.check(listeners=listeners)["tcp-5038-loopback-only"])
+
     def test_healthy_loopback(self):
         self.assertTrue(all(self.check().values()))
 
