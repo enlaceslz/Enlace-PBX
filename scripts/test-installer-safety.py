@@ -145,6 +145,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertLess(DEPLOY.index('APP_DIR="$(pwd -P)"'), DEPLOY.index('apt-get update -y'))
         self.assertLess(DEPLOY.index('if [ -L .env ]; then'), DEPLOY.index('apt-get update -y'))
 
+    def test_network_input_is_validated_before_config_generation(self):
+        self.assertIn('ERRO: dominio/FQDN invalido.', DEPLOY)
+        self.assertIn('ERRO: IP publico deve ser um endereco IPv4 valido.', DEPLOY)
+        self.assertIn('octeto IPv4 fora do intervalo permitido', DEPLOY)
+        self.assertLess(DEPLOY.index('ERRO: dominio/FQDN invalido.'), DEPLOY.index('CORS_ALLOWED_ORIGINS=https://'))
+        self.assertLess(DEPLOY.index('ERRO: IP publico deve ser um endereco IPv4 valido.'), DEPLOY.index('PBX_PUBLIC_IP=${PUBLIC_IP}'))
+
     def test_health_check_retries_before_declaring_deploy_failure(self):
         self.assertIn('for attempt in $(seq 1 30); do', DEPLOY)
         self.assertIn('if ! systemctl is-active --quiet enlace-pbx.service; then', DEPLOY)
