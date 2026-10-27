@@ -13,6 +13,21 @@ número público, dados reais de clientes ou discador de produção.
 - Registrar versão do Asterisk, PJSIP, codecs, NAT e topologia sem segredos.
 - Confirmação explícita do responsável de que a sessão é de homologação.
 
+## Inventário inicial de rotas (não comprova isolamento)
+
+Na VM isolada, executar:
+
+```bash
+bash scripts/inventory-homologation-isolation.sh /tmp/enlace-isolamento-001
+(cd /tmp/enlace-isolamento-001 && sha256sum --check SHA256SUMS)
+```
+
+O script informa apenas a presença de rotas padrão IPv4/IPv6; não grava
+endereços ou interfaces. Mesmo sem rota padrão, conexões diretas a redes
+locais, regras NAT, túneis e troncos SIP ainda podem permitir tráfego externo.
+A ausência de rota padrão **não autoriza** iniciar testes de chamada sem
+revisão humana do isolamento e bloqueio de operadoras.
+
 ## Procedimento de execução manual
 
 | ID | Ação | Resultado esperado | Evidência mínima |
