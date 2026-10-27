@@ -14,9 +14,10 @@ def validate_target(raw):
             raise ValueError("O nome do banco deve terminar em _restore_test ou _homologacao")
         if url.hostname not in ("127.0.0.1", "localhost", "::1"):
             raise ValueError("Restauracao permitida apenas para PostgreSQL local (loopback)")
-        if not url.username or url.username in ("postgres", "enlace_app"):
+        username = unquote(url.username or "")
+        if not username or username in ("postgres", "enlace_app") or "/" in username or "\\x00" in username:
             raise ValueError("Use uma conta exclusiva de homologacao, nunca postgres ou enlace_app")
-        if url.password is None:
+        if not url.password:
             raise ValueError("Senha explicita de homologacao obrigatoria")
         if url.port is not None and not (1 <= url.port <= 65535):
             raise ValueError("Porta invalida")
