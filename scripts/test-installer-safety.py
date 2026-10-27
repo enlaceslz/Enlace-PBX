@@ -100,6 +100,11 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertNotIn('proxy_pass http://127.0.0.1:8089/ws;', DEPLOY)
         self.assertNotIn('ufw allow 8089/tcp', DEPLOY)
 
+    def test_postgres_grants_fail_closed(self):
+        self.assertIn('psql -v ON_ERROR_STOP=1 -d enlace_pbx', DEPLOY)
+        self.assertIn('ERRO: nao foi possivel configurar os privilegios PostgreSQL', DEPLOY)
+        self.assertNotIn('REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true', DEPLOY)
+
     def test_samples_are_not_installed_on_existing_config(self):
         self.assertIn('if [ -L /etc/asterisk ]; then', SCRIPT)
         self.assertIn('if [ ! -d /etc/asterisk ]; then', SCRIPT)
