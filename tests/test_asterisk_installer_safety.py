@@ -131,6 +131,19 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("usuarios AMI/ARI", result.stderr)
 
+    def test_installer_rejects_unsafe_ari_username_before_installation(self):
+        env = os.environ.copy()
+        env["ASTERISK_AMI_PASSWORD"] = "A" * 32
+        env["ASTERISK_ARI_PASSWORD"] = "B" * 32
+        env["ASTERISK_AMI_USER"] = "enlace_ami"
+        env["ASTERISK_ARI_USER"] = "bad\\n[general]"
+        result = subprocess.run(
+            ["bash", str(INSTALLER)], env=env,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("usuarios AMI/ARI", result.stderr)
+
     def test_installer_rejects_reused_passwords_before_installation(self):
         env = os.environ.copy()
         env["ASTERISK_AMI_PASSWORD"] = "A" * 32
