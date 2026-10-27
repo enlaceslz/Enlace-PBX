@@ -438,6 +438,8 @@ if [ "$(id -gn enlace-pbx)" != enlace-pbx ]; then
   exit 1
 fi
 install -d -o enlace-pbx -g enlace-pbx -m 750 /var/lib/enlace-pbx /var/log/enlace-pbx
+# Keep Asterisk recordings private; do not grant the web application blanket filesystem access.
+# Knowledge-base uploads are processed in memory and persisted through the repository layer.
 chown root:enlace-pbx .env
 chmod 640 .env
 if ! runuser -u enlace-pbx -- test -r "${APP_DIR}/.env" ||
