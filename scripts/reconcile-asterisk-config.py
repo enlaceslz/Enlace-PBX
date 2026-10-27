@@ -99,6 +99,23 @@ def main() -> None:
     for name in (ami_user, ari_user):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
             raise ValueError("Invalid Asterisk account name")
+    # Preflight all managed files before writing any of them. This prevents
+    # predictable partial updates caused by invalid paths or duplicate sections.
+    for filename, owned_sections in (
+        ("manager.conf", ("general", ami_user)),
+        ("http.conf", ("general",)),
+        ("ari.conf", ("general", ari_user)),
+    ):
+        path = ROOT / filename
+        reject_unsafe_config_path(path)
+        if path.exists():
+            sections = [m.group(1).strip().lower() for m in HEADER.finditer(
+                path.read_text(encoding="utf-8")
+            )]
+            for section in owned_sections:
+                if sections.count(section.lower()) > 1:
+                    raise ValueError(f"{path}: duplicate [{section}] sections")
+
     ensure_general(ROOT / "manager.conf", {"enabled": "yes", "port": "5038", "bindaddr": "127.0.0.1"})
     ensure_general(ROOT / "http.conf", {"enabled": "yes", "bindaddr": "127.0.0.1", "bindport": "8088"})
     ensure_general(ROOT / "ari.conf", {"enabled": "yes", "pretty": "yes", "allowed_origins": "http://127.0.0.1:3000"})
