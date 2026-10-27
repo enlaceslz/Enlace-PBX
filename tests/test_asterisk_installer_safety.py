@@ -114,7 +114,7 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
     def run_auth_retry_guard(self, fail_until):
         source = INSTALLER.read_text(encoding="utf-8")
         start = source.index("ASTERISK_AUTH_READY=0")
-        end = source.index('echo -e "\\n${GREEN}${BOLD}====', start)
+        end = source.index('echo -e "\n${GREEN}${BOLD}====', start)
         guard = source[start:end]
         # Replace the real authentication process with a deterministic shell
         # function. No Asterisk daemon, network, or system files are touched.
@@ -123,12 +123,12 @@ command() { if [ "$1" = -v ] && [ "$2" = asterisk ]; then return 0; fi; builtin 
             'fake_auth',
         )
         harness = (
-            "set -e\\n"
-            "ATTEMPTS=0\\n"
+            "set -e\n"
+            "ATTEMPTS=0\n"
             "fake_auth() { ATTEMPTS=$((ATTEMPTS + 1)); "
-            f"[ \"$ATTEMPTS\" -gt {fail_until} ]; }}\\n"
-            "sleep() { :; }\\n"
-            + guard + "\\nprintf 'ATTEMPTS=%s\\n' \"$ATTEMPTS\"\\n"
+            f"[ \"$ATTEMPTS\" -gt {fail_until} ]; }}\n"
+            "sleep() { :; }\n"
+            + guard + "\nprintf 'ATTEMPTS=%s\n' \"$ATTEMPTS\"\n"
         )
         return subprocess.run(
             ["bash", "-c", harness],
