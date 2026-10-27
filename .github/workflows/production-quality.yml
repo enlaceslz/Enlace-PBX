@@ -99,7 +99,7 @@ jobs:
           temp_dir="$(mktemp -d)"
           trap 'rm -rf -- "$temp_dir"' EXIT
           mkdir -p "$temp_dir/app" "$temp_dir/backups"
-          printf 'DATABASE_URL=%s\\n' "$CI_TEST_DB_URL" > "$temp_dir/app/.env"
+          printf 'DATABASE_URL=%s\n' "$CI_TEST_DB_URL" > "$temp_dir/app/.env"
           chmod 600 "$temp_dir/app/.env"
           APP_DIR="$temp_dir/app" BACKUP_DIR="$temp_dir/backups" bash scripts/backup-postgres.sh
           test "$(find "$temp_dir/backups" -maxdepth 1 -name 'enlace-pbx-postgres-*.dump' -type f | wc -l)" -eq 1
