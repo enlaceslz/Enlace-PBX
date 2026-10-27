@@ -37,14 +37,20 @@ def validate(directory: Path):
     if set(listed) != EXPECTED:
         raise ValueError("Arquivos obrigatorios ausentes")
     observed = set()
+    expected_directories = {"rotas", "asterisk"}
+    observed_directories = set()
     for path in directory.rglob("*"):
         name = path.relative_to(directory).as_posix()
         if path.is_symlink():
             raise ValueError("Link simbolico rejeitado")
         if path.is_file():
             observed.add(name)
-        elif not path.is_dir():
+        elif path.is_dir():
+            observed_directories.add(name)
+        else:
             raise ValueError("Tipo de arquivo nao suportado")
+    if observed_directories != expected_directories:
+        raise ValueError("Diretorios extras ou ausentes no pacote")
     if observed != EXPECTED | {"SHA256SUMS"}:
         raise ValueError("Arquivos extras ou ausentes no pacote")
     for name, expected_digest in listed.items():
