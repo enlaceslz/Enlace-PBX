@@ -138,6 +138,13 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn('install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording', DEPLOY)
         self.assertNotIn('chmod 775 /var/spool/asterisk/recording', DEPLOY)
 
+    def test_deploy_preflight_rejects_unsafe_location_and_env_symlink(self):
+        self.assertEqual(DEPLOY.count('APP_DIR="$(pwd -P)"'), 1)
+        self.assertIn('if [[ "${APP_DIR}" != /opt/* && "${APP_DIR}" != /srv/* ]]; then', DEPLOY)
+        self.assertIn('if [ -L .env ]; then', DEPLOY)
+        self.assertLess(DEPLOY.index('APP_DIR="$(pwd -P)"'), DEPLOY.index('apt-get update -y'))
+        self.assertLess(DEPLOY.index('if [ -L .env ]; then'), DEPLOY.index('apt-get update -y'))
+
     def test_health_check_retries_before_declaring_deploy_failure(self):
         self.assertIn('for attempt in $(seq 1 30); do', DEPLOY)
         self.assertIn('if ! systemctl is-active --quiet enlace-pbx.service; then', DEPLOY)
