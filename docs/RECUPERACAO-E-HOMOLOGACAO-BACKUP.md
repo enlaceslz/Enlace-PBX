@@ -66,10 +66,9 @@ bash scripts/preflight-homologacao.sh
 
 O script não instala pacotes, não reinicia serviços, não modifica arquivos e
 não cria conexões SIP. Ele confere ferramentas, diretórios, status dos serviços
-Asterisk/PostgreSQL/NGINX, resposta do CLI Asterisk e disponibilidade local
+Asterisk/PostgreSQL/NGINX e enlace-pbx.service, resposta do CLI Asterisk e disponibilidade local
 do PostgreSQL. Um resultado aprovado **não** valida mídia, WebRTC, firewall,
-credenciais ou configuração completa. O serviço da aplicação deve ser validado
-separadamente conforme a unidade systemd efetivamente instalada.
+credenciais ou configuração completa. O teste da aplicação verifica apenas se a unidade systemd `enlace-pbx.service` está ativa; disponibilidade HTTP, autenticação e integrações exigem testes separados.
 
 ## Homologação da aplicação e telefonia
 
