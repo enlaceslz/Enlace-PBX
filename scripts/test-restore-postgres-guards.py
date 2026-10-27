@@ -27,6 +27,19 @@ class RestorePostgresGuardTests(unittest.TestCase):
     def test_privileged_role(self):
         self.assertNotEqual(self.validate("postgresql://postgres:pw@localhost/enlace_restore_test").returncode, 0)
 
+    def test_encoded_privileged_roles(self):
+        for role in ("%70ostgres", "%65nlace_app"):
+            with self.subTest(role=role):
+                self.assertNotEqual(
+                    self.validate(f"postgresql://{role}:pw@localhost/enlace_restore_test").returncode,
+                    0,
+                )
+
+    def test_empty_password(self):
+        self.assertNotEqual(
+            self.validate("postgresql://tester:@localhost/enlace_restore_test").returncode, 0
+        )
+
     def test_remote_host(self):
         self.assertNotEqual(self.validate("postgresql://tester:pw@db.example/enlace_restore_test").returncode, 0)
 
