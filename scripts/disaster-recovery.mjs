@@ -160,6 +160,12 @@ export async function restoreBackup({ url, keyFile, file, destination, database 
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO enlace_app;
       GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO enlace_app;
       REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON schema_migrations FROM enlace_app;
+      DO $quality_permissions$ BEGIN
+        IF to_regclass('public.quality_reviews') IS NOT NULL THEN
+          EXECUTE 'REVOKE UPDATE,DELETE ON public.quality_reviews FROM enlace_app';
+          EXECUTE 'GRANT UPDATE(status,reviewed_by,review_note,reviewed_at) ON public.quality_reviews TO enlace_app';
+        END IF;
+      END $quality_permissions$;
       REVOKE CREATE ON SCHEMA public FROM PUBLIC;
       REVOKE ALL ON FUNCTION authenticate_user_identity(VARCHAR) FROM PUBLIC;
       GRANT EXECUTE ON FUNCTION authenticate_user_identity(VARCHAR) TO enlace_app;`);

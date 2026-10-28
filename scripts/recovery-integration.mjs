@@ -28,6 +28,13 @@ try {
   const restored = await restoreBackup({ url: process.env.DATABASE_MIGRATION_URL, keyFile: key, file: created.file,
     destination: path.join(directory, 'recovered'), database });
   assert.equal(restored.verified, true);
+  const recoveredUrl = new URL(process.env.DATABASE_MIGRATION_URL); recoveredUrl.pathname = '/' + database;
+  const recoveredClient = new pg.Client({ connectionString: recoveredUrl.href });
+  try {
+    await recoveredClient.connect();
+    const privileges = (await recoveredClient.query("SELECT has_column_privilege('enlace_app','public.quality_reviews','evidence','UPDATE') AS evidence_update, has_column_privilege('enlace_app','public.quality_reviews','review_note','UPDATE') AS note_update, has_table_privilege('enlace_app','public.quality_reviews','DELETE') AS deletion")).rows[0];
+    assert.deepEqual(privileges, { evidence_update: false, note_update: true, deletion: false });
+  } finally { await recoveredClient.end(); }
   assert.deepEqual(restored.tableCounts, created.metadata.tableCounts);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(restored.destination, 'configuration/runtime.json'), 'utf8')), settings);
   assert.deepEqual(await fs.readFile(path.join(restored.destination, 'recordings/call.wav')), recording);

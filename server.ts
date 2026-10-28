@@ -1,3 +1,5 @@
+import { QualityReviewRepository } from './server/infrastructure/postgres/repositories/QualityReviewRepository.js';
+import { createQualityAnalysis } from './server/maia/integrations/QualityReview.js';
 import { EntitySchemaRepository } from './server/infrastructure/postgres/repositories/EntitySchemaRepository.js';
 import { validateExtractionDefinition, extractEntities } from './server/maia/integrations/EntityExtraction.js';
 import { WebhookRepository } from './server/infrastructure/postgres/repositories/WebhookRepository.js';
@@ -45,7 +47,6 @@ import {
   SystemRepository,
   QualityAuditRepository,
 } from './server/repositories/index.js';
-import { QualityAudit } from './server/infrastructure/postgres/repositories/QualityAuditRepository.js';
 import { Extension, User, SafeExtension, WebRtcCredential } from './src/types/pbx.js';
 import { OmnichannelMessage } from './server/infrastructure/postgres/repositories/OmnichannelRepository.js';
 import { VpnAdapter, hasRecentHandshake } from './server/infrastructure/network/VpnAdapter.js';
@@ -5361,32 +5362,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json({ text, agentName: agentName || 'Operador', createdAt: new Date().toISOString() });
   });
 
-  // Omnichannel: Gemini AI Reply Suggestion
-  app.post('/api/v1/omnichannel/ai-suggest', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const { conversationId, history } = req.body;
-    let tenantId: string | null = null;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      tenantId = null;
-    }
-    const conv = conversationId && tenantId ? await OmnichannelRepository.findById(conversationId, tenantId) : null;
-    const messages = history || (conv ? conv.messages : []);
-    const lastUserMsg = [...messages].reverse().find((m: any) => m.sender === 'user' || m.sender === 'contact');
-    const userText = lastUserMsg?.content || lastUserMsg?.text || '';
-
-    let suggestion = 'Olá! Já identifiquei a sua solicitação no sistema e estou aplicando as configurações necessárias.';
-    if (/pix|fatura|boleto|mensalidade|código/i.test(userText)) {
-      suggestion = 'Aqui está o código PIX copia-e-cola para pagamento imediato: 00020126580014br.gov.bcb.pix0136slzenlace@gmail.com5204000053039865802BR. A baixa ocorre em até 2 minutos!';
-    } else if (/chiado|ramal|áudio|queda|offline|mudo/i.test(userText)) {
-      suggestion = 'Fiz um ajuste na rota do seu tronco SIP (DSCP 46 prioritário) e reduzi o jitter para menos de 10ms. Poderia realizar uma chamada de teste agora?';
-    } else if (/cancelar|reclamação|procon|anatel/i.test(userText)) {
-      suggestion = 'Compreendo perfeitamente a sua situação e lamento o transtorno. Estou priorizando o seu chamado como SLA Crítico e vou acompanhar pessoalmente até a solução.';
-    } else if (/preço|plano|adicionar|ramais|webrtc|custo/i.test(userText)) {
-      suggestion = 'Temos planos corporativos a partir de R$ 29,90/mês por ramal com IA Gemini inclusa e números DIDs ilimitados. Deseja que eu envie a proposta detalhada?';
-    }
-
-    res.json({ suggestion });
+  // Sugestões antigas não eram executadas por IA e podiam conter cobrança fictícia.
+  app.post('/api/v1/omnichannel/ai-suggest', requireRole('super_admin','admin','supervisor','operator'), (_req,res) => {
+    res.status(501).json({error:'Copiloto indisponível: integração real de sugestões ainda não homologada.'});
   });
 
   // AI Quality Supervisor Audits
@@ -5394,48 +5372,44 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     try {
       const tenantId = getAuthorizedTenantId(req);
       const list = await QualityAuditRepository.listByTenant(tenantId);
-      res.json(list || []);
+      res.json((list || []).map(item=>({...item,score:null,complianceScore:null,sentiment:'unknown',resolutionStatus:'unverified',summary:'Registro legado não verificado.',feedback:'',legacy:true})));
     } catch (e: any) {
       console.error('[Quality Supervisor] Erro ao listar auditorias:', e?.message || e);
       res.status(500).json({ error: 'Erro ao listar auditorias de qualidade' });
     }
   });
 
-  app.post('/api/v1/ai/quality-supervisor/evaluate', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    let tenantId: string;
+  app.get('/api/v1/ai/quality-supervisor/reviews', requireRole('super_admin','admin','supervisor'), async (req,res) => {
+    res.json(await QualityReviewRepository.list(getAuthorizedTenantId(req)));
+  });
+  app.get('/api/v1/ai/quality-supervisor/reviews/:id', requireRole('super_admin','admin','supervisor'), async (req,res) => {
+    const tenantId=getAuthorizedTenantId(req);
+    const review=await QualityReviewRepository.find(tenantId,req.params.id);
+    if (!review) return res.status(404).json({error:'Revisão não encontrada.'});
+    await recordAuditLog({tenantId,userId:(req as any).user.id,userName:(req as any).user.name,ip:req.ip,action:'QUALITY_REVIEW_READ',resource:`ai/quality-reviews/${review.id}`,category:'LGPD_ACCESS',strict:true,details:'Consulta administrativa de evidências de revisão.'});
+    res.json(review);
+  });
+  const qualityLimiter=rateLimit({windowMs:60_000,limit:10,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Limite de revisões atingido. Aguarde um minuto.'}});
+  app.post('/api/v1/ai/quality-supervisor/evaluate', requireRole('super_admin','admin','supervisor'), qualityLimiter, async (req,res) => {
+    const tenantId=getAuthorizedTenantId(req); const actor=(req as any).user;
     try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para avaliação de qualidade.' });
-    }
-    const { channelType, referenceId, contactName, contactNumber, agentOrBot, transcript } = req.body;
-    const text = transcript || '';
-    const hasGreeting = /olá|bom dia|boa tarde|boa noite|enlace/i.test(text);
-    const hasRisk = /cancelar|reclame aqui|procon|anatel|processo|advogado/i.test(text);
-    const hasSolution = /resolvido|ajuste|fatura|pix|pronto|normalizado|concluído/i.test(text);
-    
-    let score = 85;
-    if (hasGreeting) score += 5;
-    if (hasSolution) score += 10;
-    if (hasRisk) score -= 25;
-    score = Math.max(20, Math.min(100, score));
-
-    const newAudit: QualityAudit = {
-      id: `audit-${Date.now()}`,
-      tenantId,
-      callId: referenceId || `call-${Date.now()}`,
-      agentId: agentOrBot || 'MaIA (IA)',
-      score,
-      sentiment: score >= 85 ? ('positive' as const) : score >= 65 ? ('neutral' as const) : ('negative' as const),
-      resolutionStatus: 'resolved',
-      summary: `Avaliação multicanal concluída com score de ${score}/100. Conformidade verificada.`,
-      feedback: score >= 90 ? 'Excelente condução do atendimento!' : 'Atenção aos pontos de esclarecimento e retenção.',
-      complianceScore: hasGreeting ? 100 : 80,
-      createdAt: new Date().toISOString(),
-    };
-
-    await QualityAuditRepository.save(newAudit);
-    res.status(201).json(newAudit);
+      const analysis=await createQualityAnalysis(tenantId,req.body,async executionId=>{
+        await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'QUALITY_REVIEW_ATTEMPT',resource:'ai/quality-reviews',category:'AI_GATEWAY',strict:true,details:'Tentativa de análise externa de trechos para revisão humana.',payload:{executionId}});
+      });
+      const review=await QualityReviewRepository.create(tenantId,actor.id,analysis);
+      if (!review) throw new Error('Revisão não persistida.');
+      res.status(201).json(review);
+    } catch(error) {if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
+  });
+  app.post('/api/v1/ai/quality-supervisor/reviews/:id/review', requireRole('super_admin','admin','supervisor'), async (req,res) => {
+    const tenantId=getAuthorizedTenantId(req); const actor=(req as any).user;
+    const previous=await QualityReviewRepository.find(tenantId,req.params.id);
+    if(!previous)return res.status(404).json({error:'Revisão não encontrada.'});
+    if(typeof req.body.note!=='string'||!req.body.note.trim()||req.body.note.length>2000)return res.status(400).json({error:'Informe uma anotação de revisão de até 2000 caracteres.'});
+    await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'QUALITY_REVIEW_CONFIRM_ATTEMPT',resource:`ai/quality-reviews/${previous.id}`,category:'AI_GATEWAY',strict:true,details:'Tentativa de registro de revisão humana, sem certificação automática.'});
+    const review=await QualityReviewRepository.review(tenantId,previous.id,actor.id,req.body.note.trim());
+    if(!review)return res.status(409).json({error:'Esta revisão já foi concluída por um usuário.'});
+    res.json(review);
   });
 
   // Esquemas e extração manual por empresa, sem reaproveitar configuração global legada.

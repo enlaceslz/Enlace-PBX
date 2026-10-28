@@ -151,12 +151,13 @@ export const OmnichannelView: React.FC = () => {
     try {
       const res = await fetch("/api/v1/omnichannel/ai-suggest", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           conversationId: selectedConv.id,
           history: selectedConv.messages,
         }),
       });
+      if (!res.ok) { const failure=await res.json(); throw new Error(failure.error || "Copiloto indisponível."); }
       if (res.ok) {
         const data = await res.json();
         if (data.suggestion) {
@@ -166,7 +167,7 @@ export const OmnichannelView: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error("Failed to get AI suggestion", err);
+      setStatusFeedback(err instanceof Error ? err.message : "Copiloto indisponível.");
     } finally {
       setIsSuggestingAi(false);
     }

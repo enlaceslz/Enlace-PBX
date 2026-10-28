@@ -5,6 +5,7 @@ import pg from 'pg';
 import jwt from 'jsonwebtoken';
 import net from 'node:net';
 import http from 'node:http';
+import { QualityReviewRepository } from '../server/infrastructure/postgres/repositories/QualityReviewRepository.js';
 import { EntitySchemaRepository } from '../server/infrastructure/postgres/repositories/EntitySchemaRepository.js';
 import { WebhookRepository } from '../server/infrastructure/postgres/repositories/WebhookRepository.js';
 import { AiToolRepository } from '../server/infrastructure/postgres/repositories/AiToolRepository.js';
@@ -85,20 +86,26 @@ try {
   let webhookReject = false;
   let webhookHits = 0;
   let extractionHits = 0;
+  let qualityHits = 0;
   const webhookSecret = crypto.randomBytes(32).toString('hex');
   const external = http.createServer(async (req, res) => {
     if (req.url === '/v1/models') { res.end(JSON.stringify({data:[{id:'modelo-extracao-test'}]})); return; }
     externalHits++;
     try {
       if (req.url === '/v1/chat/completions') {
-        extractionHits++;
         assert.equal(req.headers.authorization, 'Bearer segredo-extracao-ci');
-        const audit = await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='ENTITY_EXTRACTION_ATTEMPT' AND payload->>'executionId'=$2", [tenantA,req.headers['x-enlace-request-id']]);
-        assert.equal(audit.rows.length, 1);
         const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
-        const body = JSON.parse(Buffer.concat(chunks).toString()); assert.equal(body.model, 'modelo-extracao-test');
-        assert.equal(JSON.parse(body.messages[1].content).text, 'Ramal 3004. Orçamento R$ 15.000,50.');
-        res.end(JSON.stringify({ model: 'modelo-extracao-test', choices: [{message:{content:JSON.stringify({fields:{ramal:'3004',orcamento:'350'}})}}], usage:{prompt_tokens:45,completion_tokens:12} })); return;
+        const body=JSON.parse(Buffer.concat(chunks).toString());
+        if(body.model==='modelo-quality-test'){
+          qualityHits++;
+          const audit=await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='QUALITY_REVIEW_ATTEMPT' AND payload->>'executionId'=$2",[tenantA,req.headers['x-enlace-request-id']]);assert.equal(audit.rows.length,1);
+          assert.equal(JSON.parse(body.messages[1].content).text,'Olá. A conexão falhou. Vou verificar.');
+          res.end(JSON.stringify({model:body.model,choices:[{message:{content:JSON.stringify({fields:{greeting:'Olá',complaint:'A conexão falhou',solutionStatement:'Problema resolvido'}})}}],usage:{prompt_tokens:45,completion_tokens:12}}));return;
+        }
+        extractionHits++;
+        const audit=await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='ENTITY_EXTRACTION_ATTEMPT' AND payload->>'executionId'=$2",[tenantA,req.headers['x-enlace-request-id']]);assert.equal(audit.rows.length,1);
+        assert.equal(body.model,'modelo-extracao-test');assert.equal(JSON.parse(body.messages[1].content).text,'Ramal 3004. Orçamento R$ 15.000,50.');
+        res.end(JSON.stringify({model:body.model,choices:[{message:{content:JSON.stringify({fields:{ramal:'3004',orcamento:'350'}})}}],usage:{prompt_tokens:45,completion_tokens:12}}));return;
       }
       if (req.url === '/webhook') {
         webhookHits++;
@@ -142,6 +149,7 @@ try {
     env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
       OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
       NINEROUTER_URL: origin + '/v1', NINEROUTER_API_KEY: 'segredo-extracao-ci', ENTITY_EXTRACTION_MODEL: 'modelo-extracao-test', ENTITY_EXTRACTION_ENABLED_TENANTS: tenantA,
+      QUALITY_REVIEW_MODEL: 'modelo-quality-test',QUALITY_REVIEW_ENABLED_TENANTS: tenantA,
       WEBHOOK_BINDINGS_JSON: JSON.stringify([{ tenantId: tenantA, webhookId: hook.id, endpoint: origin + '/webhook', signingSecret: webhookSecret }]),
       AI_TOOL_BINDINGS_JSON: JSON.stringify([{ tenantId: tenantA, toolId, endpoint: origin + '/acao', method: 'POST', bearerToken: 'segredo-da-integracao' }]) },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -247,7 +255,28 @@ try {
     assert.equal(invalidInput.status,400); assert.equal(extractionHits,1);
     const extractionAudit = JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action='ENTITY_EXTRACTION_ATTEMPT'",[tenantA])).rows);
     assert.equal(extractionAudit.includes('Ramal 3004'),false);
-    assert.equal((await fetch(base+'/api/v1/ai/quality-supervisor/evaluate',{method:'POST',headers:testHeaders,body:'{}'})).status,501);
+    const qualityPath=base+'/api/v1/ai/quality-supervisor';
+    const qualityBody={channel:'voice',reference:'referencia-ci',transcript:'Olá. A conexão falhou. Vou verificar.'};
+    const qualityResponse=await fetch(qualityPath+'/evaluate',{method:'POST',headers:testHeaders,body:JSON.stringify(qualityBody)});
+    assert.equal(qualityResponse.status,201);const quality=await qualityResponse.json();
+    assert.equal(quality.status,'PENDING');assert.equal(quality.evidence.greeting,'Olá');assert.equal(quality.evidence.solutionStatement,null);
+    assert.deepEqual(quality.rejected_fields,['solutionStatement']);assert.equal(qualityHits,1);assert.deepEqual(externalErrors,[]);
+    for(const field of ['score','complianceScore','resolutionStatus','sentiment','transcript'])assert.equal(Object.hasOwn(quality,field),false);
+    assert.equal((await QualityReviewRepository.list(tenantB)).length,0);
+    await admin.query("UPDATE users SET role='admin' WHERE id=$1",[`user-b-${id}`]);
+    assert.equal((await fetch(qualityPath+`/reviews/${quality.id}`,{headers:otherHeaders})).status,404);
+    assert.equal((await fetch(qualityPath+`/reviews/${quality.id}/review`,{method:'POST',headers:otherHeaders,body:JSON.stringify({note:'Não autorizado'})})).status,404);
+    assert.equal((await fetch(qualityPath+'/evaluate',{method:'POST',headers:otherHeaders,body:JSON.stringify(qualityBody)})).status,403);
+    await admin.query("UPDATE users SET role='operator' WHERE id=$1",[`user-b-${id}`]);
+    const reviewed=await fetch(qualityPath+`/reviews/${quality.id}/review`,{method:'POST',headers:testHeaders,body:JSON.stringify({note:'Conferi os trechos na fonte. Sem comprovação de solução.',reviewedBy:'usuario-falso'})});
+    assert.equal(reviewed.status,200);const human=await reviewed.json();assert.equal(human.status,'REVIEWED');assert.equal(human.reviewed_by,`user-a-${id}`);
+    assert.equal((await fetch(qualityPath+`/reviews/${quality.id}/review`,{method:'POST',headers:testHeaders,body:JSON.stringify({note:'Sobrescrever'})})).status,409);
+    assert.equal((await fetch(qualityPath+`/reviews/${quality.id}`,{headers:testHeaders})).status,200);
+    await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query('UPDATE quality_reviews SET evidence=$1 WHERE id=$2',[JSON.stringify({greeting:'Falso'}),quality.id])));
+    await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query("UPDATE quality_reviews SET review_note='Alterar' WHERE id=$1",[quality.id])));
+    const qualityAudit=JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action LIKE 'QUALITY_REVIEW%'",[tenantA])).rows);assert.equal(qualityAudit.includes('A conexão falhou'),false);
+    assert.equal((await fetch(base+'/api/v1/omnichannel/ai-suggest',{method:'POST',headers:testHeaders,body:JSON.stringify({history:[{sender:'user',content:'Preciso do PIX'}]})})).status,501);
+    console.log('Supervisor: evidências reais, revisão humana única, proteção contra sobrescrita e isolamento aprovados.');
     console.log('Extração em produção: chamada HTTP de IA, evidência literal, rejeição de valor inventado, auditoria anterior e isolamento aprovados.');
     console.log('Webhooks de produção: assinatura dos bytes, auditoria anterior, histórico real e isolamento aprovados.');
     console.log('Ferramenta HTTP em produção: execução real, auditoria anterior, confirmação, schema, vínculo e isolamento aprovados.');
@@ -264,6 +293,7 @@ try {
   }
   console.log('PostgreSQL real: migrações, RLS, identidade, privilégios mínimos e idempotência aprovados.');
 } finally {
+  await admin.query('DELETE FROM quality_reviews WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM entity_extraction_schemas WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM webhook_deliveries WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM outbound_webhooks WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});

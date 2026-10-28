@@ -162,4 +162,22 @@ Números e moedas são derivados de literais em formato brasileiro: `15.000,50` 
 
 **Revisar sempre o contexto.** Um trecho pode existir no texto e ainda ser escolhido para o campo errado, inclusive diante de instruções maliciosas dentro da conversa. A verificação literal limita invenções, sem comprovar correção semântica. Esta função não deve autorizar pagamentos, cadastro, cobrança, identificação ou outras alterações automaticamente. A aplicação não persiste transcrição, resposta ou evidências nessa rota; a auditoria registra somente tentativa, esquema e ID de execução. O provedor externo possui seu próprio tratamento de dados, que deve ser verificado na homologação.
 
-A avaliação automática de qualidade antiga permanece bloqueada em produção: a heurística anterior declarava resolução e conformidade sem comprovação. Avaliações históricas precisam de revisão e não são certificação de conformidade. O bloqueio não apaga registros anteriores.
+A heurística antiga de qualidade foi retirada do fluxo de produção: a heurística anterior declarava resolução e conformidade sem comprovação. Avaliações históricas precisam de revisão e não são certificação de conformidade. O bloqueio não apaga registros anteriores.
+
+## Supervisor assistido e revisão humana
+
+A migração 014 cria `quality_reviews`, separada do histórico heurístico `quality_audits`. O novo supervisor seleciona trechos literais para saudação, problema relatado, declaração sobre solução, menção à gravação e próximo passo. **Não produz notas, sentimento, consentimento, resolução ou certificação de conformidade.** Uma menção à gravação ou declaração de solução não comprova execução nem autoriza concluir conformidade. Ausência de trecho selecionado também não comprova ausência do evento na conversa.
+
+Configurar `QUALITY_REVIEW_MODEL` e `QUALITY_REVIEW_ENABLED_TENANTS` com IDs separados por vírgula, além das credenciais/URL do 9router e da política HTTP de saída. O modelo não tem valor padrão. A autorização precisa considerar tanto o envio da transcrição ao provedor quanto a persistência dos trechos selecionados na empresa. O servidor não grava a transcrição completa neste fluxo; o provedor externo pode ter suas próprias regras de armazenamento, a verificar na homologação. Trechos e anotações podem conter dados pessoais e precisam seguir a política operacional da empresa.
+
+`POST /api/v1/ai/quality-supervisor/evaluate` recebe `channel` (`voice`, `whatsapp` ou `webrtc`), `transcript` de até 16 KB e `reference` opcional de até 128 caracteres. A referência é informada pelo usuário e não constitui vínculo verificado com CDR ou chamada. Só `admin`, `super_admin` e `supervisor` podem preparar, consultar ou revisar. Há dez análises por minuto por IP. A tentativa precisa de auditoria persistida antes de enviar texto; os registros de auditoria não incluem a transcrição ou os trechos.
+
+Após resposta validada, as evidências literais são persistidas como `PENDING`. A API só confirma criação depois do commit. Trechos inventados são recusados e indicados em `rejected_fields`; a associação semântica do trecho ao critério ainda exige conferência humana da fonte original. Não há sincronização de CRM, mudança no atendimento ou retry automático.
+
+`GET /api/v1/ai/quality-supervisor/reviews` lista as últimas 100 revisões da empresa. O detalhe, em `/reviews/:id`, exige auditoria antes de retornar as evidências. `POST /reviews/:id/review` recebe `note` de até 2000 caracteres e registra o usuário autenticado e o horário, uma única vez. A anotação declara a revisão humana, sem certificar conclusão ou conformidade. O banco protege as evidências contra alteração e impede sobrescrever a revisão concluída. A recuperação integral reaplica as permissões restritas; histórico não pode ser excluído pelo papel operacional nesse fluxo.
+
+Os registros legados não são automaticamente convertidos em revisões verificadas. A API legada identifica o histórico como não verificado e não reapresenta suas notas, sentimento ou conclusões positivas como fatos. Os dados originais permanecem no banco para revisão administrativa.
+
+## Copiloto omnichannel legado
+
+A sugestão antiga foi removida: continha PIX fixo, preços e alegações de ajustes de rede sem execução real. `/api/v1/omnichannel/ai-suggest` responde 501 e a interface informa a indisponibilidade. Reativar apenas com fontes verificadas, isolamento e confirmação de qualquer operação; nunca gerar cobrança ou afirmar intervenção a partir de palavras-chave. Se a versão antiga foi utilizada, revisar mensagens efetivamente enviadas pelos operadores. Este bloqueio não apaga o histórico nem comprova que uma sugestão chegou a ser enviada.
