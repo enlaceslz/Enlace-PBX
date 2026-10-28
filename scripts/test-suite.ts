@@ -3741,10 +3741,13 @@ export async function runAllTests(): Promise<{
     const revokesCreate = migration008Sql.includes('REVOKE CREATE ON SCHEMA public FROM enlace_app');
     const grantsAppPermissions = migration008Sql.includes('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES');
 
-    // Validação de regras no deploy.sh
-    const deployShPath = path.join(process.cwd(), 'deploy.sh');
-    const deploySh = fs.readFileSync(deployShPath, 'utf8');
-    const deployUsesAppRole = deploySh.includes('enlace_app') && !deploySh.includes('postgres:postgres@');
+    // Exercita o gerador efetivamente utilizado pelo instalador, sem depender de texto do shell.
+    const { productionSettings } = await import('./configure-production.mjs');
+    const generated = productionSettings({ PBX_DOMAIN: 'pbx.example.invalid' });
+    let rejectsOwner = false;
+    try { productionSettings({ PBX_DOMAIN: 'pbx.example.invalid', DATABASE_URL: 'postgresql://postgres:teste@localhost/enlace_pbx' }); }
+    catch { rejectsOwner = true; }
+    const deployUsesAppRole = new URL(generated.DATABASE_URL).username === 'enlace_app' && rejectsOwner && !generated.DATABASE_MIGRATION_URL;
 
     if (restrictsAppRole && revokesCreate && grantsAppPermissions && deployUsesAppRole) {
       record({
@@ -3754,7 +3757,7 @@ export async function runAllTests(): Promise<{
         expected: 'PASS (enlace_app com privilégios mínimos: NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE)',
         actual: 'PASS (Políticas de segurança do PostgreSQL e deploy.sh em conformidade estrita)',
         status: 'passed',
-        evidence: `Migração 008 assegura privilégios mínimos para 'enlace_app' (sem DDL/sem bypass RLS). deploy.sh descontinuou uso de 'postgres:postgres' e adota enlace_app.`,
+        evidence: `Migração 008 assegura privilégios mínimos para 'enlace_app' (sem DDL/sem bypass RLS). Gerador de configuração produz enlace_app, rejeita postgres como usuário do serviço e remove a URL administrativa.`,
       });
     } else {
       record({

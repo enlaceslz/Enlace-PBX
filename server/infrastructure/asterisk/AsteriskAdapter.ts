@@ -240,10 +240,10 @@ export class AsteriskAdapter {
         const chanMatch = block.match(/Channel: ([^\r\n]+)/);
         const callerMatch = block.match(/CallerIDNum: ([^\r\n]+)/);
         const contextMatch = block.match(/Context: ([^\r\n]+)/);
-        const extenMatch = block.match(/Extension: ([^\r\n]+)/);
+        const extenMatch = block.match(/(?:Exten|Extension): ([^\r\n]+)/);
         const stateMatch = block.match(/ChannelStateDesc: ([^\r\n]+)/);
         const durationMatch = block.match(/Duration: ([^\r\n]+)/);
-        const uniqueIdMatch = block.match(/UniqueID: ([^\r\n]+)/);
+        const uniqueIdMatch = block.match(/Uniqueid: ([^\r\n]+)/i);
 
         if (chanMatch) {
           channels.push({
@@ -255,7 +255,7 @@ export class AsteriskAdapter {
             context: contextMatch ? contextMatch[1] : 'from-internal',
             exten: extenMatch ? extenMatch[1] : 's',
             application: 'PJSIP',
-            durationSeconds: durationMatch ? parseInt(durationMatch[1]) : 0,
+            durationSeconds: durationMatch ? durationMatch[1].split(':').reduce((seconds, part) => seconds * 60 + Number(part), 0) : 0,
             aiBridgeActive: false,
           });
         }
@@ -318,7 +318,8 @@ export class AsteriskAdapter {
     const hasAsterisk = await this.checkBinaryExists();
 
     if (hasAsterisk) {
-      await this.executeCli(`channel originate PJSIP/${caller} extension ${callee}@${context}`);
+      const result = await this.executeCli(`channel originate PJSIP/${caller} extension ${callee}@${context}`);
+      if (!result.success) throw new Error(result.error || 'Asterisk recusou a originação.');
     } else {
       try {
         await this.executeAmiAction('Originate', {
@@ -329,7 +330,7 @@ export class AsteriskAdapter {
           CallerID: caller,
         });
       } catch (err: any) {
-        console.warn('[AsteriskAdapter] Falha ao originar chamada via AMI:', err.message);
+        throw new Error('Asterisk recusou a originação via AMI.');
       }
     }
 
@@ -385,6 +386,9 @@ export class AsteriskAdapter {
   public async applyPjsipConfig(pjsipContent: string): Promise<{ success: boolean; backupPath?: string; message: string }> {
     const fs = await import('fs');
     const path = await import('path');
+    if (process.env.NODE_ENV === 'production' && !['127.0.0.1', 'localhost', '::1'].includes(this.host)) {
+      return { success: false, message: 'Provisionamento remoto de arquivos Asterisk não configurado.' };
+    }
 
     // Determina o diretório base: /etc/asterisk se com permissão de escrita, senão pasta local server/config/asterisk
     let baseDir = process.env.ASTERISK_CONFIG_DIR || '/etc/asterisk';
