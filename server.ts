@@ -192,7 +192,11 @@ async function startServer() {
   app.post('/api/v1/auth/login', async (req, res) => {
     try {
       const rawEmail = (req.body?.email || '').trim().toLowerCase();
-      const password = (req.body?.password || '').trim();
+      // Senhas são dados opacos: espaços iniciais/finais podem ser intencionais.
+      const password = req.body?.password;
+      if (typeof password !== 'string') {
+        return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
+      }
 
       if (!rawEmail || !password) {
         return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
