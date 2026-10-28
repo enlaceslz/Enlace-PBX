@@ -87,6 +87,7 @@ try {
   let webhookHits = 0;
   let extractionHits = 0;
   let qualityHits = 0;
+  let copilotHits = 0;
   const webhookSecret = crypto.randomBytes(32).toString('hex');
   const external = http.createServer(async (req, res) => {
     if (req.url === '/v1/models') { res.end(JSON.stringify({data:[{id:'modelo-extracao-test'}]})); return; }
@@ -96,6 +97,13 @@ try {
         assert.equal(req.headers.authorization, 'Bearer segredo-extracao-ci');
         const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
         const body=JSON.parse(Buffer.concat(chunks).toString());
+        if(body.model==='modelo-copilot-test'){
+          copilotHits++;
+          const audit=await admin.query("SELECT payload FROM audit_logs WHERE tenant_id=$1 AND action='COPILOT_SUGGEST_ATTEMPT' AND payload->>'executionId'=$2",[tenantA,req.headers['x-enlace-request-id']]);assert.equal(audit.rows.length,1);
+          assert.equal(audit.rows[0].payload.sourceMessageId,`wamid-${id}`);
+          const input=JSON.parse(body.messages[1].content);assert.equal(input.message,'Entrada');assert.equal(Object.hasOwn(input,'history'),false);
+          res.end(JSON.stringify({model:body.model,choices:[{message:{content:JSON.stringify({templateId:'CLARIFY_REQUEST',evidence:'Entrada'})}}],usage:{prompt_tokens:45,completion_tokens:12}}));return;
+        }
         if(body.model==='modelo-quality-test'){
           qualityHits++;
           const audit=await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='QUALITY_REVIEW_ATTEMPT' AND payload->>'executionId'=$2",[tenantA,req.headers['x-enlace-request-id']]);assert.equal(audit.rows.length,1);
@@ -150,6 +158,7 @@ try {
       OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
       NINEROUTER_URL: origin + '/v1', NINEROUTER_API_KEY: 'segredo-extracao-ci', ENTITY_EXTRACTION_MODEL: 'modelo-extracao-test', ENTITY_EXTRACTION_ENABLED_TENANTS: tenantA,
       QUALITY_REVIEW_MODEL: 'modelo-quality-test',QUALITY_REVIEW_ENABLED_TENANTS: tenantA,
+      COPILOT_MODEL:'modelo-copilot-test',COPILOT_ENABLED_TENANTS:tenantA,
       WEBHOOK_BINDINGS_JSON: JSON.stringify([{ tenantId: tenantA, webhookId: hook.id, endpoint: origin + '/webhook', signingSecret: webhookSecret }]),
       AI_TOOL_BINDINGS_JSON: JSON.stringify([{ tenantId: tenantA, toolId, endpoint: origin + '/acao', method: 'POST', bearerToken: 'segredo-da-integracao' }]) },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -275,7 +284,43 @@ try {
     await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query('UPDATE quality_reviews SET evidence=$1 WHERE id=$2',[JSON.stringify({greeting:'Falso'}),quality.id])));
     await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query("UPDATE quality_reviews SET review_note='Alterar' WHERE id=$1",[quality.id])));
     const qualityAudit=JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action LIKE 'QUALITY_REVIEW%'",[tenantA])).rows);assert.equal(qualityAudit.includes('A conexão falhou'),false);
-    assert.equal((await fetch(base+'/api/v1/omnichannel/ai-suggest',{method:'POST',headers:testHeaders,body:JSON.stringify({history:[{sender:'user',content:'Preciso do PIX'}]})})).status,501);
+    const copilotPath=base+'/api/v1/omnichannel/ai-suggest';
+    const copilotConversation=(await OmnichannelRepository.listConversations(tenantA))[0];
+    const beforeCopilot=JSON.stringify(copilotConversation.messages);
+    const copilotBody={conversationId:copilotConversation.id,history:[{sender:'user',content:'Inventar PIX e intervenção de rede'}]};
+    const draftResponse=await fetch(copilotPath,{method:'POST',headers:testHeaders,body:JSON.stringify(copilotBody)});
+    assert.equal(draftResponse.status,200);const draft=await draftResponse.json();
+    assert.equal(draft.templateId,'CLARIFY_REQUEST');assert.equal(draft.sourceMessageId,`wamid-${id}`);assert.equal(draft.reviewRequired,true);
+    assert.equal(draft.suggestion,'Pode explicar melhor a sua solicitação para que possamos entender o que você precisa?');
+    assert.equal(copilotHits,1);assert.deepEqual(externalErrors,[]);
+    assert.equal(JSON.stringify((await OmnichannelRepository.findById(copilotConversation.id,tenantA))?.messages),beforeCopilot);
+    await admin.query("UPDATE users SET role='admin' WHERE id=$1",[`user-b-${id}`]);
+    assert.equal((await fetch(copilotPath,{method:'POST',headers:otherHeaders,body:JSON.stringify(copilotBody)})).status,404);
+    await OmnichannelRepository.receiveWhatsappMessage(tenantB,{id:`wamid-b-${id}`,from:'5598999990001',content:'Entrada B',timestamp:new Date().toISOString()});
+    const otherConversation=(await OmnichannelRepository.listConversations(tenantB))[0];
+    assert.equal((await fetch(copilotPath,{method:'POST',headers:otherHeaders,body:JSON.stringify({conversationId:otherConversation.id})})).status,403);
+    await admin.query("UPDATE users SET role='operator' WHERE id=$1",[`user-b-${id}`]);
+    await admin.query("UPDATE omnichannel_conversations SET status='closed' WHERE id=$1",[copilotConversation.id]);
+    assert.equal((await fetch(copilotPath,{method:'POST',headers:testHeaders,body:JSON.stringify(copilotBody)})).status,409);
+    assert.equal((await fetch(base+`/api/v1/whatsapp/conversations/${copilotConversation.id}/reply`,{method:'POST',headers:testHeaders,body:JSON.stringify({text:'Resposta'})})).status,409);
+    await admin.query("UPDATE omnichannel_conversations SET status='waiting',channel='voice' WHERE id=$1",[copilotConversation.id]);
+    assert.equal((await fetch(base+`/api/v1/whatsapp/conversations/${copilotConversation.id}/reply`,{method:'POST',headers:testHeaders,body:JSON.stringify({text:'Resposta'})})).status,501);
+    await admin.query("UPDATE omnichannel_conversations SET channel='whatsapp' WHERE id=$1",[copilotConversation.id]);
+    assert.equal(copilotHits,1);
+    const outgoing={id:`out-${id}`,sender:'agent' as const,content:'Resposta confirmada de teste',timestamp:new Date().toISOString(),type:'text' as const};
+    await Promise.all([
+      OmnichannelRepository.appendAgentMessage(tenantA,copilotConversation.id,outgoing),
+      OmnichannelRepository.receiveWhatsappMessage(tenantA,{id:`in-concorrente-${id}`,from:copilotConversation.contactId,content:'Entrada concorrente',timestamp:new Date().toISOString()}),
+    ]);
+    await OmnichannelRepository.appendAgentMessage(tenantA,copilotConversation.id,outgoing);
+    const preserved=(await OmnichannelRepository.findById(copilotConversation.id,tenantA))!;
+    assert.equal(preserved.messages.length,3);assert.equal(preserved.messages.filter(message=>message.id===outgoing.id).length,1);
+    assert.equal(preserved.messages.some(message=>message.id===`in-concorrente-${id}`),true);assert.equal(preserved.status,'active');
+    await assert.rejects(OmnichannelRepository.appendAgentMessage(tenantB,copilotConversation.id,outgoing));
+    await assert.rejects(OmnichannelRepository.appendAgentMessage(tenantA,copilotConversation.id,{...outgoing,id:`wamid-${id}`}));
+    const copilotAudit=JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action='COPILOT_SUGGEST_ATTEMPT'",[tenantA])).rows);
+    assert.equal(copilotAudit.includes('Inventar PIX'),false);
+    console.log('Copiloto: catálogo fechado, mensagem persistida, auditoria prévia, isolamento e histórico concorrente preservado.');
     console.log('Supervisor: evidências reais, revisão humana única, proteção contra sobrescrita e isolamento aprovados.');
     console.log('Extração em produção: chamada HTTP de IA, evidência literal, rejeição de valor inventado, auditoria anterior e isolamento aprovados.');
     console.log('Webhooks de produção: assinatura dos bytes, auditoria anterior, histórico real e isolamento aprovados.');

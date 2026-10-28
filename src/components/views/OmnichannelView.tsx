@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   MessageSquare,
   PhoneCall,
@@ -49,8 +49,9 @@ interface Conversation {
   createdAt: string;
   messages: Array<{
     id: string;
-    sender: "user" | "bot" | "agent";
-    text: string;
+    sender: "user" | "contact" | "bot" | "agent";
+    text?: string;
+    content?: string;
     timestamp: string;
   }>;
   notes?: Array<{
@@ -88,8 +89,18 @@ export const OmnichannelView: React.FC = () => {
   const [newNoteText, setNewNoteText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [isSuggestingAi, setIsSuggestingAi] = useState(false);
+  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [copilotDraft,setCopilotDraft]=useState<{conversationId:string;sourceMessageId:string;suggestion:string;sourceExcerpt:string}|null>(null);
+  const selectedIdRef=useRef<string|null>(null);
+  selectedIdRef.current=selectedConv?.id??null;
   const [isLoading, setIsLoading] = useState(true);
-  const [replyText, setReplyText] = useState("");
+  const [replyDrafts,setReplyDrafts]=useState<Record<string,string>>({});
+  const replyText=selectedConv?replyDrafts[selectedConv.id]||'':'';
+  const setReplyText=(value:string|((previous:string)=>string))=>{
+    const id=selectedConv?.id;if(!id)return;
+    setReplyDrafts(previous=>({...previous,[id]:typeof value==='function'?value(previous[id]||''):value}));
+  };
+  useEffect(()=>{setCopilotDraft(null);},[selectedConv?.id]);
   const [showConfig, setShowConfig] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferTargetType, setTransferTargetType] = useState<"queue" | "extension">("queue");
@@ -146,31 +157,17 @@ export const OmnichannelView: React.FC = () => {
   };
 
   const handleAiSuggest = async () => {
-    if (!selectedConv) return;
-    setIsSuggestingAi(true);
+    if (!selectedConv || isSuggestingAi) return;
+    const conversationId=selectedConv.id;
+    setIsSuggestingAi(true);setCopilotDraft(null);
     try {
-      const res = await fetch("/api/v1/omnichannel/ai-suggest", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          conversationId: selectedConv.id,
-          history: selectedConv.messages,
-        }),
-      });
-      if (!res.ok) { const failure=await res.json(); throw new Error(failure.error || "Copiloto indisponível."); }
-      if (res.ok) {
-        const data = await res.json();
-        if (data.suggestion) {
-          setReplyText(data.suggestion);
-          setStatusFeedback("Sugestão da IA carregada no campo de resposta!");
-          setTimeout(() => setStatusFeedback(null), 3000);
-        }
-      }
-    } catch (err) {
-      setStatusFeedback(err instanceof Error ? err.message : "Copiloto indisponível.");
-    } finally {
-      setIsSuggestingAi(false);
-    }
+      const response=await fetch('/api/v1/omnichannel/ai-suggest',{method:'POST',headers:getAuthHeaders(),body:JSON.stringify({conversationId})});
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Copiloto indisponível.');
+      if(selectedIdRef.current===conversationId)setCopilotDraft(data);
+    } catch(error) {
+      if(selectedIdRef.current===conversationId)setStatusFeedback(error instanceof Error?error.message:'Copiloto indisponível.');
+    } finally {setIsSuggestingAi(false);}
   };
 
   const handleSaveNote = async () => {
@@ -326,35 +323,19 @@ export const OmnichannelView: React.FC = () => {
   };
 
   const handleSend = async () => {
-    if (!replyText.trim() || !selectedConv) return;
-
-    const textToSend = replyText;
-    setReplyText("");
-
+    if (!replyText.trim() || !selectedConv || isSendingReply) return;
+    const conversationId=selectedConv.id;const textToSend=replyText;
+    setIsSendingReply(true);
     try {
-      const res = await fetch(
-        `/api/v1/whatsapp/conversations/${selectedConv.id}/reply`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: textToSend }),
-        }
-      );
-
-      if (res.ok) {
-        const updatedConv = await res.json();
-        // If agent replied while conversation was in bot_handling or queued, auto-promote to active
-        if (updatedConv.status === "bot_handling" || updatedConv.status === "queued") {
-          handleUpdateStatus("active");
-        }
-        setConversations((prev) =>
-          prev.map((c) => (c.id === updatedConv.id ? updatedConv : c))
-        );
-        setSelectedConv(updatedConv);
-      }
-    } catch (e) {
-      console.error("Failed to send reply", e);
-    }
+      const response=await fetch(`/api/v1/whatsapp/conversations/${encodeURIComponent(conversationId)}/reply`,{method:'POST',headers:getAuthHeaders(),body:JSON.stringify({text:textToSend})});
+      const updated=await response.json();
+      if(!response.ok)throw new Error(updated.error||'Envio não confirmado. Confira a conversa antes de repetir.');
+      setConversations(previous=>previous.map(conversation=>conversation.id===updated.id?updated:conversation));
+      setSelectedConv(previous=>previous?.id===conversationId?updated:previous);
+      setReplyText(previous=>previous===textToSend?'':previous);
+      if(selectedIdRef.current===conversationId)setCopilotDraft(null);
+    }catch(error){if(selectedIdRef.current===conversationId)setStatusFeedback(error instanceof Error?error.message:'Envio não confirmado.');}
+    finally{setIsSendingReply(false);}
   };
 
   const getStatusColor = (status: string) => {
@@ -378,8 +359,9 @@ export const OmnichannelView: React.FC = () => {
         return "Em Atendimento";
       case "bot_handling":
         return "MaIA (IA) Atendendo";
+      case "waiting":
       case "queued":
-        return "Na Fila (Aguardando)";
+        return "Na fila (aguardando atendimento)";
       case "closed":
         return "Finalizado";
       default:
@@ -763,7 +745,7 @@ export const OmnichannelView: React.FC = () => {
                       <div
                         key={msg.id}
                         className={`flex flex-col max-w-[80%] ${
-                          msg.sender === "user" ? "self-start" : "self-end items-end"
+                          (msg.sender === "user" || msg.sender === "contact") ? "self-start" : "self-end items-end"
                         }`}
                       >
                         {msg.sender === "bot" && (
@@ -779,16 +761,16 @@ export const OmnichannelView: React.FC = () => {
 
                         <div
                           className={`p-3 rounded-2xl shadow-2xs text-xs ${
-                            msg.sender === "user"
+                            (msg.sender === "user" || msg.sender === "contact")
                               ? "bg-white text-slate-800 rounded-tl-none border border-slate-200"
                               : msg.sender === "bot"
                               ? "bg-blue-50 text-blue-900 rounded-tr-none border border-blue-200"
-                              : msg.text.startsWith("[Sistema]") || msg.text.startsWith("[Transferência]")
+                              : (msg.content ?? msg.text ?? '').startsWith("[Sistema]") || (msg.content ?? msg.text ?? '').startsWith("[Transferência]")
                               ? "bg-amber-50 text-amber-900 border border-amber-200 font-mono text-[11px]"
                               : "bg-emerald-600 text-white rounded-tr-none"
                           }`}
                         >
-                          {msg.text}
+                          {msg.content ?? msg.text ?? ''}
                         </div>
                         <span className="text-[10px] text-slate-400 mt-1 px-1 font-mono">
                           {new Date(msg.timestamp).toLocaleTimeString([], {
@@ -800,6 +782,17 @@ export const OmnichannelView: React.FC = () => {
                     ))}
                   </div>
 
+                  {copilotDraft && copilotDraft.conversationId===selectedConv.id && copilotDraft.sourceMessageId===selectedConv.messages.at(-1)?.id && selectedConv.status!=='closed' && (
+                    <div className="p-4 border-t border-blue-100 bg-blue-50 space-y-2 text-xs">
+                      <p className="font-bold text-blue-900">Rascunho para revisão do operador</p>
+                      <p className="text-blue-900">{copilotDraft.suggestion}</p>
+                      <p className="text-slate-600 whitespace-pre-wrap">Trecho da mensagem de origem: {copilotDraft.sourceExcerpt}</p>
+                      <p className="text-slate-600">A IA selecionou uma resposta de catálogo. Nenhuma cobrança, ação ou envio foi executado. Confira o contexto antes de usar.</p>
+                      <button type="button" disabled={isSendingReply||!!replyText.trim()} className="text-blue-800 underline disabled:opacity-50" onClick={()=>{setReplyText(copilotDraft.suggestion);setCopilotDraft(null);}}>Usar no campo de resposta</button>
+                      <button type="button" className="ml-4 text-slate-600 underline" onClick={()=>setCopilotDraft(null)}>Descartar</button>
+                      {!!replyText.trim()&&<p className="text-slate-600">Há uma resposta em edição; o rascunho não substituirá esse texto.</p>}
+                    </div>
+                  )}
                   {/* Quick Replies Bar */}
                   <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 flex items-center gap-2 overflow-x-auto">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
@@ -833,7 +826,7 @@ export const OmnichannelView: React.FC = () => {
                             : "Digite sua resposta para o cliente..."
                         }
                         className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800"
-                        disabled={selectedConv.status === "closed"}
+                        disabled={isSendingReply || selectedConv.status === "closed"}
                       />
 
                       {/* AI Copilot Suggestion Button */}
@@ -842,7 +835,7 @@ export const OmnichannelView: React.FC = () => {
                         onClick={handleAiSuggest}
                         disabled={isSuggestingAi || selectedConv.status === "closed"}
                         className="h-10 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl flex items-center justify-center transition disabled:opacity-50 text-xs font-bold gap-1.5 shadow-sm shrink-0"
-                        title="Gerar sugestão inteligente com Gemini para o contexto do cliente"
+                        title="Selecionar rascunho revisado usando a última mensagem recebida"
                       >
                         <Sparkles className={`w-3.5 h-3.5 ${isSuggestingAi ? 'animate-spin' : ''}`} />
                         {isSuggestingAi ? "Gerando..." : "Sugerir IA"}
@@ -850,7 +843,8 @@ export const OmnichannelView: React.FC = () => {
 
                       <button
                         onClick={handleSend}
-                        disabled={!replyText.trim() || selectedConv.status === "closed"}
+                        disabled={isSendingReply || !replyText.trim() || selectedConv.status === "closed" || selectedConv.channel !== "whatsapp"}
+                        title="Envio disponível para WhatsApp configurado; a sugestão não envia automaticamente"
                         className="h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm text-xs font-bold gap-1.5 shrink-0"
                       >
                         <Send className="w-4 h-4" /> Enviar

@@ -1,3 +1,4 @@
+import { suggestCopilot } from './server/maia/integrations/OmnichannelCopilot.js';
 import { QualityReviewRepository } from './server/infrastructure/postgres/repositories/QualityReviewRepository.js';
 import { createQualityAnalysis } from './server/maia/integrations/QualityReview.js';
 import { EntitySchemaRepository } from './server/infrastructure/postgres/repositories/EntitySchemaRepository.js';
@@ -5313,7 +5314,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
     }
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
-    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (conv.status === 'closed') return res.status(409).json({ error: 'Conversa encerrada.' });
+    if (conv.channel !== 'whatsapp') return res.status(501).json({ error: 'Este envio está disponível somente para conversas WhatsApp.' });
     
     const { text } = req.body;
     if (typeof text !== 'string' || !text.trim() || text.length > 4096) return res.status(400).json({ error: 'Mensagem inválida.' });
@@ -5330,17 +5333,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
       if (!metaRes.ok) return res.status(502).json({ error: 'A Meta rejeitou o envio da mensagem.' });
       const delivery = await metaRes.json();
-      if (!delivery.messages?.[0]?.id) return res.status(502).json({ error: 'Envio sem confirmação da Meta.' });
-      if (!conv.messages) conv.messages = [];
-      conv.messages.push({ id: delivery.messages[0].id, sender: 'agent', senderName: (req as any).user.name,
-        content: text, timestamp: new Date().toISOString(), type: 'text' });
-      await OmnichannelRepository.save(conv);
+      if (typeof delivery.messages?.[0]?.id!=='string'||!delivery.messages[0].id) return res.status(502).json({ error: 'Envio sem confirmação da Meta.' });
+      await OmnichannelRepository.appendAgentMessage(tenantId,conv.id,{id:delivery.messages[0].id,sender:'agent',senderName:(req as any).user.name,
+        content:text,timestamp:new Date().toISOString(),type:'text'});
+      const updated=await OmnichannelRepository.findById(conv.id,tenantId);
+      if(!updated)throw new Error('Registro de saída indisponível.');
+      return res.json(updated);
     } catch (error) {
-      console.error('[WhatsApp] Falha no envio ou persistência:', error);
+      console.error('[WhatsApp] Falha no envio ou persistência; confirmação indisponível.');
       return res.status(502).json({ error: 'Não foi possível confirmar o envio e o registro da mensagem. Confira a conversa antes de reenviar.' });
     }
 
-    res.json(conv);
   });
 
   // Omnichannel: Operator Notes
@@ -5362,9 +5365,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json({ text, agentName: agentName || 'Operador', createdAt: new Date().toISOString() });
   });
 
-  // Sugestões antigas não eram executadas por IA e podiam conter cobrança fictícia.
-  app.post('/api/v1/omnichannel/ai-suggest', requireRole('super_admin','admin','supervisor','operator'), (_req,res) => {
-    res.status(501).json({error:'Copiloto indisponível: integração real de sugestões ainda não homologada.'});
+  // A IA seleciona somente rascunhos revisados, sem enviar ou alterar a conversa.
+  const copilotLimiter=rateLimit({windowMs:60_000,limit:10,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Limite de sugestões atingido. Aguarde um minuto.'}});
+  app.post('/api/v1/omnichannel/ai-suggest', requireRole('super_admin','admin','supervisor','operator'), copilotLimiter, async (req,res) => {
+    const tenantId=getAuthorizedTenantId(req);
+    if(typeof req.body.conversationId!=='string'||!req.body.conversationId||req.body.conversationId.length>128)return res.status(400).json({error:'Informe o ID de uma conversa cadastrada.'});
+    const conversation=await OmnichannelRepository.findById(req.body.conversationId,tenantId);
+    if(!conversation)return res.status(404).json({error:'Conversa não encontrada.'});
+    try{
+      const result=await suggestCopilot(tenantId,conversation,async(executionId,sourceMessageId)=>{
+        const actor=(req as any).user;
+        await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'COPILOT_SUGGEST_ATTEMPT',resource:`omnichannel/${conversation.id}`,category:'AI_GATEWAY',strict:true,details:'Tentativa de seleção externa de rascunho revisado para operador.',payload:{executionId,sourceMessageId}});
+      });
+      res.json(result);
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // AI Quality Supervisor Audits

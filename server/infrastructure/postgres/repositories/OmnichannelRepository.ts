@@ -174,6 +174,20 @@ export class OmnichannelRepository {
     });
   }
 
+  /** Acrescenta somente a saída confirmada, sem substituir entradas recebidas durante o envio. */
+  public static async appendAgentMessage(tenantId: string, conversationId: string, message: OmnichannelMessage): Promise<void> {
+    await postgresClient.executeTenantScoped(tenantId,async client=>{
+      const result=await client.query('SELECT messages FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,conversationId]);
+      if(!result.rows[0])throw new Error('Conversa não encontrada para registrar a saída.');
+      const value=result.rows[0].messages;
+      const messages=typeof value==='string'?JSON.parse(value):value||[];
+      const previous=messages.find((entry:any)=>entry.id===message.id);
+      if(previous){if(previous.sender!=='agent'||previous.content!==message.content)throw new Error('Identificador de mensagem conflitante.');return;}
+      messages.push(message);
+      await client.query("UPDATE omnichannel_conversations SET messages=$3,status=CASE WHEN status IN ('waiting','queued','bot_handling') THEN 'active' ELSE status END,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2",[tenantId,conversationId,JSON.stringify(messages)]);
+    });
+  }
+
   public static async save(conv: OmnichannelConversation, contextOrTenant?: TenantContext | string): Promise<OmnichannelConversation> {
     const target = contextOrTenant || conv.tenantId;
     return postgresClient.executeTenantScoped(target, async (client, ctx) => {
