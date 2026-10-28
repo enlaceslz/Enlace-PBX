@@ -49,10 +49,12 @@ test('servidor HTTP protege rotas, valida JSON e verifica o webhook original', {
     assert.equal(altered.status, 403);
     assert.equal((await fetch(base + '/api/nao-existe')).status, 404);
   } finally {
-    const exited = once(child, 'exit');
-    child.kill('SIGTERM');
-    const timer = setTimeout(() => child.kill('SIGKILL'), 3000);
-    await exited;
-    clearTimeout(timer);
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit');
+      child.kill('SIGTERM');
+      const timer = setTimeout(() => child.kill('SIGKILL'), 3000);
+      await exited;
+      clearTimeout(timer);
+    }
   }
 });

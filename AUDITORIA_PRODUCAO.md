@@ -45,7 +45,7 @@ Leitura de configuração não comprova estado do host. Valores demonstrativos a
 - `npm run build`: cliente e backend.
 - `npm audit --omit=dev`: dependências de produção.
 - `bash -n deploy.sh`: sintaxe, sem executar instalação no host.
-- CI: PostgreSQL 16 descartável, migrações administrativas, conexão enlace_app, RLS entre duas empresas, negação de DDL, proteção do histórico e idempotência de entrada WhatsApp. Consultar o resultado da execução; criar o workflow não equivale a aprová-lo.
+- CI: PostgreSQL 16 descartável, migrações administrativas, conexão enlace_app, RLS entre duas empresas, negação de DDL, proteção do histórico e idempotência de entrada WhatsApp. A execução com PostgreSQL real passou após corrigir a compatibilidade CEL. O CI também valida login bcrypt, RBAC e prontidão no backend compilado; conferir a execução correspondente ao commit final.
 
 ## Procedimento de homologação
 
