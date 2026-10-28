@@ -192,7 +192,11 @@ async function startServer() {
   app.post('/api/v1/auth/login', async (req, res) => {
     try {
       const rawEmail = (req.body?.email || '').trim().toLowerCase();
-      const password = (req.body?.password || '').trim();
+      // Senhas são dados opacos: espaços iniciais/finais podem ser intencionais.
+      const password = req.body?.password;
+      if (typeof password !== 'string') {
+        return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
+      }
 
       if (!rawEmail || !password) {
         return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
@@ -233,7 +237,7 @@ async function startServer() {
       }
     } catch (err: any) {
       console.error('[Auth Login Error]:', err?.message || err);
-      return res.status(500).json({ error: 'Erro interno durante a autenticação: ' + (err?.message || 'Falha no servidor.') });
+      return res.status(500).json({ error: 'Erro interno durante a autenticação.' });
     }
   });
 
@@ -294,7 +298,7 @@ async function startServer() {
 
     const pgStatus = pgHealth.status === 'UP' ? 'UP' : (pgHealth.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'DOWN');
     const astStatus = asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'NOT_INSTALLED' : 'DOWN');
-    const amiStatus = asteriskHealth.amiConnected ? 'UP' : (asteriskHealth.status === 'UP' ? 'UP' : 'DOWN');
+    const amiStatus = asteriskHealth.amiConnected ? 'UP' : 'DOWN';
 
     // PostgreSQL é a dependência crítica obrigatória de persistência e autenticação
     const isReady = pgHealth.status === 'UP';

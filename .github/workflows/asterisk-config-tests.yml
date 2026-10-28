@@ -1,0 +1,49 @@
+name: Asterisk configuration regression tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'chore/producao-hardening-*'
+    paths:
+      - 'scripts/reconcile-asterisk-config.py'
+      - 'tests/test_asterisk_reconciler.py'
+      - 'tests/test_asterisk_auth_smoke.py'
+      - 'tests/test_asterisk_installer_safety.py'
+      - 'scripts/check-asterisk-auth.py'
+      - 'install-enlace-pbx.sh'
+      - '.github/workflows/asterisk-config-tests.yml'
+  pull_request:
+    paths:
+      - 'scripts/reconcile-asterisk-config.py'
+      - 'scripts/check-asterisk-auth.py'
+      - 'install-enlace-pbx.sh'
+      - 'tests/test_asterisk_reconciler.py'
+      - 'tests/test_asterisk_auth_smoke.py'
+      - 'tests/test_asterisk_installer_safety.py'
+      - '.github/workflows/asterisk-config-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reconciler:
+    name: Asterisk AMI/ARI configuration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate installer shell syntax
+        run: bash -n install-enlace-pbx.sh
+      - name: Validate Python syntax
+        run: |
+          python -m py_compile scripts/reconcile-asterisk-config.py scripts/check-asterisk-auth.py tests/test_asterisk_reconciler.py tests/test_asterisk_auth_smoke.py tests/test_asterisk_installer_safety.py
+      - name: Run isolated reconciler regression tests
+        run: |
+          python -m unittest discover -s tests -p 'test_asterisk_*.py' -v

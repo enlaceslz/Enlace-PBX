@@ -81,8 +81,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               <p className="text-xs text-slate-400 mt-0.5">Acesso restrito por credencial criptografada</p>
             </div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-mono">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              PBX Online
+              <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+              Acesso restrito
             </div>
           </div>
 

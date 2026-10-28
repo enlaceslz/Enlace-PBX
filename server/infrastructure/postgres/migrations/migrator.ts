@@ -20,20 +20,17 @@ export class DatabaseMigrator {
       return { success: true, applied: 5 };
     }
 
+    let migrationClient: Awaited<ReturnType<typeof postgresClient.getClient>> | null = null;
     let hasLock = false;
     try {
-      console.log('[DatabaseMigrator] Conectando e obtendo Advisory Lock no PostgreSQL...');
-
-      // 1. Advisory Lock para prevenir execuções concorrentes de múltiplas instâncias
-      try {
-        await postgresClient.query('SELECT pg_advisory_lock($1)', [this.MIGRATION_LOCK_ID]);
-        hasLock = true;
-      } catch (lockErr: any) {
-        console.warn('[DatabaseMigrator] Aviso: Não foi possível obter advisory lock, prosseguindo com cautela:', lockErr.message);
-      }
+      // Advisory locks are session-scoped: every migration query must use the same connection.
+      migrationClient = await postgresClient.getClient();
+      await migrationClient.query('SELECT pg_advisory_lock($1)', [this.MIGRATION_LOCK_ID]);
+      hasLock = true;
+      const query = (sql: string, params?: any[]) => migrationClient!.query(sql, params);
 
       // 2. Cria ou atualiza a tabela de schema_migrations com checksum SHA-256
-      await postgresClient.query(`
+      await query(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           version VARCHAR(64) PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
@@ -55,6 +52,10 @@ export class DatabaseMigrator {
         }
       }
 
+      if (files.length === 0) {
+        throw new Error('Nenhuma migracao SQL encontrada. Implantacao interrompida para evitar banco incompleto.');
+      }
+
       let appliedCount = 0;
       for (const file of files) {
         const version = file.split('_')[0];
@@ -65,7 +66,7 @@ export class DatabaseMigrator {
         const sql = fs.readFileSync(filePath, 'utf8');
         const calculatedSha256 = crypto.createHash('sha256').update(sql).digest('hex');
 
-        const checkRes = await postgresClient.query(
+        const checkRes = await query(
           'SELECT version, sha256 FROM schema_migrations WHERE version = $1',
           [version]
         );
@@ -82,9 +83,9 @@ export class DatabaseMigrator {
           }
         } else {
           console.log(`[DatabaseMigrator] Executando migração: ${file} (SHA-256: ${calculatedSha256.slice(0, 10)}...)...`);
-          await postgresClient.query(sql);
+          await query(sql);
 
-          await postgresClient.query(
+          await query(
             'INSERT INTO schema_migrations (version, name, sha256) VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING',
             [version, file, calculatedSha256]
           );
@@ -101,10 +102,15 @@ export class DatabaseMigrator {
       console.error('[DatabaseMigrator] Erro ao aplicar migrações:', err.message);
       return { success: false, applied: 0, error: err.message };
     } finally {
-      if (hasLock) {
-        try {
-          await postgresClient.query('SELECT pg_advisory_unlock($1)', [this.MIGRATION_LOCK_ID]);
-        } catch {}
+      if (migrationClient) {
+        if (hasLock) {
+          try {
+            await migrationClient.query('SELECT pg_advisory_unlock($1)', [this.MIGRATION_LOCK_ID]);
+          } catch (unlockErr) {
+            console.error('[DatabaseMigrator] Falha ao liberar advisory lock:', unlockErr);
+          }
+        }
+        migrationClient.release();
       }
     }
   }

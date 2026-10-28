@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Tests for homologation evidence status validator."""
+import unittest
+from pathlib import Path
+from importlib.machinery import SourceFileLoader
+
+ROOT = Path(__file__).resolve().parent
+module = SourceFileLoader("evidence", str(ROOT / "validate-homologation-evidence.py")).load_module()
+TEMPLATE = (ROOT.parent / "docs/TERMO-EVIDENCIAS-HOMOLOGACAO.md").read_text()
+
+
+class EvidenceTests(unittest.TestCase):
+    def test_default_template_is_not_approved(self):
+        self.assertFalse(module.validate(TEMPLATE))
+
+    def test_all_statuses_are_explicit(self):
+        self.assertEqual(len(module.EXPECTED), 21)
+        self.assertFalse(module.validate(TEMPLATE.replace("NÃO EXECUTADO", "REPROVADO")))
+
+    def test_approved_without_evidence_rejected(self):
+        altered = TEMPLATE.replace("| NÃO EXECUTADO |", "| APROVADO |", 1)
+        with self.assertRaises(ValueError):
+            module.validate(altered)
+
+    def test_structured_evidence_required_for_approval(self):
+        row = next(line for line in TEMPLATE.splitlines() if line.startswith("| TEL-01 |"))
+        approved = TEMPLATE.replace(row, row.replace("NÃO EXECUTADO", "APROVADO").replace(
+            "Log sanitizado, horário e responsável", "evidencias/tel01.txt"))
+        with self.assertRaisesRegex(ValueError, "Evidencia estruturada ausente"):
+            module.validate(approved)
+        self.assertFalse(module.validate(
+            approved + "\nEVIDENCIA: TEL-01 | artefato=evidencias/tel01.txt | data=2026-10-27 | responsavel=tecnico01\n"
+        ))
+
+    def test_structured_evidence_invalid_inputs(self):
+        row = next(line for line in TEMPLATE.splitlines() if line.startswith("| TEL-01 |"))
+        approved = TEMPLATE.replace(row, row.replace("NÃO EXECUTADO", "APROVADO").replace(
+            "Log sanitizado, horário e responsável", "evidencias/tel01.txt"))
+        valid = "EVIDENCIA: TEL-01 | artefato=evidencias/tel01.txt | data=2026-10-27 | responsavel=tecnico01"
+        invalid = [
+            valid.replace("2026-10-27", "2026-02-30"),
+            valid.replace("evidencias/tel01.txt", "../segredo"),
+            valid.replace("evidencias/tel01.txt", "https://example.invalid/arquivo"),
+            valid.replace("responsavel=tecnico01", "responsavel="),
+            valid.replace("TEL-01", "TEL-99"),
+            valid.replace(" | data=", " | data-invalida="),
+        ]
+        for line in invalid:
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                module.validate(approved + "\n" + line + "\n")
+        with self.assertRaisesRegex(ValueError, "duplicada"):
+            module.validate(approved + "\n" + valid + "\n" + valid + "\n")
+        with self.assertRaisesRegex(ValueError, "Evidencia sem aprovacao"):
+            module.validate(TEMPLATE + "\n" + valid + "\n")
+
+    def test_invalid_status_rejected(self):
+        with self.assertRaises(ValueError):
+            module.validate(TEMPLATE.replace("| NÃO EXECUTADO |", "| CONCLUIDO |", 1))
+
+    def test_missing_row_rejected(self):
+        line = next(line for line in TEMPLATE.splitlines() if line.startswith("| INF-01 |"))
+        with self.assertRaises(ValueError):
+            module.validate(TEMPLATE.replace(line, ""))
+
+    def test_each_telephony_row_is_required(self):
+        line = next(line for line in TEMPLATE.splitlines() if line.startswith("| TEL-07 |"))
+        with self.assertRaises(ValueError):
+            module.validate(TEMPLATE.replace(line, ""))
+
+    def test_duplicate_row_rejected(self):
+        line = next(line for line in TEMPLATE.splitlines() if line.startswith("| INF-01 |"))
+        with self.assertRaises(ValueError):
+            module.validate(TEMPLATE + "\n" + line)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -32,6 +32,25 @@ if [ "$EUID" -ne 0 ]; then
 fi
 echo -e "${GREEN}✅ Privilégios de ROOT validados.${NC}"
 
+# Validate installation location and environment before changing the host.
+APP_DIR="$(pwd -P)"
+if [[ "${APP_DIR}" != /opt/* && "${APP_DIR}" != /srv/* ]]; then
+  echo "ERRO: mova o projeto para /opt/enlace-pbx ou /srv/enlace-pbx antes do deploy." >&2
+  exit 1
+fi
+if [ -L .env ]; then
+  echo "ERRO: .env nao pode ser um link simbolico." >&2
+  exit 1
+fi
+
+# Preflight: prevent conflicting legacy root-owned PM2 processes.
+# Migration requires an explicit operator decision to avoid unexpected downtime.
+echo -e "\n${BOLD}Verificando processos legados antes de modificar o host...${NC}"
+if command -v pm2 >/dev/null 2>&1 && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '^[1-9][0-9]*$'; then
+  echo "ERRO: Enlace-PBX ainda executa sob PM2. Pare e remova o processo legado manualmente antes de migrar para systemd." >&2
+  exit 1
+fi
+
 # 2. Identificação do Sistema Operacional
 if [ -f /etc/os-release ]; then
   . /etc/os-release
@@ -51,8 +70,14 @@ apt-get install -y curl wget git build-essential ufw nginx certbot python3-certb
   postgresql postgresql-contrib
 
 # Garantir criação de diretórios de mídia, gravações e snapshots do Enlace-PBX
-mkdir -p /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
-chmod 775 /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
+# Create storage with explicit identities; avoid world-writable media and backup directories.
+install -d -m 750 /var/backups/enlace-pbx
+install -d -m 750 /var/log/enlace-pbx
+if id -u asterisk >/dev/null 2>&1; then
+  install -d -o asterisk -g asterisk -m 750 /var/spool/asterisk/recording
+else
+  install -d -m 750 /var/spool/asterisk/recording
+fi
 
 # 4. Instalação e Validação do Node.js 20 LTS
 echo -e "\n${BOLD}[2/9] Verificando runtime Node.js 20 LTS...${NC}"
@@ -72,16 +97,6 @@ if [ "$NODE_OK" = false ]; then
   echo -e "${GREEN}✅ Node.js instalado com sucesso: $(node -v) (NPM $(npm -v))${NC}"
 fi
 
-# 5. Instalação do PM2 (Process Manager)
-echo -e "\n${BOLD}[3/9] Verificando gerenciador de processos PM2...${NC}"
-if ! command -v pm2 >/dev/null 2>&1; then
-  echo -e "${YELLOW}⚙️ Instalando PM2 globalmente via NPM...${NC}"
-  npm install -g pm2
-  echo -e "${GREEN}✅ PM2 instalado com sucesso.${NC}"
-else
-  echo -e "${GREEN}✅ PM2 já instalado: $(pm2 -v)${NC}"
-fi
-
 # 6. Parâmetros de Configuração de Rede, Host e Ambiente
 echo -e "\n${BOLD}[4/9] Configuração de Rede, Domínio e Integrações${NC}"
 echo -e "${CYAN}Detectando endereço IP público (WAN)...${NC}"
@@ -93,6 +108,22 @@ PUBLIC_IP="${CONF_WAN:-$DETECTED_WAN}"
 
 read -p "Informe o Domínio/FQDN do PBX (ex: pbx.suaempresa.com.br) [pbx.enlacetelecom.com.br]: " CONF_DOMAIN
 DOMAIN="${CONF_DOMAIN:-pbx.enlacetelecom.com.br}"
+# Never interpolate unvalidated operator input into NGINX or dotenv configuration.
+if [[ ${#DOMAIN} -gt 253 || ! "${DOMAIN}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]; then
+  echo "ERRO: dominio/FQDN invalido." >&2
+  exit 1
+fi
+if [[ ! "${PUBLIC_IP}" =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]]; then
+  echo "ERRO: IP publico deve ser um endereco IPv4 valido." >&2
+  exit 1
+fi
+IFS='.' read -r ip1 ip2 ip3 ip4 <<< "${PUBLIC_IP}"
+for octet in "$ip1" "$ip2" "$ip3" "$ip4"; do
+  if (( 10#$octet > 255 )); then
+    echo "ERRO: octeto IPv4 fora do intervalo permitido." >&2
+    exit 1
+  fi
+done
 
 read -p "Informe a Sub-rede LAN local para NAT Traversal [192.168.1.0/24]: " CONF_LAN
 LAN_SUBNET="${CONF_LAN:-192.168.1.0/24}"
@@ -186,8 +217,19 @@ fi
 if command -v psql >/dev/null 2>&1 && systemctl is-active --quiet postgresql 2>/dev/null; then
   echo -e "${CYAN}Provisionando/validando banco local 'enlace_pbx' e usuário restrito 'enlace_app'...${NC}"
   sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'enlace_pbx'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE enlace_pbx;"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
-  sudo -u postgres psql -d enlace_pbx -c "GRANT CONNECT ON DATABASE enlace_pbx TO enlace_app; GRANT USAGE ON SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO enlace_app; REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true
+  if sudo -u postgres psql -Atqc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -qx 1; then
+    if [ -z "$EXISTING_DB" ]; then
+      echo "ERRO: role enlace_app ja existe, mas DATABASE_URL nao foi preservada. Informe credenciais existentes; nao sera gerada senha divergente." >&2
+      exit 1
+    fi
+  else
+    sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
+  fi
+  # Fail closed on privilege errors; never report success after a failed GRANT.
+  if ! sudo -u postgres psql -v ON_ERROR_STOP=1 -d enlace_pbx -c "GRANT CONNECT ON DATABASE enlace_pbx TO enlace_app; GRANT USAGE ON SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO enlace_app; GRANT CREATE ON SCHEMA public TO enlace_app;"; then
+    echo "ERRO: nao foi possivel configurar os privilegios PostgreSQL do enlace_app." >&2
+    exit 1
+  fi
   echo -e "${GREEN}✅ Banco PostgreSQL e role 'enlace_app' verificados.${NC}"
 fi
 
@@ -210,7 +252,30 @@ if [ ! -f .env.example ]; then
   touch .env.example
 fi
 
-cat <<EOF > .env
+if [ -L .env ]; then
+  echo -e "${RED}❌ Arquivo .env é um link simbólico; implantação interrompida.${NC}"
+  exit 1
+fi
+if [ -e .env ] && [ ! -f .env ]; then
+  echo -e "${RED}❌ Arquivo .env não é um arquivo regular; implantação interrompida.${NC}"
+  exit 1
+fi
+if [ -f .env ] && [ ! -f scripts/merge-env.py ]; then
+  echo -e "${RED}❌ Rotina scripts/merge-env.py ausente; deploy interrompido antes de alterar .env.${NC}"
+  exit 1
+fi
+
+if [ -f .env ]; then
+  ENV_BACKUP=$(mktemp "./.env.backup.$(date -u +%Y%m%dT%H%M%SZ).XXXXXXXX")
+  cp -p .env "$ENV_BACKUP"
+  chmod 600 "$ENV_BACKUP"
+  echo "Backup da configuracao anterior: $ENV_BACKUP"
+fi
+umask 077
+ENV_STAGING=$(mktemp ./.env.staging.XXXXXXXX)
+trap 'rm -f -- "$ENV_STAGING"' EXIT
+chmod 600 "$ENV_STAGING"
+cat <<EOF > "$ENV_STAGING"
 # ====================================================================
 # Enlace-PBX Enterprise — Configuração de Produção
 # Gerado automaticamente pelo deploy.sh em $(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -259,12 +324,34 @@ GEMINI_API_KEY=${GEMINI_KEY}
 # Segurança e Webhooks Omnichannel
 WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
 EOF
+chmod 600 "$ENV_STAGING"
+# Preserve custom integrations and secrets not managed by the installer.
+# Write to a temporary file and replace atomically, keeping the backup for rollback.
+if [ -n "${ENV_BACKUP:-}" ] && [ -f "$ENV_BACKUP" ]; then
+  python3 scripts/merge-env.py "$ENV_BACKUP" "$ENV_STAGING"
+fi
+mv -f "$ENV_STAGING" .env
+trap - EXIT
 chmod 600 .env
 echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 
 # 7. Instalação das dependências e compilação do Enlace-PBX
 echo -e "\n${BOLD}[6/9] Instalando dependências NPM e compilando produção...${NC}"
-npm install --legacy-peer-deps
+npm ci --legacy-peer-deps
+# Verify the configured PostgreSQL credentials before building or starting services.
+# Pass the URL through the environment, not command-line arguments.
+if ! DATABASE_URL="$DATABASE_URL" node -e '
+  const { Pool } = require("pg");
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 });
+  pool.query("SELECT 1").then(() => pool.end()).catch(async (error) => {
+    console.error("ERRO: PostgreSQL indisponivel ou credenciais invalidas: " + error.message);
+    await pool.end().catch(() => {});
+    process.exitCode = 1;
+  });
+'; then
+  echo "ERRO: teste de conexao PostgreSQL falhou. Deploy interrompido." >&2
+  exit 1
+fi
 npm run build
 # Garantir sincronização de logos e assets visuais
 if [ -d public ]; then
@@ -279,7 +366,7 @@ read -p "Deseja compilar e instalar o Asterisk 20 LTS (PJSIP + WebRTC + Opus + A
 if [[ "$INSTALL_AST" =~ ^[Ss]$ ]]; then
   echo -e "${CYAN}🚀 Iniciando script de compilação do Asterisk 20 LTS...${NC}"
   chmod +x install-enlace-pbx.sh
-  ./install-enlace-pbx.sh
+  ASTERISK_AMI_USER="${AMI_USER}" ASTERISK_AMI_PASSWORD="${AMI_PASSWORD}" ASTERISK_ARI_USER="${ARI_USER}" ASTERISK_ARI_PASSWORD="${ARI_PASSWORD}" ./install-enlace-pbx.sh
   echo -e "${GREEN}✅ Asterisk 20 LTS instalado e serviço habilitado!${NC}"
 else
   echo -e "${YELLOW}ℹ️  Compilação do Asterisk ignorada. Caso já esteja instalado, mantenha o serviço ativo.${NC}"
@@ -291,7 +378,37 @@ read -p "Deseja configurar o NGINX com suporte a WebSockets e SSL para '${DOMAIN
 if [[ ! "$CONF_NGINX" =~ ^[Nn]$ ]]; then
   echo -e "${CYAN}⚙️ Gerando configuração do NGINX para ${DOMAIN}...${NC}"
   
-  cat <<NGINX_CONF > "/etc/nginx/sites-available/enlace-pbx"
+  NGINX_SITE=/etc/nginx/sites-available/enlace-pbx
+  NGINX_BACKUP=""
+  NGINX_SITE_PREEXISTED=false
+  NGINX_DEFAULT_ENABLED=false
+  NGINX_DEFAULT_TARGET=""
+  NGINX_ENABLED_PREEXISTED=false
+  NGINX_ENABLED_TARGET=""
+  if [ -L /etc/nginx/sites-enabled/enlace-pbx ]; then
+    NGINX_ENABLED_PREEXISTED=true
+    NGINX_ENABLED_TARGET=$(readlink /etc/nginx/sites-enabled/enlace-pbx)
+  elif [ -e /etc/nginx/sites-enabled/enlace-pbx ]; then
+    echo "ERRO: site habilitado enlace-pbx nao e link simbolico; preserve manualmente antes do deploy." >&2
+    exit 1
+  fi
+  if [ -L "$NGINX_SITE" ]; then
+    echo "ERRO: configuracao NGINX nao pode ser link simbolico." >&2
+    exit 1
+  fi
+  if [ -e "$NGINX_SITE" ]; then
+    NGINX_SITE_PREEXISTED=true
+    NGINX_BACKUP=$(mktemp /etc/nginx/sites-available/.enlace-pbx.backup.XXXXXXXX)
+    cp -p "$NGINX_SITE" "$NGINX_BACKUP"
+  fi
+  if [ -L /etc/nginx/sites-enabled/default ]; then
+    NGINX_DEFAULT_ENABLED=true
+    NGINX_DEFAULT_TARGET=$(readlink /etc/nginx/sites-enabled/default)
+  elif [ -e /etc/nginx/sites-enabled/default ]; then
+    echo "ERRO: site NGINX padrao nao e link simbolico; preserve manualmente antes do deploy." >&2
+    exit 1
+  fi
+  cat <<NGINX_CONF > "$NGINX_SITE"
 # ====================================================================
 # Enlace-PBX — NGINX Reverse Proxy com Suporte WebRTC WSS e WebSockets
 # Domínio: ${DOMAIN}
@@ -320,9 +437,9 @@ server {
         proxy_send_timeout 86400s;
     }
 
-    # Proxy para sinalização WebRTC WSS do Asterisk (porta 8089)
-    location /ws {
-        proxy_pass http://127.0.0.1:8089/ws;
+    # TLS/WSS terminates at NGINX; Asterisk listens on loopback HTTP 8088.
+    location = /ws {
+        proxy_pass http://127.0.0.1:8088/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -333,12 +450,39 @@ server {
 }
 NGINX_CONF
 
-  # Habilitar o site
-  ln -sf /etc/nginx/sites-available/enlace-pbx /etc/nginx/sites-enabled/enlace-pbx
-  rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+  rollback_nginx_site() {
+    if [ "$NGINX_SITE_PREEXISTED" = true ]; then
+      cp -p "$NGINX_BACKUP" "$NGINX_SITE"
+    else
+      rm -f "$NGINX_SITE"
+    fi
+    if [ "$NGINX_ENABLED_PREEXISTED" = true ]; then
+      ln -sfn "$NGINX_ENABLED_TARGET" /etc/nginx/sites-enabled/enlace-pbx
+    else
+      rm -f /etc/nginx/sites-enabled/enlace-pbx
+    fi
+    if [ "$NGINX_DEFAULT_ENABLED" = true ] && [ ! -e /etc/nginx/sites-enabled/default ] && [ ! -L /etc/nginx/sites-enabled/default ]; then
+      ln -s "$NGINX_DEFAULT_TARGET" /etc/nginx/sites-enabled/default
+    fi
+  }
+  # Validate first, then remove the default site only after the new site is usable.
+  ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/enlace-pbx
 
   if nginx -t >/dev/null 2>&1; then
-    systemctl reload nginx
+    if [ "$NGINX_DEFAULT_ENABLED" = true ]; then
+      rm -f /etc/nginx/sites-enabled/default
+      if ! nginx -t >/dev/null 2>&1; then
+        rollback_nginx_site
+        echo "ERRO: NGINX invalido apos desabilitar site padrao; configuracao restaurada." >&2
+        exit 1
+      fi
+    fi
+    if ! systemctl reload nginx; then
+      rollback_nginx_site
+      systemctl reload nginx || true
+      echo "ERRO: falha ao recarregar NGINX; configuracao anterior restaurada." >&2
+      exit 1
+    fi
     echo -e "${GREEN}✅ NGINX configurado e recarregado com sucesso.${NC}"
     
     # Tentativa de emissão do SSL com Certbot se o domínio resolver
@@ -352,7 +496,9 @@ NGINX_CONF
       }
     fi
   else
-    echo -e "${RED}❌ Erro no arquivo de configuração do NGINX. Verifique com: nginx -t${NC}"
+    rollback_nginx_site
+    echo -e "${RED}❌ Erro no arquivo de configuração do NGINX; configuracao anterior restaurada. Verifique com: nginx -t${NC}" >&2
+    exit 1
   fi
 fi
 
@@ -366,30 +512,91 @@ if [[ ! "$CONF_UFW" =~ ^[Nn]$ ]]; then
   ufw allow 443/tcp comment "HTTPS Webphone/PWA/WhatsApp"
   ufw allow 5060/udp comment "Asterisk SIP UDP"
   ufw allow 5061/tcp comment "Asterisk SIP TLS"
-  ufw allow 8089/tcp comment "Asterisk WebRTC WSS"
+  # WSS is served via NGINX on 443; Asterisk HTTP 8088 stays on loopback.
   ufw allow 10000:20000/udp comment "Asterisk RTP Audio Media"
   ufw allow 51820/udp comment "WireGuard VPN"
   
-  # Habilitar sem travar SSH
-  echo "y" | ufw enable || true
-  echo -e "${GREEN}✅ Regras do UFW aplicadas e firewall ativado com segurança.${NC}"
+  # Fail closed: verify that the firewall is enabled.
+  if ! ufw --force enable; then
+    echo "ERRO: falha ao habilitar o firewall UFW." >&2
+    exit 1
+  fi
+  if ! ufw status | grep -Fqx "Status: active"; then
+    echo "ERRO: UFW nao esta ativo." >&2
+    exit 1
+  fi
+  echo -e "${GREEN}UFW ativo e verificado.${NC}"
 fi
 
-# 11. Inicialização do Enlace-PBX com PM2
-echo -e "\n${CYAN}🚀 Iniciando o serviço Enlace-PBX com PM2...${NC}"
-pm2 stop enlace-pbx 2>/dev/null || true
-pm2 delete enlace-pbx 2>/dev/null || true
-pm2 start dist/server.cjs --name "enlace-pbx"
-pm2 save
-pm2 startup systemd -u root --hp /root 2>/dev/null || pm2 startup 2>/dev/null || true
+# 11. Run the application with a dedicated unprivileged systemd identity.
+echo -e "\n${CYAN}🚀 Configurando serviço Enlace-PBX sem privilégios de root...${NC}"
+if ! getent group enlace-pbx >/dev/null; then groupadd --system enlace-pbx; fi
+if ! id -u enlace-pbx >/dev/null 2>&1; then
+  useradd --system --gid enlace-pbx --home-dir /var/lib/enlace-pbx --shell /usr/sbin/nologin enlace-pbx
+fi
+if [ "$(id -gn enlace-pbx)" != enlace-pbx ]; then
+  echo "ERRO: conta enlace-pbx possui grupo primario inesperado." >&2
+  exit 1
+fi
+install -d -o enlace-pbx -g enlace-pbx -m 750 /var/lib/enlace-pbx /var/log/enlace-pbx
+# Keep Asterisk recordings private; do not grant the web application blanket filesystem access.
+# Knowledge-base uploads are processed in memory and persisted through the repository layer.
+chown root:enlace-pbx .env
+chmod 640 .env
+if ! runuser -u enlace-pbx -- test -r "${APP_DIR}/.env" ||
+   ! runuser -u enlace-pbx -- test -r "${APP_DIR}/dist/server.cjs"; then
+  echo "ERRO: usuario enlace-pbx nao consegue ler o ambiente ou a aplicacao." >&2
+  exit 1
+fi
+cat > /etc/systemd/system/enlace-pbx.service <<SERVICE
+[Unit]
+Description=Enlace-PBX application
+After=network-online.target postgresql.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=enlace-pbx
+Group=enlace-pbx
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
+ExecStart=/usr/bin/env node ${APP_DIR}/dist/server.cjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/enlace-pbx /var/log/enlace-pbx
+[Install]
+WantedBy=multi-user.target
+SERVICE
+systemctl daemon-reload
+systemctl enable enlace-pbx.service
+systemctl restart enlace-pbx.service
+if ! systemctl is-active --quiet enlace-pbx.service; then
+  echo "ERRO: servico enlace-pbx nao iniciou." >&2
+  exit 1
+fi
 
 # 12. Teste de Saúde (Smoke Test)
-sleep 2
-echo -e "\n${CYAN}🔍 Executando teste de integridade local...${NC}"
-if curl -s -f http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
+echo -e "\n${CYAN}🔍 Executando teste de integridade local (até 60 segundos)...${NC}"
+HEALTH_OK=false
+for attempt in $(seq 1 30); do
+  if curl --fail --silent --show-error --max-time 2 --output /dev/null http://127.0.0.1:3000/api/v1/health 2>/dev/null; then
+    HEALTH_OK=true
+    break
+  fi
+  if ! systemctl is-active --quiet enlace-pbx.service; then
+    break
+  fi
+  sleep 2
+done
+if [ "$HEALTH_OK" = true ]; then
   HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
 else
-  HEALTH_STATUS="${YELLOW}INICIANDO (Aguarde alguns segundos)${NC}"
+  echo -e "${RED}❌ ERRO: aplicação não respondeu ao health check HTTP após inicialização.${NC}" >&2
+  systemctl status enlace-pbx.service --no-pager >&2 || true
+  journalctl -u enlace-pbx.service -n 30 --no-pager >&2 || true
+  exit 1
 fi
 
 # 13. Resumo Final
@@ -406,8 +613,8 @@ echo -e "  • Webhook WhatsApp:    ${CYAN}https://${DOMAIN}/api/v1/webhooks/wha
 echo -e "  • Health Check API:    ${CYAN}https://${DOMAIN}/api/v1/health${NC}"
 echo ""
 echo -e "${BOLD}📋 Comandos de Gerenciamento:${NC}"
-echo -e "  • Ver logs da aplicação:      ${YELLOW}pm2 logs enlace-pbx${NC}"
-echo -e "  • Reiniciar aplicação:        ${YELLOW}pm2 restart enlace-pbx${NC}"
+echo -e "  • Ver logs da aplicação:      ${YELLOW}journalctl -u enlace-pbx -f${NC}"
+echo -e "  • Reiniciar aplicação:        ${YELLOW}systemctl restart enlace-pbx${NC}"
 echo -e "  • Acessar CLI do Asterisk:    ${YELLOW}asterisk -rvvvv${NC}"
 echo -e "  • Recarregar NGINX:           ${YELLOW}systemctl reload nginx${NC}"
 echo -e "  • Renovar Certificados SSL:   ${YELLOW}certbot renew${NC}"
