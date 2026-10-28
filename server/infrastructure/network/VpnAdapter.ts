@@ -13,6 +13,7 @@ export interface VpnStatus {
 }
 
 export interface WireguardPeerReal {
+  interface: string;
   publicKey: string;
   endpoint?: string;
   allowedIps: string[];
@@ -40,7 +41,7 @@ export class VpnAdapter {
   public static async getWireguardStatus(): Promise<WireguardRealStatus> {
     try {
       // Verifica se o binário wg está disponível
-      await execFilePromise('which', ['wg']);
+      await execFilePromise('which', ['wg'], { timeout: 2000, maxBuffer: 1024 * 1024 });
     } catch {
       return {
         installed: false,
@@ -51,52 +52,14 @@ export class VpnAdapter {
     }
 
     try {
-      const { stdout } = await execFilePromise('wg', ['show', 'all', 'dump']);
-      const lines = stdout.trim().split('\n').filter(l => l.trim() !== '');
-      if (lines.length === 0) {
-        return {
-          installed: true,
-          status: 'DOWN',
-          peers: [],
-          message: 'Nenhum túnel WireGuard ativo no momento.'
-        };
-      }
-
-      // Primeira linha costuma ser a interface: [interface] [public_key] [listen_port] ...
-      const firstLineParts = lines[0].split('\t');
-      const iface = firstLineParts[0] || 'wg0';
-      const pubKey = firstLineParts[1] || '';
-      const port = firstLineParts[2] ? parseInt(firstLineParts[2], 10) : 51820;
-
-      const peers: WireguardPeerReal[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split('\t');
-        if (parts.length >= 5) {
-          peers.push({
-            publicKey: parts[1] || '',
-            endpoint: parts[2] !== '(none)' ? parts[2] : undefined,
-            allowedIps: parts[3] ? parts[3].split(',') : [],
-            latestHandshake: parts[4] !== '0' ? new Date(parseInt(parts[4], 10) * 1000).toISOString() : undefined,
-            transferRxBytes: parts[5] ? parseInt(parts[5], 10) : 0,
-            transferTxBytes: parts[6] ? parseInt(parts[6], 10) : 0,
-          });
-        }
-      }
-
-      return {
-        installed: true,
-        status: 'UP',
-        interface: iface,
-        publicKey: pubKey,
-        listenPort: port,
-        peers
-      };
+      const { stdout } = await execFilePromise('wg', ['show', 'all', 'dump'], { timeout: 3000, maxBuffer: 1024 * 1024 });
+      return parseWireguardDump(stdout);
     } catch (err: any) {
       return {
         installed: true,
         status: 'DOWN',
         peers: [],
-        message: `Falha ao executar wg show: ${err.message}`
+        message: 'Não foi possível consultar o WireGuard; verifique as permissões do serviço.'
       };
     }
   }
@@ -106,7 +69,7 @@ export class VpnAdapter {
    */
   public static async getZeroTierStatus(): Promise<ZeroTierRealStatus> {
     try {
-      await execFilePromise('which', ['zerotier-cli']);
+      await execFilePromise('which', ['zerotier-cli'], { timeout: 2000, maxBuffer: 1024 * 1024 });
     } catch {
       return {
         installed: false,
@@ -117,14 +80,14 @@ export class VpnAdapter {
     }
 
     try {
-      const { stdout: statusOut } = await execFilePromise('zerotier-cli', ['-j', 'status']);
+      const { stdout: statusOut } = await execFilePromise('zerotier-cli', ['-j', 'status'], { timeout: 3000, maxBuffer: 1024 * 1024 });
       const statusJson = JSON.parse(statusOut);
 
       const isOnline = statusJson.online === true;
 
       let networks: any[] = [];
       try {
-        const { stdout: netOut } = await execFilePromise('zerotier-cli', ['-j', 'listnetworks']);
+        const { stdout: netOut } = await execFilePromise('zerotier-cli', ['-j', 'listnetworks'], { timeout: 3000, maxBuffer: 1024 * 1024 });
         networks = JSON.parse(netOut);
       } catch {
         // Redes vazias se não houver
@@ -143,7 +106,7 @@ export class VpnAdapter {
         installed: true,
         status: 'DOWN',
         networks: [],
-        message: `Falha ao consultar ZeroTier: ${err.message}`
+        message: 'Não foi possível consultar o ZeroTier; verifique as permissões do serviço.'
       };
     }
   }
@@ -157,7 +120,7 @@ export class VpnAdapter {
         const content = fs.readFileSync('/proc/net/dev', 'utf8');
         const lines = content.split('\n');
         for (const line of lines) {
-          if (line.includes(ifaceName + ':')) {
+          if (line.split(':')[0].trim() === ifaceName) {
             const parts = line.split(':')[1].trim().split(/\s+/);
             const rxBytes = parseInt(parts[0], 10) || 0;
             const txBytes = parseInt(parts[8], 10) || 0;
@@ -170,4 +133,33 @@ export class VpnAdapter {
     }
     return null;
   }
+}
+
+/** Formato oficial de wg show all dump; colunas privadas nunca integram o resultado. */
+export function parseWireguardDump(stdout: string): WireguardRealStatus {
+  const interfaces: { interface: string; publicKey?: string; listenPort: number }[] = [];
+  const peers: WireguardPeerReal[] = [];
+  const integer = (value: string) => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : undefined;
+  for (const line of stdout.split('\n').filter(line => line.trim())) {
+    const parts = line.split('\t');
+    if (parts.length === 5) {
+      const port = integer(parts[3]);
+      if (port === undefined || port > 65535) throw new Error('Resposta WireGuard inválida.');
+      interfaces.push({ interface: parts[0], publicKey: parts[2] === '(none)' ? undefined : parts[2], listenPort: port });
+    } else if (parts.length === 9) {
+      const handshake = integer(parts[5]); const rx = integer(parts[6]); const tx = integer(parts[7]);
+      if (!interfaces.some(value => value.interface === parts[0]) || handshake === undefined || rx === undefined || tx === undefined || !Number.isFinite(new Date(handshake * 1000).getTime())) throw new Error('Resposta WireGuard inválida.');
+      peers.push({ interface: parts[0], publicKey: parts[1], endpoint: parts[3] === '(none)' ? undefined : parts[3],
+        allowedIps: parts[4] === '(none)' ? [] : parts[4].split(','),
+        latestHandshake: handshake > 0 ? new Date(handshake * 1000).toISOString() : undefined,
+        transferRxBytes: rx, transferTxBytes: tx });
+    } else throw new Error('Resposta WireGuard inválida.');
+  }
+  return { installed: true, status: interfaces.length ? 'UP' : 'DOWN', ...interfaces[0], peers };
+}
+
+/** Handshake recente indica atividade; não comprova disponibilidade da aplicação remota. */
+export function hasRecentHandshake(peer: WireguardPeerReal, now = Date.now()): boolean {
+  const age = now - Date.parse(peer.latestHandshake || '');
+  return Number.isFinite(age) && age >= 0 && age <= 180_000;
 }

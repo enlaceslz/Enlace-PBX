@@ -89,3 +89,13 @@ Essas alterações não substituem a homologação de chamadas, mídia e serviç
 - A aplicação agora grava também o plano de discagem gerado, antes apenas contabilizado na resposta. Falha em uma recarga desfaz os dois arquivos; teste dirigido cobre o rollback conjunto.
 
 - Plano de saída: retira troncos fictícios de fallback, exige vínculo real da rota e inclui subrotina de bloqueio nacional contra DDI/premium antes de discar (inclusive contingência). Os padrões foram testados em código; execução e tarifação exigem ensaio Asterisk/operadora.
+
+## Continuação — VPN e integrações HTTP
+
+- Corrigida interpretação de `wg show all dump`: a coluna da chave privada era interpretada como chave pública e a chave pré-compartilhada como endpoint. O parser agora descarta ambas, preserva a interface de cada peer e recusa respostas inválidas. Erros de subprocesso não devolvem a saída capturada.
+- A atividade WireGuard depende de handshake real recente (até 180 segundos), sem herdar o estado de conectividade persistido. Isso indica atividade criptográfica, não disponibilidade SIP. ZeroTier sem resposta real não recebe identificador, versão ou estado online de exemplo.
+- Monitoramento deixa de declarar RTT, jitter, perda, MOS e pacotes por segundo sem medição. A sonda existente é descrita como conexão TCP/5060 no endereço virtual do peer; não é ICMP, SIP OPTIONS nem prova de mídia. A rota primária do kernel ainda não é observada.
+- 9router exige URL, chave e modelo configurados; saúde consulta `/models`, geração consulta `/chat/completions`. Retirados modelos, latência e consumo inventados. O contrato exige resposta JSON compatível, texto e consumo de tokens válidos; erros do destino não são apresentados como sucesso.
+- HTTP de saída limita origens, resolução DNS, endereços, tempo, corpo e resposta; fixa o endereço validado no socket, recusa redirecionamentos e permite rede privada apenas por exceção administrativa explícita. Metadados link-local e endereços reservados permanecem proibidos. Testes locais usam servidores HTTP reais e cobrem inclusive IPv4 mapeado em IPv6.
+- Validação local: lint e build aprovados, 20 testes dirigidos aprovados, suíte geral com 64 aprovados e três dependências de infraestrutura bloqueadas; auditoria NPM de produção sem vulnerabilidades conhecidas. O CI executa ainda PostgreSQL e recuperação integral. Credenciais reais do provedor e disponibilidade VPN no host continuam pendentes de homologação.
+- Os testes de ferramentas IA e webhooks continuam bloqueados em produção: este lote entrega o transporte seguro usado pelo 9router, sem desbloquear os adaptadores ainda incompletos.

@@ -42,7 +42,7 @@ import {
 import { QualityAudit } from './server/infrastructure/postgres/repositories/QualityAuditRepository.js';
 import { Extension, User, SafeExtension, WebRtcCredential } from './src/types/pbx.js';
 import { OmnichannelMessage } from './server/infrastructure/postgres/repositories/OmnichannelRepository.js';
-import { VpnAdapter } from './server/infrastructure/network/VpnAdapter.js';
+import { VpnAdapter, hasRecentHandshake } from './server/infrastructure/network/VpnAdapter.js';
 import { asteriskAdapter } from './server/infrastructure/asterisk/AsteriskAdapter.js';
 import { AsteriskCommandService } from './server/infrastructure/asterisk/AsteriskCommandService.js';
 import { postgresClient } from './server/infrastructure/postgres/client.js';
@@ -768,25 +768,23 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Redes, VPN & Conectividade (WireGuard & ZeroTier Reais)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/network/wireguard', async (req, res) => {
-    try {
-      const wgStatus = await VpnAdapter.getWireguardStatus();
-      const wgConfig = await SystemRepository.getWireguardConfig();
-      res.json({
-        ...wgConfig,
-        status: wgStatus.status === 'UP' ? 'active' : 'inactive',
-        installed: wgStatus.installed,
-        interfaceName: wgStatus.interface || wgConfig?.interfaceName || 'wg0',
-        peers: wgConfig?.peers || [],
-        peersCount: wgConfig?.peersCount ?? (wgConfig?.peers?.length || 0),
-        activePeersCount: wgStatus.status === 'UP' ? (wgConfig?.activePeersCount ?? 0) : (wgConfig?.activePeersCount || 0),
-        message: wgStatus.message,
-      });
-    } catch (err: any) {
-      console.error('[Network/WireGuard] Erro ao obter status:', err?.message || err);
-      const wgConfig = await SystemRepository.getWireguardConfig().catch(() => null);
-      res.json(wgConfig || SystemRepository.getDefaultWireguardConfig());
-    }
+  app.get('/api/v1/network/wireguard', async (_req, res) => {
+    const live = await VpnAdapter.getWireguardStatus();
+    const config = await SystemRepository.getWireguardConfig();
+    const peers = (config?.peers || []).map((peer: any) => {
+      const actual = live.peers.find(value => value.publicKey === peer.publicKey && (!peer.interface || value.interface === peer.interface));
+      return { id: peer.id, name: peer.name, publicKey: peer.publicKey, allowedIps: peer.allowedIps,
+        assignedExtension: peer.assignedExtension, location: peer.location, enabled: peer.enabled,
+        endpoint: actual?.endpoint, latestHandshake: actual?.latestHandshake,
+        transferRx: actual?.transferRxBytes ?? 0, transferTx: actual?.transferTxBytes ?? 0,
+        status: actual && peer.enabled && hasRecentHandshake(actual) ? 'connected' : 'offline' };
+    });
+    res.json({ interfaceName: live.interface || config?.interfaceName || 'wg0',
+      status: live.status === 'UP' ? 'active' : 'inactive', installed: live.installed,
+      publicKey: live.publicKey || '', listenPort: live.listenPort, address: config?.address || '', dns: config?.dns || '',
+      peers, peersCount: peers.length, activePeersCount: peers.filter((peer: any) => peer.status === 'connected').length,
+      bytesRx: live.peers.reduce((sum, peer) => sum + peer.transferRxBytes, 0),
+      bytesTx: live.peers.reduce((sum, peer) => sum + peer.transferTxBytes, 0), message: live.message });
   });
 
   app.post('/api/v1/network/wireguard/toggle', requireRole('super_admin', 'admin'), async (req, res) => {
@@ -910,25 +908,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   });
 
-  app.get('/api/v1/network/zerotier', async (req, res) => {
-    try {
-      const ztStatus = await VpnAdapter.getZeroTierStatus();
-      const ztConfig = await SystemRepository.getZerotierConfig();
-      res.json({
-        ...ztConfig,
-        status: ztStatus.status === 'UP' ? 'online' : (ztConfig?.status || 'online'),
-        installed: ztStatus.installed,
-        nodeId: ztStatus.nodeId || ztConfig?.nodeId || 'e28f3a99bc',
-        version: ztStatus.version || ztConfig?.version || '1.14.0',
-        networks: (ztStatus.networks && ztStatus.networks.length > 0) ? ztStatus.networks : (ztConfig?.networks || []),
-        peers: ztConfig?.peers || [],
-        message: ztStatus.message,
-      });
-    } catch (err: any) {
-      console.error('[Network/ZeroTier] Erro ao obter status:', err?.message || err);
-      const ztConfig = await SystemRepository.getZerotierConfig().catch(() => null);
-      res.json(ztConfig || SystemRepository.getDefaultZerotierConfig());
-    }
+  app.get('/api/v1/network/zerotier', async (_req, res) => {
+    const live = await VpnAdapter.getZeroTierStatus();
+    res.json({ status: live.status === 'UP' ? 'online' : 'offline', installed: live.installed,
+      nodeId: live.nodeId || '', version: live.version || '', networks: live.networks, peers: [], message: live.message });
   });
 
   app.post('/api/v1/network/zerotier/toggle', requireRole('super_admin', 'admin'), async (req, res) => {
@@ -1000,9 +983,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     ztRxKbps: number;
     ztTxKbps: number;
     totalKbps: number;
-    latencyMs: number;
-    jitterMs: number;
-    pps: number;
+    latencyMs: number | null;
+    jitterMs: number | null;
+    pps: number | null;
   }> = [];
 
   let lastTelemetryTimestamp = Date.now();
@@ -1041,14 +1024,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       if (currentZtStats) prevZtStats = currentZtStats;
 
       const totalKbps = currentWgRx + currentWgTx + currentZtRx + currentZtTx;
-      const pps = Math.round((totalKbps * 1000) / (8 * 1500));
+      const pps = null; // A taxa de bytes não informa a contagem de pacotes.
 
       const wgStatus = await VpnAdapter.getWireguardStatus();
-      const ztStatus = await VpnAdapter.getZeroTierStatus();
 
-      // Latência e jitter medidos reais ou 0 se inativo
-      const latencyAvg = 0;
-      const jitterAvg = 0;
+      // Sem sondas de RTT ou amostras de jitter: métricas indisponíveis.
+      const latencyAvg = null;
+      const jitterAvg = null;
 
       telemetryBuffer.push({
         time: timeStr,
@@ -1067,53 +1049,33 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       const wgConfig = await SystemRepository.getWireguardConfig();
-      const ztConfig = await SystemRepository.getZerotierConfig();
       const vpnRouting = await SystemRepository.getVpnRouting();
 
       // Peers e nós reais do sistema
       const wgPeers = wgConfig?.peers || [];
-      const ztPeers = ztConfig?.peers || [];
       const nodes = [
         ...wgPeers.map((p: any) => {
-          const livePeer = (wgStatus.peers || []).find((wp) => wp.publicKey === p.publicKey);
-          const isUp = wgStatus.status === 'UP' && p.enabled;
+          const livePeer = (wgStatus.peers || []).find((wp) => wp.publicKey === p.publicKey && (!p.interface || wp.interface === p.interface));
+          const isUp = wgStatus.status === 'UP' && p.enabled && livePeer && hasRecentHandshake(livePeer);
           return {
             id: p.id,
             name: p.name,
             tunnelType: 'wireguard' as const,
             virtualIp: p.allowedIps,
             endpoint: livePeer?.endpoint || p.endpoint || 'Dinâmico (NAT Traversal)',
-            status: isUp ? p.status : ('offline' as const),
-            latencyMs: 0,
-            jitterMs: 0,
-            packetLossPercent: 0,
-            bytesRx: livePeer?.transferRxBytes || p.transferRx || 0,
-            bytesTx: livePeer?.transferTxBytes || p.transferTx || 0,
-            latestHandshake: livePeer?.latestHandshake || p.latestHandshake,
+            status: isUp ? ('connected' as const) : ('offline' as const),
+            latencyMs: null,
+            jitterMs: null,
+            packetLossPercent: null,
+            bytesRx: livePeer?.transferRxBytes ?? 0,
+            bytesTx: livePeer?.transferTxBytes ?? 0,
+            latestHandshake: livePeer?.latestHandshake,
             roleOrExtension: p.assignedExtension,
             location: p.location,
             enabled: p.enabled,
-            isPrimaryRoute: (vpnRouting?.activeTunnel || 'wireguard') === 'wireguard' && p.enabled && isUp,
+            isPrimaryRoute: false, // A configuração persistida não comprova a rota efetiva do kernel.
           };
         }),
-        ...ztPeers.map((zt: any) => ({
-          id: `zt-peer-${zt.nodeId}`,
-          name: zt.role === 'PLANET' ? `Root Planet ZeroTier (${zt.nodeId})` : `P2P Node Mesh (${zt.nodeId})`,
-          tunnelType: 'zerotier' as const,
-          virtualIp: '192.168.192.x',
-          endpoint: zt.physicalAddress,
-          status: ztStatus.status === 'UP' ? ('connected' as const) : ('offline' as const),
-          latencyMs: zt.latencyMs || 0,
-          jitterMs: 0,
-          packetLossPercent: 0,
-          bytesRx: 0,
-          bytesTx: 0,
-          latestHandshake: 'Ativo via UDP 9993',
-          roleOrExtension: `ZeroTier ${zt.role} (${zt.linkType})`,
-          location: zt.role === 'PLANET' ? 'Global Root Server' : 'Nó P2P Enlace',
-          enabled: ztStatus.status === 'UP',
-          isPrimaryRoute: (vpnRouting?.activeTunnel || 'wireguard') === 'zerotier' && ztStatus.status === 'UP',
-        })),
       ];
 
       res.json({
@@ -1127,30 +1089,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           pps,
           latencyAvgMs: latencyAvg,
           jitterAvgMs: jitterAvg,
-          packetLossPercent: 0,
+          packetLossPercent: null,
         },
         history: telemetryBuffer,
         nodes,
       });
     } catch (err: any) {
       console.error('[Network/Telemetry] Erro ao coletar telemetria:', err?.message || err);
-      const vpnRouting = await SystemRepository.getVpnRouting().catch(() => SystemRepository.getDefaultVpnRouting());
-      res.json({
-        routing: vpnRouting,
-        currentRates: {
-          wgRxKbps: 0,
-          wgTxKbps: 0,
-          ztRxKbps: 0,
-          ztTxKbps: 0,
-          totalKbps: 0,
-          pps: 0,
-          latencyAvgMs: 15,
-          jitterAvgMs: 2,
-          packetLossPercent: 0,
-        },
-        history: telemetryBuffer,
-        nodes: [],
-      });
+      res.status(503).json({ error: 'Telemetria VPN indisponível no momento.' });
     }
   });
 
@@ -1197,24 +1143,15 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Teste de Conectividade Instantâneo no Nó via Socket Real
   app.post('/api/v1/network/nodes/:type/:id/ping', requireRole('super_admin', 'admin'), async (req, res) => {
     const { type, id } = req.params;
-    let targetIp = '127.0.0.1';
-    let targetPort = 5060;
-
-    if (type === 'wireguard') {
-      const wgConfig = await SystemRepository.getWireguardConfig();
-      const peer = wgConfig?.peers?.find((p: any) => p.id === id);
-      if (peer?.endpoint) {
-        const parts = peer.endpoint.split(':');
-        targetIp = parts[0];
-        targetPort = parts[1] ? Number(parts[1]) : 51820;
-      } else if (peer?.allowedIps) {
-        targetIp = peer.allowedIps.split('/')[0];
-      }
-    }
+    if (type !== 'wireguard') return res.status(501).json({ error: 'Sonda TCP disponível apenas para peers WireGuard cadastrados.' });
+    const wgConfig = await SystemRepository.getWireguardConfig();
+    const peer = wgConfig?.peers?.find((p: any) => p.id === id);
+    if (!peer) return res.status(404).json({ error: 'Peer não encontrado.' });
+    const targetIp = String(peer.allowedIps || '').split(',')[0].trim().split('/')[0];
+    const targetPort = 5060;
+    if (!net.isIP(targetIp) || targetIp.startsWith('127.') || targetIp === '::1') return res.status(422).json({ error: 'Peer sem endereço virtual válido para a sonda.' });
 
     const { reachable, latencyMs } = await measureSocketLatency(targetIp, targetPort, 1200);
-    const ttl = 64;
-    const jitter = Number((latencyMs > 0 ? (latencyMs * 0.08).toFixed(2) : 0));
 
     res.json({
       success: reachable,
@@ -1227,7 +1164,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       ttl: null,
       timestamp: new Date().toISOString(),
       details: reachable
-        ? `Socket TCP/SIP OPTIONS para ${targetIp}:${targetPort} respondeu em ${latencyMs}ms (Jitter ${jitter}ms, TTL ${ttl}).`
+        ? `Conexão TCP com ${targetIp}:${targetPort} estabelecida em ${latencyMs}ms; não mede SIP, RTP, jitter ou TTL.`
         : `Nó ${targetIp}:${targetPort} não respondeu no tempo limite (offline ou firewall bloqueando).`,
     });
   });

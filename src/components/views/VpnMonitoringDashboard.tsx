@@ -145,10 +145,10 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
       if (result.success) {
         setPingResult({
           id: node.id,
-          text: `Resposta em ${result.latencyMs}ms (Jitter: ${result.jitterMs}ms, TTL: ${result.ttl})`,
+          text: result.details,
           success: true,
         });
-        showNotification(`Ping em ${node.name}: ${result.latencyMs}ms`);
+        showNotification(`Sonda TCP em ${node.name}: ${result.success ? `${result.latencyMs}ms` : 'sem resposta'}`);
       }
     } catch {
       setPingResult({
@@ -356,21 +356,21 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
               <Gauge className="w-4 h-4 text-blue-600" /> Tráfego Instantâneo
             </span>
             <span className="text-[10px] font-mono font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
-              KB/s
+              kb/s
             </span>
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-slate-900 font-mono">
               {(data?.currentRates?.totalKbps || 0).toLocaleString()}
             </span>
-            <span className="text-xs text-slate-500 font-semibold">KB/s</span>
+            <span className="text-xs text-slate-500 font-semibold">kb/s</span>
           </div>
           <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 font-mono">
             <span className="flex items-center gap-1">
-              <ArrowDownLeft className="w-3 h-3 text-emerald-600" /> RX: {(data?.currentRates?.wgRxKbps || 0) + (data?.currentRates?.ztRxKbps || 0)} KB/s
+              <ArrowDownLeft className="w-3 h-3 text-emerald-600" /> RX: {(data?.currentRates?.wgRxKbps || 0) + (data?.currentRates?.ztRxKbps || 0)} kb/s
             </span>
             <span className="flex items-center gap-1">
-              <ArrowUpRight className="w-3 h-3 text-blue-600" /> TX: {(data?.currentRates?.wgTxKbps || 0) + (data?.currentRates?.ztTxKbps || 0)} KB/s
+              <ArrowUpRight className="w-3 h-3 text-blue-600" /> TX: {(data?.currentRates?.wgTxKbps || 0) + (data?.currentRates?.ztTxKbps || 0)} kb/s
             </span>
           </div>
         </div>
@@ -387,12 +387,12 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-slate-900 font-mono">
-              {data?.currentRates?.pps || 0}
+              {data?.currentRates?.pps ?? '—'}
             </span>
             <span className="text-xs text-slate-500 font-semibold">pps</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-2 truncate">
-            Fluxos de áudio RTP bidirecionais codecs Opus/G.711
+            Contagem de pacotes indisponível nesta coleta.
           </p>
         </div>
 
@@ -403,20 +403,20 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
               <Activity className="w-4 h-4 text-emerald-600" /> Latência Média (RTT)
             </span>
             <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
-              Excelente (MOS 4.4)
+              Sem medição de MOS
             </span>
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-emerald-700 font-mono">
-              {data?.currentRates?.latencyAvgMs || 18}
+              {data?.currentRates?.latencyAvgMs ?? '—'}
             </span>
             <span className="text-xs text-slate-500 font-semibold">ms</span>
             <span className="text-xs text-slate-400 font-mono ml-auto">
-              Jitter: <strong>{data?.currentRates?.jitterAvgMs || 1.6}ms</strong>
+              Jitter: <strong>{data?.currentRates?.jitterAvgMs ?? '—'}ms</strong>
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-2 truncate">
-            Zero jitter buffer overflow nos canais Asterisk PJSIP
+            RTT, jitter e perda exigem sondas e amostras próprias.
           </p>
         </div>
 
@@ -448,7 +448,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5 text-blue-600" />
             <div>
-              <h3 className="text-sm font-extrabold text-slate-900">Telemetria de Tráfego em Tempo Real (Throughput KB/s)</h3>
+              <h3 className="text-sm font-extrabold text-slate-900">Telemetria de Tráfego em Tempo Real (Throughput kb/s)</h3>
               <p className="text-xs text-slate-500">
                 Histórico contínuo de recepção (RX) e transmissão (TX) por interface de túnel
               </p>
@@ -464,7 +464,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
                   chartMetric === 'bandwidth' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Banda (KB/s)
+                Banda (kb/s)
               </button>
               <button
                 onClick={() => setChartMetric('latency')}
@@ -628,7 +628,7 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Monitoramento nó a nó: latência instantânea, teste de ping, volume transferido e controle de habilitação.
+              Monitoramento nó a nó: latência instantânea, sonda TCP, volume transferido e controle de habilitação.
             </p>
           </div>
 
@@ -762,8 +762,8 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
                       </div>
                       {node.status === 'connected' && (
                         <div className="text-[10px] font-mono text-slate-500 mt-0.5 flex items-center gap-1.5">
-                          <span>RTT: <strong className="text-slate-700">{node.latencyMs}ms</strong></span>
-                          <span>Jitter: <strong className="text-slate-700">{node.jitterMs}ms</strong></span>
+                          <span>RTT: <strong className="text-slate-700">{node.latencyMs == null ? '—' : `${node.latencyMs}ms`}</strong></span>
+                          <span>Jitter: <strong className="text-slate-700">{node.jitterMs == null ? '—' : `${node.jitterMs}ms`}</strong></span>
                         </div>
                       )}
                     </td>
@@ -786,14 +786,14 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
                           onClick={() => handlePingNode(node)}
                           disabled={pingingNodeId === node.id || node.status === 'offline'}
                           className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 border border-slate-200 transition flex items-center gap-1 disabled:opacity-40"
-                          title="Enviar ICMP Ping e SIP OPTIONS"
+                          title="Testar conexão TCP na porta 5060 do endereço virtual"
                         >
                           {pingingNodeId === node.id ? (
                             <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
                           ) : (
                             <Activity className="w-3 h-3 text-blue-600" />
                           )}
-                          <span>Ping</span>
+                          <span>TCP</span>
                         </button>
 
                         {/* Toggle On/Off */}

@@ -99,3 +99,15 @@ A aplicação automática de configuração global é exclusiva de `super_admin`
 Troncos com autenticação exigem recadastro da senha para preencher o campo cifrado introduzido na migração 011; o sistema anterior guardava apenas máscara. Campo de senha vazio em uma atualização preserva a credencial existente. A resposta da API não devolve a senha. Credenciais usadas na versão antiga precisam de rotação, pois o fluxo anterior podia gravá-las em auditoria.
 
 O plano de saída gerado aceita o plano nacional brasileiro e bloqueia DDI e prefixos premium por padrão, inclusive após remoção/adição de prefixo e na contingência. Rotas sem tronco real da empresa são recusadas. Homologue números nacionais, 0300/0800 e serviços de emergência com a operadora antes de habilitar tráfego.
+
+## 9router e destinos HTTP aprovados
+
+No arquivo de configuração do serviço, definir `NINEROUTER_URL` com o caminho base da API compatível (por exemplo, terminado em `/v1`), `NINEROUTER_API_KEY` e `NINEROUTER_MODEL`. Não há servidor nem modelo padrão. Incluir a origem exata (esquema, host e porta, sem caminho) em `OUTBOUND_ALLOWED_ORIGINS`. Múltiplas origens são separadas por vírgula. Essa configuração é administrativa e não é concedida por usuários de uma empresa.
+
+Integrações externas exigem HTTPS. Para serviço privado autorizado, incluir sua origem também em `OUTBOUND_PRIVATE_ORIGINS`; essa exceção permite HTTP e endereços privados daquela origem. Não habilita metadados link-local, multicast, endereços reservados ou redirects. O endereço resolvido é fixado na conexão e a verificação TLS continua usando o nome original. O provedor precisa oferecer `GET /models` e `POST /chat/completions` com JSON compatível; a geração exige contagens reais de tokens.
+
+## Interpretação do monitoramento VPN
+
+O serviço sem root pode não ter permissão para consultar WireGuard ou o daemon ZeroTier. Nesse caso, corrigir o mecanismo de observação no host sem executar todo o PBX como root. Não conceder capacidade de administração de rede ao processo web apenas para contornar essa restrição. Ainda falta homologar um agente de observação com privilégios mínimos.
+
+Handshake WireGuard recente indica atividade do peer, sem assegurar registro SIP ou áudio. RTT, jitter, MOS, perda e contagem de pacotes indisponíveis aparecem sem valor medido. A sonda TCP/5060 é útil apenas para um destino que realmente escute TCP nessa porta; ausência de resposta não prova que o túnel UDP ou o telefone esteja offline. Se uma versão anterior expôs respostas de saúde do WireGuard, avaliar a rotação das chaves no host e nos peers correspondentes.

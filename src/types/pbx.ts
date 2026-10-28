@@ -713,9 +713,9 @@ export interface VpnTelemetryPoint {
   ztRxKbps: number;
   ztTxKbps: number;
   totalKbps: number;
-  latencyMs: number;
-  jitterMs: number;
-  pps: number;
+  latencyMs: number | null;
+  jitterMs: number | null;
+  pps: number | null;
 }
 
 export interface VpnNodeMonitoringItem {
@@ -725,12 +725,12 @@ export interface VpnNodeMonitoringItem {
   virtualIp: string;
   endpoint: string;
   status: 'connected' | 'idle' | 'offline';
-  latencyMs: number;
-  jitterMs: number;
-  packetLossPercent: number;
+  latencyMs: number | null;
+  jitterMs: number | null;
+  packetLossPercent: number | null;
   bytesRx: number;
   bytesTx: number;
-  latestHandshake: string;
+  latestHandshake?: string;
   roleOrExtension?: string;
   location?: string;
   enabled: boolean;
@@ -745,7 +745,7 @@ export interface VpnTelemetryResponse {
     ztRxKbps: number;
     ztTxKbps: number;
     totalKbps: number;
-    pps: number;
+    pps: number | null;
     latencyAvgMs: number | null;
     jitterAvgMs: number | null;
     packetLossPercent: number | null;
