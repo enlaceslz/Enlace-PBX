@@ -1,3 +1,4 @@
+import { TicketRepository } from './server/infrastructure/postgres/repositories/TicketRepository.js';
 import { listBackups, backupPath } from './server/infrastructure/security/BackupInventory.js';
 import './server/config/loadEnvironment.js';
 import 'express-async-errors';
@@ -5191,6 +5192,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     await SystemRepository.setCrmProviders(providers);
     
     res.json({ success: true, provider });
+  });
+
+  app.get('/api/v1/tickets', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    if (!tenantId) return res.status(400).json({ error: 'Selecione uma empresa para consultar os chamados.' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await TicketRepository.list(tenantId));
   });
 
   app.get('/api/v1/crm/contacts', requireAuth, requireTenant, async (req, res) => {

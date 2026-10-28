@@ -8,6 +8,8 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { postgresClient } from '../server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from '../server/infrastructure/postgres/migrations/migrator.js';
+import { TicketExecutor } from '../server/maia/executors/TicketExecutor.js';
+import { TicketRepository } from '../server/infrastructure/postgres/repositories/TicketRepository.js';
 import { OmnichannelRepository } from '../server/infrastructure/postgres/repositories/OmnichannelRepository.js';
 
 // Este comando é destinado exclusivamente a um banco descartável de integração.
@@ -45,6 +47,15 @@ try {
       (SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='tenant_id' AND NOT a.attisdropped)
       AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity)`);
   assert.deepEqual(insecure.rows, [], 'Todas as tabelas com tenant_id exigem RLS forçada.');
+  const ticketInput = { requestId: id, callerNumber: '5598999990000', category: 'suporte', description: 'Teste de chamado persistente', urgency: 'media' };
+  const ticket = await TicketRepository.create(tenantA, ticketInput);
+  assert.equal((await TicketRepository.create(tenantA, ticketInput)).id, ticket.id);
+  assert.equal((await TicketRepository.list(tenantA)).length, 1);
+  assert.equal((await TicketRepository.list(tenantB)).length, 0);
+  const toolResult = await new TicketExecutor().execute({ descricao: ticketInput.description, categoria: ticketInput.category }, { tenantId: tenantA, callerNumber: ticketInput.callerNumber, correlationId: id });
+  assert.equal(toolResult.status, 'success');
+  assert.equal(toolResult.data.ticketId, ticket.id);
+  assert.equal(toolResult.data.protocolo, ticket.protocol);
   const reservation = net.createServer();
   reservation.listen(0, '127.0.0.1');
   await once(reservation, 'listening');
@@ -102,6 +113,7 @@ try {
   }
   console.log('PostgreSQL real: migrações, RLS, identidade, privilégios mínimos e idempotência aprovados.');
 } finally {
+  await admin.query('DELETE FROM support_tickets WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM omnichannel_conversations WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM users WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM tenants WHERE id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});

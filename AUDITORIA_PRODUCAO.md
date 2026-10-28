@@ -32,7 +32,7 @@ Os controles abaixo retornam HTTP 501, ou resultado de ferramenta `UNAVAILABLE`,
 - Validadores de SSL/WebRTC/PWA/WhatsApp que inferiam aprovação de configurações; push e geração VAPID incompleta.
 - Conexão/desconexão CRM sem handshake real; teste de webhook; teste de ferramenta IA com mock; extração de entidades fixa.
 - Backup/restore JSON legado e rollback/quick setup sem transação global continuam indisponíveis. O fluxo novo entrega cópia integral criptografada e recuperação em banco separado; ver OPERACAO_PRODUCAO.md.
-- Ferramenta MaIA de abertura de ticket sem persistência e consulta de faturas sem autorização do cliente individual.
+- Consulta de faturas da MaIA sem autorização do cliente individual continua bloqueada. A abertura de chamado agora usa persistência real com protocolo, idempotência e isolamento, e o CRM lista os registros.
 - Resposta automática de IA no webhook WhatsApp: removida do processamento síncrono. Mensagens entram na fila humana; automação requer worker durável e tratamento de falhas.
 
 Leitura de configuração não comprova estado do host. Valores demonstrativos antigos já gravados no banco precisam ser revisados; os novos padrões de produção não afirmam serviços ativos ou certificados válidos.
@@ -78,3 +78,5 @@ Nenhum merge, deploy ou modificação do servidor de produção foi executado po
 - O ensaio no CI detectou incompatibilidade de cliente PostgreSQL mais novo com servidor de origem; o programa agora seleciona e exige cliente da mesma versão principal. Consultar o CI do commit final para o resultado da recuperação.
 
 Essas alterações não substituem a homologação de chamadas, mídia e serviços no host de destino. Não houve acesso a um servidor de produção nem execução do instalador nesse servidor.
+
+- Chamados MaIA: migração 010 cria suporte persistente com RLS forçada, protocolo único e idempotência por empresa/correlação. O protocolo só é confirmado após commit; o CRM exibe os registros reais. Teste PostgreSQL verifica persistência, retry e isolamento.
