@@ -1,3 +1,4 @@
+import { EntityExtractionPanel } from './EntityExtractionPanel';
 import React, { useState, useEffect } from 'react';
 import {
   Bot,
@@ -211,16 +212,11 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
   const [evalChannel, setEvalChannel] = useState<'voice' | 'whatsapp' | 'webrtc'>('voice');
   const [evalAgentName, setEvalAgentName] = useState('Carlos (Operador Central)');
   const [showEvalModal, setShowEvalModal] = useState(false);
+  const [evaluationError, setEvaluationError] = useState('');
 
   // Entity Extraction State
+  const [entitySchemaError, setEntitySchemaError] = useState('');
   const [entitySchemas, setEntitySchemas] = useState<EntityExtractionSchema[]>([]);
-  const [selectedSchema, setSelectedSchema] = useState<EntityExtractionSchema | null>(null);
-  const [testExtractionText, setTestExtractionText] = useState(
-    "Olá suporte, sou a Mariana da Alpha Logística (CNPJ 12.345.678/0001-90). Estamos com instabilidade no ramal 3004 da filial Campinas. O nosso diretor financeiro aprovou um orçamento de R$ 15.000 para migração urgente para tronco PJSIP dedicado."
-  );
-  const [extractedResult, setExtractedResult] = useState<any>(null);
-  const [isExtracting, setIsExtracting] = useState(false);
-
   // Edit Selected Agent State
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
   const [editName, setEditName] = useState('');
@@ -873,21 +869,21 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   };
 
   const fetchSchemas = async () => {
+    setEntitySchemaError('');
     try {
       const res = await fetch('/api/v1/ai/entity-extraction/schemas', {
         headers: getAuthHeaders(),
       });
+      if (!res.ok) throw new Error('Não foi possível carregar os esquemas da empresa.');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
           setEntitySchemas(data);
-          if (data.length > 0 && !selectedSchema) {
-            setSelectedSchema(data[0]);
-          }
         }
       }
     } catch (e) {
-      console.error('Failed to fetch entity schemas', e);
+      setEntitySchemaError(e instanceof Error ? e.message : 'Esquemas indisponíveis.');
+      setEntitySchemas([]);
     }
   };
 
@@ -899,10 +895,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   const handleRunEvaluation = async () => {
     if (!evalSampleText.trim()) return;
     setIsEvaluatingAudit(true);
+    setEvaluationError('');
     try {
       const res = await fetch('/api/v1/ai/quality-supervisor/evaluate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           channel: evalChannel,
           agentName: evalAgentName,
@@ -910,6 +907,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
           transcript: evalSampleText,
         }),
       });
+      if (!res.ok) { const failure = await res.json(); throw new Error(failure.error || 'Avaliação indisponível.'); }
       if (res.ok) {
         const newAudit = await res.json();
         setQualityAudits((prev) => [newAudit, ...prev]);
@@ -917,34 +915,12 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
         setShowEvalModal(false);
       }
     } catch (e) {
-      console.error('Failed to evaluate quality audit', e);
+      setEvaluationError(e instanceof Error ? e.message : 'Avaliação indisponível.');
     } finally {
       setIsEvaluatingAudit(false);
     }
   };
 
-  const handleTestExtraction = async () => {
-    if (!testExtractionText.trim() || !selectedSchema) return;
-    setIsExtracting(true);
-    try {
-      const res = await fetch('/api/v1/ai/entity-extraction/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          schemaId: selectedSchema.id,
-          text: testExtractionText,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setExtractedResult(data);
-      }
-    } catch (e) {
-      console.error('Failed to extract entities', e);
-    } finally {
-      setIsExtracting(false);
-    }
-  };
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
@@ -2243,6 +2219,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       {/* 6. SUPERVISOR DE QUALIDADE (VOZ, WHATSAPP, WEBRTC) */}
       {currentTab === 'supervisor' && (
         <div className="space-y-6">
+          <p className="text-sm text-amber-800 bg-amber-50 rounded-xl p-3">A avaliação automática ainda não está homologada para produção. Registros antigos podem conter pontuações heurísticas; não comprovam resolução ou conformidade.</p>
           {/* Top Control Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <div>
@@ -2494,171 +2471,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       )}
 
       {/* 7. EXTRAÇÃO DE DADOS & ENTIDADES */}
-      {currentTab === 'extraction' && (
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <div>
-              <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
-                <Database className="w-6 h-6 text-indigo-600" />
-                Extração Automatizada de Dados & Entidades
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Esquemas estruturados para capturar documentos (CPF/CNPJ), protocolos, ramais, valores e intenções a partir de transcrições de voz ou mensagens de WhatsApp.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Schemas List */}
-            <div className="lg:col-span-4 space-y-3">
-              <div className="text-xs font-bold text-slate-700 px-1">Esquemas de Extração Disponíveis</div>
-              <div className="space-y-2">
-                {entitySchemas.map((sch) => {
-                  const isSelected = selectedSchema?.id === sch.id;
-                  return (
-                    <div
-                      key={sch.id}
-                      onClick={() => {
-                        setSelectedSchema(sch);
-                        setExtractedResult(null);
-                      }}
-                      className={`p-4 rounded-xl border transition cursor-pointer text-left ${
-                        isSelected
-                          ? 'bg-indigo-50/70 border-indigo-400 ring-2 ring-indigo-500/20 shadow-sm'
-                          : 'bg-white border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-xs text-slate-900">{sch.name}</span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold">
-                          {sch.targetFields?.length || 0} campos
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 line-clamp-2">{sch.description}</p>
-                      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mt-3 pt-2 border-t border-slate-100">
-                        <span>Canais: {sch.channelSupport.join(', ')}</span>
-                        {sch.autoSyncToCrm && <span className="text-emerald-600 font-bold">Auto CRM ✓</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Playground / Sandbox */}
-            <div className="lg:col-span-8 space-y-5">
-              {selectedSchema ? (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-                  {/* Schema Info */}
-                  <div className="border-b border-slate-200 pb-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-bold text-slate-900 text-base">{selectedSchema.name}</h4>
-                      <span className="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
-                        {selectedSchema.id}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">{selectedSchema.description}</p>
-
-                    {/* Target Fields Badges */}
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {selectedSchema.targetFields.map((f, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 flex items-center gap-1.5"
-                        >
-                          <span className="font-bold text-indigo-600">{f.name}</span>
-                          <span className="text-[10px] text-slate-400">({f.type})</span>
-                          {f.required && <span className="text-rose-500 font-black">*</span>}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Sandbox Input */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-700">
-                        Texto ou Transcrição de Teste:
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setTestExtractionText(
-                            "Olá suporte, sou a Mariana da Alpha Logística (CNPJ 12.345.678/0001-90). Estamos com instabilidade no ramal 3004 da filial Campinas. O nosso diretor financeiro aprovou um orçamento de R$ 15.000 para migração urgente para tronco PJSIP dedicado."
-                          )
-                        }
-                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
-                      >
-                        Carregar Amostra B2B Telecom
-                      </button>
-                    </div>
-
-                    <textarea
-                      rows={4}
-                      value={testExtractionText}
-                      onChange={(e) => setTestExtractionText(e.target.value)}
-                      className="w-full text-xs font-mono p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-y leading-relaxed"
-                      placeholder="Cole um diálogo ou mensagem de texto para extrair os campos..."
-                    />
-
-                    <div className="flex justify-end pt-1">
-                      <button
-                        onClick={handleTestExtraction}
-                        disabled={isExtracting}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-2"
-                      >
-                        <Zap className="w-4 h-4" />
-                        {isExtracting ? 'Processando Extração...' : 'Executar Extração com IA'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Extraction Results */}
-                  {extractedResult && (
-                    <div className="bg-slate-50 rounded-xl p-5 border border-slate-200 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h5 className="font-bold text-xs text-slate-900 flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          Resultado da Extração Semântica:
-                        </h5>
-                        <span className="text-xs font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-                          Confiança Média: {extractedResult.confidence * 100}%
-                        </span>
-                      </div>
-
-                      {/* Extracted Fields Visual Cards */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {Object.entries(extractedResult.extractedData || {}).map(([k, val]: any) => (
-                          <div key={k} className="bg-white p-3 rounded-lg border border-slate-200">
-                            <div className="text-[10px] text-slate-400 font-mono uppercase font-bold">{k}</div>
-                            <div className="text-sm font-black text-slate-900 mt-0.5">{String(val)}</div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Raw JSON */}
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                          Payload JSON Gerado:
-                        </div>
-                        <pre className="bg-slate-950 text-emerald-400 p-3 rounded-lg text-[11px] font-mono overflow-x-auto">
-                          {JSON.stringify(extractedResult, null, 2)}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
-                  <Database className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-                  <p>Selecione um esquema para testar extração de entidades.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {currentTab === 'extraction' && <div className="space-y-3">{entitySchemaError && <p role="alert" className="text-sm text-rose-700">{entitySchemaError}</p>}<EntityExtractionPanel schemas={entitySchemas} onRefresh={fetchSchemas} /></div>}
         </div>
       </div>
 
@@ -2672,8 +2485,8 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   <ClipboardCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-slate-900">Nova Auditoria com Supervisor de IA</h3>
-                  <p className="text-xs text-slate-500">Avalie gravações ou chats de operadores e agentes</p>
+                  <h3 className="font-bold text-base text-slate-900">Avaliação de qualidade</h3>
+                  <p className="text-xs text-slate-500">Avaliação automática ainda não homologada para produção.</p>
                 </div>
               </div>
               <button
@@ -2686,6 +2499,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             </div>
 
             <div className="p-5 space-y-4">
+              {evaluationError && <p role="alert" className="text-sm text-rose-700">{evaluationError}</p>}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">Canal de Origem</label>

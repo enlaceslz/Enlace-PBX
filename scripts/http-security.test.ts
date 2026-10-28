@@ -17,12 +17,13 @@ test('webhook valida os bytes originais e rejeita adulteração, segredo ausente
 });
 
 test('operações simuladas e recuperação incompleta ficam indisponíveis em produção', () => {
-  for (const [method, path] of [['POST', '/security/fail2ban/ban'], ['POST', '/network/wireguard/toggle'], ['GET', '/system/backup'], ['POST', '/system/restore'], ['POST', '/infra/send-test-push']]) {
+  for (const [method, path] of [['POST', '/security/fail2ban/ban'], ['POST', '/network/wireguard/toggle'], ['GET', '/system/backup'], ['POST', '/system/restore'], ['POST', '/infra/send-test-push'], ['POST', '/ai/quality-supervisor/evaluate']]) {
     assert.equal(isUnavailableProductionOperation(method, path), true);
   }
   assert.equal(isUnavailableProductionOperation('GET', '/network/wireguard'), false);
   assert.equal(isUnavailableProductionOperation('POST', '/network/nodes/wireguard/node-1/ping'), false);
   assert.equal(isUnavailableProductionOperation('POST', '/extensions'), false);
+  assert.equal(isUnavailableProductionOperation('POST', '/ai/entity-extraction/test'), false);
   assert.equal(isUnavailableProductionOperation('POST', '/webhooks/test'), false);
   assert.equal(isUnavailableProductionOperation('POST', '/ai/tools/tool-1/test'), false);
 });

@@ -30,7 +30,7 @@ export class NineRouterProvider implements MaiaAIProvider {
     const model = request.model || process.env.NINEROUTER_MODEL;
     if (!model) throw new Error('Modelo do 9router não configurado.');
     const response = await outboundJson(`${this.endpointUrl}/chat/completions`, {
-      method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}` }, timeoutMs: 30000,
+      method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}`, 'X-Enlace-Request-Id': request.correlationId }, timeoutMs: 30000,
       body: { model, messages: [{ role: 'system', content: request.systemPrompt }, { role: 'user', content: request.prompt }], temperature: request.temperature ?? 0.3 },
     });
     const data = response.data as any;

@@ -1,3 +1,5 @@
+import { EntitySchemaRepository } from './server/infrastructure/postgres/repositories/EntitySchemaRepository.js';
+import { validateExtractionDefinition, extractEntities } from './server/maia/integrations/EntityExtraction.js';
 import { WebhookRepository } from './server/infrastructure/postgres/repositories/WebhookRepository.js';
 import { validateWebhook, prepareWebhookTest } from './server/infrastructure/integrations/OutboundWebhook.js';
 import { executeAiToolHttp, validateToolDefinition } from './server/maia/integrations/AiToolHttpExecution.js';
@@ -5436,39 +5438,45 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json(newAudit);
   });
 
-  // AI Entity Extraction Schemas
+  // Esquemas e extração manual por empresa, sem reaproveitar configuração global legada.
   app.get('/api/v1/ai/entity-extraction/schemas', async (req, res) => {
-    const schemas = await SystemRepository.getEntitySchemas();
-    res.json(schemas);
+    res.json(await EntitySchemaRepository.list(getAuthorizedTenantId(req)));
   });
-
-  app.post('/api/v1/ai/entity-extraction/test', requireRole('super_admin', 'admin'), (req, res) => {
-    const { schemaId, sampleText } = req.body;
-    const text = sampleText || '';
-    const cpfMatch = text.match(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/) || text.match(/\b\d{11}\b/);
-    const cnpjMatch = text.match(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/) || text.match(/\b\d{14}\b/);
-    const ramalMatch = text.match(/ramal\s*(\d{3,4})/i) || text.match(/\b4\d{3}\b/);
-    const numbersMatch = text.match(/\b\d+\b/);
-    
-    const extractedData: Record<string, any> = {
-      documento: cpfMatch ? cpfMatch[0] : cnpjMatch ? cnpjMatch[0] : '123.456.789-00',
-      ramalAfetado: ramalMatch ? ramalMatch[0] : '4101',
-      tipoFalha: text.includes('chiado') ? 'Chiado e ruído no áudio' : text.includes('queda') ? 'Queda intermitente' : 'Suporte técnico geral',
-      urgencia: /urgente|crítica|imediato|agora/i.test(text) ? 'Crítica' : 'Média',
-      disponibilidade: 'Imediata via WhatsApp',
-      quantidadeRamais: numbersMatch ? parseInt(numbersMatch[0], 10) : 10,
-      interesseIa: /ia|inteligência|robô|voz/i.test(text),
-      orcamentoMensal: 350.00,
-      cargoDecisor: 'Gerente de TI / Operações'
-    };
-
-    res.json({
-      success: true,
-      schemaId,
-      extractedData,
-      confidenceScore: 0.96,
-      modelUsed: 'gemini-3.8-flash'
-    });
+  app.post('/api/v1/ai/entity-extraction/schemas', requireRole('super_admin', 'admin'), async (req, res) => {
+    try {
+      const definition = validateExtractionDefinition({ ...req.body, description: req.body.description ?? '', isActive: req.body.isActive ?? true });
+      const tenantId = getAuthorizedTenantId(req);
+      await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+        action: 'ENTITY_SCHEMA_CREATE_ATTEMPT', resource: 'ai/entity-extraction/schemas', category: 'AI_GATEWAY', strict: true, details: 'Tentativa de cadastro de esquema de extração.' });
+      res.status(201).json(await EntitySchemaRepository.save(tenantId, definition));
+    } catch (error) { if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message }); throw error; }
+  });
+  app.put('/api/v1/ai/entity-extraction/schemas/:id', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    const previous = await EntitySchemaRepository.find(tenantId, req.params.id);
+    if (!previous) return res.status(404).json({ error: 'Esquema não encontrado.' });
+    try {
+      const definition = validateExtractionDefinition({ ...previous, ...req.body });
+      await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+        action: 'ENTITY_SCHEMA_UPDATE_ATTEMPT', resource: `ai/entity-extraction/schemas/${req.params.id}`, category: 'AI_GATEWAY', strict: true, details: 'Tentativa de atualização de esquema de extração.' });
+      res.json(await EntitySchemaRepository.save(tenantId, definition, previous.id));
+    } catch (error) { if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message }); throw error; }
+  });
+  const extractionLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Limite de extrações atingido. Aguarde um minuto.' } });
+  app.post('/api/v1/ai/entity-extraction/test', requireRole('super_admin', 'admin'), extractionLimiter, async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    if (typeof req.body.schemaId !== 'string') return res.status(400).json({ error: 'Informe o ID de um esquema cadastrado.' });
+    const schema = await EntitySchemaRepository.find(tenantId, req.body.schemaId);
+    if (!schema) return res.status(404).json({ error: 'Esquema não encontrado.' });
+    try {
+      const result = await extractEntities(tenantId, schema.id, schema, req.body.text, async executionId => {
+        await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+          action: 'ENTITY_EXTRACTION_ATTEMPT', resource: `ai/entity-extraction/schemas/${schema.id}`, category: 'AI_GATEWAY', strict: true,
+          details: 'Tentativa de extração externa com evidências literais e revisão humana.', payload: { executionId } });
+      });
+      res.json(result);
+    } catch (error) { if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message }); throw error; }
   });
 
   // Meta Webhook Verification

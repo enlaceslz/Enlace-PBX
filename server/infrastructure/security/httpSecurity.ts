@@ -25,6 +25,6 @@ export function isUnavailableProductionOperation(method: string, route: string):
     path.startsWith('/security/fail2ban/') ||
     /^\/infra\/(validate-(ssl|webphone|pwa|whatsapp)|vapid\/generate|send-test-push)$/.test(path) ||
     /^\/crm\/providers\/[^/]+\/(connect|disconnect)$/.test(path) ||
-    ['/system/restore', '/system/snapshots/rollback', '/ai/entity-extraction/test', '/trunks/rollback'].includes(path) ||
+    ['/system/restore', '/system/snapshots/rollback', '/ai/quality-supervisor/evaluate', '/trunks/rollback'].includes(path) ||
     /^\/(setup\/(apply|rollback)|system\/quick-setup\/apply|system\/snapshots\/[^/]+\/rollback)$/.test(path);
 }
