@@ -443,7 +443,6 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         connectedDestination.toLowerCase().includes('roberto') ||
         connectedDestination.toLowerCase().includes('suporte');
 
-      const targetAgentId = isSupportTarget ? 'agent-suporte-n1' : 'agent-maia-247';
 
       const jwtToken = localStorage.getItem('enlace_jwt') || localStorage.getItem('enlace_token') || '';
       const res = await fetch('/api/v1/ai/voice-turn', {
@@ -453,9 +452,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
           ...(jwtToken ? { 'Authorization': `Bearer ${jwtToken}` } : {}),
         },
         body: JSON.stringify({
-          agentId: targetAgentId,
           userMessage: messageText,
-          history: aiHistory,
           sessionId: aiSessionId || undefined,
         }),
       });

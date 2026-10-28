@@ -3913,7 +3913,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         sessions.slice(0, 50).map(async (s) => {
           let turns: any[] = [];
           try {
-            turns = await MaiaSessionRepository.listTurns(s.id);
+            turns = await MaiaSessionRepository.listTurns(s.id,s.tenantId);
           } catch {
             turns = [];
           }
@@ -3967,7 +3967,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
         : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
-      const turns = await MaiaSessionRepository.listTurns(req.params.id);
+      const turns = await MaiaSessionRepository.listTurns(req.params.id,sess.tenantId);
       res.json(turns);
     } catch (e: any) {
       res.status(500).json({ error: 'Erro ao listar turnos da sessão' });
@@ -3981,7 +3981,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
         : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
-      const tools = await MaiaSessionRepository.listToolExecutions(req.params.id);
+      const tools = await MaiaSessionRepository.listToolExecutions(req.params.id,sess.tenantId);
       res.json(tools);
     } catch (e: any) {
       res.status(500).json({ error: 'Erro ao listar execuções de ferramentas da sessão' });
@@ -3995,50 +3995,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
         : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
-      const events = await MaiaSessionRepository.listEvents(req.params.id);
+      const events = await MaiaSessionRepository.listEvents(req.params.id,sess.tenantId);
       res.json(events);
     } catch (e: any) {
       res.status(500).json({ error: 'Erro ao listar eventos da sessão' });
     }
   });
 
-  app.post('/api/v1/ai/sessions/:id/end', requireAuth, requireTenant, async (req, res) => {
+  app.post('/api/v1/ai/sessions/:id/end', requireAuth, requireTenant, async(req,res)=>{
     try {
-      const tenantCtx = resolveTenantContext(req);
-      const session = tenantCtx.accessMode === 'GLOBAL'
-        ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
-        : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
-      if (!session) return res.status(404).json({ error: 'Sessão não encontrada' });
-
-      const now = new Date();
-      const started = new Date(session.startedAt);
-      const durationSeconds = Math.max(0, Math.floor((now.getTime() - started.getTime()) / 1000));
-
-      session.status = 'completed';
-      session.endedAt = now.toISOString();
-      session.lastActivityAt = now.toISOString();
-      session.durationSeconds = durationSeconds;
-      if (req.body.summary) session.summary = req.body.summary;
-      if (req.body.csatScore) session.csatScore = req.body.csatScore;
-      if (req.body.sentiment) session.sentiment = req.body.sentiment;
-
-      await MaiaSessionRepository.updateSession(session);
-      await MaiaSessionRepository.addSessionEvent({
-        id: crypto.randomUUID(),
-        sessionId: session.id,
-        tenantId: session.tenantId,
-        eventType: 'SESSION_TERMINATED',
-        fromStatus: session.status || 'connected',
-        toStatus: 'completed',
-        payload: { reason: req.body.reason || 'Chamada finalizada pelo usuário' },
-        createdAt: now.toISOString(),
-      });
-
-      res.json({ success: true, session });
-    } catch (e: any) {
-      console.error('[AI Sessions] Erro ao encerrar sessão:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao encerrar sessão da MaIA' });
-    }
+      if(Object.keys(req.body).some(key=>!['reason'].includes(key)))return res.status(400).json({error:'Resumo, nota e sentimento não podem ser definidos no encerramento da prévia.'});
+      const tenantId=getAuthorizedTenantId(req);const actor=(req as any).user;
+      await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'MAIA_PREVIEW_END_ATTEMPT',resource:'ai/sessions',category:'AI_GATEWAY',strict:true,details:'Tentativa de encerramento de sessão de prévia; não encerra canal telefônico.'});
+      res.json({success:true,session:await MaiaSessionRepository.endPreview(req.params.id,tenantId)});
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // Voice Interaction endpoint - Connects real phone voice turns with MaIA V2 Architecture
@@ -4064,7 +4034,6 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const result = await maiaAIGateway.processVoiceTurn({
         agentId: req.body.agentId,
         userMessage: req.body.userMessage,
-        history: req.body.history || [],
         tenantId,
         sessionId: req.body.sessionId,
         routingProfile: req.body.routingProfile,
@@ -4075,6 +4044,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(result);
     } catch (err: unknown) {
+      if(err instanceof OutboundHttpError)return res.status(err.statusCode).json({error:err.message});
       console.error('Error in voice turn endpoint:', err);
       res.status(500).json({
         error: 'Erro no AI Gateway',

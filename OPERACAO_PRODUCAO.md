@@ -255,3 +255,11 @@ O identificador do canal pode ser Uniqueid ou nome na API: uma leitura nova reso
 A rota autenticada `/api/v1/ai/voice-turn` atende à prévia no navegador e não aceita identidade telefônica fornecida pelo cliente. Campos `channelId`, `asteriskChannelId`, `asteriskUniqueId`, `linkedId` e `callerNumber` causam 400. Sessões de outra empresa/desconhecidas retornam 404; sessões vinculadas a telefonia não podem ser usadas pela prévia. Um adaptador autenticado de eventos ARI/AMI ainda é necessário para estabelecer o vínculo real da chamada.
 
 Executores internos de transferência/encerramento exigem empresa e canal, auditam obrigatoriamente a tentativa e usam o controle protegido de canais. Aceite AMI fica pendente de confirmação operacional e não encerra a sessão da IA como se a chamada já tivesse terminado. Falha após tentativa pode ter resultado desconhecido: consulte o estado real antes de repetir. Áudio, transferência concluída e encerramento observado exigem homologação no Asterisk real.
+
+### Turnos da MaIA: histórico, concorrência e recuperação
+
+O histórico de contexto vem da sessão persistida na empresa, limitado aos últimos seis registros de usuário/assistente. O campo de histórico do navegador não alimenta o modelo. O agente selecionado permanece associado à sessão.
+
+Uma reserva por UUID impede processamento simultâneo da mesma sessão entre instâncias. Pergunta/resposta e contadores são confirmados na mesma transação; falha de persistência não confirma o turno. A reserva é liberada ao terminar normalmente ou ao tratar uma falha. Não há retry nem expiração automática: após queda abrupta do processo, investigue ações/registro da sessão e inicie outra prévia. Liberação manual de reserva exige verificar que o processamento anterior realmente terminou e quais efeitos externos ocorreram.
+
+Encerramento de prévia recusa turno ativo e sessão telefônica. Ele registra apenas o encerramento da prévia, sem inventar nota, sentimento, resumo ou desligamento de chamada. Duração da sessão representa tempo decorrido; não é medição de áudio.
