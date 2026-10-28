@@ -1,3 +1,5 @@
+import { nextWorkflow, validateInternalNote, assertWorkflowAccess, type WorkflowActor } from '../../../maia/integrations/ConversationWorkflow.js';
+import { OutboundHttpError } from '../../security/OutboundHttp.js';
 import crypto from 'node:crypto';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
@@ -28,6 +30,8 @@ export interface OmnichannelConversation {
   createdAt: string;
   messages: OmnichannelMessage[];
   notes?: any[];
+  assignedUserId?: string|null;
+  workflowVersion?: number;
 }
 
 export class OmnichannelRepository {
@@ -50,6 +54,8 @@ export class OmnichannelRepository {
           sentiment: row.sentiment || 'neutral',
           tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
           messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
+          notes: typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes || []),
+          assignedUserId: row.assigned_user_id ?? null, workflowVersion: row.workflow_version ?? 0,
           createdAt: toSafeIsoStringOrNow(row.created_at),
         }));
       } catch (err: any) {
@@ -84,6 +90,8 @@ export class OmnichannelRepository {
             sentiment: row.sentiment || 'neutral',
             tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
             messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
+          notes: typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes || []),
+          assignedUserId: row.assigned_user_id ?? null, workflowVersion: row.workflow_version ?? 0,
             createdAt: toSafeIsoStringOrNow(row.created_at),
           };
         }
@@ -113,6 +121,8 @@ export class OmnichannelRepository {
             sentiment: row.sentiment || 'neutral',
             tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
             messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
+          notes: typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes || []),
+          assignedUserId: row.assigned_user_id ?? null, workflowVersion: row.workflow_version ?? 0,
             createdAt: toSafeIsoStringOrNow(row.created_at),
           };
         }
@@ -164,7 +174,7 @@ export class OmnichannelRepository {
       if (messages.some((entry: any) => entry.id === message.id)) return;
       messages.push({ id: message.id, sender: 'contact', senderName: message.from, content: message.content, type: 'text', timestamp: message.timestamp });
       if (row) {
-        await client.query('UPDATE omnichannel_conversations SET messages = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $3', [JSON.stringify(messages), row.id, ctx.tenantId]);
+        await client.query(`UPDATE omnichannel_conversations SET messages = $1, status=CASE WHEN status='closed' THEN 'waiting' ELSE status END,assigned_user_id=CASE WHEN status='closed' THEN NULL ELSE assigned_user_id END,workflow_version=workflow_version+CASE WHEN status='closed' THEN 1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $3`, [JSON.stringify(messages), row.id, ctx.tenantId]);
       } else {
         await client.query(`INSERT INTO omnichannel_conversations
           (id, tenant_id, contact_id, contact_name, contact_phone, channel, status, sentiment, tags, messages)
@@ -175,7 +185,7 @@ export class OmnichannelRepository {
   }
 
   /** Acrescenta somente a saída confirmada, sem substituir entradas recebidas durante o envio. */
-  public static async appendAgentMessage(tenantId: string, conversationId: string, message: OmnichannelMessage): Promise<void> {
+  public static async appendAgentMessage(tenantId: string, conversationId: string, message: OmnichannelMessage, actorId?:string): Promise<void> {
     await postgresClient.executeTenantScoped(tenantId,async client=>{
       const result=await client.query('SELECT messages FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,conversationId]);
       if(!result.rows[0])throw new Error('Conversa não encontrada para registrar a saída.');
@@ -184,7 +194,43 @@ export class OmnichannelRepository {
       const previous=messages.find((entry:any)=>entry.id===message.id);
       if(previous){if(previous.sender!=='agent'||previous.content!==message.content)throw new Error('Identificador de mensagem conflitante.');return;}
       messages.push(message);
-      await client.query("UPDATE omnichannel_conversations SET messages=$3,status=CASE WHEN status IN ('waiting','queued','bot_handling') THEN 'active' ELSE status END,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2",[tenantId,conversationId,JSON.stringify(messages)]);
+      await client.query("UPDATE omnichannel_conversations SET messages=$3,status=CASE WHEN status IN ('waiting','queued','bot_handling') THEN 'active' ELSE status END,assigned_user_id=CASE WHEN status='closed' THEN assigned_user_id ELSE COALESCE(assigned_user_id,$4) END,workflow_version=workflow_version+CASE WHEN status IN ('waiting','queued','bot_handling') OR (status<>'closed' AND assigned_user_id IS NULL AND $4 IS NOT NULL) THEN 1 ELSE 0 END,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2",[tenantId,conversationId,JSON.stringify(messages),actorId??null]);
+    });
+  }
+
+  public static async reserveHumanReply(tenantId:string,id:string,actor:WorkflowActor){
+    await postgresClient.executeTenantScoped(tenantId,async client=>{
+      const row=(await client.query('SELECT status,channel,assigned_user_id FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id])).rows[0];
+      if(!row)throw new OutboundHttpError('Conversa não encontrada.',404);
+      if(row.status==='closed')throw new OutboundHttpError('Conversa encerrada.',409);
+      if(row.channel!=='whatsapp')throw new OutboundHttpError('Canal sem envio por WhatsApp.',501);
+      assertWorkflowAccess(row.assigned_user_id,actor);
+      if(row.assigned_user_id===null||row.status!=='active')await client.query("UPDATE omnichannel_conversations SET status='active',assigned_user_id=COALESCE(assigned_user_id,$3),workflow_version=workflow_version+1,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2",[tenantId,id,actor.id]);
+    });
+  }
+
+  public static async changeWorkflow(tenantId:string,id:string,status:string,version:number,actor:WorkflowActor){
+    await postgresClient.executeTenantScoped(tenantId,async client=>{
+      const current=(await client.query('SELECT status,assigned_user_id,workflow_version FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id])).rows[0];
+      if(!current)throw new OutboundHttpError('Conversa não encontrada.',404);
+      const next=nextWorkflow(current,status,version,actor);
+      await client.query('UPDATE omnichannel_conversations SET status=$3,assigned_user_id=$4,workflow_version=workflow_version+1,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2',[tenantId,id,next.status,next.owner]);
+    });
+    return this.findById(id,tenantId);
+  }
+  public static async addInternalNote(tenantId:string,id:string,text:string,requestId:string,actor:WorkflowActor){
+    const input=validateInternalNote(text,requestId);
+    return postgresClient.executeTenantScoped(tenantId,async client=>{
+      const row=(await client.query('SELECT notes FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id])).rows[0];
+      if(!row)throw new OutboundHttpError('Conversa não encontrada.',404);
+      const notes=typeof row.notes==='string'?JSON.parse(row.notes):row.notes||[];
+      const previous=notes.find((entry:any)=>entry.id===input.requestId);
+      if(previous){if(previous.userId!==actor.id||previous.text!==input.text)throw new OutboundHttpError('Identificador de anotação já utilizado.',409);return previous;}
+      if(notes.length>=1000)throw new OutboundHttpError('Limite de anotações desta conversa atingido.',413);
+      const note={id:input.requestId,text:input.text,userId:actor.id,agentName:actor.name,createdAt:new Date().toISOString()};
+      notes.push(note);
+      await client.query('UPDATE omnichannel_conversations SET notes=$3,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2',[tenantId,id,JSON.stringify(notes)]);
+      return note;
     });
   }
 

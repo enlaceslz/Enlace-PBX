@@ -42,8 +42,10 @@ interface Conversation {
   contactName?: string;
   contactPhone?: string;
   companyName?: string;
-  channel: "whatsapp" | "voice" | "webrtc" | "sms";
-  status: "active" | "closed" | "queued" | "bot_handling";
+  channel: "whatsapp" | "webchat" | "voice" | "webrtc" | "sms";
+  status: "active" | "closed" | "queued" | "waiting" | "bot_handling";
+  workflowVersion?:number;
+  assignedUserId?:string|null;
   sentiment?: "positive" | "neutral" | "negative";
   tags?: string[];
   createdAt: string;
@@ -86,7 +88,10 @@ export const OmnichannelView: React.FC = () => {
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [crmContacts, setCrmContacts] = useState<any[]>([]);
   const [activeCrmTab, setActiveCrmTab] = useState<"profile" | "notes">("profile");
-  const [newNoteText, setNewNoteText] = useState("");
+  const [noteDrafts,setNoteDrafts]=useState<Record<string,string>>({});
+  const newNoteText=selectedConv?noteDrafts[selectedConv.id]||'':'';
+  const setNewNoteText=(value:string)=>{const id=selectedConv?.id;if(id)setNoteDrafts(previous=>({...previous,[id]:value}));};
+  const noteAttemptRef=useRef<{conversationId:string;text:string;requestId:string}|null>(null);
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [isSuggestingAi, setIsSuggestingAi] = useState(false);
   const [isSendingReply, setIsSendingReply] = useState(false);
@@ -102,10 +107,6 @@ export const OmnichannelView: React.FC = () => {
   };
   useEffect(()=>{setCopilotDraft(null);},[selectedConv?.id]);
   const [showConfig, setShowConfig] = useState(false);
-  const [showTransferModal, setShowTransferModal] = useState(false);
-  const [transferTargetType, setTransferTargetType] = useState<"queue" | "extension">("queue");
-  const [transferTargetId, setTransferTargetId] = useState("queue-suporte-n1");
-  const [transferNote, setTransferNote] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
 
@@ -133,7 +134,7 @@ export const OmnichannelView: React.FC = () => {
         if (!prev && data.length > 0) return data[0];
         if (prev) {
           const match = data.find((c) => c.id === prev.id);
-          return match || prev;
+          return match || null;
         }
         return null;
       });
@@ -171,45 +172,27 @@ export const OmnichannelView: React.FC = () => {
   };
 
   const handleSaveNote = async () => {
-    if (!selectedConv || !newNoteText.trim()) return;
-    setIsSavingNote(true);
-    try {
-      const res = await fetch(`/api/v1/omnichannel/conversations/${selectedConv.id}/notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: newNoteText.trim(),
-          agentName: "Operador NOC",
-        }),
-      });
-      if (res.ok) {
-        const note = await res.json();
-        setSelectedConv((prev) =>
-          prev
-            ? {
-                ...prev,
-                notes: [note, ...(prev.notes || [])],
-              }
-            : null
-        );
-        setNewNoteText("");
-        setStatusFeedback("Anotação interna gravada no histórico com sucesso!");
-        setTimeout(() => setStatusFeedback(null), 3000);
-        fetchConversations();
-      }
-    } catch (err) {
-      console.error("Failed to save note", err);
-    } finally {
-      setIsSavingNote(false);
-    }
+    if(!selectedConv||!newNoteText.trim()||isSavingNote)return;
+    const conversationId=selectedConv.id;const text=newNoteText.trim();setIsSavingNote(true);
+    try{
+      if(noteAttemptRef.current?.conversationId!==conversationId||noteAttemptRef.current.text!==text)noteAttemptRef.current={conversationId,text,requestId:crypto.randomUUID()};
+      const response=await fetch(`/api/v1/omnichannel/conversations/${encodeURIComponent(conversationId)}/notes`,{method:'POST',headers:getAuthHeaders(),body:JSON.stringify({text,requestId:noteAttemptRef.current.requestId})});
+      const note=await response.json();if(!response.ok)throw new Error(note.error||'Anotação não confirmada.');
+      setSelectedConv(previous=>previous?.id===conversationId?{...previous,notes:[...(previous.notes||[]).filter(item=>item.id!==note.id),note]}:previous);
+      setNoteDrafts(previous=>previous[conversationId]?.trim()===text?{...previous,[conversationId]:''}:previous);
+      noteAttemptRef.current=null;
+      if(selectedIdRef.current===conversationId)setStatusFeedback('Anotação interna registrada com sua identidade.');
+      await fetchConversations();
+    }catch(error){if(selectedIdRef.current===conversationId)setStatusFeedback(error instanceof Error?error.message:'Anotação não confirmada.');}
+    finally{setIsSavingNote(false);}
   };
 
   const fetchConfig = async () => {
     try {
-      const res = await fetch("/api/v1/whatsapp/config");
+      const res = await fetch("/api/v1/whatsapp/config",{headers:getAuthHeaders()});
       if (res.ok) {
         const data = await res.json();
-        setWhatsappConfig(data);
+        setWhatsappConfig({...data,accessToken:'',verifyToken:''});
       }
     } catch (e) {
       console.error("Failed to fetch config", e);
@@ -220,9 +203,10 @@ export const OmnichannelView: React.FC = () => {
     try {
       const res = await fetch("/api/v1/whatsapp/config", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify(whatsappConfig),
       });
+      if (!res.ok) { const failure=await res.json(); throw new Error(failure.error||'Configuração não confirmada.'); }
       if (res.ok) {
         setShowConfig(false);
         setStatusFeedback("Configuração do WhatsApp Cloud API salva com sucesso!");
@@ -246,80 +230,18 @@ export const OmnichannelView: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleUpdateStatus = async (
-    status: "active" | "closed" | "queued" | "bot_handling"
-  ) => {
-    if (!selectedConv) return;
-    setActionLoading(true);
-    try {
-      const res = await fetch(
-        `/api/v1/omnichannel/conversations/${selectedConv.id}/status`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
-        }
-      );
-      if (res.ok) {
-        const updated: Conversation = await res.json();
-        setConversations((prev) =>
-          prev.map((c) => (c.id === updated.id ? updated : c))
-        );
-        setSelectedConv(updated);
-        setStatusFeedback(
-          status === "active"
-            ? "Você assumiu o atendimento com sucesso (Barge-in ativo)!"
-            : status === "closed"
-            ? "Atendimento finalizado com sucesso."
-            : status === "bot_handling"
-            ? "Atendimento retornado à IA MaIA."
-            : "Conversa colocada na fila de atendimento."
-        );
-        setTimeout(() => setStatusFeedback(null), 4000);
-      }
-    } catch (err) {
-      console.error("Failed to update status", err);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleTransfer = async () => {
-    if (!selectedConv) return;
-    setActionLoading(true);
-    try {
-      const res = await fetch(
-        `/api/v1/omnichannel/conversations/${selectedConv.id}/transfer`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetType: transferTargetType,
-            targetId: transferTargetId,
-            note: transferNote,
-          }),
-        }
-      );
-      if (res.ok) {
-        const updated: Conversation = await res.json();
-        setConversations((prev) =>
-          prev.map((c) => (c.id === updated.id ? updated : c))
-        );
-        setSelectedConv(updated);
-        setShowTransferModal(false);
-        setTransferNote("");
-        setStatusFeedback(
-          `Transferência efetuada para ${
-            transferTargetType === "queue" ? "Fila" : "Ramal"
-          } ${transferTargetId}`
-        );
-        setTimeout(() => setStatusFeedback(null), 4000);
-      }
-    } catch (err) {
-      console.error("Failed to transfer", err);
-    } finally {
-      setActionLoading(false);
-    }
+  const handleUpdateStatus = async (status:'active'|'closed'|'queued'|'bot_handling') => {
+    if(!selectedConv||actionLoading)return;
+    const conversationId=selectedConv.id;setActionLoading(true);
+    try{
+      const response=await fetch(`/api/v1/omnichannel/conversations/${encodeURIComponent(conversationId)}/status`,{method:'PATCH',headers:getAuthHeaders(),body:JSON.stringify({status,workflowVersion:selectedConv.workflowVersion??0})});
+      const updated=await response.json();
+      if(!response.ok){if(response.status===409)await fetchConversations();throw new Error(updated.error||'Alteração não confirmada.');}
+      setConversations(previous=>previous.map(item=>item.id===updated.id?updated:item));
+      setSelectedConv(previous=>previous?.id===conversationId?updated:previous);
+      if(selectedIdRef.current===conversationId)setStatusFeedback(`Estado atual do atendimento: ${getStatusLabel(updated.status)}. Nenhuma chamada foi transferida.`);
+    }catch(error){if(selectedIdRef.current===conversationId)setStatusFeedback(error instanceof Error?error.message:'Alteração não confirmada.');}
+    finally{setActionLoading(false);}
   };
 
   const handleSend = async () => {
@@ -358,7 +280,7 @@ export const OmnichannelView: React.FC = () => {
       case "active":
         return "Em Atendimento";
       case "bot_handling":
-        return "MaIA (IA) Atendendo";
+        return "Automação pendente (não executada)";
       case "waiting":
       case "queued":
         return "Na fila (aguardando atendimento)";
@@ -634,7 +556,7 @@ export const OmnichannelView: React.FC = () => {
                 </div>
                 <h3 className="text-lg font-bold text-slate-800 mb-1">Caixa de Entrada Unificada</h3>
                 <p className="text-xs text-slate-500">
-                  Selecione um contato na lista à esquerda para interagir, assumir com Barge-in ou transferir.
+                  Selecione um contato na lista à esquerda para interagir, assumir ou encerrar o atendimento humano.
                 </p>
               </div>
             </div>
@@ -663,6 +585,7 @@ export const OmnichannelView: React.FC = () => {
                       </span>
                       <span>•</span>
                       <span>ID: {selectedConv.id}</span>
+                      <span>Responsável: {selectedConv.assignedUserId||'Não atribuído'}</span>
                     </div>
                   </div>
                 </div>
@@ -670,38 +593,38 @@ export const OmnichannelView: React.FC = () => {
                 {/* Workflow Action Buttons */}
                 <div className="flex items-center gap-2">
                   {/* If BOT or QUEUED: Allow Barge-in */}
-                  {(selectedConv.status === "bot_handling" || selectedConv.status === "queued") && (
+                  {(selectedConv.status === "bot_handling" || selectedConv.status === "queued" || selectedConv.status === "waiting") && (
                     <button
                       onClick={() => handleUpdateStatus("active")}
                       disabled={actionLoading}
                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
                     >
                       <UserCheck className="w-3.5 h-3.5" />
-                      {selectedConv.status === "bot_handling" ? "Assumir (Barge-in)" : "Atender da Fila"}
+                      {selectedConv.status === "bot_handling" ? "Assumir atendimento" : "Assumir atendimento"}
                     </button>
                   )}
 
                   {/* If ACTIVE: Allow Transfer, Devolver Bot, or Finalize */}
                   {selectedConv.status === "active" && (
                     <>
+                      <button onClick={()=>handleUpdateStatus('queued')} disabled={actionLoading} className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold border border-slate-200">Colocar em espera</button>
                       <button
-                        onClick={() => setShowTransferModal(true)}
-                        disabled={actionLoading}
+                        disabled
+                        title="Encaminhamento de conversa ainda não implementado"
                         className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-slate-200"
-                        title="Transferir para outra fila ou ramal"
+
                       >
                         <CornerDownRight className="w-3.5 h-3.5 text-blue-600" />
-                        Transferir
+                        Encaminhamento indisponível
                       </button>
 
                       <button
-                        onClick={() => handleUpdateStatus("bot_handling")}
-                        disabled={actionLoading}
+                        disabled
                         className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border border-indigo-200"
-                        title="Retornar conversa para a IA Gemini MaIA"
+                        title="Atendimento autônomo ainda não implementado"
                       >
                         <Bot className="w-3.5 h-3.5 text-indigo-600" />
-                        Devolver p/ IA
+                        IA automática indisponível
                       </button>
 
                       <button
@@ -750,7 +673,7 @@ export const OmnichannelView: React.FC = () => {
                       >
                         {msg.sender === "bot" && (
                           <div className="flex items-center gap-1 mb-1 text-[10px] font-bold text-blue-700 uppercase ml-1">
-                            <Bot className="w-3 h-3 text-blue-600" /> MaIA (Gemini Live IA)
+                            <Bot className="w-3 h-3 text-blue-600" /> Mensagem de bot
                           </div>
                         )}
                         {msg.sender === "agent" && (
@@ -822,7 +745,7 @@ export const OmnichannelView: React.FC = () => {
                           selectedConv.status === "closed"
                             ? "Atendimento finalizado. Clique em Reabrir para continuar..."
                             : selectedConv.status === "bot_handling"
-                            ? "Digite sua mensagem (o envio acionará Barge-in para atendimento humano)..."
+                            ? "Digite sua mensagem (o envio iniciará atendimento humano)..."
                             : "Digite sua resposta para o cliente..."
                         }
                         className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800"
@@ -863,7 +786,7 @@ export const OmnichannelView: React.FC = () => {
                   );
                   const clientName = selectedConv.contactName || matchedContact?.name || selectedConv.contactId;
                   const company = selectedConv.companyName || matchedContact?.company || "Empresa Contratante PBX";
-                  const notesList = selectedConv.notes || [];
+                  const notesList = [...(selectedConv.notes || [])].reverse();
 
                   return (
                     <div className="w-80 border-l border-slate-200 bg-white flex flex-col hidden md:flex text-xs overflow-hidden">
@@ -1039,119 +962,6 @@ export const OmnichannelView: React.FC = () => {
         </div>
       </div>
 
-      {/* MODAL: TRANSFERÊNCIA HUMANA */}
-      {showTransferModal && selectedConv && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200">
-            <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <CornerDownRight className="w-4 h-4 text-blue-600" />
-                Transferir Atendimento
-              </h3>
-              <button
-                onClick={() => setShowTransferModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg font-bold"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Destino da Transferência</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTransferTargetType("queue");
-                      setTransferTargetId("queue-suporte-n1");
-                    }}
-                    className={`py-2 px-3 rounded-xl border text-center font-bold transition ${
-                      transferTargetType === "queue"
-                        ? "bg-blue-50 border-blue-400 text-blue-700"
-                        : "bg-white border-slate-200 text-slate-600"
-                    }`}
-                  >
-                    Fila de Atendimento
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTransferTargetType("extension");
-                      setTransferTargetId("4101");
-                    }}
-                    className={`py-2 px-3 rounded-xl border text-center font-bold transition ${
-                      transferTargetType === "extension"
-                        ? "bg-blue-50 border-blue-400 text-blue-700"
-                        : "bg-white border-slate-200 text-slate-600"
-                    }`}
-                  >
-                    Ramal Específico
-                  </button>
-                </div>
-              </div>
-
-              {transferTargetType === "queue" ? (
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Selecionar Fila</label>
-                  <select
-                    value={transferTargetId}
-                    onChange={(e) => setTransferTargetId(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="queue-suporte-n1">Suporte Técnico N1 (RAM: 4101, 4102)</option>
-                    <option value="queue-vendas">Comercial e Vendas (RAM: 4103)</option>
-                    <option value="queue-financeiro">Financeiro / Cobrança</option>
-                  </select>
-                </div>
-              ) : (
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Número do Ramal</label>
-                  <input
-                    type="text"
-                    value={transferTargetId}
-                    onChange={(e) => setTransferTargetId(e.target.value)}
-                    placeholder="Ex: 4101, 4102..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Nota Interna de Contexto (Opcional)
-                </label>
-                <textarea
-                  value={transferNote}
-                  onChange={(e) => setTransferNote(e.target.value)}
-                  placeholder="Ex: Cliente com dúvida sobre configuração SIP Trunk no mikrotik..."
-                  rows={2}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowTransferModal(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 font-semibold rounded-lg text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTransfer}
-                  disabled={actionLoading}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs transition"
-                >
-                  Confirmar Transferência
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* MODAL: CONFIGURAÇÃO WHATSAPP CLOUD API */}
       {showConfig && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1171,7 +981,7 @@ export const OmnichannelView: React.FC = () => {
 
             <div className="p-5 space-y-3.5 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Phone Number ID</label>
+                <label className="block font-bold text-slate-700 mb-1">Identificador do número na Meta</label>
                 <input
                   type="text"
                   value={whatsappConfig.phoneNumberId}
@@ -1184,7 +994,7 @@ export const OmnichannelView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Permanent Access Token</label>
+                <label className="block font-bold text-slate-700 mb-1">Token de acesso</label>
                 <input
                   type="password"
                   value={whatsappConfig.accessToken}
@@ -1196,18 +1006,7 @@ export const OmnichannelView: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Webhook Verify Token</label>
-                <input
-                  type="text"
-                  value={whatsappConfig.verifyToken}
-                  onChange={(e) =>
-                    setWhatsappConfig({ ...whatsappConfig, verifyToken: e.target.value })
-                  }
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Token de verificação do Webhook (ex: whsec_...)"
-                />
-              </div>
+              <p className="text-xs text-slate-500">O token de verificação do webhook é configurado no servidor.</p>
 
               <div className="flex items-center gap-2 pt-1">
                 <input
@@ -1252,70 +1051,7 @@ export const OmnichannelView: React.FC = () => {
         </div>
       )}
 
-      {showConfig && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <Smartphone className="w-5 h-5 text-emerald-600" />
-                Configurar WhatsApp Cloud API
-              </h3>
-              <button onClick={() => setShowConfig(false)} className="text-slate-400 hover:text-slate-600">×</button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Phone Number ID</label>
-                <input 
-                  type="text" 
-                  value={whatsappConfig.phoneNumberId} 
-                  onChange={e => setWhatsappConfig({...whatsappConfig, phoneNumberId: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Ex: 104593848573..."
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Access Token (Permanente)</label>
-                <input 
-                  type="password" 
-                  value={whatsappConfig.accessToken} 
-                  onChange={e => setWhatsappConfig({...whatsappConfig, accessToken: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="EAAGX..."
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Verify Token (Para Webhook)</label>
-                <input 
-                  type="text" 
-                  value={whatsappConfig.verifyToken} 
-                  onChange={e => setWhatsappConfig({...whatsappConfig, verifyToken: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Seu token secreto para validar o Webhook"
-                />
-              </div>
-              <div className="flex items-center gap-2 mt-4">
-                <input 
-                  type="checkbox" 
-                  id="waActive"
-                  checked={whatsappConfig.isActive} 
-                  onChange={e => setWhatsappConfig({...whatsappConfig, isActive: e.target.checked})}
-                  className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
-                />
-                <label htmlFor="waActive" className="text-sm font-medium text-slate-700">Ativar Integração Oficial</label>
-              </div>
 
-              <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
-                <span className="font-bold block mb-1">Webhook URL:</span>
-                <code>https://{'<'}seu-dominio{'>'}/api/v1/webhooks/whatsapp</code>
-              </div>
-            </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-              <button onClick={() => setShowConfig(false)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition">Cancelar</button>
-              <button onClick={handleSaveConfig} className="px-4 py-2 text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg transition">Salvar Credenciais</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

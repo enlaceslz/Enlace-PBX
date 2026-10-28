@@ -1,3 +1,4 @@
+import { validateWorkflowInput,validateInternalNote,assertWorkflowAccess } from './server/maia/integrations/ConversationWorkflow.js';
 import { suggestCopilot } from './server/maia/integrations/OmnichannelCopilot.js';
 import { QualityReviewRepository } from './server/infrastructure/postgres/repositories/QualityReviewRepository.js';
 import { createQualityAnalysis } from './server/maia/integrations/QualityReview.js';
@@ -1943,84 +1944,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Omnichannel Status Transition & Human Transfer
   // -------------------------------------------------------------------------
-  app.patch('/api/v1/omnichannel/conversations/:id/status', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
-    }
-    const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
-
-    const { status } = req.body;
-    const allowed = ['active', 'closed', 'queued', 'bot_handling'];
-    if (!allowed.includes(status)) {
-      return res.status(400).json({ error: `Status inválido. Permitidos: ${allowed.join(', ')}` });
-    }
-
-    const previousStatus = conv.status;
-    conv.status = status;
-
-    let sysText = 'Atendimento assumido por operador humano.';
-    if (status === 'closed') sysText = 'Atendimento finalizado pelo operador.';
-    else if (status === 'queued') sysText = 'Conversa transferida para a fila de espera humana.';
-    else if (status === 'bot_handling') sysText = 'Atendimento devolvido para a IA MaIA.';
-
-    if (!conv.messages) conv.messages = [];
-    conv.messages.push({
-      id: `msg-sys-${Date.now()}`,
-      sender: 'agent',
-      senderName: 'Sistema',
-      content: `[Sistema]: ${sysText}`,
-      timestamp: new Date().toISOString(),
-      type: 'text',
-    });
-
-    await OmnichannelRepository.save(conv);
-
-    recordAuditLog({
-      tenantId: conv.tenantId,
-      userId: (req as any).user?.id || 'SYSTEM',
-      userName: (req as any).user?.name || 'Sistema',
-      action: 'OMNICHANNEL_STATUS_CHANGE',
-      resource: `omnichannel/${conv.id}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Conversa com ${conv.contactId} alterada de ${previousStatus} para ${status}.`,
-      category: 'SYSTEM',
-      severity: 'INFO',
-    });
-
-    res.json(conv);
+  app.patch('/api/v1/omnichannel/conversations/:id/status', requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+    const tenantId=getAuthorizedTenantId(req);const actor=(req as any).user;
+    if(!await OmnichannelRepository.findById(req.params.id,tenantId))return res.status(404).json({error:'Conversa não encontrada.'});
+    try{
+      validateWorkflowInput(req.body.status,req.body.workflowVersion);
+      await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'OMNICHANNEL_WORKFLOW_ATTEMPT',resource:`omnichannel/${req.params.id}`,category:'SYSTEM',strict:true,details:'Tentativa de alteração do estado de atendimento humano.',payload:{status:req.body.status,expectedVersion:req.body.workflowVersion}});
+      res.json(await OmnichannelRepository.changeWorkflow(tenantId,req.params.id,req.body.status,req.body.workflowVersion,actor));
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
-
-  app.post('/api/v1/omnichannel/conversations/:id/transfer', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
-    }
-    const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
-
-    const { targetType, targetId, note } = req.body;
-    conv.status = (targetType === 'extension' ? 'active' : 'waiting') as any;
-
-    const label = targetType === 'queue' ? `Fila de Atendimento ${targetId}` : `Ramal ${targetId}`;
-    if (!conv.messages) conv.messages = [];
-    conv.messages.push({
-      id: `msg-trans-${Date.now()}`,
-      sender: 'agent',
-      senderName: 'Transferência',
-      content: `[Transferência]: Encaminhado para ${label}.${note ? ` Obs: ${note}` : ''}`,
-      timestamp: new Date().toISOString(),
-      type: 'text',
-    });
-
-    await OmnichannelRepository.save(conv);
-
-    res.json(conv);
+  app.post('/api/v1/omnichannel/conversations/:id/transfer',requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+    if(!await OmnichannelRepository.findById(req.params.id,getAuthorizedTenantId(req)))return res.status(404).json({error:'Conversa não encontrada.'});
+    res.status(501).json({error:'Encaminhamento omnichannel ainda não implementado. Esta ação não transfere chamadas nem atribui fila ou ramal.'});
   });
 
   // -------------------------------------------------------------------------
@@ -5275,7 +5210,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/omnichannel/conversations', requireAuth, requireTenant, async (req, res) => {
+  app.get('/api/v1/omnichannel/conversations', requireAuth, requireTenant, requireRole('super_admin','admin','supervisor','operator'), async (req, res) => {
     const tenantCtx = resolveTenantContext(req);
     const conversations = await OmnichannelRepository.listConversations(tenantCtx.tenantId);
     res.json(conversations);
@@ -5318,6 +5253,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     if (conv.status === 'closed') return res.status(409).json({ error: 'Conversa encerrada.' });
     if (conv.channel !== 'whatsapp') return res.status(501).json({ error: 'Este envio está disponível somente para conversas WhatsApp.' });
     
+    try{assertWorkflowAccess(conv.assignedUserId??null,(req as any).user);}catch(error){return res.status(403).json({error:'Atendimento atribuído a outro operador.'});}
     const { text } = req.body;
     if (typeof text !== 'string' || !text.trim() || text.length > 4096) return res.status(400).json({ error: 'Mensagem inválida.' });
     const config = await SystemRepository.getWhatsappConfig(undefined, tenantId);
@@ -5326,6 +5262,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(503).json({ error: 'Configure a integração WhatsApp e WHATSAPP_GRAPH_API_VERSION.' });
     }
     try {
+      const actor=(req as any).user;
+      await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'OMNICHANNEL_REPLY_ATTEMPT',resource:`omnichannel/${conv.id}`,category:'SYSTEM',strict:true,details:'Tentativa de saída humana por WhatsApp.',payload:{requestId:crypto.randomUUID()}});
+      await OmnichannelRepository.reserveHumanReply(tenantId,conv.id,actor);
       const metaRes = await fetch(`https://graph.facebook.com/${graphVersion}/${config.phoneNumberId}/messages`, {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
         headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' },
@@ -5335,11 +5274,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const delivery = await metaRes.json();
       if (typeof delivery.messages?.[0]?.id!=='string'||!delivery.messages[0].id) return res.status(502).json({ error: 'Envio sem confirmação da Meta.' });
       await OmnichannelRepository.appendAgentMessage(tenantId,conv.id,{id:delivery.messages[0].id,sender:'agent',senderName:(req as any).user.name,
-        content:text,timestamp:new Date().toISOString(),type:'text'});
+        content:text,timestamp:new Date().toISOString(),type:'text'},(req as any).user.id);
       const updated=await OmnichannelRepository.findById(conv.id,tenantId);
       if(!updated)throw new Error('Registro de saída indisponível.');
       return res.json(updated);
     } catch (error) {
+      if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});
       console.error('[WhatsApp] Falha no envio ou persistência; confirmação indisponível.');
       return res.status(502).json({ error: 'Não foi possível confirmar o envio e o registro da mensagem. Confira a conversa antes de reenviar.' });
     }
@@ -5347,22 +5287,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Omnichannel: Operator Notes
-  app.post('/api/v1/omnichannel/conversations/:id/notes', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
-    }
-    const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
-    const { text, agentName } = req.body;
-    if (!text) return res.status(400).json({ error: 'Texto da anotação é obrigatório' });
-    if (!conv.tags) conv.tags = [];
-    const noteEntry = `[Nota por ${agentName || 'Operador'} em ${new Date().toISOString()}]: ${text}`;
-    conv.tags.push(noteEntry);
-    await OmnichannelRepository.save(conv);
-    res.status(201).json({ text, agentName: agentName || 'Operador', createdAt: new Date().toISOString() });
+  app.post('/api/v1/omnichannel/conversations/:id/notes',requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+    const tenantId=getAuthorizedTenantId(req);const actor=(req as any).user;
+    if(!await OmnichannelRepository.findById(req.params.id,tenantId))return res.status(404).json({error:'Conversa não encontrada.'});
+    try{
+      const input=validateInternalNote(req.body.text,req.body.requestId);
+      await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'OMNICHANNEL_NOTE_ATTEMPT',resource:`omnichannel/${req.params.id}`,category:'SYSTEM',strict:true,details:'Tentativa de registro de anotação interna.',payload:{requestId:input.requestId}});
+      res.status(201).json(await OmnichannelRepository.addInternalNote(tenantId,req.params.id,input.text,input.requestId,actor));
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // A IA seleciona somente rascunhos revisados, sem enviar ou alterar a conversa.

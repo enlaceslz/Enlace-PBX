@@ -320,6 +320,58 @@ try {
     await assert.rejects(OmnichannelRepository.appendAgentMessage(tenantA,copilotConversation.id,{...outgoing,id:`wamid-${id}`}));
     const copilotAudit=JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action='COPILOT_SUGGEST_ATTEMPT'",[tenantA])).rows);
     assert.equal(copilotAudit.includes('Inventar PIX'),false);
+    const workflowPath=base+`/api/v1/omnichannel/conversations/${copilotConversation.id}`;
+    const workflowBefore=(await OmnichannelRepository.findById(copilotConversation.id,tenantA))!;
+    const change=(body:unknown,headers=testHeaders)=>fetch(workflowPath+'/status',{method:'PATCH',headers,body:JSON.stringify(body)});
+    assert.equal((await change({status:'active'})).status,400);
+    const competing=await Promise.all([change({status:'active',workflowVersion:workflowBefore.workflowVersion}),change({status:'active',workflowVersion:workflowBefore.workflowVersion})]);
+    assert.deepEqual(competing.map(response=>response.status).sort(),[200,409]);
+    let workflow=(await OmnichannelRepository.findById(copilotConversation.id,tenantA))!;
+    assert.equal(workflow.assignedUserId,`user-a-${id}`);assert.equal(JSON.stringify(workflow.messages),JSON.stringify(workflowBefore.messages));
+    const extraUser=`user-c-${id}`;
+    await admin.query("INSERT INTO users(id,tenant_id,name,email,password_hash,role) VALUES($1,$2,'Operador C',$3,'hash-descartavel','operator')",[extraUser,tenantA,`c-${id}@example.invalid`]);
+    const operatorHeaders={...testHeaders,Authorization:`Bearer ${jwt.sign({id:extraUser,tenantId:tenantA},process.env.JWT_SECRET!,{expiresIn:'1m'})}`};
+    assert.equal((await change({status:'closed',workflowVersion:workflow.workflowVersion},operatorHeaders)).status,403);
+    assert.equal((await fetch(base+`/api/v1/whatsapp/conversations/${copilotConversation.id}/reply`,{method:'POST',headers:operatorHeaders,body:JSON.stringify({text:'Tentativa sem atribuição'})})).status,403);
+    const queued=await change({status:'queued',workflowVersion:workflow.workflowVersion});assert.equal(queued.status,200);workflow=await queued.json();
+    assert.equal(workflow.assignedUserId,null);assert.equal(workflow.status,'queued');
+    assert.equal((await change({status:'bot_handling',workflowVersion:workflow.workflowVersion})).status,501);
+    assert.equal((await fetch(workflowPath+'/transfer',{method:'POST',headers:testHeaders,body:JSON.stringify({targetType:'extension',targetId:'9999'})})).status,501);
+    const noteId=crypto.randomUUID();const noteBody={text:'Anotação interna de teste',requestId:noteId,agentName:'Nome falsificado'};
+    const addNote=(body:unknown,headers=testHeaders)=>fetch(workflowPath+'/notes',{method:'POST',headers,body:JSON.stringify(body)});
+    const noteResults=await Promise.all([
+      addNote(noteBody),addNote(noteBody),
+      OmnichannelRepository.receiveWhatsappMessage(tenantA,{id:`note-concurrent-${id}`,from:copilotConversation.contactId,content:'Mensagem durante anotação',timestamp:new Date().toISOString()}),
+    ]);
+    assert.equal((noteResults[0] as Response).status,201);assert.equal((noteResults[1] as Response).status,201);
+    workflow=(await OmnichannelRepository.findById(copilotConversation.id,tenantA))!;
+    assert.equal(workflow.notes!.length,1);assert.equal(workflow.notes![0].userId,`user-a-${id}`);assert.equal(workflow.notes![0].agentName,'A');
+    assert.equal(workflow.messages.length,workflowBefore.messages.length+1);
+    assert.equal((await addNote({...noteBody,text:'Alterar conteúdo'})).status,409);
+    assert.equal((await addNote(noteBody,operatorHeaders)).status,409);
+    await admin.query("UPDATE users SET role='admin' WHERE id=$1",[`user-b-${id}`]);
+    assert.equal((await change({status:'closed',workflowVersion:workflow.workflowVersion},otherHeaders)).status,404);
+    assert.equal((await addNote({...noteBody,requestId:crypto.randomUUID()},otherHeaders)).status,404);
+    await admin.query("UPDATE users SET role='operator' WHERE id=$1",[`user-b-${id}`]);
+    const closed=await change({status:'closed',workflowVersion:workflow.workflowVersion});assert.equal(closed.status,200);const closedState=await closed.json();
+    assert.equal(closedState.status,'closed');assert.equal(closedState.assignedUserId,null);
+    const reopenMessage={id:`reopen-${id}`,from:copilotConversation.contactId,content:'Nova entrada após fechamento',timestamp:new Date().toISOString()};
+    await OmnichannelRepository.receiveWhatsappMessage(tenantA,reopenMessage);await OmnichannelRepository.receiveWhatsappMessage(tenantA,reopenMessage);
+    const reopened=(await OmnichannelRepository.findById(copilotConversation.id,tenantA))!;
+    assert.equal(reopened.status,'waiting');assert.equal(reopened.workflowVersion,closedState.workflowVersion+1);assert.equal(reopened.notes!.length,1);
+    assert.equal(reopened.messages.filter(message=>message.id===reopenMessage.id).length,1);
+    const fourthUser=`user-d-${id}`;
+    await admin.query("INSERT INTO users(id,tenant_id,name,email,password_hash,role) VALUES($1,$2,'Operador D',$3,'hash-descartavel','operator')",[fourthUser,tenantA,`d-${id}@example.invalid`]);
+    const reservations=await Promise.allSettled([
+      OmnichannelRepository.reserveHumanReply(tenantA,copilotConversation.id,{id:extraUser,name:'Operador C',role:'operator'}),
+      OmnichannelRepository.reserveHumanReply(tenantA,copilotConversation.id,{id:fourthUser,name:'Operador D',role:'operator'}),
+    ]);
+    assert.equal(reservations.filter(result=>result.status==='fulfilled').length,1);
+    const reserved=(await OmnichannelRepository.findById(copilotConversation.id,tenantA))!;
+    assert.equal([extraUser,fourthUser].includes(reserved.assignedUserId!),true);assert.equal(reserved.status,'active');assert.equal(reserved.messages.length,reopened.messages.length);
+    const privateAudit=JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action IN ('OMNICHANNEL_WORKFLOW_ATTEMPT','OMNICHANNEL_NOTE_ATTEMPT')",[tenantA])).rows);
+    assert.equal(privateAudit.includes(noteBody.text),false);
+    console.log('Atendimento: responsável autenticado, versão concorrente, anotação idempotente e reabertura por entrada real aprovados.');
     console.log('Copiloto: catálogo fechado, mensagem persistida, auditoria prévia, isolamento e histórico concorrente preservado.');
     console.log('Supervisor: evidências reais, revisão humana única, proteção contra sobrescrita e isolamento aprovados.');
     console.log('Extração em produção: chamada HTTP de IA, evidência literal, rejeição de valor inventado, auditoria anterior e isolamento aprovados.');
