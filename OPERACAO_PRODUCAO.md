@@ -43,7 +43,7 @@ sudo env PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json \
 
 Alternativamente, `INSTALL_ASTERISK=1` aciona esse instalador durante o deploy, com os mesmos pré-requisitos de versão e hash. A compilação e a configuração real ainda precisam de homologação no host de destino.
 
-PJSIP gerado pela aplicação usa `/var/lib/enlace-pbx/asterisk/pjsip.conf`, incluído pelo arquivo principal. Aplicação sem root não escreve em `/etc/asterisk`. Uma recarga recusada restaura o arquivo anterior e tenta recarregá-lo. Provisionamento de arquivos em PBX remoto exige solução específica; não é confirmado como aplicado após apenas escrever um arquivo local.
+PJSIP gerado pela aplicação usa `/var/lib/enlace-pbx/asterisk/pjsip.conf`, incluído pelo arquivo principal. Aplicação sem root não escreve em `/etc/asterisk`. PJSIP e plano de discagem são gravados com substituição atômica por arquivo, sob fila única de aplicação. Se uma recarga falhar, ambos retornam às versões anteriores. Mudanças de transportes podem exigir reinício do Asterisk em janela de manutenção; reload não substitui teste de registro e chamada. Provisionamento de arquivos em PBX remoto exige solução específica; não é confirmado como aplicado após apenas escrever um arquivo local.
 
 O cliente AMI correlaciona respostas por `ActionID`, espera o término de listas, rejeita `Response: Error` e recusa injeção de cabeçalhos. Referência do protocolo: [eventos CoreShowChannel](https://docs.asterisk.org/Certified-Asterisk_20.7_Documentation/API_Documentation/AMI_Events/CoreShowChannel/) e [conclusão da lista](https://docs.asterisk.org/Latest_API/API_Documentation/AMI_Events/CoreShowChannelsComplete/).
 
@@ -91,3 +91,9 @@ O comando autentica a cópia inteira antes de extrair, rejeita links e caminhos 
 O papel `enlace_app` precisa existir no cluster de recuperação, com as restrições exigidas pela aplicação. O arquivo não transporta senhas de papéis PostgreSQL do cluster. Reprovisione esses papéis separadamente em um novo servidor. A restauração reaplica os privilégios mínimos no banco recuperado e protege o histórico de migrações.
 
 Depois do ensaio, validar login, isolamento, gravações, permissões de arquivos e telefonia no ambiente recuperado. A promoção do banco e dos arquivos exige plano de corte; o comando de recuperação não realiza esse corte.
+
+## Escopo do provisionamento de telefonia
+
+A aplicação automática de configuração global é exclusiva de `super_admin`. Em produção, o gerador recusa ramais/troncos de múltiplas empresas no mesmo host até que os namespaces e contextos SIP sejam homologados. RLS de banco não constitui isolamento de mídia ou dialplan. Utilize uma instância de PBX por empresa nesse fluxo.
+
+Troncos com autenticação exigem recadastro da senha para preencher o campo cifrado introduzido na migração 011; o sistema anterior guardava apenas máscara. Campo de senha vazio em uma atualização preserva a credencial existente. A resposta da API não devolve a senha. Credenciais usadas na versão antiga precisam de rotação, pois o fluxo anterior podia gravá-las em auditoria.

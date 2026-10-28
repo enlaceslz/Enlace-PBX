@@ -383,72 +383,65 @@ export class AsteriskAdapter {
   /**
    * Aplica a configuração do pjsip.conf em disco, cria backup com timestamp e recarrega a pilha
    */
-  public async applyPjsipConfig(pjsipContent: string): Promise<{ success: boolean; backupPath?: string; message: string }> {
-    const fs = await import('fs');
-    const path = await import('path');
+  private configurationQueue: Promise<void> = Promise.resolve();
+
+  public async applyPjsipConfig(pjsipContent: string, extensionsContent?: string): Promise<{ success: boolean; backupPath?: string; message: string }> {
+    const previous = this.configurationQueue;
+    let unlock!: () => void;
+    this.configurationQueue = new Promise<void>(resolve => { unlock = resolve; });
+    await previous;
+    try { return await this.applyConfigurationFiles(pjsipContent, extensionsContent); }
+    finally { unlock(); }
+  }
+
+  private async applyConfigurationFiles(pjsipContent: string, extensionsContent?: string): Promise<{ success: boolean; backupPath?: string; message: string }> {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
     if (process.env.NODE_ENV === 'production' && !['127.0.0.1', 'localhost', '::1'].includes(this.host)) {
       return { success: false, message: 'Provisionamento remoto de arquivos Asterisk não configurado.' };
     }
-
-    // Determina o diretório base: /etc/asterisk se com permissão de escrita, senão pasta local server/config/asterisk
     let baseDir = process.env.ASTERISK_CONFIG_DIR || '/etc/asterisk';
-    if (process.env.NODE_ENV === 'production' && !fs.existsSync(baseDir)) {
-      return { success: false, message: 'Diretório gerenciado do Asterisk não provisionado.' };
+    if (!fs.existsSync(baseDir)) {
+      if (process.env.NODE_ENV === 'production') return { success: false, message: 'Diretório gerenciado do Asterisk não provisionado.' };
+      baseDir = path.join(process.cwd(), 'server/config/asterisk');
+      fs.mkdirSync(baseDir, { recursive: true, mode: 0o750 });
     }
-    try {
-      if (!fs.existsSync(baseDir)) {
-        baseDir = path.join(process.cwd(), 'server', 'config', 'asterisk');
-      }
-      if (!fs.existsSync(baseDir)) {
-        fs.mkdirSync(baseDir, { recursive: true });
-      }
-    } catch {
-      baseDir = path.join(process.cwd(), 'server', 'config', 'asterisk');
-      fs.mkdirSync(baseDir, { recursive: true });
-    }
-
-    const backupDir = path.join(baseDir, 'backup');
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
-    }
-
-    const targetFile = path.join(baseDir, 'pjsip.conf');
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupFile = path.join(backupDir, `pjsip.conf.${timestamp}.bak`);
-
-    // Backup do arquivo atual se existir
-    if (fs.existsSync(targetFile)) {
-      fs.copyFileSync(targetFile, backupFile);
-    }
-
-    // Gravação atômica da nova configuração
-    const temporary = path.join(baseDir, `pjsip-${crypto.randomUUID()}.tmp`);
-    try {
-      fs.writeFileSync(temporary, pjsipContent, { encoding: 'utf8', mode: 0o640, flag: 'wx' });
-      fs.renameSync(temporary, targetFile);
-    } finally { fs.rmSync(temporary, { force: true }); }
-
-    // Execução do pjsip reload real
-    const reloadRes = await this.reloadPjsip();
-    if (!reloadRes.success) {
-      if (fs.existsSync(backupFile)) {
-        const rollbackFile = path.join(baseDir, `rollback-${crypto.randomUUID()}.tmp`);
-        fs.copyFileSync(backupFile, rollbackFile);
-        fs.renameSync(rollbackFile, targetFile);
-        const rollbackReload = await this.reloadPjsip();
-        return { success: false, backupPath: backupFile, message: rollbackReload.success
-          ? 'A configuração foi recusada; a versão anterior foi restaurada e recarregada.'
-          : 'A configuração foi recusada e o arquivo anterior foi restaurado; verifique a recarga manualmente.' };
-      }
-      fs.rmSync(targetFile, { force: true });
-      return { success: false, message: 'A configuração foi recusada e o arquivo novo foi removido.' };
-    }
-
-    return {
-      success: reloadRes.success,
-      backupPath: fs.existsSync(backupFile) ? backupFile : undefined,
-      message: reloadRes.message,
+    const files = new Map<string, string>([['pjsip.conf', pjsipContent]]);
+    if (extensionsContent !== undefined) files.set('extensions.conf', extensionsContent);
+    for (const content of files.values()) if (typeof content !== 'string' || !content.trim() || content.length > 2 * 1024 * 1024 || content.includes('\0')) throw new Error('Configuração Asterisk inválida.');
+    const backupDir = path.join(baseDir, 'backup', crypto.randomUUID());
+    fs.mkdirSync(backupDir, { recursive: true, mode: 0o750 });
+    const before = new Map<string, Buffer | undefined>();
+    const atomicWrite = (name: string, content: string | Buffer) => {
+      const temporary = path.join(baseDir, `config-${crypto.randomUUID()}.tmp`);
+      try {
+        fs.writeFileSync(temporary, content, { mode: 0o640, flag: 'wx' });
+        fs.renameSync(temporary, path.join(baseDir, name));
+      } finally { fs.rmSync(temporary, { force: true }); }
     };
+    try {
+      for (const [name] of files) {
+        const current = path.join(baseDir, name);
+        const original = fs.existsSync(current) ? fs.readFileSync(current) : undefined;
+        before.set(name, original);
+        if (original) fs.writeFileSync(path.join(backupDir, name), original, { mode: 0o640, flag: 'wx' });
+      }
+      for (const [name, content] of files) atomicWrite(name, content);
+      const pjsip = await this.reloadPjsip();
+      const dialplan = extensionsContent === undefined ? { success: true } : await this.reloadDialplan();
+      if (!pjsip.success || !dialplan.success) throw new Error('Recarga recusada pelo Asterisk.');
+      return { success: true, backupPath: backupDir, message: extensionsContent === undefined ? 'PJSIP gravado e recarregado.' : 'PJSIP e plano de discagem gravados e recarregados.' };
+    } catch (error) {
+      for (const [name, original] of before) {
+        if (original !== undefined) atomicWrite(name, original);
+        else fs.rmSync(path.join(baseDir, name), { force: true });
+      }
+      const pjsip = await this.reloadPjsip();
+      const dialplan = extensionsContent === undefined ? { success: true } : await this.reloadDialplan();
+      return { success: false, backupPath: backupDir, message: pjsip.success && dialplan.success
+        ? 'A configuração foi recusada; a versão anterior foi restaurada e recarregada.'
+        : 'A versão anterior foi restaurada; verifique as recargas manualmente.' };
+    }
   }
 
   /**

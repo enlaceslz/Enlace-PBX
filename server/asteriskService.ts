@@ -1,3 +1,4 @@
+import { assertSingleLineConfig } from './infrastructure/asterisk/configValidation.js';
 import { Extension, Trunk, Route } from '../src/types/pbx.js';
 import {
   ExtensionRepository,
@@ -385,6 +386,11 @@ export class AsteriskService {
     const infraStored = await SystemRepository.getInfraConfig();
     const infra = infraStored || defaultInfraConfig;
 
+    assertSingleLineConfig({ extensions, trunks, infra });
+    if (process.env.NODE_ENV === 'production' && !maskSecrets) {
+      const owners = new Set([...(await ExtensionRepository.listAll()).map(item => item.tenantId), ...(await TrunkRepository.listAll()).map(item => item.tenantId)]);
+      if (owners.size > 1) throw new Error('Provisionamento de telefonia neste host exige uma única empresa até a homologação de namespaces SIP.');
+    }
     let output = `; ====================================================================
 ; Enlace-PBX — Configuração Automática PJSIP (pjsip.conf)
 ; Asterisk 20 LTS Puro — Enlace Telecom (Brasil)
@@ -408,28 +414,26 @@ local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
 external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
 external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
 
-; --- Transporte TLS Seguro (SIP Seguro) ---
-[transport-tls]
+; --- Transporte TCP ---
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0:${infra.ports?.sipUdp || 5060}
+
+; --- WebSocket interno: TLS termina no NGINX; HTTP Asterisk fica no loopback ---
+[transport-ws]
+type=transport
+protocol=ws
+bind=127.0.0.1
+
+${infra.sslCertificate?.status === 'valid' && infra.sslCertificate?.certPath && infra.sslCertificate?.keyPath ? `[transport-tls]
 type=transport
 protocol=tls
 bind=0.0.0.0:${infra.ports?.sipTls || 5061}
-cert_file=${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
-priv_key_file=${infra.sslCertificate?.keyPath || defaultInfraConfig.sslCertificate.keyPath}
+cert_file=${infra.sslCertificate.certPath}
+priv_key_file=${infra.sslCertificate.keyPath}
 method=tlsv1_2
-local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
-external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
-external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
-
-; --- Transporte WebRTC WebSocket Seguro (WSS / Webphone) ---
-[transport-wss]
-type=transport
-protocol=wss
-bind=0.0.0.0:${infra.ports?.webrtcWss || 8089}
-cert_file=${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
-priv_key_file=${infra.sslCertificate?.keyPath || defaultInfraConfig.sslCertificate.keyPath}
-local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
-external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
-external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
+` : ''}
 
 `;
 
@@ -454,8 +458,7 @@ rtp_symmetric=yes
 force_rport=yes
 ${ext.webrtc ? `webrtc=yes
 dtls_verify=fingerprint
-dtls_cert_file=/etc/asterisk/keys/asterisk.crt
-dtls_private_key_file=/etc/asterisk/keys/asterisk.key
+dtls_auto_generate_cert=yes
 dtls_setup=actpass` : ''}
 
 [${ext.number}-auth]
@@ -476,6 +479,9 @@ qualify_frequency=30
     // Troncos PJSIP
     for (const trk of trunks) {
       const isIpAuth = trk.authMode === 'ip';
+      if (trk.transport === 'TLS' && !(infra.sslCertificate?.status === 'valid' && infra.sslCertificate?.certPath && infra.sslCertificate?.keyPath)) throw new Error('Configure certificados SIP TLS válidos antes de aplicar troncos TLS.');
+      const trunkSecret = !isIpAuth && !maskSecrets ? await TrunkRepository.getSecret(trk.id, tenantId) : '';
+      if (!isIpAuth && !maskSecrets && !trunkSecret) throw new Error(`Senha SIP não configurada para o tronco ${trk.name}.`);
       const authorizedIpsList = (trk.authorizedIps && trk.authorizedIps.length > 0)
         ? trk.authorizedIps
         : [trk.host];
@@ -486,6 +492,7 @@ qualify_frequency=30
 ; ----------------------------------------------------
 [trunk-${trk.id}]
 type=endpoint
+transport=transport-${(trk.transport || 'UDP').toLowerCase()}
 context=${trk.inboundContext || trk.context || 'from-trunk'}
 disallow=all
 ${(trk.codecs || ['opus', 'alaw', 'ulaw']).map((c) => `allow=${c}`).join('\n')}
@@ -521,7 +528,7 @@ match=${authorizedIpsList.join(',')}
 type=auth
 auth_type=userpass
 username=${trk.username}
-password=DEFINIR_SENHA_TRONCO_NO_ENV
+password=${maskSecrets ? '••••••••' : trunkSecret}
 
 ${trk.register ? `[trunk-${trk.id}-reg]
 type=registration

@@ -80,3 +80,10 @@ Nenhum merge, deploy ou modificação do servidor de produção foi executado po
 Essas alterações não substituem a homologação de chamadas, mídia e serviços no host de destino. Não houve acesso a um servidor de produção nem execução do instalador nesse servidor.
 
 - Chamados MaIA: migração 010 cria suporte persistente com RLS forçada, protocolo único e idempotência por empresa/correlação. O protocolo só é confirmado após commit; o CRM exibe os registros reais. Teste PostgreSQL verifica persistência, retry e isolamento.
+
+- Troncos SIP: migração 011 armazena credencial cifrada; respostas e auditoria deixam de carregar a senha digitada. O gerador interno usa a credencial real, sem placeholders. Recusa quebra de linha em campos de configuração e aplicação de arquivo global por administrador de tenant.
+- Segurança de topologia: o provisionamento automático de telefonia em produção recusa múltiplas empresas no mesmo host enquanto os namespaces SIP não forem homologados. Isso evita substituir configuração global de outra empresa; não equivale a suporte multi-tenant de mídia.
+- WebRTC usa transporte WS interno ao loopback atrás do NGINX HTTPS e certificados DTLS gerados pelo Asterisk, sem depender de caminhos de certificados inexistentes. Chamada e áudio continuam exigindo teste com navegador/operadora reais.
+- Se credenciais SIP foram cadastradas em uma versão anterior, elas devem ser rotacionadas no ambiente real: o fluxo antigo podia registrar a senha nos logs. O histórico imutável não é apagado silenciosamente.
+
+- A aplicação agora grava também o plano de discagem gerado, antes apenas contabilizado na resposta. Falha em uma recarga desfaz os dois arquivos; teste dirigido cobre o rollback conjunto.

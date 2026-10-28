@@ -62,11 +62,15 @@ if getent passwd asterisk >/dev/null && [[ -d /etc/asterisk ]]; then
   usermod -aG asterisk enlace-pbx
   chmod 0751 /var/lib/enlace-pbx
   chown enlace-pbx:asterisk /var/lib/enlace-pbx/asterisk
+  chmod 2750 /var/lib/enlace-pbx/asterisk
   if [[ ! -f /var/lib/enlace-pbx/asterisk/pjsip.conf ]]; then
     install -m 0640 -o enlace-pbx -g asterisk /dev/null /var/lib/enlace-pbx/asterisk/pjsip.conf
   fi
+  if [[ ! -f /var/lib/enlace-pbx/asterisk/extensions.conf ]]; then
+    install -m 0640 -o enlace-pbx -g asterisk /dev/null /var/lib/enlace-pbx/asterisk/extensions.conf
+  fi
   PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" scripts/asterisk-settings.mjs
-  chown root:asterisk /etc/asterisk/{manager,ari,http,asterisk,pjsip}.conf
+  chown root:asterisk /etc/asterisk/{manager,ari,http,asterisk,pjsip,extensions}.conf
   asterisk -rx "manager reload"
 fi
 # TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.

@@ -26,6 +26,6 @@ export function isUnavailableProductionOperation(method: string, route: string):
     /^\/infra\/(validate-(ssl|webphone|pwa|whatsapp)|vapid\/generate|send-test-push)$/.test(path) ||
     /^\/ai\/tools\/[^/]+\/test$/.test(path) ||
     /^\/crm\/providers\/[^/]+\/(connect|disconnect)$/.test(path) ||
-    ['/system/restore', '/system/snapshots/rollback', '/webhooks/test', '/ai/entity-extraction/test'].includes(path) ||
+    ['/system/restore', '/system/snapshots/rollback', '/webhooks/test', '/ai/entity-extraction/test', '/trunks/rollback'].includes(path) ||
     /^\/(setup\/(apply|rollback)|system\/quick-setup\/apply|system\/snapshots\/[^/]+\/rollback)$/.test(path);
 }

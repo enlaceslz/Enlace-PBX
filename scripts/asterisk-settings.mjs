@@ -46,11 +46,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
     fs.renameSync(`${target}.enlace-tmp`, target);
     fs.chmodSync(target, 0o640);
   }
-  const managed = '/var/lib/enlace-pbx/asterisk/pjsip.conf';
-  if (fs.existsSync(managed)) {
-    const target = path.join(directory, 'pjsip.conf');
-    const content = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-    if (!content.includes(`#include ${managed}`)) fs.appendFileSync(target, `\n; Arquivo gerenciado pelo Enlace-PBX\n#include ${managed}\n`, { mode: 0o640 });
+  for (const file of ['pjsip.conf', 'extensions.conf']) {
+    const managed = `/var/lib/enlace-pbx/asterisk/${file}`;
+    if (fs.existsSync(managed)) {
+      const target = path.join(directory, file);
+      const content = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+      if (!content.includes(`#include ${managed}`)) fs.appendFileSync(target, `\n; Arquivo gerenciado pelo Enlace-PBX\n#include ${managed}\n`, { mode: 0o640 });
+    }
   }
   console.log('Configuração Asterisk atualizada preservando seções não gerenciadas.');
 }

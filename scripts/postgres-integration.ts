@@ -8,6 +8,8 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { postgresClient } from '../server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from '../server/infrastructure/postgres/migrations/migrator.js';
+import { TrunkRepository } from '../server/infrastructure/postgres/repositories/TrunkRepository.js';
+import type { Trunk } from '../src/types/pbx.js';
 import { TicketExecutor } from '../server/maia/executors/TicketExecutor.js';
 import { TicketRepository } from '../server/infrastructure/postgres/repositories/TicketRepository.js';
 import { OmnichannelRepository } from '../server/infrastructure/postgres/repositories/OmnichannelRepository.js';
@@ -56,6 +58,19 @@ try {
   assert.equal(toolResult.status, 'success');
   assert.equal(toolResult.data.ticketId, ticket.id);
   assert.equal(toolResult.data.protocolo, ticket.protocol);
+  const trunk = { id: `trunk-${id}`, tenantId: tenantA, name: 'Tronco de teste', providerName: 'Teste', host: 'sip.example.invalid', port: 5060,
+    username: 'usuario', secretMasked: '', transport: 'UDP', callerId: '1001', codecs: ['alaw'], context: 'from-trunk', register: true,
+    status: 'unregistered', channelsMax: 2, channelsInUse: 0, authMode: 'credentials', secret: 'senha-sip-especial!123' } as Trunk & { secret: string };
+  const savedTrunk = await TrunkRepository.save(trunk);
+  assert.equal('secret' in savedTrunk, false);
+  assert.equal(savedTrunk.hasSecret, true);
+  assert.equal(await TrunkRepository.getSecret(trunk.id, tenantA), trunk.secret);
+  assert.equal(await TrunkRepository.getSecret(trunk.id, tenantB), '');
+  const ciphertext = (await admin.query('SELECT secret_encrypted FROM trunks WHERE id=$1', [trunk.id])).rows[0].secret_encrypted;
+  assert.match(ciphertext, /^enc:v1:/);
+  assert.equal(ciphertext.includes(trunk.secret), false);
+  await TrunkRepository.save({ ...trunk, secret: '' });
+  assert.equal(await TrunkRepository.getSecret(trunk.id, tenantA), trunk.secret);
   const reservation = net.createServer();
   reservation.listen(0, '127.0.0.1');
   await once(reservation, 'listening');
@@ -113,6 +128,7 @@ try {
   }
   console.log('PostgreSQL real: migrações, RLS, identidade, privilégios mínimos e idempotência aprovados.');
 } finally {
+  await admin.query('DELETE FROM trunks WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM support_tickets WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM omnichannel_conversations WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM users WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});

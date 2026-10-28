@@ -1,3 +1,4 @@
+import { assertSingleLineConfig } from './infrastructure/asterisk/configValidation.js';
 import crypto from 'crypto';
 import net from 'net';
 import dgram from 'dgram';
@@ -245,6 +246,7 @@ class SipTrunkService {
    * Cria identificação por IP (type=identify com match de todos os IPs autorizados).
    */
   generatePjsipForTrunk(trunk: Trunk, publicIpOverride?: string): string {
+    assertSingleLineConfig({ trunk, publicIpOverride });
     const publicIp = publicIpOverride || process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP || 'NOT_CONFIGURED';
     const isIpAuth = trunk.authMode === 'ip';
     const transportName = `transport-${trunk.transport.toLowerCase()}`;
@@ -314,7 +316,7 @@ match = ${matchIps}
 type = auth
 auth_type = userpass
 username = ${trunk.username}
-password = ${trunk.secretMasked ? '••••••••••••' : 'PROD_SECRET'}
+password = ••••••••••••
 realm = ${trunk.host}
 
 ; --- [4] SIP Registration ---

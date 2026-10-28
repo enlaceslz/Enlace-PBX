@@ -1,3 +1,4 @@
+import { assertSingleLineConfig, safeTrunkPayload } from './server/infrastructure/asterisk/configValidation.js';
 import { TicketRepository } from './server/infrastructure/postgres/repositories/TicketRepository.js';
 import { listBackups, backupPath } from './server/infrastructure/security/BackupInventory.js';
 import './server/config/loadEnvironment.js';
@@ -2719,6 +2720,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const tenantId = tenantCtx.tenantId;
     const name = String(req.body.name || '').trim();
     const host = String(req.body.host || '').trim();
+    try { assertSingleLineConfig(req.body); } catch { return res.status(400).json({ error: 'Campos SIP devem conter uma única linha.' }); }
 
     if (!name || !host) {
       return res.status(400).json({ error: 'Nome do tronco e Host SIP (IP/FQDN) são campos obrigatórios.' });
@@ -2764,7 +2766,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         payload: { trunkId: trunk.id, provider: trunk.providerName, host: trunk.host, transport: trunk.transport },
       });
 
-      res.status(201).json(trunk);
+      res.status(201).json(safeTrunkPayload(trunk));
     } catch (e: any) {
       console.error('[Trunks] Erro ao criar tronco no PostgreSQL:', e?.message || e);
       res.status(500).json({ error: 'Erro ao persistir tronco SIP no PostgreSQL' });
@@ -2798,10 +2800,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         category: 'TELECOM_SIP',
         severity: 'INFO',
         ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: { trunkId: req.params.id, changes: req.body },
+        payload: { trunkId: req.params.id, changedFields: Object.keys(safeTrunkPayload(req.body)) },
       });
 
-      res.json(updated);
+      res.json(safeTrunkPayload(updated));
     } catch (e: any) {
       console.error('[Trunks] Erro ao atualizar no PostgreSQL:', e?.message || e);
       res.status(500).json({ error: 'Erro ao atualizar tronco SIP no PostgreSQL' });
@@ -3042,7 +3044,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Aplicar Configuração PJSIP com Backup Automático e Hot Reload Real
-  app.post('/api/v1/trunks/apply-pjsip', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
+  app.post('/api/v1/trunks/apply-pjsip', requireAuth, requireTenant, requireRole('super_admin'), async (req, res) => {
     try {
       const tenantId = getAuthorizedTenantId(req);
       if (!tenantId) {
@@ -3056,7 +3058,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const extensionsContent = await asteriskService.generateExtensionsConf(tenantId);
 
       // Executar gravação em disco, backup com timestamp e reload real no Asterisk
-      const applyResult = await asteriskAdapter.applyPjsipConfig(pjsipContent);
+      const applyResult = await asteriskAdapter.applyPjsipConfig(pjsipContent, extensionsContent);
 
       await AuditLogRepository.create({
         tenantId,

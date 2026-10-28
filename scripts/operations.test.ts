@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { asteriskSettings, updateIni } from './asterisk-settings.mjs';
 import { listBackups, backupPath } from '../server/infrastructure/security/BackupInventory.js';
+import { assertSingleLineConfig, safeTrunkPayload } from '../server/infrastructure/asterisk/configValidation.js';
 import { AsteriskAdapter } from '../server/infrastructure/asterisk/AsteriskAdapter.js';
 const execute = promisify(execFile);
 
@@ -25,6 +26,27 @@ test('recarga PJSIP recusada restaura o arquivo anterior antes de tentar novamen
     assert.equal(attempts, 2);
     assert.equal(await fs.readFile(file, 'utf8'), '[anterior]\ntype=endpoint\n');
     assert.match(result.message, /restaurada e recarregada/);
+  } finally {
+    if (previous === undefined) delete process.env.ASTERISK_CONFIG_DIR; else process.env.ASTERISK_CONFIG_DIR = previous;
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('falha de recarga do plano de discagem restaura os dois arquivos', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'pbx-dialplan-'));
+  const previous = process.env.ASTERISK_CONFIG_DIR;
+  process.env.ASTERISK_CONFIG_DIR = directory;
+  try {
+    await fs.writeFile(path.join(directory, 'pjsip.conf'), 'pjsip anterior');
+    await fs.writeFile(path.join(directory, 'extensions.conf'), 'dialplan anterior');
+    const adapter = new AsteriskAdapter();
+    adapter.reloadPjsip = async () => ({ success: true, message: 'teste' });
+    let attempts = 0;
+    adapter.reloadDialplan = async () => ({ success: ++attempts > 1, message: 'teste' });
+    const result = await adapter.applyPjsipConfig('pjsip novo', 'dialplan novo');
+    assert.equal(result.success, false);
+    assert.equal(await fs.readFile(path.join(directory, 'pjsip.conf'), 'utf8'), 'pjsip anterior');
+    assert.equal(await fs.readFile(path.join(directory, 'extensions.conf'), 'utf8'), 'dialplan anterior');
   } finally {
     if (previous === undefined) delete process.env.ASTERISK_CONFIG_DIR; else process.env.ASTERISK_CONFIG_DIR = previous;
     await fs.rm(directory, { recursive: true, force: true });
@@ -79,4 +101,12 @@ test('inventário só anuncia arquivos completos e não segue links', async () =
     if (previous === undefined) delete process.env.PBX_BACKUP_DIRECTORY; else process.env.PBX_BACKUP_DIRECTORY = previous;
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test('campos SIP não podem injetar diretivas e respostas não contêm segredo', () => {
+  assert.throws(() => assertSingleLineConfig({ host: 'sip.example.invalid\n[administrador]' }), /controle/);
+  assert.throws(() => assertSingleLineConfig({ codecs: ['alaw', 'ulaw\r\n#include /etc/passwd'] }), /controle/);
+  assertSingleLineConfig({ host: 'sip.example.invalid', codecs: ['alaw', 'ulaw'] });
+  const safe = safeTrunkPayload({ id: 't', secret: 'plaintext', secret_encrypted: 'ciphertext', secretEncrypted: 'ciphertext' });
+  assert.deepEqual(safe, { id: 't' });
 });

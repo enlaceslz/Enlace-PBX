@@ -81,6 +81,7 @@ export interface Trunk {
   port: number;
   username: string;
   secretMasked: string;
+  hasSecret?: boolean;
   transport: 'UDP' | 'TCP' | 'TLS';
   callerId: string;
   codecs: string[];
