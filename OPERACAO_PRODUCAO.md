@@ -235,3 +235,9 @@ Acesso limitado a `super_admin`, `admin` e `supervisor` da empresa. Mutações e
 O painel consulta o binário fixo `/usr/bin/fail2ban-client` com o usuário do serviço Enlace-PBX. É preciso que o Fail2ban esteja instalado e que a consulta já seja permitida pela política operacional do host. Não conceda acesso amplo a sudo ou ao socket apenas para habilitar o painel: o socket pode autorizar também alterações administrativas. Quando a leitura não é permitida, a API retorna 503 e mostra indisponibilidade, sem usar o JSON legado como proteção ativa.
 
 A leitura aceita até 32 jails e usa prazo total de cinco segundos, limite de saída e cache de 15 segundos; apresenta contadores do serviço, sem certificar regras, portas protegidas, geolocalização ou eficácia do firewall. Bloqueio/desbloqueio, reload, whitelist, alteração de regras e simulação de ataque pelo painel permanecem indisponíveis (501) em todos os ambientes. Um agente com autorização mínima e homologação no host ainda é necessário para alterações reais.
+
+### Cache e identificação de erros da API
+
+As respostas de `/api` usam `Cache-Control: no-store`, inclusive autenticação, erros e SSE. O proxy/CDN deve respeitar essa política; não configure cache forçado nas rotas da API. Recursos estáticos mantêm o comportamento próprio do servidor de arquivos.
+
+O servidor gera `X-Request-Id` por requisição; falhas inesperadas também devolvem `requestId` no JSON. Use esse identificador ao investigar uma falha. O handler global registra status/identificador sem copiar o corpo da requisição ou o erro bruto. Isso não substitui a revisão dos logs específicos de cada integração nem comprova a política de um proxy externo.

@@ -185,6 +185,24 @@ try {
     const me = await fetch(base + '/api/v1/auth/me', { headers: { Authorization: `Bearer ${session.token}` } });
     assert.equal(me.status, 200);
     assert.equal('passwordHash' in await me.json(), false);
+    for (const response of [login, me]) {
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.has('etag'), false);
+      assert.match(response.headers.get('x-request-id') || '', /^[a-f0-9-]{36}$/);
+    }
+    const malformedBody = await fetch(base + '/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Request-Id': 'identidade-forjada' }, body: '{"senha-secreta":' });
+    assert.equal(malformedBody.status, 400);
+    assert.equal(malformedBody.headers.get('cache-control'), 'no-store');
+    assert.notEqual(malformedBody.headers.get('x-request-id'), 'identidade-forjada');
+    const malformedError = await malformedBody.json();
+    assert.equal(malformedError.requestId, malformedBody.headers.get('x-request-id'));
+    assert.doesNotMatch(JSON.stringify(malformedError), /senha-secreta/);
+    const unauthorized = await fetch(base + '/api/v1/auth/me');
+    assert.equal(unauthorized.status, 401);
+    assert.equal(unauthorized.headers.get('cache-control'), 'no-store');
+    const missingEndpoint = await fetch(base + '/api/v1/endpoint-inexistente', { headers: { Authorization: `Bearer ${session.token}` } });
+    assert.equal(missingEndpoint.status, 404);
+    assert.equal(missingEndpoint.headers.get('cache-control'), 'no-store');
     const rootHeaders = { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' };
     const fail2ban = await fetch(base + '/api/v1/security/fail2ban', { headers: rootHeaders });
     assert.equal(fail2ban.status, 503, 'Host de CI sem Fail2ban não declara proteção ativa.');

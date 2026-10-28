@@ -1,3 +1,4 @@
+import { privateApiResponse, unexpectedHttpError, telephonyFailure } from './server/infrastructure/security/ApiResponsePolicy.js';
 import { fail2banMonitor } from './server/infrastructure/security/Fail2banMonitor.js';
 import { CampaignPlanningRepository } from './server/infrastructure/postgres/repositories/CampaignPlanningRepository.js';
 import { plannedPhones } from './server/maia/integrations/CampaignPlanning.js';
@@ -68,6 +69,9 @@ import { isPublicApiRoute, isUnavailableProductionOperation, verifyWhatsAppSigna
 
 async function startServer() {
   const app = express();
+  // Respostas dinâmicas autenticadas não devem gerar validadores de cache.
+  app.disable('etag');
+  app.use('/api', privateApiResponse);
   const PORT = env.PORT;
   const HOST = process.env.HOST || (env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
 
@@ -183,6 +187,7 @@ async function startServer() {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
     credentials: true,
+    exposedHeaders: ['X-Request-Id'],
   }));
 
   // Rate Limiting - Prevenção contra DDoS e Brute Force
@@ -1853,7 +1858,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   app.get('/api/v1/events/asterisk', requireSseAuth, requireTenant, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
@@ -2545,7 +2550,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           : `Endpoint PJSIP ${trunk.host}:${port} falhou no teste SIP OPTIONS (${sipTestResult.classification}): ${sipTestResult.sipResponse}`,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao executar ping SIP' });
+      res.status(500).json({ error: 'Erro ao executar ping SIP' });
     }
   });
 
@@ -2579,7 +2584,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(report);
     } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao executar diagnósticos no tronco SIP' });
+      res.status(500).json({ error: 'Erro ao executar diagnósticos no tronco SIP' });
     }
   });
 
@@ -2617,7 +2622,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           : `SBC da operadora (${ip}:${port}) não respondeu no tempo limite (${latency}ms).`,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao testar IP' });
+      res.status(500).json({ error: 'Erro ao testar IP' });
     }
   });
 
@@ -2647,7 +2652,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         extensionsConf: dialplanBlock,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao gerar preview PJSIP' });
+      res.status(500).json({ error: 'Erro ao gerar preview PJSIP' });
     }
   });
 
@@ -2701,7 +2706,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       console.error('[apply-pjsip] Erro ao aplicar configuração PJSIP:', err.message);
       return res.status(500).json({
         success: false,
-        error: `Falha ao aplicar configuração PJSIP no Asterisk: ${err.message}`,
+        error: 'Falha ao aplicar configuração PJSIP no Asterisk. Consulte o administrador.',
       });
     }
   });
@@ -3837,7 +3842,6 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       console.error('Error in knowledge upload:', err);
       res.status(500).json({
         error: 'Erro ao processar e salvar arquivo na base de conhecimento.',
-        details: err instanceof Error ? err.message : String(err),
       });
     }
   });
@@ -4090,7 +4094,6 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       console.error('Error in voice turn endpoint:', err);
       res.status(500).json({
         error: 'Erro no AI Gateway',
-        details: err instanceof Error ? err.message : String(err),
       });
     }
   });
@@ -4110,7 +4113,6 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       console.error('Error in preview-voice endpoint:', err);
       res.status(500).json({
         error: 'Erro ao gerar prévia de voz',
-        details: err instanceof Error ? err.message : String(err),
       });
     }
   });
@@ -4210,7 +4212,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const channels = await asteriskService.getActiveChannels(tenantId, isSuper);
       res.json(channels);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Falha ao consultar os canais de telefonia.' });
     }
   });
 
@@ -4232,7 +4234,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       );
       res.status(201).json(chan);
     } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+      const failure = telephonyFailure(err);
+      res.status(failure.status).json({ error: failure.error });
     }
   });
 
@@ -4244,7 +4247,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
       res.json({ success });
     } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+      const failure = telephonyFailure(err);
+      res.status(failure.status).json({ error: failure.error });
     }
   });
 
@@ -4265,7 +4269,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
       res.json({ success, message: `Canal ${req.params.id} encerrado.` });
     } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+      const failure = telephonyFailure(err);
+      res.status(failure.status).json({ error: failure.error });
     }
   });
 
@@ -4290,7 +4295,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
       res.json({ success: true, channel: chan, message: `Canal transferido para ${destination}.` });
     } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+      const failure = telephonyFailure(err);
+      res.status(failure.status).json({ error: failure.error });
     }
   });
 
@@ -4314,7 +4320,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
       res.json({ success, message: `Canal ${req.params.id} redirecionado para ${destination}.` });
     } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+      const failure = telephonyFailure(err);
+      res.status(failure.status).json({ error: failure.error });
     }
   });
 
@@ -4337,7 +4344,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
       res.json({ success: true, channel: spyChan, message: `ChanSpy iniciado no ramal ${supervisorExt}.` });
     } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
+      const failure = telephonyFailure(err);
+      res.status(failure.status).json({ error: failure.error });
     }
   });
 
@@ -5306,13 +5314,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   }
 
-  // Global Error Handler to always return JSON (no HTML stack traces)
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Unhandled Server Error:', err);
-    if (res.headersSent) return next(err);
-    const status = err.type === 'entity.too.large' ? 413 : err.type === 'entity.parse.failed' ? 400 : 500;
-    res.status(status).json({ error: status === 500 ? 'Erro interno do servidor.' : 'Corpo da requisição inválido ou acima do limite.' });
-  });
+  // A resposta e o registro de falhas inesperadas omitem o conteúdo recebido.
+  app.use(unexpectedHttpError);
 
   const server = app.listen(PORT, HOST, () => {
     console.log(`[Enlace-PBX] Servidor rodando em http://${HOST}:${PORT}`);
