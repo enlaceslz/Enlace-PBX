@@ -36,7 +36,7 @@ class PostgresClient {
   };
 
   constructor() {
-    this.initPool();
+    if (process.env.PBX_DATABASE_MIGRATION_MODE !== '1') this.initPool();
   }
 
   private initPool() {

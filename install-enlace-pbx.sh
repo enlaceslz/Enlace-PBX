@@ -148,6 +148,7 @@ chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
 # Configuração usa os mesmos segredos do serviço, sem valores previsíveis.
 node "$SCRIPT_DIR/scripts/asterisk-settings.mjs"
 chown root:asterisk /etc/asterisk/manager.conf /etc/asterisk/ari.conf /etc/asterisk/http.conf /etc/asterisk/asterisk.conf
+if [[ -f /etc/asterisk/pjsip.conf ]]; then chown root:asterisk /etc/asterisk/pjsip.conf; fi
 chmod 640 /etc/asterisk/manager.conf /etc/asterisk/ari.conf /etc/asterisk/http.conf /etc/asterisk/asterisk.conf
 
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização

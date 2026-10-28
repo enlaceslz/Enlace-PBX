@@ -31,7 +31,7 @@ Os controles abaixo retornam HTTP 501, ou resultado de ferramenta `UNAVAILABLE`,
 - Escrita operacional de WireGuard/ZeroTier e failover; alterações de Fail2ban.
 - Validadores de SSL/WebRTC/PWA/WhatsApp que inferiam aprovação de configurações; push e geração VAPID incompleta.
 - Conexão/desconexão CRM sem handshake real; teste de webhook; teste de ferramenta IA com mock; extração de entidades fixa.
-- Backup JSON incompleto, restore parcial e rollback/quick setup sem transação global. Utilizar backup PostgreSQL e arquivos de telefonia com restauração ensaiada.
+- Backup/restore JSON legado e rollback/quick setup sem transação global continuam indisponíveis. O fluxo novo entrega cópia integral criptografada e recuperação em banco separado; ver OPERACAO_PRODUCAO.md.
 - Ferramenta MaIA de abertura de ticket sem persistência e consulta de faturas sem autorização do cliente individual.
 - Resposta automática de IA no webhook WhatsApp: removida do processamento síncrono. Mensagens entram na fila humana; automação requer worker durável e tratamento de falhas.
 
@@ -50,7 +50,7 @@ Leitura de configuração não comprova estado do host. Valores demonstrativos a
 ## Procedimento de homologação
 
 1. Preparar host isolado e backup restaurável; instalar dependências com `npm ci` e executar as validações acima. Não usar a base de clientes para testes de integração.
-2. Configurar segredos fortes conforme `.env.example`. Não versionar `.env`. O usuário HTTP deve ser dedicado e sem acesso root; o instalador histórico ainda usa PM2 como root e exige revisão operacional antes da liberação.
+2. Configurar segredos fortes conforme `.env.example`. Não versionar `.env`. O usuário HTTP agora é dedicado (`enlace-pbx`) e o instalador usa systemd com código somente para leitura. A instalação real no host ainda exige homologação.
 3. Em sessão administrativa separada, fornecer `DATABASE_MIGRATION_URL` apenas a `npm run db:migrate`. A credencial precisa criar papéis e aplicar o histórico existente. O banco esperado pelas migrações históricas é `enlace_pbx`. Conflitos de e-mail ou checksums ausentes/diferentes exigem revisão; não alterar migrações históricas para contornar o erro.
 4. Remover a URL administrativa do ambiente do serviço. Iniciar com `NODE_ENV=production`, `DATABASE_URL` da role `enlace_app`, `HOST=127.0.0.1` e CORS explícito. O processo HTTP não aplica DDL. Guardar as chaves criptográficas no backup seguro.
 5. Configurar proxy HTTPS, AMI/ARI restritos, certificados e RTP. `/health/live` é liveness; `/health/ready` exige PostgreSQL e, em produção, Asterisk e AMI. A configuração Vercel entregue publica o frontend; não provisiona PBX ou backend persistente.
@@ -58,7 +58,7 @@ Leitura de configuração não comprova estado do host. Valores demonstrativos a
 
 ## Bloqueios restantes para liberação
 
-- Homologar em host real: instalação limpa e atualização, reinício, migrações, permissões do processo, TLS, storage, logs, alarmes e restauração completa. Preservação/quoting de segredos e privilégios do instalador precisam ser validados com senhas contendo caracteres especiais.
+- Homologar em host real: instalação limpa e atualização, reinício, migrações, permissões do processo, TLS, storage, logs, alarmes e restauração completa. Preservação de segredos especiais passou em teste de round-trip JSON; os privilégios e certificados devem ser confirmados no host real.
 - Ensaiar chamadas internas e externas, DIDs, rotas, filas, transferências, gravação, DTMF, NAT, WSS, DTLS-SRTP e áudio nos dois sentidos; simular falha de operadora e reconexão.
 - Validar Meta e modelos Gemini/9router com credenciais de homologação. Modelos codificados no código não foram homologados contra as APIs externas.
 - Reimplementar e homologar as funções indisponíveis antes de anunciar o escopo completo de 27 módulos.
@@ -67,3 +67,14 @@ Leitura de configuração não comprova estado do host. Valores demonstrativos a
 - Revisar o RBAC funcional de todas as telas com cada perfil e o fluxo de migração da configuração WhatsApp legada. A auditoria aqui não é um pentest exaustivo.
 
 Nenhum merge, deploy ou modificação do servidor de produção foi executado por esta auditoria.
+
+## Continuação — instalação, AMI e recuperação
+
+- Serviço systemd sem root, releases de código somente para leitura e configuração JSON com credenciais administrativas separadas. Scripts NPM executados sem root.
+- Instalador Asterisk sem credenciais previsíveis, sem sobrescrever amostras em uma instalação existente e com checksum explicitamente fornecido. Configuração preserva outras contas.
+- AMI corrigido: correlação de ActionID, mensagens fragmentadas, lista completa e rejeição de erros/injeção de cabeçalhos; recarga PJSIP recusada restaura a configuração anterior.
+- Backup integral AES-256-GCM: snapshot PostgreSQL, configuração com chaves, Asterisk e gravações. Recuperação só para banco/diretório novos, com validação criptográfica, extração restrita e comparação de registros.
+- Inventário e download de backups reais; tela sem histórico ou nuvem fictícios. Geração e recuperação completas são operacionais no servidor, não pela antiga rota JSON.
+- O ensaio no CI detectou incompatibilidade de cliente PostgreSQL mais novo com servidor de origem; o programa agora seleciona e exige cliente da mesma versão principal. Consultar o CI do commit final para o resultado da recuperação.
+
+Essas alterações não substituem a homologação de chamadas, mídia e serviços no host de destino. Não houve acesso a um servidor de produção nem execução do instalador nesse servidor.

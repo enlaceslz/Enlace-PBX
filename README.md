@@ -132,114 +132,27 @@ O **Enlace-PBX Enterprise** foi desenvolvido e homologado para servidores físic
 
 ---
 
-### 🚀 Método 1: Deploy Automatizado com `deploy.sh` (Recomendado)
+### Instalação e operação
 
-O instalador interativo realiza toda a preparação da máquina do zero:
-1. Instala utilitários, NGINX, Certbot e Node.js 20 LTS.
-2. Detecta automaticamente o endereço IPv4 público e solicita o domínio FQDN.
-3. Compila a aplicação frontend e backend (`npm run build`).
-4. Compila opcionalmente o Asterisk 20 LTS puro com PJSIP, Opus, WebRTC e AudioSocket.
-5. Configura o proxy reverso NGINX com cabeçalhos WebSocket e gera o certificado SSL Let's Encrypt.
-6. Habilita as regras estritas no Firewall UFW sem bloquear a sessão SSH ativa.
-7. Registra o serviço no PM2 garantindo inicialização automática no boot do sistema.
+Consulte [Operação e recuperação](OPERACAO_PRODUCAO.md) para o fluxo com systemd, usuário sem root, preservação de segredos, migrações administrativas e ensaio de backup/restore. O relatório [Auditoria de produção](AUDITORIA_PRODUCAO.md) registra o escopo efetivamente validado e as pendências.
 
 ```bash
-# 1. Acesse o servidor Linux via SSH como root
-ssh root@seu-servidor-ip
-
-# 2. Clone o repositório para o diretório padrão
-git clone https://github.com/enlace-telecom/enlace-pbx.git /opt/enlace-pbx
-cd /opt/enlace-pbx
-
-# 3. Conceda permissão e execute o instalador
-chmod +x deploy.sh install-enlace-pbx.sh
-sudo ./deploy.sh
+git clone https://github.com/enlaceslz/Enlace-PBX.git
+cd Enlace-PBX
+sudo bash deploy.sh
 ```
 
----
+O host deve ter Node.js 22 ou 24 e certificado TLS provisionado. O instalador falha quando a prontidão do PBX não é comprovada. A migração de PM2 para systemd exige janela de manutenção e a opção `MIGRATE_FROM_PM2=1`.
 
-### 🛠️ Método 2: Deploy Passo a Passo Manual
-
-#### 1. Instalar Pacotes Base e Node.js 20
-```bash
-apt-get update -y && apt-get install -y curl git build-essential ufw nginx certbot python3-certbot-nginx
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install -y nodejs
-npm install -g pm2
-```
-
-#### 2. Compilar o Asterisk 20 LTS
-```bash
-chmod +x install-enlace-pbx.sh
-./install-enlace-pbx.sh
-```
-
-#### 3. Configurar Variáveis de Ambiente e Compilar o Enlace-PBX
-```bash
-cp .env.example .env
-nano .env # Preencha GEMINI_API_KEY, PBX_DOMAIN e PBX_PUBLIC_IP
-npm install --legacy-peer-deps
-npm run build
-```
-
-#### 4. Configurar o NGINX
-Crie `/etc/nginx/sites-available/enlace-pbx`:
-```nginx
-server {
-    listen 80;
-    server_name pbx.suaempresa.com.br;
-    client_max_body_size 50M;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /ws {
-        proxy_pass http://127.0.0.1:8089/ws;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-}
-```
-Ative o site e emita o certificado SSL:
-```bash
-ln -sf /etc/nginx/sites-available/enlace-pbx /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
-certbot --nginx -d pbx.suaempresa.com.br --redirect
-```
-
-#### 5. Inicializar o Serviço com PM2
-```bash
-pm2 start dist/server.cjs --name "enlace-pbx"
-pm2 save
-pm2 startup
-```
-
----
-
-## 📋 Comandos Operacionais Frequentes
+### Comandos operacionais
 
 | Ação | Comando |
-| :--- | :--- |
-| **Ver logs da aplicação** | `pm2 logs enlace-pbx` |
-| **Reiniciar o PBX Web** | `pm2 restart enlace-pbx` |
-| **Acessar o terminal do Asterisk** | `asterisk -rvvvv` |
-| **Recarregar Dialplan** | `asterisk -rx "dialplan reload"` |
-| **Recarregar PJSIP** | `asterisk -rx "pjsip reload"` |
-| **Ver status do Firewall** | `ufw status verbose` |
-| **Testar renovação do SSL** | `certbot renew --dry-run` |
-
----
+| --- | --- |
+| Estado do serviço | `systemctl status enlace-pbx` |
+| Logs | `journalctl -u enlace-pbx` |
+| Reiniciar aplicação | `systemctl restart enlace-pbx` |
+| Prontidão | `curl --fail http://127.0.0.1:3000/health/ready` |
+| Backup integral | `node scripts/disaster-recovery.mjs create` |
 
 ## 🛠️ Ambiente de Desenvolvimento Local
 

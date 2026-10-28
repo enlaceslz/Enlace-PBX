@@ -34,6 +34,7 @@ export function productionSettings(existing = {}, legacy = {}, inputs = {}) {
   delete values.ADMIN_INITIAL_PASSWORD;
   delete values.PBX_CONFIG_FILE;
   delete values.NODE_OPTIONS;
+  delete values.PBX_DATABASE_MIGRATION_MODE;
   return values;
 }
 

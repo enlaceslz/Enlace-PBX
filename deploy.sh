@@ -55,6 +55,20 @@ export PBX_LEGACY_ENV="$SOURCE_DIR/.env"
 "$NODE_BIN" scripts/configure-production.mjs /etc/enlace-pbx/runtime.json "$BOOTSTRAP"
 chown root:enlace-pbx /etc/enlace-pbx/runtime.json
 DOMAIN=$("$NODE_BIN" -p "JSON.parse(require('fs').readFileSync('/etc/enlace-pbx/runtime.json','utf8')).PBX_DOMAIN")
+if [[ "${INSTALL_ASTERISK:-0}" == 1 ]]; then
+  PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json bash install-enlace-pbx.sh
+fi
+if getent passwd asterisk >/dev/null && [[ -d /etc/asterisk ]]; then
+  usermod -aG asterisk enlace-pbx
+  chmod 0751 /var/lib/enlace-pbx
+  chown enlace-pbx:asterisk /var/lib/enlace-pbx/asterisk
+  if [[ ! -f /var/lib/enlace-pbx/asterisk/pjsip.conf ]]; then
+    install -m 0640 -o enlace-pbx -g asterisk /dev/null /var/lib/enlace-pbx/asterisk/pjsip.conf
+  fi
+  PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" scripts/asterisk-settings.mjs
+  chown root:asterisk /etc/asterisk/{manager,ari,http,asterisk,pjsip}.conf
+  asterisk -rx "manager reload"
+fi
 # TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.
 [[ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" && -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]] || {
   echo "Provisione o certificado de $DOMAIN e repita o deploy. O serviço anterior não foi substituído." >&2; exit 1;
@@ -115,8 +129,13 @@ ln -sfn /etc/nginx/sites-available/enlace-pbx /etc/nginx/sites-enabled/enlace-pb
 nginx -t
 # Não remove outros sites, não altera o firewall nem interrompe outro processo PM2.
 if command -v pm2 >/dev/null && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '[1-9][0-9]*'; then
-  echo 'Há uma instância legada PM2 ativa. Faça a migração para systemd em janela de manutenção; ela não foi interrompida.' >&2
-  exit 1
+  if [[ "${MIGRATE_FROM_PM2:-0}" != 1 ]]; then
+    echo 'Há uma instância legada PM2 ativa. Use MIGRATE_FROM_PM2=1 em janela de manutenção para migrar o serviço.' >&2
+    exit 1
+  fi
+  pm2 stop enlace-pbx
+  pm2 delete enlace-pbx
+  pm2 save
 fi
 ln -sfn "$RELEASE" /opt/enlace-pbx/current.next
 mv -Tf /opt/enlace-pbx/current.next /opt/enlace-pbx/current

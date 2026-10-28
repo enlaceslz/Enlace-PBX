@@ -28,6 +28,17 @@ function postgresEnvironment(url, database) {
     PGPASSWORD: decodeURIComponent(value.password), PGDATABASE: database || decodeURIComponent(value.pathname.slice(1)),
     PGSSLMODE: value.searchParams.get('sslmode') || process.env.PGSSLMODE || 'prefer' };
 }
+async function postgresTool(name, major) {
+  if (!Number.isInteger(major) || major < 10 || major > 99) throw new Error('Versão PostgreSQL inválida no manifesto.');
+  const candidate = path.join(process.env.PBX_POSTGRES_BIN || `/usr/lib/postgresql/${major}/bin`, name);
+  let binary = candidate;
+  try { await fs.access(binary); } catch { binary = name; }
+  const { stdout } = await execute(binary, ['--version']);
+  if (Number(stdout.match(/PostgreSQL\) (\d+)/)?.[1]) !== major) {
+    throw new Error(`Instale os clientes PostgreSQL ${major} ou defina PBX_POSTGRES_BIN. Não serão geradas cópias com cliente incompatível.`);
+  }
+  return binary;
+}
 async function assertFullAccess(client) {
   const result = await client.query('SELECT rolsuper OR rolbypassrls AS allowed FROM pg_roles WHERE rolname=current_user');
   if (!result.rows[0]?.allowed) throw new Error('Backup/recuperação integral exige role administrativa separada com acesso completo a RLS.');
@@ -45,16 +56,26 @@ export async function createBackup({ url, keyFile, directory, configuration, ast
   await fs.chmod(stage, 0o700);
   const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 5000 });
   let temporary;
+  let transaction = false;
   try {
     await client.connect();
     await assertFullAccess(client);
+    const postgresMajor = Math.floor(Number((await client.query('SHOW server_version_num')).rows[0].server_version_num) / 10000);
+    const pgDump = await postgresTool('pg_dump', postgresMajor);
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    transaction = true;
     const snapshot = (await client.query('SELECT pg_export_snapshot() AS id')).rows[0].id;
     const tableCounts = await counts(client);
     const dump = path.join(stage, 'database.dump');
-    await execute('pg_dump', ['--format=custom', '--no-owner', '--no-privileges', '--snapshot', snapshot, '--file', dump],
+    await execute(pgDump, ['--format=custom', '--no-owner', '--no-privileges', '--snapshot', snapshot, '--file', dump],
       { env: postgresEnvironment(url), timeout: 3600000 });
     await client.query('COMMIT');
+    transaction = false;
+    for (const source of [asterisk, recordings]) {
+      const root = path.resolve(source);
+      const contains = candidate => candidate === root || candidate.startsWith(root + path.sep);
+      if (root === path.parse(root).root || contains(path.resolve(directory)) || contains(stage)) throw new Error('Origem de backup contém o destino ou o diretório temporário.');
+    }
     const config = JSON.parse(await fs.readFile(configuration, 'utf8'));
     if (!config.ENCRYPTION_KEY || !config.JWT_SECRET) throw new Error('Configuração sem chaves necessárias para recuperação.');
     await fs.mkdir(path.join(stage, 'configuration'));
@@ -66,7 +87,7 @@ export async function createBackup({ url, keyFile, directory, configuration, ast
         return true;
       } });
     }
-    const manifest = { format: 1, createdAt: new Date().toISOString(), tableCounts,
+    const manifest = { format: 1, postgresMajor, createdAt: new Date().toISOString(), tableCounts,
       databaseSha256: await hashFile(dump), databaseConsistency: 'snapshot', filesConsistency: 'copy',
       scope: ['postgresql', 'runtime-configuration', 'asterisk-configuration', 'recordings'] };
     await fs.writeFile(path.join(stage, 'manifest.json'), JSON.stringify(manifest));
@@ -89,7 +110,7 @@ export async function createBackup({ url, keyFile, directory, configuration, ast
     await fs.writeFile(destination + '.json', JSON.stringify(metadata, null, 2) + '\n', { mode: 0o640, flag: 'wx' });
     return { file: destination, metadata };
   } finally {
-    await client.query('ROLLBACK').catch(() => {});
+    if (transaction) await client.query('ROLLBACK').catch(() => {});
     await client.end().catch(() => {});
     if (temporary) await fs.rm(temporary, { force: true });
     await fs.rm(stage, { recursive: true, force: true });
@@ -118,12 +139,15 @@ export async function restoreBackup({ url, keyFile, file, destination, database 
     await execute('python3', [new URL('../ops/extract-backup.py', import.meta.url).pathname, archive, destination]);
     const manifest = JSON.parse(await fs.readFile(path.join(destination, 'manifest.json'), 'utf8'));
     if (manifest.format !== 1 || await hashFile(path.join(destination, 'database.dump')) !== manifest.databaseSha256) throw new Error('Integridade do dump inválida.');
+    const pgRestore = await postgresTool('pg_restore', manifest.postgresMajor);
     await admin.connect();
     await assertFullAccess(admin);
+    const targetMajor = Math.floor(Number((await admin.query('SHOW server_version_num')).rows[0].server_version_num) / 10000);
+    if (targetMajor < manifest.postgresMajor) throw new Error('Servidor de recuperação mais antigo que a origem.');
     if ((await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [database])).rowCount) throw new Error('Banco de recuperação já existe; nenhuma alteração foi realizada nele.');
     await admin.query(`CREATE DATABASE ${identifier(database)}`);
     databaseCreated = true;
-    await execute('pg_restore', ['--exit-on-error', '--single-transaction', '--no-owner', '--no-privileges', '--dbname', database, path.join(destination, 'database.dump')],
+    await execute(pgRestore, ['--exit-on-error', '--single-transaction', '--no-owner', '--no-privileges', '--dbname', database, path.join(destination, 'database.dump')],
       { env: postgresEnvironment(url, database), timeout: 3600000 });
     const restoredUrl = new URL(url); restoredUrl.pathname = '/' + database;
     recovered = new pg.Client({ connectionString: restoredUrl.toString() });

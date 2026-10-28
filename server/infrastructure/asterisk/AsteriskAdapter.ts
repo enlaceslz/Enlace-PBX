@@ -430,6 +430,19 @@ export class AsteriskAdapter {
 
     // Execução do pjsip reload real
     const reloadRes = await this.reloadPjsip();
+    if (!reloadRes.success) {
+      if (fs.existsSync(backupFile)) {
+        const rollbackFile = path.join(baseDir, `rollback-${crypto.randomUUID()}.tmp`);
+        fs.copyFileSync(backupFile, rollbackFile);
+        fs.renameSync(rollbackFile, targetFile);
+        const rollbackReload = await this.reloadPjsip();
+        return { success: false, backupPath: backupFile, message: rollbackReload.success
+          ? 'A configuração foi recusada; a versão anterior foi restaurada e recarregada.'
+          : 'A configuração foi recusada e o arquivo anterior foi restaurado; verifique a recarga manualmente.' };
+      }
+      fs.rmSync(targetFile, { force: true });
+      return { success: false, message: 'A configuração foi recusada e o arquivo novo foi removido.' };
+    }
 
     return {
       success: reloadRes.success,
