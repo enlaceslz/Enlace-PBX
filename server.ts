@@ -1,3 +1,5 @@
+import { WebhookRepository } from './server/infrastructure/postgres/repositories/WebhookRepository.js';
+import { validateWebhook, prepareWebhookTest } from './server/infrastructure/integrations/OutboundWebhook.js';
 import { executeAiToolHttp, validateToolDefinition } from './server/maia/integrations/AiToolHttpExecution.js';
 import { OutboundHttpError } from './server/infrastructure/security/OutboundHttp.js';
 import { assertSingleLineConfig, safeTrunkPayload } from './server/infrastructure/asterisk/configValidation.js';
@@ -269,7 +271,7 @@ async function startServer() {
     '/api/v1/system/logs', '/api/v1/system/backup', '/api/v1/system/restore',
     '/api/v1/system/snapshots', '/api/v1/system/quick-setup',
     '/api/v1/asterisk/configs', '/api/v1/asterisk/cli', '/api/v1/asterisk/reload',
-    '/api/v1/asterisk/install-script', '/api/v1/webhooks', '/api/v1/crm/providers',
+    '/api/v1/asterisk/install-script', '/api/v1/crm/providers',
   ], (req, res, next) => {
     if (req.path.toLowerCase().replace(/\/$/, '') === '/whatsapp' && ['GET', 'HEAD', 'POST'].includes(req.method)) return next();
     return requireRole('super_admin')(req as any, res, next);
@@ -4758,30 +4760,68 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Webhooks & Audit Logs & Users
   // -------------------------------------------------------------------------
-  app.get('/api/v1/webhooks', async (req, res) => {
-    const hooks = await SystemRepository.getWebhooks();
-    res.json(hooks);
+  app.get('/api/v1/webhooks', requireRole('super_admin', 'admin'), async (req, res) => {
+    res.json(await WebhookRepository.list(getAuthorizedTenantId(req)));
   });
-  app.post('/api/v1/webhooks/test', requireAuth, requireTenant, requireRole('super_admin', 'admin'), (req, res) => {
-    let tenantId: string;
+  app.post('/api/v1/webhooks', requireRole('super_admin', 'admin'), async (req, res) => {
     try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      tenantId = 'UNKNOWN';
+      const input = validateWebhook({ ...req.body, enabled: req.body.enabled ?? false });
+      const tenantId = getAuthorizedTenantId(req);
+      await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+        action: 'WEBHOOK_CREATE_ATTEMPT', resource: 'webhooks', category: 'SYSTEM', strict: true, details: 'Tentativa de cadastro de webhook de teste.' });
+      res.status(201).json(await WebhookRepository.create(tenantId, input));
+    } catch (error) {
+      if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message });
+      throw error;
     }
-    res.json({
-      event: req.body.event || 'call.started',
-      deliveredAt: new Date().toISOString(),
-      httpStatus: 200,
-      responseTimeMs: 142,
-      payload: {
-        tenant_id: tenantId,
-        call_id: 'call-test-9981',
-        caller: '4101',
-        callee: '08007702020',
-        timestamp: Math.floor(Date.now() / 1000),
-      },
-    });
+  });
+  app.put('/api/v1/webhooks/:id', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    const hook = await WebhookRepository.find(tenantId, req.params.id);
+    if (!hook) return res.status(404).json({ error: 'Webhook não encontrado.' });
+    try {
+      const input = validateWebhook({ ...hook, ...req.body });
+      await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+        action: 'WEBHOOK_UPDATE_ATTEMPT', resource: `webhooks/${hook.id}`, category: 'SYSTEM', strict: true, details: 'Tentativa de atualização de webhook de teste.' });
+      res.json(await WebhookRepository.update(tenantId, hook.id, input));
+    } catch (error) {
+      if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message });
+      throw error;
+    }
+  });
+  app.get('/api/v1/webhooks/:id/deliveries', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    if (!await WebhookRepository.find(tenantId, req.params.id)) return res.status(404).json({ error: 'Webhook não encontrado.' });
+    res.json(await WebhookRepository.deliveries(tenantId, req.params.id));
+  });
+  const webhookTestLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Limite de testes de webhook atingido. Aguarde um minuto.' } });
+  app.post('/api/v1/webhooks/test', requireRole('super_admin', 'admin'), webhookTestLimiter, async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    if (typeof req.body.webhookId !== 'string') return res.status(400).json({ error: 'Informe o ID de um webhook cadastrado.' });
+    const hook = await WebhookRepository.find(tenantId, req.body.webhookId);
+    if (!hook) return res.status(404).json({ error: 'Webhook não encontrado.' });
+    let attempt: ReturnType<typeof prepareWebhookTest>;
+    try { attempt = prepareWebhookTest(hook); }
+    catch (error) { if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message }); throw error; }
+    await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+      action: 'WEBHOOK_HTTP_ATTEMPT', resource: `webhooks/${hook.id}`, category: 'SYSTEM', strict: true,
+      details: 'Tentativa de entrega HTTP de evento explícito de teste.', payload: { deliveryId: attempt.id } });
+    await WebhookRepository.begin(tenantId, hook.id, attempt.id);
+    let response: Awaited<ReturnType<typeof attempt.send>>;
+    try { response = await attempt.send(); }
+    catch (error) {
+      await WebhookRepository.finish(tenantId, attempt.id, 'UNKNOWN', error instanceof OutboundHttpError ? error.upstreamStatus : undefined, undefined,
+        error instanceof OutboundHttpError ? error.message : 'Entrega não confirmada.');
+      return res.status(502).json({ deliveryId: attempt.id, outcome: 'UNKNOWN', error: 'Entrega não confirmada. Consulte o destino antes de repetir.' });
+    }
+    try {
+      const delivery = await WebhookRepository.finish(tenantId, attempt.id, 'ACKNOWLEDGED', response.status, response.durationMs);
+      if (!delivery) throw new Error();
+      res.json({ deliveryId: attempt.id, status: 'ACKNOWLEDGED', httpStatus: response.status, durationMs: response.durationMs });
+    } catch {
+      res.status(503).json({ deliveryId: attempt.id, outcome: 'UNKNOWN', error: 'Destino respondeu, mas não foi possível confirmar o histórico. Consulte o destino antes de repetir.' });
+    }
   });
 
   app.get('/api/v1/audit-logs', requireRole('super_admin', 'admin', 'supervisor', 'readonly'), async (req, res) => {

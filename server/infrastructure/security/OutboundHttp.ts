@@ -4,7 +4,7 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 
 export class OutboundHttpError extends Error {
-  constructor(message: string, public statusCode: number = 502) { super(message); }
+  constructor(message: string, public statusCode: number = 502, public upstreamStatus?: number) { super(message); }
 }
 type Address = { address: string; family: number };
 export interface OutboundPolicy {
@@ -64,6 +64,7 @@ export interface OutboundRequest {
   headers?: Record<string, string>;
   timeoutMs?: number;
   maxResponseBytes?: number;
+  responseMode?: 'json' | 'discard';
   policy?: OutboundPolicy;
 }
 
@@ -97,7 +98,7 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
       const status = response.statusCode || 502;
       if (status < 200 || status >= 300) {
         response.destroy(); request.destroy();
-        return finish(new OutboundHttpError(status >= 300 && status < 400 ? 'Redirecionamento de integração recusado.' : `Destino retornou HTTP ${status}.`));
+        return finish(new OutboundHttpError(status >= 300 && status < 400 ? 'Redirecionamento de integração recusado.' : `Destino retornou HTTP ${status}.`, 502, status));
       }
       let bytes = 0; const blocks: Buffer[] = [];
       response.on('data', (block: Buffer) => {
@@ -109,7 +110,7 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
       response.on('end', () => {
         const text = Buffer.concat(blocks).toString('utf8');
         let data: unknown = null;
-        if (text) { try { data = JSON.parse(text); } catch { return finish(new OutboundHttpError('Destino não retornou JSON válido.')); } }
+        if (text && options.responseMode !== 'discard') { try { data = JSON.parse(text); } catch { return finish(new OutboundHttpError('Destino não retornou JSON válido.')); } }
         finish(undefined, { status, data, durationMs: Date.now() - start });
       });
     });

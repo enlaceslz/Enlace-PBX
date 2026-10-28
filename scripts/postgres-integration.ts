@@ -5,6 +5,7 @@ import pg from 'pg';
 import jwt from 'jsonwebtoken';
 import net from 'node:net';
 import http from 'node:http';
+import { WebhookRepository } from '../server/infrastructure/postgres/repositories/WebhookRepository.js';
 import { AiToolRepository } from '../server/infrastructure/postgres/repositories/AiToolRepository.js';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -80,9 +81,26 @@ try {
   await new Promise<void>(resolve => reservation.close(() => resolve()));
   let externalHits = 0;
   const externalErrors: string[] = [];
+  let webhookReject = false;
+  let webhookHits = 0;
+  const webhookSecret = crypto.randomBytes(32).toString('hex');
   const external = http.createServer(async (req, res) => {
     externalHits++;
     try {
+      if (req.url === '/webhook') {
+        webhookHits++;
+        const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+        const raw = Buffer.concat(chunks);
+        assert.equal(req.headers['x-enlace-signature-256'], 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(raw).digest('hex'));
+        const event = JSON.parse(raw.toString());
+        assert.equal(event.event, 'enlace.webhook.test'); assert.equal(event.tenantId, tenantA);
+        assert.deepEqual(event.data, { test: true }); assert.equal(raw.includes(webhookSecret), false);
+        const audit = await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='WEBHOOK_HTTP_ATTEMPT' AND payload->>'deliveryId'=$2", [tenantA, event.id]);
+        assert.equal(audit.rows.length, 1);
+        const pending = await admin.query('SELECT status FROM webhook_deliveries WHERE tenant_id=$1 AND id=$2', [tenantA, event.id]);
+        assert.equal(pending.rows[0].status, 'PENDING');
+        res.writeHead(webhookReject ? 503 : 202); res.end('Aceito sem JSON'); return;
+      }
       assert.equal(req.headers.authorization, 'Bearer segredo-da-integracao');
       const rows = await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='AI_TOOL_HTTP_ATTEMPT' AND payload->>'executionId'=$2", [tenantA, req.headers['x-enlace-request-id']]);
       assert.equal(rows.rows.length, 1, 'Auditoria deve estar persistida antes do envio externo.');
@@ -98,9 +116,13 @@ try {
   await AiToolRepository.saveTool(tenantA, { id: toolId, tenantId: tenantA, name: 'Teste HTTP', description: 'Integração descartável',
     endpoint: origin + '/acao', method: 'POST', requiresConfirmation: true,
     schemaJson: { type: 'object', properties: { documento: { type: 'string' } }, required: ['documento'] }, mockResponse: { ficticio: true } });
+  const hook = await WebhookRepository.create(tenantA, { name: 'Webhook de teste', endpoint: origin + '/webhook', enabled: true });
+  assert.equal((await WebhookRepository.list(tenantB)).length, 0);
+  assert.equal(await WebhookRepository.find(tenantB, hook.id), undefined);
   const child = spawn(process.execPath, ['dist/server.cjs'], {
     env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
       OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
+      WEBHOOK_BINDINGS_JSON: JSON.stringify([{ tenantId: tenantA, webhookId: hook.id, endpoint: origin + '/webhook', signingSecret: webhookSecret }]),
       AI_TOOL_BINDINGS_JSON: JSON.stringify([{ tenantId: tenantA, toolId, endpoint: origin + '/acao', method: 'POST', bearerToken: 'segredo-da-integracao' }]) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -160,6 +182,31 @@ try {
     assert.equal(externalHits, 1);
     const auditText = JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action='AI_TOOL_HTTP_ATTEMPT'", [tenantA])).rows);
     assert.equal(auditText.includes('documento'), false); assert.equal(auditText.includes('segredo-da-integracao'), false);
+    const webhookPath = base + '/api/v1/webhooks';
+    const sendHook = (requestHeaders = testHeaders) => fetch(webhookPath + '/test', { method: 'POST', headers: requestHeaders, body: JSON.stringify({ webhookId: hook.id, endpoint: 'http://destino-nao-autorizado.invalid', event: 'call.started' }) });
+    const deliveryResponse = await sendHook(); assert.equal(deliveryResponse.status, 200);
+    const delivery = await deliveryResponse.json(); assert.equal(delivery.httpStatus, 202); assert.equal(delivery.status, 'ACKNOWLEDGED');
+    assert.equal(webhookHits, 1); assert.deepEqual(externalErrors, []);
+    const history = await (await fetch(webhookPath + `/${hook.id}/deliveries`, { headers: testHeaders })).json();
+    assert.equal(history[0].status, 'ACKNOWLEDGED'); assert.equal(history[0].http_status, 202);
+    const listedHooks = await (await fetch(webhookPath, { headers: testHeaders })).json();
+    assert.equal(JSON.stringify(listedHooks).includes(webhookSecret), false);
+    assert.equal(listedHooks[0].id, hook.id);
+    await admin.query("UPDATE users SET role='admin' WHERE id=$1", [`user-b-${id}`]);
+    const otherHeaders = { ...testHeaders, Authorization: `Bearer ${operatorToken}` };
+    assert.equal((await sendHook(otherHeaders)).status, 404);
+    assert.equal((await fetch(webhookPath + `/${hook.id}/deliveries`, { headers: otherHeaders })).status, 404);
+    assert.equal((await WebhookRepository.deliveries(tenantB, hook.id)).length, 0);
+    await admin.query("UPDATE users SET role='operator' WHERE id=$1", [`user-b-${id}`]);
+    webhookReject = true;
+    const failedResponse = await sendHook(); assert.equal(failedResponse.status, 502);
+    const failed = await failedResponse.json(); assert.equal(failed.outcome, 'UNKNOWN');
+    const failedHistory = await WebhookRepository.deliveries(tenantA, hook.id);
+    assert.equal(failedHistory[0].status, 'UNKNOWN'); assert.equal(failedHistory[0].http_status, 503);
+    assert.equal(webhookHits, 2);
+    await WebhookRepository.update(tenantA, hook.id, { name: hook.name, endpoint: origin + '/webhook', enabled: false });
+    assert.equal((await sendHook()).status, 409); assert.equal(webhookHits, 2);
+    console.log('Webhooks de produção: assinatura dos bytes, auditoria anterior, histórico real e isolamento aprovados.');
     console.log('Ferramenta HTTP em produção: execução real, auditoria anterior, confirmação, schema, vínculo e isolamento aprovados.');
     console.log('HTTP de produção: login bcrypt, perfil, RBAC, isolamento, arquivos públicos e readiness aprovados.');
   } finally {
@@ -174,6 +221,8 @@ try {
   }
   console.log('PostgreSQL real: migrações, RLS, identidade, privilégios mínimos e idempotência aprovados.');
 } finally {
+  await admin.query('DELETE FROM webhook_deliveries WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
+  await admin.query('DELETE FROM outbound_webhooks WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM ai_tools WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM trunks WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM support_tickets WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});

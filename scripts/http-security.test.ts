@@ -23,6 +23,7 @@ test('operações simuladas e recuperação incompleta ficam indisponíveis em p
   assert.equal(isUnavailableProductionOperation('GET', '/network/wireguard'), false);
   assert.equal(isUnavailableProductionOperation('POST', '/network/nodes/wireguard/node-1/ping'), false);
   assert.equal(isUnavailableProductionOperation('POST', '/extensions'), false);
+  assert.equal(isUnavailableProductionOperation('POST', '/webhooks/test'), false);
   assert.equal(isUnavailableProductionOperation('POST', '/ai/tools/tool-1/test'), false);
 });
 

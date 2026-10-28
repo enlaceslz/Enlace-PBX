@@ -129,3 +129,21 @@ O schema raiz deve ter `type: object`. Suportam-se `properties`, `required`, obj
 Ferramentas marcadas com `requiresConfirmation` exigem confirmação explícita em cada tentativa. Há limite de dez testes por minuto por IP. A auditoria de tentativa, sem parâmetros, token ou resposta, deve estar persistida antes do envio. Cada tentativa leva `X-Enlace-Request-Id`; isso não garante idempotência no sistema externo. Não há retry automático. Uma falha de rede ou resposta inválida após POST pode ocorrer depois da alteração externa: conferir o destino antes de repetir.
 
 Este fluxo é um teste administrativo HTTP. Não ativa execução autônoma dessas ferramentas nas chamadas do agente MaIA. A homologação do contrato de cada ERP/CRM, das permissões do token e das operações que alteram dados continua obrigatória.
+
+## Webhooks assinados de teste
+
+A migração 012 cria `outbound_webhooks` e `webhook_deliveries`, com RLS forçada por empresa. Administradores da empresa cadastram nome/URL no CRM e habilitam o destino para testes. O cadastro não dispara eventos automáticos nem sincroniza um CRM. A listagem global antiga de `system_settings.webhooks` não é migrada automaticamente: revisar e recadastrar cada destino na empresa correta.
+
+Para permitir o envio, autorizar a origem em `OUTBOUND_ALLOWED_ORIGINS` (e, apenas para serviço interno explicitamente autorizado, em `OUTBOUND_PRIVATE_ORIGINS`) e configurar o vínculo administrativo:
+
+```dotenv
+WEBHOOK_BINDINGS_JSON='[{"tenantId":"empresa-exemplo","webhookId":"ID-DO-CADASTRO","endpoint":"https://destino.example.invalid/webhook","signingSecret":"SEGREDO-ALEATORIO-COM-PELO-MENOS-32-CARACTERES"}]'
+```
+
+No `runtime.json`, a variável também é uma string contendo o array serializado. O segredo permanece apenas no arquivo protegido de configuração do serviço, nunca na URL, no banco de cadastro ou nas respostas de listagem. Vínculo ausente, duplicado, de outra empresa ou com URL divergente bloqueia o envio. Reiniciar o serviço após alterar a configuração. Desabilitar um destino impede novos testes; não desfaz uma tentativa já iniciada.
+
+`POST /api/v1/webhooks/test` aceita `webhookId` e carrega a URL do banco. O corpo entregue contém `id`, `event: enlace.webhook.test`, `tenantId`, `webhookId`, `timestamp` ISO e `data: {test: true}`. Não há chamada, cliente ou CDR fictícios. O ID também vai em `X-Enlace-Request-Id`. `X-Enlace-Signature-256` contém `sha256=` seguido do HMAC-SHA256 hexadecimal dos **bytes originais** do corpo JSON, usando `signingSecret`. O receptor deve comparar a assinatura em tempo constante, impor janela de tempo ao `timestamp` e deduplicar `id` para prevenir replays; esta aplicação não controla essas verificações no receptor.
+
+A auditoria e o registro `PENDING` precisam estar persistidos antes de qualquer envio. Somente um HTTP 2xx observado e confirmado no banco produz `ACKNOWLEDGED`. Resposta textual ou vazia é aceita; o conteúdo da resposta é descartado. Falha de comunicação, resposta não 2xx ou ausência de confirmação final não prova que o destino deixou de processar: conferir antes de repetir. Estados `UNKNOWN` e `PENDING` não geram retries automáticos. HTTP 2xx confirma recebimento HTTP, sem atestar processamento de negócio. Há timeout de cinco segundos, limites de corpo/resposta, recusa de redirects e limite de dez testes por minuto por IP.
+
+O histórico em `GET /api/v1/webhooks/:id/deliveries` retorna as últimas 25 tentativas da empresa, com estado, HTTP observado quando disponível e duração medida. Não persiste segredo, corpo entregue ou resposta externa. Ainda falta implementar fila/outbox e contratos de eventos automáticos de produção; esta versão entrega cadastro e teste manual assinados.
