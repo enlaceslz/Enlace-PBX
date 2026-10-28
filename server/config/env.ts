@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './loadEnvironment.js';
 import crypto from 'crypto';
 import fs from 'fs';
 

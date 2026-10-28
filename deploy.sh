@@ -1,445 +1,137 @@
 #!/usr/bin/env bash
-# ====================================================================
-# Enlace-PBX Enterprise — Script Oficial de Deploy e Produção
-# Telefonia Inteligente. Simples, aberta e brasileira.
-# Desenvolvido para Debian 11/12 e Ubuntu 20.04/22.04/24.04 LTS
-# ====================================================================
-
-set -e
+# Instalação e atualização do Enlace-PBX com processo sem privilégios de root.
+set -euo pipefail
 umask 077
 
-# Cores para terminal
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
+[[ $EUID -eq 0 ]] || { echo 'Execute como root para provisionar o serviço.' >&2; exit 1; }
+SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+NODE_BIN=$(command -v node) || { echo 'Instale Node.js 22 ou 24 antes de continuar.' >&2; exit 1; }
+[[ "$NODE_BIN" =~ ^/[a-zA-Z0-9_./-]+$ ]] || { echo 'Caminho do Node inválido.' >&2; exit 1; }
+NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
+[[ "$NODE_MAJOR" == 22 || "$NODE_MAJOR" == 24 ]] || { echo 'Este instalador exige Node.js 22 ou 24.' >&2; exit 1; }
+command -v systemctl >/dev/null || { echo 'Host com systemd obrigatório.' >&2; exit 1; }
 
-clear 2>/dev/null || true
-echo -e "${BLUE}${BOLD}====================================================================${NC}"
-echo -e "${CYAN}${BOLD}     🐙  Enlace-PBX Enterprise — Deploy Automatizado Linux  🐙    ${NC}"
-echo -e "${CYAN}       Telefonia Asterisk 20 LTS + IA Gemini + NGINX SSL WSS        ${NC}"
-echo -e "${CYAN}               Mascote Oficial & Identidade Enlace Telecom          ${NC}"
-echo -e "${BLUE}${BOLD}====================================================================${NC}"
-echo ""
-
-# 1. Checagem de privilégios ROOT
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}❌ ERRO: Este script deve ser executado com privilégios de superusuário (root).${NC}"
-  echo -e "${YELLOW}👉 Por favor, execute: sudo ./deploy.sh${NC}"
-  exit 1
-fi
-echo -e "${GREEN}✅ Privilégios de ROOT validados.${NC}"
-
-# 2. Identificação do Sistema Operacional
-if [ -f /etc/os-release ]; then
-  . /etc/os-release
-  OS_NAME=$NAME
-  OS_VER=$VERSION_ID
-  echo -e "${CYAN}ℹ️  Sistema detectado: ${OS_NAME} (versão ${OS_VER})${NC}"
-else
-  echo -e "${YELLOW}⚠️ Não foi possível identificar a distribuição Linux com precisão. Prosseguindo em modo Debian-compatível...${NC}"
-fi
-
-# 3. Atualização e Instalação de Pacotes Essenciais
-echo -e "\n${BOLD}[1/9] Atualizando repositórios e instalando dependências base...${NC}"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y curl wget git build-essential ufw nginx certbot python3-certbot-nginx \
-  jq openssl net-tools ca-certificates fail2ban wireguard-tools sngrep tcpdump \
-  postgresql postgresql-contrib
+apt-get update -q
+apt-get install -y --no-install-recommends nginx curl ca-certificates rsync build-essential postgresql-client postgresql openssl python3
+getent group enlace-pbx >/dev/null || groupadd --system enlace-pbx
+id enlace-pbx >/dev/null 2>&1 || useradd --system --gid enlace-pbx --home-dir /var/lib/enlace-pbx --shell /usr/sbin/nologin enlace-pbx
+install -d -m 0755 -o root -g root /opt/enlace-pbx /opt/enlace-pbx/releases
+install -d -m 0750 -o root -g enlace-pbx /etc/enlace-pbx
+install -d -m 2750 -o root -g enlace-pbx /var/backups/enlace-pbx
+install -d -m 0750 -o enlace-pbx -g enlace-pbx /var/lib/enlace-pbx /var/log/enlace-pbx /var/lib/enlace-pbx/asterisk
 
-# Garantir criação de diretórios de mídia, gravações e snapshots do Enlace-PBX
-mkdir -p /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
-chmod 775 /var/spool/asterisk/recording /var/backups/enlace-pbx /var/log/enlace-pbx
-
-# 4. Instalação e Validação do Node.js 20 LTS
-echo -e "\n${BOLD}[2/9] Verificando runtime Node.js 20 LTS...${NC}"
-NODE_OK=false
-if command -v node >/dev/null 2>&1; then
-  NODE_MAJOR=$(node -v | cut -d'.' -f1 | tr -d 'v')
-  if [ "$NODE_MAJOR" -ge 20 ]; then
-    NODE_OK=true
-    echo -e "${GREEN}✅ Node.js já instalado e compatível: $(node -v)${NC}"
-  fi
+# O Asterisk lê somente o diretório gerenciado, sem acesso à configuração secreta do serviço.
+if getent group asterisk >/dev/null; then
+  usermod -aG asterisk enlace-pbx
+  chmod 0751 /var/lib/enlace-pbx
+  chgrp asterisk /var/lib/enlace-pbx/asterisk
 fi
 
-if [ "$NODE_OK" = false ]; then
-  echo -e "${YELLOW}⚙️ Instalando Node.js 20.x LTS via NodeSource...${NC}"
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y nodejs
-  echo -e "${GREEN}✅ Node.js instalado com sucesso: $(node -v) (NPM $(npm -v))${NC}"
-fi
+# A instalação anterior continua atendendo enquanto a nova versão é compilada.
+RELEASE="/opt/enlace-pbx/releases/$(date -u +%Y%m%dT%H%M%S)-$(openssl rand -hex 4)"
+install -d -m 0755 -o enlace-pbx -g enlace-pbx "$RELEASE"
+rsync -a --exclude=.git --exclude=node_modules --exclude=dist --exclude='.env*' "$SOURCE_DIR/" "$RELEASE/"
+chown -R enlace-pbx:enlace-pbx "$RELEASE"
+cd "$RELEASE"
+# Dependências e scripts de build nunca são executados como root.
+runuser -u enlace-pbx -- env -i PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" NODE_ENV=test npm ci --no-fund
+runuser -u enlace-pbx -- env -i PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" NODE_ENV=test npm run lint
+runuser -u enlace-pbx -- env -i PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" NODE_ENV=test npm run test:security
+runuser -u enlace-pbx -- env -i PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" NODE_ENV=test npm run build
+# O usuário de serviço pode ler o programa, mas não modificá-lo.
+chown -R root:root "$RELEASE"
+chmod -R a+rX,u+w,go-w "$RELEASE"
 
-# 5. Instalação do PM2 (Process Manager)
-echo -e "\n${BOLD}[3/9] Verificando gerenciador de processos PM2...${NC}"
-if ! command -v pm2 >/dev/null 2>&1; then
-  echo -e "${YELLOW}⚙️ Instalando PM2 globalmente via NPM...${NC}"
-  npm install -g pm2
-  echo -e "${GREEN}✅ PM2 instalado com sucesso.${NC}"
+BOOTSTRAP=$(mktemp /run/enlace-pbx-bootstrap.XXXXXX)
+trap 'rm -f -- "$BOOTSTRAP"' EXIT
+if [[ ! -f /etc/enlace-pbx/runtime.json && ! -f "$SOURCE_DIR/.env" ]]; then
+  if [[ -z "${PBX_DOMAIN:-}" ]]; then read -r -p 'Domínio HTTPS do PBX: ' PBX_DOMAIN; fi
+  if [[ -z "${ADMIN_INITIAL_EMAIL:-}" ]]; then read -r -p 'E-mail do primeiro administrador: ' ADMIN_INITIAL_EMAIL; fi
+  if [[ -z "${ADMIN_INITIAL_PASSWORD:-}" ]]; then read -r -s -p 'Senha do primeiro administrador (mínimo 12 caracteres): ' ADMIN_INITIAL_PASSWORD; echo; fi
+  export PBX_DOMAIN ADMIN_INITIAL_EMAIL ADMIN_INITIAL_PASSWORD
+fi
+export PBX_LEGACY_ENV="$SOURCE_DIR/.env"
+"$NODE_BIN" scripts/configure-production.mjs /etc/enlace-pbx/runtime.json "$BOOTSTRAP"
+chown root:enlace-pbx /etc/enlace-pbx/runtime.json
+DOMAIN=$("$NODE_BIN" -p "JSON.parse(require('fs').readFileSync('/etc/enlace-pbx/runtime.json','utf8')).PBX_DOMAIN")
+# TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.
+[[ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" && -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]] || {
+  echo "Provisione o certificado de $DOMAIN e repita o deploy. O serviço anterior não foi substituído." >&2; exit 1;
+}
+LOCAL_DATABASE=$("$NODE_BIN" -p "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); const u=new URL(c.DATABASE_URL); ['127.0.0.1','localhost'].includes(u.hostname) && !process.env.DATABASE_MIGRATION_URL" "$BOOTSTRAP")
+if [[ "$LOCAL_DATABASE" == true ]]; then
+  chown postgres:postgres "$BOOTSTRAP"
+  runuser -u postgres -- env PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" scripts/provision-database.mjs
+  runuser -u postgres -- env PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" --import tsx scripts/migrate.ts
 else
-  echo -e "${GREEN}✅ PM2 já instalado: $(pm2 -v)${NC}"
+  [[ -n "${DATABASE_MIGRATION_URL:-}" ]] || { echo 'Defina DATABASE_MIGRATION_URL para migrar o PostgreSQL externo.' >&2; exit 1; }
+  PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" --import tsx scripts/migrate.ts
+fi
+rm -f -- "$BOOTSTRAP"
+unset DATABASE_MIGRATION_URL ADMIN_INITIAL_PASSWORD
+
+# Backup usa chave independente. Ela deve ser guardada fora do servidor e dos arquivos de backup.
+if [[ ! -f /etc/enlace-pbx/backup.key ]]; then
+  openssl rand -hex 32 > /etc/enlace-pbx/backup.key
+  chmod 0400 /etc/enlace-pbx/backup.key
 fi
 
-# 6. Parâmetros de Configuração de Rede, Host e Ambiente
-echo -e "\n${BOLD}[4/9] Configuração de Rede, Domínio e Integrações${NC}"
-echo -e "${CYAN}Detectando endereço IP público (WAN)...${NC}"
-DETECTED_WAN=$(curl -s --connect-timeout 4 https://api.ipify.org || curl -s --connect-timeout 4 https://ifconfig.me || echo "NOT_CONFIGURED")
-echo -e "IP Público detectado: ${GREEN}${BOLD}${DETECTED_WAN}${NC}"
-
-read -p "Confirma o IP Público para sinalização SIP e RTP [${DETECTED_WAN}]: " CONF_WAN
-PUBLIC_IP="${CONF_WAN:-$DETECTED_WAN}"
-
-read -p "Informe o Domínio/FQDN do PBX (ex: pbx.suaempresa.com.br) [pbx.enlacetelecom.com.br]: " CONF_DOMAIN
-DOMAIN="${CONF_DOMAIN:-pbx.enlacetelecom.com.br}"
-
-read -p "Informe a Sub-rede LAN local para NAT Traversal [192.168.1.0/24]: " CONF_LAN
-LAN_SUBNET="${CONF_LAN:-192.168.1.0/24}"
-
-read -p "Informe o E-mail do Administrador Inicial [noc@enlacetelecom.com.br]: " CONF_EMAIL
-ADMIN_EMAIL="${CONF_EMAIL:-noc@enlacetelecom.com.br}"
-
-# Senha inicial segura do Super Admin
-read -s -p "Informe a Senha Inicial do Super Admin (deixe em branco para gerar aleatória): " CONF_ADMIN_PASS
-echo ""
-if [ -z "$CONF_ADMIN_PASS" ]; then
-  ADMIN_INITIAL_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=')
-  echo -e "${YELLOW}🔑 Senha inicial de Super Admin gerada com segurança:${NC} ${GREEN}${BOLD}${ADMIN_INITIAL_PASSWORD}${NC}"
-  echo -e "${YELLOW}⚠️ Anote esta senha! Ela será necessária para o primeiro login e não será exibida novamente.${NC}"
-else
-  ADMIN_INITIAL_PASSWORD="$CONF_ADMIN_PASS"
-fi
-
-# Chave JWT forte (256 bits)
-EXISTING_JWT=""
-if [ -f .env ]; then
-  EXISTING_JWT=$(grep "^JWT_SECRET=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-fi
-if [ -n "$EXISTING_JWT" ]; then
-  JWT_SECRET="$EXISTING_JWT"
-else
-  JWT_SECRET=$(openssl rand -hex 32)
-fi
-
-# Token seguro do Webhook do WhatsApp (nunca usar padrão previsível)
-EXISTING_WHATSAPP=""
-if [ -f .env ]; then
-  EXISTING_WHATSAPP=$(grep "^WHATSAPP_VERIFY_TOKEN=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-fi
-if [ -n "$EXISTING_WHATSAPP" ] && [ "$EXISTING_WHATSAPP" != "enlace_meta_webhook_token_2026" ]; then
-  WHATSAPP_VERIFY_TOKEN="$EXISTING_WHATSAPP"
-else
-  WHATSAPP_VERIFY_TOKEN=$(openssl rand -hex 24)
-fi
-
-# Criptografia simétrica AES-256-GCM para segredos SIP e dados confidenciais
-EXISTING_ENC=""
-if [ -f .env ]; then
-  EXISTING_ENC=$(grep "^ENCRYPTION_KEY=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-fi
-if [ -n "$EXISTING_ENC" ] && [ ${#EXISTING_ENC} -ge 32 ]; then
-  ENCRYPTION_KEY="$EXISTING_ENC"
-  echo -e "${GREEN}Chave ENCRYPTION_KEY existente preservada.${NC}"
-else
-  ENCRYPTION_KEY=$(openssl rand -hex 32)
-  echo -e "${YELLOW}🔑 Nova chave ENCRYPTION_KEY (AES-256-GCM 256 bits) gerada com segurança.${NC}"
-fi
-
-# Credenciais AMI e ARI (Preservar se já existirem no .env)
-EXISTING_AMI_PASS=""
-EXISTING_ARI_PASS=""
-EXISTING_AMI_USER=""
-EXISTING_ARI_USER=""
-if [ -f .env ]; then
-  EXISTING_AMI_PASS=$(grep -E "^(ASTERISK_AMI_PASSWORD|ASTERISK_AMI_PASS)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-  EXISTING_ARI_PASS=$(grep -E "^(ASTERISK_ARI_PASSWORD|ASTERISK_ARI_PASS)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-  EXISTING_AMI_USER=$(grep -E "^(ASTERISK_AMI_USER|ASTERISK_AMI_USERNAME)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-  EXISTING_ARI_USER=$(grep -E "^(ASTERISK_ARI_USER|ASTERISK_ARI_USERNAME)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-fi
-AMI_PASSWORD="${EXISTING_AMI_PASS:-$(openssl rand -hex 16)}"
-ARI_PASSWORD="${EXISTING_ARI_PASS:-$(openssl rand -hex 16)}"
-AMI_USER="${EXISTING_AMI_USER:-enlace_ami}"
-ARI_USER="${EXISTING_ARI_USER:-enlace_ari}"
-
-# Banco de dados PostgreSQL (Usuário exclusivo operacional enlace_app com privilégios mínimos)
-EXISTING_DB=""
-if [ -f .env ]; then
-  EXISTING_DB=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-fi
-
-DB_APP_PASSWORD=$(openssl rand -hex 16)
-DEFAULT_DB_URL="postgresql://enlace_app:${DB_APP_PASSWORD}@127.0.0.1:5432/enlace_pbx"
-
-if [ -n "$EXISTING_DB" ]; then
-  DATABASE_URL="$EXISTING_DB"
-  echo -e "${GREEN}DATABASE_URL existente preservada do .env.${NC}"
-else
-  echo -e "\n${BOLD}Configuração do Banco de Dados PostgreSQL:${NC}"
-  echo -e "${CYAN}Em produção, o uso do superusuário 'postgres' é bloqueado por segurança (fail-closed).${NC}"
-  echo -e "${CYAN}O Enlace-PBX utiliza o usuário restrito operacional 'enlace_app' com privilégios mínimos.${NC}"
-  read -p "Informe a URL de conexão PostgreSQL (DATABASE_URL) [${DEFAULT_DB_URL}]: " CONF_DB
-  DATABASE_URL="${CONF_DB:-$DEFAULT_DB_URL}"
-fi
-
-# Se o PostgreSQL local estiver ativo, provisionar database enlace_pbx e usuário enlace_app se não existirem
-if command -v psql >/dev/null 2>&1 && systemctl is-active --quiet postgresql 2>/dev/null; then
-  echo -e "${CYAN}Provisionando/validando banco local 'enlace_pbx' e usuário restrito 'enlace_app'...${NC}"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'enlace_pbx'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE enlace_pbx;"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
-  sudo -u postgres psql -d enlace_pbx -c "GRANT CONNECT ON DATABASE enlace_pbx TO enlace_app; GRANT USAGE ON SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO enlace_app; REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true
-  echo -e "${GREEN}✅ Banco PostgreSQL e role 'enlace_app' verificados.${NC}"
-fi
-
-CURRENT_GEMINI=""
-if [ -f .env ]; then
-  CURRENT_GEMINI=$(grep "^GEMINI_API_KEY=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
-fi
-
-if [ -z "$CURRENT_GEMINI" ]; then
-  read -p "Chave de API Google Gemini (para agentes cognitivos MaIA - Enter para pular): " CONF_GEMINI
-  GEMINI_KEY="${CONF_GEMINI}"
-else
-  echo -e "${GREEN}Chave GEMINI_API_KEY já configurada no .env.${NC}"
-  GEMINI_KEY="$CURRENT_GEMINI"
-fi
-
-# Atualizar ou criar o .env com permissões restritas
-echo -e "\n${BOLD}[5/9] Escrevendo configurações de ambiente (.env)...${NC}"
-if [ ! -f .env.example ]; then
-  touch .env.example
-fi
-
-if [ -f .env ]; then cp .env .env.pre-deploy; fi
-cat <<EOF > .env
-# ====================================================================
-# Enlace-PBX Enterprise — Configuração de Produção
-# Gerado automaticamente pelo deploy.sh em $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-# ====================================================================
-NODE_ENV=production
-PORT=3000
-HOST=127.0.0.1
-TRUSTED_PROXIES=loopback
-
-# Segurança e Autenticação Corporativa (Segredos de 256 bits)
-JWT_SECRET=${JWT_SECRET}
-CORS_ALLOWED_ORIGINS=https://${DOMAIN},http://127.0.0.1:3000
-
-# Criptografia Bidirecional AES-256-GCM de Segredos SIP e Credenciais
-ENCRYPTION_KEY=${ENCRYPTION_KEY}
-
-# Bootstrap Administrativo Obrigatório (Primeiro Acesso)
-ADMIN_INITIAL_EMAIL=${ADMIN_EMAIL}
-ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD}
-
-# Persistência de Dados Relacional (PostgreSQL)
-DATABASE_URL=${DATABASE_URL}
-
-# Infraestrutura de Telefonia e Rede
-PBX_DOMAIN=${DOMAIN}
-PBX_PUBLIC_IP=${PUBLIC_IP}
-PBX_LAN_SUBNET=${LAN_SUBNET}
-ADMIN_EMAIL=${ADMIN_EMAIL}
-
-# Asterisk AMI (Asterisk Manager Interface)
-ASTERISK_HOST=127.0.0.1
-ASTERISK_AMI_HOST=127.0.0.1
-ASTERISK_AMI_PORT=5038
-ASTERISK_AMI_USER=${AMI_USER}
-ASTERISK_AMI_USERNAME=${AMI_USER}
-ASTERISK_AMI_PASSWORD=${AMI_PASSWORD}
-
-# Asterisk ARI (Asterisk REST Interface)
-ASTERISK_ARI_URL=http://127.0.0.1:8088
-ASTERISK_ARI_USER=${ARI_USER}
-ASTERISK_ARI_USERNAME=${ARI_USER}
-ASTERISK_ARI_PASSWORD=${ARI_PASSWORD}
-
-# Inteligência Artificial (Google Gemini)
-GEMINI_API_KEY=${GEMINI_KEY}
-
-# Segurança e Webhooks Omnichannel
-WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
-EOF
-if [ -f .env.pre-deploy ]; then
-  while IFS= read -r linha || [ -n "$linha" ]; do
-    if [[ "$linha" =~ ^([A-Za-z_][A-Za-z0-9_]*)= ]]; then
-      chave="${BASH_REMATCH[1]}"
-      if ! grep -q "^${chave}=" .env; then
-        printf '%s\n' "$linha" >> .env
-      fi
-    fi
-  done < .env.pre-deploy
-fi
-chmod 600 .env
-echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
-
-# 7. Instalação das dependências e compilação do Enlace-PBX
-echo -e "\n${BOLD}[6/9] Instalando dependências NPM e compilando produção...${NC}"
-npm ci
-npm run lint
-npm run test:security
-npm run build
-# Garantir sincronização de logos e assets visuais
-if [ -d public ]; then
-  cp -r public/* dist/client/ 2>/dev/null || true
-fi
-echo -e "${GREEN}✅ Frontend e Backend compilados em dist/server.cjs e dist/client/!${NC}"
-echo -e "${GREEN}✅ Identidade visual e logos oficiais verificados em dist/client/.${NC}"
-
-# DDL não pode ser executado pelo usuário restrito enlace_app no processo HTTP.
-if [[ "$DATABASE_URL" == *"@127.0.0.1:5432/enlace_pbx" ]] && command -v runuser >/dev/null 2>&1; then
-  runuser -u postgres -- env NODE_ENV=production JWT_SECRET="$JWT_SECRET" \
-    ENCRYPTION_KEY="$ENCRYPTION_KEY" CORS_ALLOWED_ORIGINS="https://${DOMAIN}" \
-    ADMIN_INITIAL_EMAIL="$ADMIN_EMAIL" ADMIN_INITIAL_PASSWORD="$ADMIN_INITIAL_PASSWORD" \
-    DATABASE_MIGRATION_URL="postgresql:///enlace_pbx?host=/var/run/postgresql" \
-    node --import tsx scripts/migrate.ts
-else
-  if [ -z "${DATABASE_MIGRATION_URL:-}" ]; then
-    read -s -p "URL administrativa do PostgreSQL para migrações (não será salva no serviço): " DATABASE_MIGRATION_URL
-    echo ""
-  fi
-  DATABASE_MIGRATION_URL="$DATABASE_MIGRATION_URL" npm run db:migrate
-fi
-unset DATABASE_MIGRATION_URL
-
-# 8. Compilação e Instalação Opcional do Asterisk 20 LTS
-echo -e "\n${BOLD}[7/9] Núcleo de Telefonia Asterisk 20 LTS${NC}"
-read -p "Deseja compilar e instalar o Asterisk 20 LTS (PJSIP + WebRTC + Opus + AudioSocket) agora? (s/N): " INSTALL_AST
-if [[ "$INSTALL_AST" =~ ^[Ss]$ ]]; then
-  echo -e "${CYAN}🚀 Iniciando script de compilação do Asterisk 20 LTS...${NC}"
-  chmod +x install-enlace-pbx.sh
-  ./install-enlace-pbx.sh
-  echo -e "${GREEN}✅ Asterisk 20 LTS instalado e serviço habilitado!${NC}"
-else
-  echo -e "${YELLOW}ℹ️  Compilação do Asterisk ignorada. Caso já esteja instalado, mantenha o serviço ativo.${NC}"
-fi
-
-# 9. Configuração do NGINX Reverse Proxy e SSL Let's Encrypt
-echo -e "\n${BOLD}[8/9] Configuração do NGINX Reverse Proxy & Certificado SSL${NC}"
-read -p "Deseja configurar o NGINX com suporte a WebSockets e SSL para '${DOMAIN}'? (S/n): " CONF_NGINX
-if [[ ! "$CONF_NGINX" =~ ^[Nn]$ ]]; then
-  echo -e "${CYAN}⚙️ Gerando configuração do NGINX para ${DOMAIN}...${NC}"
-  
-  cat <<NGINX_CONF > "/etc/nginx/sites-available/enlace-pbx"
-# ====================================================================
-# Enlace-PBX — NGINX Reverse Proxy com Suporte WebRTC WSS e WebSockets
-# Domínio: ${DOMAIN}
-# ====================================================================
-
+cat > /etc/nginx/sites-available/enlace-pbx <<NGINX
 server {
     listen 80;
-    listen [::]:80;
-    server_name ${DOMAIN};
-
-    # Limite para gravação de chamadas e arquivos do CRM
-    client_max_body_size 50M;
-
-    # Encaminhamento para a aplicação Node.js (Enlace-PBX)
+    server_name $DOMAIN;
+    return 301 https://\$host\$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name $DOMAIN;
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 1m;
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-
-        proxy_read_timeout 86400s;
-        proxy_send_timeout 86400s;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
     }
-
-    # Proxy para sinalização WebRTC WSS do Asterisk (porta 8089)
-    location /ws {
-        proxy_pass https://127.0.0.1:8089/ws;
+    # TLS termina no NGINX; WS/ARI do Asterisk permanece restrito ao loopback.
+    location = /ws {
+        proxy_pass http://127.0.0.1:8088/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_read_timeout 86400s;
+        proxy_read_timeout 3600s;
     }
 }
-NGINX_CONF
-
-  # Habilitar o site
-  ln -sf /etc/nginx/sites-available/enlace-pbx /etc/nginx/sites-enabled/enlace-pbx
-  rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-
-  if nginx -t >/dev/null 2>&1; then
-    systemctl reload nginx
-    echo -e "${GREEN}✅ NGINX configurado e recarregado com sucesso.${NC}"
-    
-    # Tentativa de emissão do SSL com Certbot se o domínio resolver
-    read -p "Deseja emitir certificado SSL Let's Encrypt para '${DOMAIN}' agora? (s/N): " RUN_CERTBOT
-    if [[ "$RUN_CERTBOT" =~ ^[Ss]$ ]]; then
-      echo -e "${CYAN}🔐 Solicitando certificado SSL Let's Encrypt...${NC}"
-      certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos -m "${ADMIN_EMAIL}" --redirect || {
-        echo -e "${YELLOW}⚠️ Não foi possível emitir o certificado automaticamente via Certbot.${NC}"
-        echo -e "${YELLOW}Certifique-se de que o apontamento DNS tipo A de '${DOMAIN}' esteja direcionado para '${PUBLIC_IP}'.${NC}"
-        echo -e "${YELLOW}Você pode executar manualmente depois: certbot --nginx -d ${DOMAIN}${NC}"
-      }
-    fi
-  else
-    echo -e "${RED}❌ Erro no arquivo de configuração do NGINX. Verifique com: nginx -t${NC}"
-  fi
+NGINX
+ln -sfn /etc/nginx/sites-available/enlace-pbx /etc/nginx/sites-enabled/enlace-pbx
+nginx -t
+# Não remove outros sites, não altera o firewall nem interrompe outro processo PM2.
+if command -v pm2 >/dev/null && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '[1-9][0-9]*'; then
+  echo 'Há uma instância legada PM2 ativa. Faça a migração para systemd em janela de manutenção; ela não foi interrompida.' >&2
+  exit 1
 fi
-
-# 10. Firewall UFW (Segurança e Portas de Telefonia)
-echo -e "\n${BOLD}[9/9] Configuração do Firewall (UFW)${NC}"
-read -p "Deseja configurar as regras recomendadas no Firewall UFW? (S/n): " CONF_UFW
-if [[ ! "$CONF_UFW" =~ ^[Nn]$ ]]; then
-  echo -e "${CYAN}🛡️ Aplicando regras de firewall...${NC}"
-  ufw allow 22/tcp comment "SSH Remote Access"
-  ufw allow 80/tcp comment "HTTP Let's Encrypt"
-  ufw allow 443/tcp comment "HTTPS Webphone/PWA/WhatsApp"
-  ufw allow 5060/udp comment "Asterisk SIP UDP"
-  ufw allow 5061/tcp comment "Asterisk SIP TLS"
-  ufw allow 8089/tcp comment "Asterisk WebRTC WSS"
-  ufw allow 10000:20000/udp comment "Asterisk RTP Audio Media"
-  ufw allow 51820/udp comment "WireGuard VPN"
-  
-  # Habilitar sem travar SSH
-  echo "y" | ufw enable || true
-  echo -e "${GREEN}✅ Regras do UFW aplicadas e firewall ativado com segurança.${NC}"
+ln -sfn "$RELEASE" /opt/enlace-pbx/current.next
+mv -Tf /opt/enlace-pbx/current.next /opt/enlace-pbx/current
+sed "s|/usr/bin/node|$NODE_BIN|g" ops/enlace-pbx.service > /etc/systemd/system/enlace-pbx.service
+systemctl daemon-reload
+systemctl enable enlace-pbx.service
+systemctl restart enlace-pbx.service
+systemctl reload nginx
+READY=false
+for attempt in $(seq 1 20); do
+  if curl --max-time 4 --silent --fail http://127.0.0.1:3000/health/ready >/dev/null; then READY=true; break; fi
+  sleep 1
+done
+if [[ "$READY" != true ]]; then
+  echo 'Prontidão não aprovada: consulte journalctl -u enlace-pbx. Deploy não homologado.' >&2
+  exit 1
 fi
-
-# 11. Inicialização do Enlace-PBX com PM2
-echo -e "\n${CYAN}🚀 Iniciando o serviço Enlace-PBX com PM2...${NC}"
-pm2 stop enlace-pbx 2>/dev/null || true
-pm2 delete enlace-pbx 2>/dev/null || true
-pm2 start dist/server.cjs --name "enlace-pbx"
-pm2 save
-pm2 startup systemd -u root --hp /root 2>/dev/null || pm2 startup 2>/dev/null || true
-
-# 12. Teste de Saúde (Smoke Test)
-sleep 2
-echo -e "\n${CYAN}🔍 Executando teste de integridade local...${NC}"
-if curl -s -f http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
-  HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
-else
-  HEALTH_STATUS="${YELLOW}INICIANDO (Aguarde alguns segundos)${NC}"
-fi
-
-# 13. Resumo Final
-echo ""
-echo -e "${GREEN}${BOLD}====================================================================${NC}"
-echo -e "${GREEN}${BOLD}       🎉 DEPLOY DO ENLACE-PBX CONCLUÍDO COM SUCESSO! 🎉       ${NC}"
-echo -e "${GREEN}${BOLD}====================================================================${NC}"
-echo -e "Status da Aplicação: ${HEALTH_STATUS}"
-echo ""
-echo -e "${BOLD}🌐 URLs de Acesso:${NC}"
-echo -e "  • Painel Web / PWA:    ${CYAN}https://${DOMAIN}${NC} (ou ${CYAN}http://${PUBLIC_IP}:3000${NC})"
-echo -e "  • Webphone WebRTC:     ${CYAN}https://${DOMAIN}#webphone${NC}"
-echo -e "  • Webhook WhatsApp:    ${CYAN}https://${DOMAIN}/api/v1/webhooks/whatsapp${NC}"
-echo -e "  • Health Check API:    ${CYAN}https://${DOMAIN}/api/v1/health${NC}"
-echo ""
-echo -e "${BOLD}📋 Comandos de Gerenciamento:${NC}"
-echo -e "  • Ver logs da aplicação:      ${YELLOW}pm2 logs enlace-pbx${NC}"
-echo -e "  • Reiniciar aplicação:        ${YELLOW}pm2 restart enlace-pbx${NC}"
-echo -e "  • Acessar CLI do Asterisk:    ${YELLOW}asterisk -rvvvv${NC}"
-echo -e "  • Recarregar NGINX:           ${YELLOW}systemctl reload nginx${NC}"
-echo -e "  • Renovar Certificados SSL:   ${YELLOW}certbot renew${NC}"
-echo -e "${GREEN}${BOLD}====================================================================${NC}"
+printf 'Versão instalada: %s\nServiço: enlace-pbx.service (usuário enlace-pbx)\nPainel: https://%s\n' "$RELEASE" "$DOMAIN"

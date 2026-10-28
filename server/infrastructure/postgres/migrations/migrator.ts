@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import '../../../config/loadEnvironment.js';
 import pg from 'pg';
 import fs from 'fs';
 import path from 'path';

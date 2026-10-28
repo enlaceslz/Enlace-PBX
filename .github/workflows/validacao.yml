@@ -49,3 +49,7 @@ jobs:
           NODE_ENV: production
           DATABASE_URL: postgresql://enlace_app:senha-app-descartavel-ci@127.0.0.1:5432/enlace_pbx
           PBX_INTEGRATION_DATABASE: descartavel
+      - name: Ensaiar backup criptografado e recuperação integral isolada
+        run: node scripts/recovery-integration.mjs
+        env:
+          PBX_INTEGRATION_DATABASE: descartavel

@@ -1,3 +1,4 @@
+import '../../config/loadEnvironment.js';
 import pg from 'pg';
 import { embeddedDatabaseEngine } from './embeddedEngine.js';
 import { TenantContext, toCanonicalTenantContext } from '../auth/tenantContext.js';

@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import { sendAmiAction } from './AmiClient.js';
 import { execFile } from 'child_process';
 import util from 'util';
 import net from 'net';
@@ -131,52 +133,7 @@ export class AsteriskAdapter {
    * Envia ação real via AMI (Asterisk Manager Interface).
    */
   public async executeAmiAction(action: string, params: Record<string, string> = {}): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const socket = new net.Socket();
-      let buffer = '';
-      let authenticated = false;
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        reject(new Error(`Timeout de comunicação com AMI em ${this.host}:${this.amiPort}`));
-      }, 5000);
-
-      socket.connect(this.amiPort, this.host, () => {
-        // Envia Login
-        socket.write(
-          `Action: Login\r\nUsername: ${this.amiUser}\r\nSecret: ${this.amiPass}\r\nEvents: off\r\n\r\n`
-        );
-      });
-
-      socket.on('data', (data) => {
-        buffer += data.toString();
-
-        if (!authenticated && buffer.includes('Response: Success')) {
-          authenticated = true;
-          buffer = '';
-          // Envia a Ação solicitada
-          let actionCmd = `Action: ${action}\r\n`;
-          for (const [k, v] of Object.entries(params)) {
-            actionCmd += `${k}: ${v}\r\n`;
-          }
-          actionCmd += '\r\n';
-          socket.write(actionCmd);
-        } else if (authenticated && (buffer.includes('\r\n\r\n') || buffer.includes('Response:'))) {
-          clearTimeout(timeout);
-          socket.write('Action: Logoff\r\n\r\n');
-          socket.end();
-          resolve(buffer);
-        } else if (buffer.includes('Response: Error')) {
-          clearTimeout(timeout);
-          socket.destroy();
-          reject(new Error(`Erro retornado pelo AMI: ${buffer.trim()}`));
-        }
-      });
-
-      socket.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    return sendAmiAction({ host: this.host, port: this.amiPort, username: this.amiUser, password: this.amiPass }, action, params);
   }
 
   /**
@@ -430,7 +387,10 @@ export class AsteriskAdapter {
     const path = await import('path');
 
     // Determina o diretório base: /etc/asterisk se com permissão de escrita, senão pasta local server/config/asterisk
-    let baseDir = '/etc/asterisk';
+    let baseDir = process.env.ASTERISK_CONFIG_DIR || '/etc/asterisk';
+    if (process.env.NODE_ENV === 'production' && !fs.existsSync(baseDir)) {
+      return { success: false, message: 'Diretório gerenciado do Asterisk não provisionado.' };
+    }
     try {
       if (!fs.existsSync(baseDir)) {
         baseDir = path.join(process.cwd(), 'server', 'config', 'asterisk');
@@ -458,7 +418,11 @@ export class AsteriskAdapter {
     }
 
     // Gravação atômica da nova configuração
-    fs.writeFileSync(targetFile, pjsipContent, 'utf8');
+    const temporary = path.join(baseDir, `pjsip-${crypto.randomUUID()}.tmp`);
+    try {
+      fs.writeFileSync(temporary, pjsipContent, { encoding: 'utf8', mode: 0o640, flag: 'wx' });
+      fs.renameSync(temporary, targetFile);
+    } finally { fs.rmSync(temporary, { force: true }); }
 
     // Execução do pjsip reload real
     const reloadRes = await this.reloadPjsip();

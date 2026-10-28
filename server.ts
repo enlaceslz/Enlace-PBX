@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import { listBackups, backupPath } from './server/infrastructure/security/BackupInventory.js';
+import './server/config/loadEnvironment.js';
 import 'express-async-errors';
 import express from 'express';
 import path from 'path';
@@ -2076,6 +2077,21 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Disaster Recovery & System Backup / Restore
   // -------------------------------------------------------------------------
+  app.get('/api/v1/system/backups', requireRole('super_admin'), async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await listBackups());
+  });
+  app.get('/api/v1/system/backups/:name/download', requireRole('super_admin'), async (req, res) => {
+    const inventory = await listBackups();
+    if (!inventory.some(backup => backup.name === req.params.name)) return res.status(404).json({ error: 'Backup não encontrado.' });
+    const actor = (req as any).user;
+    await AuditLogRepository.logStrict({ tenantId: actor.tenantId, userId: actor.id, userName: actor.name,
+      action: 'BACKUP_DOWNLOAD', category: 'LGPD_ACCESS', resource: `backups/${req.params.name}`,
+      ip: req.ip || '127.0.0.1', details: 'Download administrativo de cópia integral criptografada.' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.download(backupPath(req.params.name), req.params.name);
+  });
+
   app.get('/api/v1/system/backup', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       let tenantId: string;
