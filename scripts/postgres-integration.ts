@@ -1,3 +1,5 @@
+import { MaiaSessionRepository } from '../server/maia/repositories/MaiaSessionRepository.js';
+import { MaiaSessionEntity } from '../server/maia/core/MaiaSession.js';
 import { asteriskAdapter } from '../server/infrastructure/asterisk/AsteriskAdapter.js';
 import { AsteriskService } from '../server/asteriskService.js';
 import 'dotenv/config';
@@ -239,7 +241,15 @@ try {
     assert.equal((await previewRequest({userMessage:''})).status,400);
     assert.equal((await previewRequest({userMessage:'x'.repeat(8001)})).status,400);
     assert.equal((await previewRequest({userMessage:'Olá',sessionId:'inexistente'})).status,404);
-    await admin.query(`INSERT INTO ai_sessions(id,tenant_id,agent_id,asterisk_channel_id) VALUES ($1,$2,'agente-de-teste','PJSIP/871001-00000001'),($3,$4,'agente-de-teste',NULL)`,['phone-session-'+id,tenantA,'other-session-'+id,tenantB]);
+    const sessionAgentA='preview-agent-a-'+id;const sessionAgentB='preview-agent-b-'+id;
+    await admin.query("INSERT INTO ai_agents(id,tenant_id,name,system_instruction,initial_greeting) VALUES($1,$2,'Prévia A','Teste','Olá'),($3,$4,'Prévia B','Teste','Olá')",[sessionAgentA,tenantA,sessionAgentB,tenantB]);
+    await MaiaSessionRepository.createSession(new MaiaSessionEntity({id:'phone-session-'+id,tenantId:tenantA,agentId:sessionAgentA,asteriskChannelId:'PJSIP/871001-00000001',callerNumber:'Desconhecido'}).toJSON());
+    await MaiaSessionRepository.createSession(new MaiaSessionEntity({id:'other-session-'+id,tenantId:tenantB,agentId:sessionAgentB,callerNumber:'Desconhecido'}).toJSON());
+    const previewSession=new MaiaSessionEntity({id:'preview-session-'+id,tenantId:tenantA,agentId:sessionAgentA,callerNumber:'Desconhecido'}).toJSON();
+    await MaiaSessionRepository.createSession(previewSession);
+    assert.equal((await MaiaSessionRepository.findById(previewSession.id,tenantA))?.asteriskChannelId,undefined);
+    await assert.rejects(MaiaSessionRepository.createSession({...previewSession,id:'foreign-agent-session-'+id,agentId:sessionAgentB}));
+    await admin.query('DELETE FROM ai_sessions WHERE id=$1',[previewSession.id]);
     assert.equal((await previewRequest({userMessage:'Olá',sessionId:'phone-session-'+id})).status,409);
     assert.equal((await previewRequest({userMessage:'Olá',sessionId:'other-session-'+id})).status,404);
     await admin.query('DELETE FROM ai_sessions WHERE id=ANY($1::text[])',[['phone-session-'+id,'other-session-'+id]]);

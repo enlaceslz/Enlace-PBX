@@ -108,6 +108,17 @@ export class MaiaAIGateway {
       throw new Error('Violação de Isolamento: tenantId ausente ou inválido no contexto de voz da MaIA.');
     }
 
+    // 2. Localiza o Agente de IA configurado para este Tenant
+    let agent = params.agentId ? await AiAgentRepository.findById(params.agentId, tenantId) : null;
+    if (!agent) {
+      const tenantAgents = await AiAgentRepository.listByTenant(tenantId);
+      agent = tenantAgents[0] || null;
+    }
+
+    if (!agent) {
+      throw new Error(`Nenhum agente de IA ativo configurado para o tenant '${tenantId}'.`);
+    }
+
     // 1. Carrega ou cria a Sessão Persistente no PostgreSQL
     let session: MaiaSessionEntity;
     if (params.sessionId) {
@@ -118,7 +129,7 @@ export class MaiaAIGateway {
         session = new MaiaSessionEntity({
           id: params.sessionId,
           tenantId,
-          agentId: params.agentId || 'agent-maia-247',
+          agentId: agent.id,
           asteriskChannelId: params.asteriskChannelId,
           asteriskUniqueId: params.asteriskUniqueId,
           linkedId: params.linkedId,
@@ -130,7 +141,7 @@ export class MaiaAIGateway {
     } else {
       session = new MaiaSessionEntity({
         tenantId,
-        agentId: params.agentId || 'agent-maia-247',
+        agentId: agent.id,
         asteriskChannelId: params.asteriskChannelId,
         asteriskUniqueId: params.asteriskUniqueId,
         linkedId: params.linkedId,
@@ -150,18 +161,7 @@ export class MaiaAIGateway {
 
     session.transitionTo('processing');
 
-    // 2. Localiza o Agente de IA configurado para este Tenant
-    let agent = params.agentId ? await AiAgentRepository.findById(params.agentId, tenantId) : null;
-    if (!agent) {
-      const tenantAgents = await AiAgentRepository.listByTenant(tenantId);
-      agent = tenantAgents[0] || null;
-    }
 
-    if (!agent) {
-      session.transitionTo('failed');
-      await MaiaSessionRepository.updateSession(session.toJSON());
-      throw new Error(`Nenhum agente de IA ativo configurado para o tenant '${tenantId}'.`);
-    }
 
     const voiceConfig = MaiaPersona.resolveVoice(agent);
 
