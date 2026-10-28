@@ -97,3 +97,5 @@ Depois do ensaio, validar login, isolamento, gravações, permissões de arquivo
 A aplicação automática de configuração global é exclusiva de `super_admin`. Em produção, o gerador recusa ramais/troncos de múltiplas empresas no mesmo host até que os namespaces e contextos SIP sejam homologados. RLS de banco não constitui isolamento de mídia ou dialplan. Utilize uma instância de PBX por empresa nesse fluxo.
 
 Troncos com autenticação exigem recadastro da senha para preencher o campo cifrado introduzido na migração 011; o sistema anterior guardava apenas máscara. Campo de senha vazio em uma atualização preserva a credencial existente. A resposta da API não devolve a senha. Credenciais usadas na versão antiga precisam de rotação, pois o fluxo anterior podia gravá-las em auditoria.
+
+O plano de saída gerado aceita o plano nacional brasileiro e bloqueia DDI e prefixos premium por padrão, inclusive após remoção/adição de prefixo e na contingência. Rotas sem tronco real da empresa são recusadas. Homologue números nacionais, 0300/0800 e serviços de emergência com a operadora antes de habilitar tráfego.

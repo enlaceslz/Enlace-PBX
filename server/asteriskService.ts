@@ -1,3 +1,4 @@
+import { outboundGuardDialplan } from './infrastructure/asterisk/OutboundPolicy.js';
 import { assertSingleLineConfig } from './infrastructure/asterisk/configValidation.js';
 import { Extension, Trunk, Route } from '../src/types/pbx.js';
 import {
@@ -556,6 +557,12 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
     const queues = await QueueRepository.listByTenant(tenantId);
     const ivrs = await IvrRepository.listByTenant(tenantId);
     const dids = (await DidRepository.listByTenant(tenantId)).filter((d) => d.status === 'active');
+    const trunks = await TrunkRepository.listByTenant(tenantId);
+    assertSingleLineConfig({ extensions, routes, groups, queues, ivrs, dids, trunks });
+    const trunkIds = new Set(trunks.map(trunk => trunk.id));
+    for (const route of routes.filter(item => item.type === 'outbound')) {
+      if (!route.trunkId || !trunkIds.has(route.trunkId) || (route.failoverTrunkId && !trunkIds.has(route.failoverTrunkId))) throw new Error('Rota de saída sem tronco válido da empresa.');
+    }
 
     return `; ====================================================================
 ; Enlace-PBX — Dialplan Oficial Asterisk 20 LTS (extensions.conf)
@@ -570,8 +577,6 @@ clearglobalvars=no
 
 [globals]
 CONSOLE=Console/dsp
-TRUNK_VIVO=PJSIP/trunk-vivo-e1
-TRUNK_CLARO=PJSIP/trunk-claro-0800
 ENLACE_RECORDINGS_PATH=/var/spool/asterisk/recording
 
 ; ====================================================================
@@ -686,6 +691,7 @@ exten => 9001,1,Goto(from-gemini,s,1) ; Discagem direta interna para MaIA
 ; ====================================================================
 ; Rotas de Saída (Regras brasileiras de discagem com LCR & Contingência)
 ; ====================================================================
+${outboundGuardDialplan()}
 [outbound-routes]
 ${routes
   .filter((r) => r.type === 'outbound')
@@ -694,7 +700,7 @@ ${routes
     const stripDigits = r.prefixRemove ? r.prefixRemove.length : 0;
     const prependStr = r.prepend || '';
     const dialedExten = prependStr ? `${prependStr}\${EXTEN:${stripDigits}}` : `\${EXTEN:${stripDigits}}`;
-    const targetTrunk = r.trunkId ? `PJSIP/trunk-${r.trunkId}` : `\${TRUNK_VIVO}`;
+    const targetTrunk = `PJSIP/trunk-${r.trunkId}`;
     const safeRouteTag = r.id.replace(/[^a-zA-Z0-9_]/g, '_');
 
     let lines = `exten => ${pat},1,NoOp(Rota de Saida: ${r.name}${r.isCliItx ? ' [MODO CLI/ITX - BINA DINAMICA]' : ''})
@@ -736,13 +742,13 @@ ${routes
  same => n,Set(CALLERID(name)=${r.callerIdOverride})`;
     }
 
-    lines += `\n same => n,Dial(${targetTrunk}/${dialedExten},60,tT)`;
+    lines += `\n same => n,Gosub(enlace-outbound-guard,s,1(${dialedExten}))\n same => n,Dial(${targetTrunk}/\${ENLACE_DEST},60,tT)`;
 
     if (r.failoverTrunkId) {
       const failoverTrunk = `PJSIP/trunk-${r.failoverTrunkId}`;
       lines += `\n same => n,GotoIf($["\${DIALSTATUS}" = "CHANUNAVAIL" | "\${DIALSTATUS}" = "CONGESTION" | "\${DIALSTATUS}" = "BUSY"]?failover_${safeRouteTag}:hangup_normal)
  same => n(failover_${safeRouteTag}),NoOp(=== CONTINGENCIA LCR: Tronco primario indisponivel (\${DIALSTATUS}). Acionando ${failoverTrunk} ===)
- same => n,Dial(${failoverTrunk}/${dialedExten},60,tT)
+ same => n,Dial(${failoverTrunk}/\${ENLACE_DEST},60,tT)
  same => n(hangup_normal),Hangup()`;
     } else {
       lines += `\n same => n,Hangup()`;

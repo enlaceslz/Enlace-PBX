@@ -1,3 +1,4 @@
+import { isAllowedOutboundNumber, outboundGuardDialplan } from '../server/infrastructure/asterisk/OutboundPolicy.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -109,4 +110,10 @@ test('campos SIP não podem injetar diretivas e respostas não contêm segredo',
   assertSingleLineConfig({ host: 'sip.example.invalid', codecs: ['alaw', 'ulaw'] });
   const safe = safeTrunkPayload({ id: 't', secret: 'plaintext', secret_encrypted: 'ciphertext', secretEncrypted: 'ciphertext' });
   assert.deepEqual(safe, { id: 't' });
+});
+
+test('política de saída bloqueia DDI, premium e caracteres fora do plano nacional', () => {
+  for (const number of ['5511987654321', '+5511987654321', '11987654321', '1133334444', '08001234567', '03001234567', '01511987654321', '190']) assert.equal(isAllowedOutboundNumber(number), true, number);
+  for (const number of ['00441234567890', '+441234567890', '09001234567', '9001234567', '5590012345678', '0159001234567', '123;System(x)', 'invalid', '']) assert.equal(isAllowedOutboundNumber(number), false, number);
+  assert.match(outboundGuardDialplan(), /Hangup\(21\)/);
 });

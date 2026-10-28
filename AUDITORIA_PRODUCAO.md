@@ -87,3 +87,5 @@ Essas alterações não substituem a homologação de chamadas, mídia e serviç
 - Se credenciais SIP foram cadastradas em uma versão anterior, elas devem ser rotacionadas no ambiente real: o fluxo antigo podia registrar a senha nos logs. O histórico imutável não é apagado silenciosamente.
 
 - A aplicação agora grava também o plano de discagem gerado, antes apenas contabilizado na resposta. Falha em uma recarga desfaz os dois arquivos; teste dirigido cobre o rollback conjunto.
+
+- Plano de saída: retira troncos fictícios de fallback, exige vínculo real da rota e inclui subrotina de bloqueio nacional contra DDI/premium antes de discar (inclusive contingência). Os padrões foram testados em código; execução e tarifação exigem ensaio Asterisk/operadora.
