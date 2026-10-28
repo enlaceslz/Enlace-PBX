@@ -17,7 +17,7 @@ export class DatabaseMigrator {
     let applied = 0;
     try {
       const directory = path.join(process.cwd(), 'server/infrastructure/postgres/migrations');
-      const files = fs.readdirSync(directory).filter(file => /^\d+_.*\.sql$/.test(file)).sort();
+      const files = fs.readdirSync(directory).filter(file => /^\d+[a-z]?_.*\.sql$/.test(file)).sort();
       if (!files.length) throw new Error('Nenhum arquivo de migração disponível.');
       if (options.apply) {
         const url = process.env.DATABASE_MIGRATION_URL;

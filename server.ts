@@ -44,7 +44,7 @@ import { asteriskAdapter } from './server/infrastructure/asterisk/AsteriskAdapte
 import { AsteriskCommandService } from './server/infrastructure/asterisk/AsteriskCommandService.js';
 import { postgresClient } from './server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from './server/infrastructure/postgres/migrations/migrator.js';
-import { requireAuth, requireSseAuth, requireRole, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext, SseTicketManager } from './server/infrastructure/auth/authMiddleware.js';
+import { requireAuth, requireSseAuth, requireRole, requirePermission, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext, SseTicketManager } from './server/infrastructure/auth/authMiddleware.js';
 import { maiaAIGateway } from './server/maia/gateway/MaiaAIGateway.js';
 import { MaiaSessionRepository } from './server/maia/repositories/MaiaSessionRepository.js';
 
@@ -276,6 +276,17 @@ async function startServer() {
       return res.status(501).json({ error: 'Operação indisponível em produção: integração real ainda não homologada.', code: 'NOT_IMPLEMENTED' });
     }
     next();
+  });
+
+  // Dados financeiros e histórico de chamadas exigem capacidade explícita de leitura.
+  app.use('/api/v1/billing', requirePermission('billing:read'));
+  app.use('/api/v1/cdr', requirePermission('cdr:read'));
+  app.use('/api/v1/campaigns', requireRole('super_admin', 'admin', 'supervisor'));
+  app.use('/api/v1/ai', (req, res, next) => {
+    const route = req.path.toLowerCase().replace(/\/$/, '');
+    const roles = route === '/voice-turn' ? ['super_admin', 'admin', 'supervisor', 'operator', 'agent'] as const
+      : ['super_admin', 'admin', 'supervisor'] as const;
+    return requireRole(...roles)(req as any, res, next);
   });
 
   // Perfil do usuário atualmente autenticado

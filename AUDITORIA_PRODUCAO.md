@@ -12,11 +12,12 @@ Data: 28/10/2026. Base: `4e9af83902999687a0e292c316f1579f54060ba6`.
 | Autenticação | Exceções por prefixo liberavam `/webhooks` e outros caminhos sob `/health` | Lista explícita por método e caminho; diagnóstico exige autenticação |
 | SSE | Middleware global exigia JWT antes da validação de ticket | Stream alcança o validador próprio de ticket e depois valida o tenant |
 | JWT | Resolução de usuário podia recorrer ao e-mail sem vincular identidade e tenant | Validação HS256 e consulta pelo ID e tenant assinados |
-| Dados entre empresas | Provedores de IA ignoravam tenant; lista de empresas e auditoria usavam consultas globais para usuários comuns | Consultas escopadas; administração de infraestrutura compartilhada exclusiva do super_admin |
+| Dados entre empresas | Provedores de IA ignoravam tenant; lista de empresas e auditoria usavam consultas globais para usuários comuns | Consultas escopadas; administração de infraestrutura compartilhada exclusiva do super_admin; capacidades explícitas para faturamento/CDR e restrição de perfis em IA/campanhas |
 | WhatsApp | HMAC calculado sobre JSON reserializado; secret ausente aceitava mensagens | Validação dos bytes originais e rejeição quando o segredo não existe |
 | WhatsApp | Configuração global expunha token e podia ser substituída por outra empresa | Chave por empresa, token criptografado e respostas sem token; compatibilidade legada limitada à mesma empresa |
 | WhatsApp | Apenas primeira mensagem do lote; descartava mensagens atrasadas; duplicava retries; confirmava envio rejeitado | Entrada em transação com lock e deduplicação por ID; processamento do lote; envio com timeout e confirmação Meta antes do registro |
 | Migrações | DDL pela role restrita; lock e SQL em conexões diferentes; registro fora da transação | CLI administrativa separada; mesma conexão para lock, SQL e registro; rollback; HTTP apenas verifica checksums |
+| Migração CEL | Migração 006 referenciava coluna inexistente | Migração de compatibilidade 005a adiciona tenant_id antes da política, sem atribuição arbitrária de eventos legados |
 | Identidade | Login por e-mail sem seletor de empresa, mas e-mail único apenas dentro de cada tenant | Migração 009 exige unicidade global de e-mail normalizado |
 | Auditoria | Endpoint retornava integridade verdadeira sem comparar hashes | Comparação canônica e verificação real da cadeia; lock por tenant ao acrescentar registros |
 | HTTP | Promises rejeitadas no Express 4 sem encaminhamento; erros internos retornados ao cliente | Tratamento assíncrono, resposta genérica, JSON inválido 400 e corpo excedido 413 |
