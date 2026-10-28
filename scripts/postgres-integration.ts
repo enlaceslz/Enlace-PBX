@@ -185,10 +185,21 @@ try {
     const me = await fetch(base + '/api/v1/auth/me', { headers: { Authorization: `Bearer ${session.token}` } });
     assert.equal(me.status, 200);
     assert.equal('passwordHash' in await me.json(), false);
+    const rootHeaders = { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' };
+    const fail2ban = await fetch(base + '/api/v1/security/fail2ban', { headers: rootHeaders });
+    assert.equal(fail2ban.status, 503, 'Host de CI sem Fail2ban não declara proteção ativa.');
+    const fail2banSnapshot = await fail2ban.json();
+    assert.equal(fail2banSnapshot.available, false);
+    assert.equal(fail2banSnapshot.currentBanEntries, null);
+    assert.equal('daemonStatus' in fail2banSnapshot, false);
+    assert.equal(fail2ban.headers.get('cache-control'), 'no-store');
+    for (const [method, operation] of [['POST','reload'],['POST','ban'],['POST','unban'],['PUT','rules'],['POST','whitelist'],['POST','simulate-attack']]) {
+      assert.equal((await fetch(base + '/api/v1/security/fail2ban/' + operation, { method, headers: rootHeaders, body: '{}' })).status, 501);
+    }
     // O papel no token não pode elevar o papel atual registrado no banco.
     const operatorToken = jwt.sign({ id: `user-b-${id}`, tenantId: tenantB, role: 'super_admin' }, process.env.JWT_SECRET!, { expiresIn: '1m' });
     const headers = { Authorization: `Bearer ${operatorToken}` };
-    for (const path of ['/api/v1/billing', '/api/v1/cdr', '/api/v1/system/health']) {
+    for (const path of ['/api/v1/billing', '/api/v1/cdr', '/api/v1/system/health', '/api/v1/security/fail2ban']) {
       assert.equal((await fetch(base + path, { headers })).status, 403, path);
     }
     const tenants = await (await fetch(base + '/api/v1/tenants', { headers })).json();
