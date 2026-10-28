@@ -3,14 +3,12 @@ import { MaiaAIProvider } from '../MaiaAIProvider.js';
 import {
   MaiaTextRequest,
   MaiaAIResponse,
-  MaiaVoiceRequest,
-  MaiaVoiceResponse,
   MaiaProviderHealth,
 } from '../../types.js';
 
 /**
  * NineRouterProvider — Integração com o Gateway de Roteamento 9router
- * Suporte a múltiplos backends compatíveis com OpenAI/Anthropic/Gemini
+ * Contrato HTTP de texto e catálogo compatível com a API OpenAI.
  */
 export class NineRouterProvider implements MaiaAIProvider {
   public readonly id = '9router';

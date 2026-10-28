@@ -142,20 +142,12 @@ export const VpnMonitoringDashboard: React.FC<VpnMonitoringDashboardProps> = ({ 
         headers: getAuthHeaders(),
       });
       const result = await res.json();
-      if (result.success) {
-        setPingResult({
-          id: node.id,
-          text: result.details,
-          success: true,
-        });
-        showNotification(`Sonda TCP em ${node.name}: ${result.success ? `${result.latencyMs}ms` : 'sem resposta'}`);
-      }
+      const success = res.ok && result.success === true;
+      const text = result.details || result.error || 'O destino não aceitou a conexão TCP.';
+      setPingResult({ id: node.id, text, success });
+      showNotification(success ? `Sonda TCP em ${node.name}: ${result.latencyMs}ms` : text, success ? 'success' : 'error');
     } catch {
-      setPingResult({
-        id: node.id,
-        text: 'Falha no teste de ping: timeout',
-        success: false,
-      });
+      setPingResult({ id: node.id, text: 'Não foi possível concluir a sonda TCP.', success: false });
     } finally {
       setPingingNodeId(null);
     }
