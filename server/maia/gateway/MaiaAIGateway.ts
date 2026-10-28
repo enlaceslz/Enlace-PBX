@@ -349,6 +349,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
             callerNumber: params.callerNumber || 'Desconhecido',
             asteriskChannelId: session.asteriskChannelId,
             agentId: agent.id,
+            userRole: params.authenticatedRole,
             correlationId,
           });
 
@@ -368,7 +369,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
             session.transitionTo('terminating');
           }
 
-          if (execOutput.message && (!replyText || replyText.trim() === '')) {
+          if (execOutput.message && (['transferir_chamada','encerrar_chamada'].includes(fc.name) || !replyText || replyText.trim() === '')) {
             replyText = execOutput.message;
           }
 

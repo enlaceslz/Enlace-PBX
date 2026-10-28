@@ -233,6 +233,16 @@ try {
     assert.equal((await readiness.json()).dependencies.postgresql, 'UP');
     const adminAToken = jwt.sign({ id: `user-a-${id}`, tenantId: tenantA }, process.env.JWT_SECRET!, { expiresIn: '1m' });
     const testHeaders = { Authorization: `Bearer ${adminAToken}`, 'Content-Type': 'application/json' };
+    const previewRequest=async(body:any)=>fetch(base+'/api/v1/ai/voice-turn',{method:'POST',headers:testHeaders,body:JSON.stringify(body)});
+    for(const key of ['channelId','asteriskChannelId','asteriskUniqueId','linkedId','callerNumber'])
+      assert.equal((await previewRequest({userMessage:'Olá',[key]:'identidade-forjada'})).status,400);
+    assert.equal((await previewRequest({userMessage:''})).status,400);
+    assert.equal((await previewRequest({userMessage:'x'.repeat(8001)})).status,400);
+    assert.equal((await previewRequest({userMessage:'Olá',sessionId:'inexistente'})).status,404);
+    await admin.query(`INSERT INTO ai_sessions(id,tenant_id,agent_id,asterisk_channel_id) VALUES ($1,$2,'agente-de-teste','PJSIP/871001-00000001'),($3,$4,'agente-de-teste',NULL)`,['phone-session-'+id,tenantA,'other-session-'+id,tenantB]);
+    assert.equal((await previewRequest({userMessage:'Olá',sessionId:'phone-session-'+id})).status,409);
+    assert.equal((await previewRequest({userMessage:'Olá',sessionId:'other-session-'+id})).status,404);
+    await admin.query('DELETE FROM ai_sessions WHERE id=ANY($1::text[])',[['phone-session-'+id,'other-session-'+id]]);
     const callHeaders=testHeaders;
     const callApi=async(path:string,body:any)=>fetch(base+'/api/v1/asterisk/channels'+path,{method:'POST',headers:callHeaders,body:JSON.stringify(body)});
     assert.equal((await callApi('',{})).status,400,'Sem ramais padrão que originem chamada por engano.');

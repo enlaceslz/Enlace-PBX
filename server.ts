@@ -4045,45 +4045,28 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/ai/voice-turn', async (req, res) => {
     try {
       const authUser = (req as any).user;
-      let tenantId: string | undefined;
-
-      // 1. Se autenticado (ex: Webphone ou operador), utiliza o tenant da sessão autenticada
-      if (authUser?.tenantId) {
-        tenantId = authUser.tenantId;
-      } else if (req.body.sessionId) {
-        // 2. Se sessionId informado, valida se a sessão existe e obtém seu tenantId
-        const existingSession = await MaiaSessionRepository.findById(req.body.sessionId);
-        if (existingSession) {
-          tenantId = existingSession.tenantId;
-        }
+      const tenantId=getAuthorizedTenantId(req);
+      // O navegador não é um emissor autenticado de eventos ARI/AMI.
+      for(const key of ['channelId','asteriskChannelId','asteriskUniqueId','linkedId','callerNumber']) {
+        if(req.body[key] !== undefined)return res.status(400).json({error:'Identidade de chamada não pode ser definida pela prévia no navegador.'});
       }
-
-      // 3. Se chamada de entrada via Asterisk ARI / SIP Stasis, valida o canal
-      if (!tenantId && req.body.channelId) {
-        const sessionByChan = await MaiaSessionRepository.findByChannelId(req.body.channelId);
-        if (sessionByChan) {
-          tenantId = sessionByChan.tenantId;
-        }
-      }
-
-      // Fail-Closed estrito: Contexto de tenant é obrigatório para processar turno de voz
-      if (!tenantId) {
-        return res.status(400).json({
-          error: 'Contexto de tenant obrigatório e não determinado para a chamada de voz.',
-          code: 'TENANT_REQUIRED'
-        });
+      if(typeof req.body.userMessage!=='string' || !req.body.userMessage.trim() || req.body.userMessage.length>8000)
+        return res.status(400).json({error:'Informe uma mensagem de até 8000 caracteres.'});
+      if(req.body.sessionId!==undefined) {
+        if(typeof req.body.sessionId!=='string' || req.body.sessionId.length>128)return res.status(400).json({error:'Sessão inválida.'});
+        const existing=await MaiaSessionRepository.findById(req.body.sessionId,tenantId);
+        if(!existing)return res.status(404).json({error:'Sessão não encontrada nesta empresa.'});
+        if(existing.asteriskChannelId || existing.asteriskUniqueId || existing.linkedId)
+          return res.status(409).json({error:'Sessões telefônicas não podem ser controladas pela prévia no navegador.'});
+        if(['completed','failed'].includes(existing.status))return res.status(409).json({error:'Sessão encerrada. Inicie uma nova prévia.'});
       }
 
       const result = await maiaAIGateway.processVoiceTurn({
         agentId: req.body.agentId,
         userMessage: req.body.userMessage,
         history: req.body.history || [],
-        callerNumber: req.body.callerNumber,
         tenantId,
         sessionId: req.body.sessionId,
-        asteriskChannelId: req.body.channelId || req.body.asteriskChannelId,
-        asteriskUniqueId: req.body.asteriskUniqueId,
-        linkedId: req.body.linkedId,
         routingProfile: req.body.routingProfile,
         authenticatedUserId: authUser?.id,
         authenticatedRole: authUser?.role,

@@ -1208,6 +1208,7 @@ export async function runAllTests(): Promise<{
         tenantId: TENANT_A,
         callerNumber: '9831908000',
         correlationId: 'corr-test-cross-1',
+        asteriskChannelId: `PJSIP/${EXT_A}-00000001`,
       }
     );
 

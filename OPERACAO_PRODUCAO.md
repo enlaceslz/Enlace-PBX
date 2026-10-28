@@ -249,3 +249,9 @@ As rotas administrativas de canais exigem AMI configurado, inclusive com Asteris
 Originação exige empresa selecionada e dois ramais internos cadastrados e sem ambiguidade entre empresas. Este endpoint não habilita discagem externa nem ponte IA. Transferência e supervisão exigem destino na empresa do canal; redirecionamento aceita apenas contexto `from-internal`, prioridade 1. Nomes Local e endpoints não identificados ficam sem empresa inferida; Caller ID nunca é autorização. O superadmin global pode consultar todos os canais, mas uma empresa explicitamente selecionada limita a operação a esse escopo.
 
 O identificador do canal pode ser Uniqueid ou nome na API: uma leitura nova resolve o nome real para AMI. Regras de empresa vêm do endpoint provisionado; namespaces SIP por empresa ainda exigem homologação. Validar chamada atendida, sinalização, encerramento, transferência e áudio de ChanSpy no servidor real antes de liberar esses fluxos ao uso operacional.
+
+### MaIA: prévia e ações em chamadas
+
+A rota autenticada `/api/v1/ai/voice-turn` atende à prévia no navegador e não aceita identidade telefônica fornecida pelo cliente. Campos `channelId`, `asteriskChannelId`, `asteriskUniqueId`, `linkedId` e `callerNumber` causam 400. Sessões de outra empresa/desconhecidas retornam 404; sessões vinculadas a telefonia não podem ser usadas pela prévia. Um adaptador autenticado de eventos ARI/AMI ainda é necessário para estabelecer o vínculo real da chamada.
+
+Executores internos de transferência/encerramento exigem empresa e canal, auditam obrigatoriamente a tentativa e usam o controle protegido de canais. Aceite AMI fica pendente de confirmação operacional e não encerra a sessão da IA como se a chamada já tivesse terminado. Falha após tentativa pode ter resultado desconhecido: consulte o estado real antes de repetir. Áudio, transferência concluída e encerramento observado exigem homologação no Asterisk real.
