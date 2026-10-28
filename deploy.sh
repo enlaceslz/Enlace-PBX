@@ -6,6 +6,7 @@
 # ====================================================================
 
 set -e
+umask 077
 
 # Cores para terminal
 RED='\033[0;31m'
@@ -210,6 +211,7 @@ if [ ! -f .env.example ]; then
   touch .env.example
 fi
 
+if [ -f .env ]; then cp .env .env.pre-deploy; fi
 cat <<EOF > .env
 # ====================================================================
 # Enlace-PBX Enterprise — Configuração de Produção
@@ -217,7 +219,8 @@ cat <<EOF > .env
 # ====================================================================
 NODE_ENV=production
 PORT=3000
-HOST=0.0.0.0
+HOST=127.0.0.1
+TRUSTED_PROXIES=loopback
 
 # Segurança e Autenticação Corporativa (Segredos de 256 bits)
 JWT_SECRET=${JWT_SECRET}
@@ -259,19 +262,47 @@ GEMINI_API_KEY=${GEMINI_KEY}
 # Segurança e Webhooks Omnichannel
 WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
 EOF
+if [ -f .env.pre-deploy ]; then
+  while IFS= read -r linha || [ -n "$linha" ]; do
+    if [[ "$linha" =~ ^([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+      chave="${BASH_REMATCH[1]}"
+      if ! grep -q "^${chave}=" .env; then
+        printf '%s\n' "$linha" >> .env
+      fi
+    fi
+  done < .env.pre-deploy
+fi
 chmod 600 .env
 echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 
 # 7. Instalação das dependências e compilação do Enlace-PBX
 echo -e "\n${BOLD}[6/9] Instalando dependências NPM e compilando produção...${NC}"
-npm install --legacy-peer-deps
+npm ci
+npm run lint
+npm run test:security
 npm run build
 # Garantir sincronização de logos e assets visuais
 if [ -d public ]; then
-  cp -r public/* dist/ 2>/dev/null || true
+  cp -r public/* dist/client/ 2>/dev/null || true
 fi
-echo -e "${GREEN}✅ Frontend e Backend compilados em dist/server.cjs e dist/!${NC}"
-echo -e "${GREEN}✅ Identidade visual e logos oficiais verificados em dist/.${NC}"
+echo -e "${GREEN}✅ Frontend e Backend compilados em dist/server.cjs e dist/client/!${NC}"
+echo -e "${GREEN}✅ Identidade visual e logos oficiais verificados em dist/client/.${NC}"
+
+# DDL não pode ser executado pelo usuário restrito enlace_app no processo HTTP.
+if [[ "$DATABASE_URL" == *"@127.0.0.1:5432/enlace_pbx" ]] && command -v runuser >/dev/null 2>&1; then
+  runuser -u postgres -- env NODE_ENV=production JWT_SECRET="$JWT_SECRET" \
+    ENCRYPTION_KEY="$ENCRYPTION_KEY" CORS_ALLOWED_ORIGINS="https://${DOMAIN}" \
+    ADMIN_INITIAL_EMAIL="$ADMIN_EMAIL" ADMIN_INITIAL_PASSWORD="$ADMIN_INITIAL_PASSWORD" \
+    DATABASE_MIGRATION_URL="postgresql:///enlace_pbx?host=/var/run/postgresql" \
+    node --import tsx scripts/migrate.ts
+else
+  if [ -z "${DATABASE_MIGRATION_URL:-}" ]; then
+    read -s -p "URL administrativa do PostgreSQL para migrações (não será salva no serviço): " DATABASE_MIGRATION_URL
+    echo ""
+  fi
+  DATABASE_MIGRATION_URL="$DATABASE_MIGRATION_URL" npm run db:migrate
+fi
+unset DATABASE_MIGRATION_URL
 
 # 8. Compilação e Instalação Opcional do Asterisk 20 LTS
 echo -e "\n${BOLD}[7/9] Núcleo de Telefonia Asterisk 20 LTS${NC}"
@@ -322,7 +353,7 @@ server {
 
     # Proxy para sinalização WebRTC WSS do Asterisk (porta 8089)
     location /ws {
-        proxy_pass http://127.0.0.1:8089/ws;
+        proxy_pass https://127.0.0.1:8089/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";

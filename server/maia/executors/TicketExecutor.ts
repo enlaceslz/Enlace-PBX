@@ -3,6 +3,7 @@ import { IMaiaExecutor, ToolExecutionContext, ToolExecutionOutput } from './Maia
 
 export class TicketExecutor implements IMaiaExecutor {
   async execute(args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionOutput> {
+    if (process.env.NODE_ENV === 'production') return { status: 'failed', data: { result: 'UNAVAILABLE' }, message: 'Registro de chamados indisponível: não há integração persistente de tickets homologada.' };
     const categoria = (args.categoria as string || 'suporte_geral').trim();
     const descricao = (args.descricao as string || 'Chamado registrado via MaIA').trim();
     const urgencia = (args.urgencia as string || 'media').trim();

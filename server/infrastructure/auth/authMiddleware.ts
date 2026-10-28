@@ -290,11 +290,10 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
   }
 
   try {
-    const decoded = jwt.verify(token, secret) as any;
+    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as any;
 
     // Busca usuário atualizado no PostgreSQL através do repositório
-    const user = (decoded.id ? await UserRepository.findById(decoded.id) : null) ||
-                 (decoded.email ? await UserRepository.findByEmail(decoded.email) : null);
+    const user = (typeof decoded.id === 'string' && typeof decoded.tenantId === 'string' ? await UserRepository.findById(decoded.id, decoded.tenantId) : null);
 
     if (!user) {
       return res.status(401).json({
@@ -356,9 +355,8 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
     }
 
     try {
-      const decoded = jwt.verify(headerToken, secret) as any;
-      const user = (decoded.id ? await UserRepository.findById(decoded.id) : null) ||
-                   (decoded.email ? await UserRepository.findByEmail(decoded.email) : null);
+      const decoded = jwt.verify(headerToken, secret, { algorithms: ['HS256'] }) as any;
+      const user = (typeof decoded.id === 'string' && typeof decoded.tenantId === 'string' ? await UserRepository.findById(decoded.id, decoded.tenantId) : null);
 
       if (!user) {
         return res.status(401).json({ error: 'Usuário não localizado.', code: 'AUTH_USER_NOT_FOUND' });

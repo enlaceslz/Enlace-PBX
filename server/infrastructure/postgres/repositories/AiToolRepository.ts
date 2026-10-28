@@ -60,8 +60,32 @@ export class AiToolRepository {
     });
   }
 
-  public static async listProviders(_contextOrTenant?: TenantContext | string): Promise<AiProvider[]> {
-    return this.listAllProviders();
+  public static async listProviders(contextOrTenant: TenantContext | string): Promise<AiProvider[]> {
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM ai_providers WHERE tenant_id = $1 ORDER BY name ASC', [ctx.tenantId]
+        );
+        return res.rows.map(row => ({
+          id: row.id,
+          tenantId: row.tenant_id,
+          name: row.name,
+          providerType: row.provider_type as any,
+          baseUrl: row.base_url || undefined,
+          apiKeyMasked: row.api_key_masked,
+          googleProjectId: row.google_project_id || undefined,
+          googleLocation: row.google_location || undefined,
+          defaultModel: row.default_model,
+          defaultVoice: row.default_voice,
+          defaultTemperature: parseFloat(row.default_temperature || '0.7'),
+          isActive: row.is_active ?? true,
+          updatedAt: toSafeIsoStringOrNow(row.updated_at),
+        }));
+      } catch (err: any) {
+        console.error('[AiToolRepository.listAllProviders] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        throw err;
+      }
+    });
   }
 
   public static async listByTenant(contextOrTenant: TenantContext | string): Promise<AiTool[]> {

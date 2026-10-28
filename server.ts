@@ -1,3 +1,5 @@
+import 'dotenv/config';
+import 'express-async-errors';
 import express from 'express';
 import path from 'path';
 import crypto from 'crypto';
@@ -46,9 +48,13 @@ import { requireAuth, requireSseAuth, requireRole, requireTenant, getJwtSecret, 
 import { maiaAIGateway } from './server/maia/gateway/MaiaAIGateway.js';
 import { MaiaSessionRepository } from './server/maia/repositories/MaiaSessionRepository.js';
 
+import { env } from './server/config/env.js';
+import { isPublicApiRoute, isUnavailableProductionOperation, verifyWhatsAppSignature, RawBodyRequest } from './server/infrastructure/security/httpSecurity.js';
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = env.PORT;
+  const HOST = process.env.HOST || (env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
 
   // Inicialização síncrona/bloqueante das migrações PostgreSQL e integridade do banco (Fail-Fast em produção)
   console.log('[Enlace-PBX] [1/5] Validando ambiente e inicializando integridade do PostgreSQL...');
@@ -72,7 +78,7 @@ async function startServer() {
   }
 
   // Configure express to trust the reverse proxy (crucial for AI Studio environment)
-  app.set('trust proxy', 1);
+  app.set('trust proxy', process.env.TRUSTED_PROXIES ? process.env.TRUSTED_PROXIES.split(',').map(value => value.trim()) : 'loopback');
 
   // Health check padrão imediato (necessário para balanceadores e controle do AI Studio)
   app.get('/api/health', (req, res) => {
@@ -182,17 +188,20 @@ async function startServer() {
     validate: { xForwardedForHeader: false, trustProxy: false },
     message: { error: 'Muitas tentativas de login. IP bloqueado temporariamente.' }
   });
-  app.use('/api/v1/auth/', authLimiter);
+  app.use('/api/v1/auth/login', authLimiter);
 
-  app.use(express.json());
+  app.use(express.json({
+    limit: '1mb',
+    verify: (req, _res, body) => { (req as RawBodyRequest).rawBody = Buffer.from(body); },
+  }));
 
   // -------------------------------------------------------------------------
   // Auth Routes (Login / JWT)
   // -------------------------------------------------------------------------
   app.post('/api/v1/auth/login', async (req, res) => {
     try {
-      const rawEmail = (req.body?.email || '').trim().toLowerCase();
-      const password = (req.body?.password || '').trim();
+      const rawEmail = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+      const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
       if (!rawEmail || !password) {
         return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
@@ -233,24 +242,40 @@ async function startServer() {
       }
     } catch (err: any) {
       console.error('[Auth Login Error]:', err?.message || err);
-      return res.status(500).json({ error: 'Erro interno durante a autenticação: ' + (err?.message || 'Falha no servidor.') });
+      return res.status(500).json({ error: 'Erro interno durante a autenticação.' });
     }
   });
 
   // Middleware de Autenticação Estrita JWT e Isolamento Multitenant (com exceção apenas para endpoints públicos)
   app.use('/api/v1', (req, res, next) => {
     // Rotas públicas que não requerem autenticação
-    if (
-      req.path === '/auth/login' ||
-      req.path.startsWith('/health') ||
-      req.path.startsWith('/webhooks')
-    ) {
-      return next();
-    }
+    if (isPublicApiRoute(req.method, req.path)) return next();
+    // O stream valida seu ticket efêmero no middleware específico da rota.
+    if (req.path.toLowerCase().replace(/\/$/, '') === '/events/asterisk' && ['GET', 'HEAD'].includes(req.method)) return next();
     return requireAuth(req as any, res, (err?: any) => {
       if (err) return next(err);
       return requireTenant(req as any, res, next);
     });
+  });
+
+  // A infraestrutura é compartilhada entre empresas: somente o administrador da plataforma pode alterá-la.
+  app.use([
+    '/api/v1/network', '/api/v1/infra', '/api/v1/security', '/api/v1/setup',
+    '/api/v1/system/logs', '/api/v1/system/backup', '/api/v1/system/restore',
+    '/api/v1/system/snapshots', '/api/v1/system/quick-setup',
+    '/api/v1/asterisk/configs', '/api/v1/asterisk/cli', '/api/v1/asterisk/reload',
+    '/api/v1/asterisk/install-script', '/api/v1/webhooks', '/api/v1/crm/providers',
+  ], (req, res, next) => {
+    if (req.path.toLowerCase().replace(/\/$/, '') === '/whatsapp' && ['GET', 'HEAD', 'POST'].includes(req.method)) return next();
+    return requireRole('super_admin')(req as any, res, next);
+  });
+
+  // Operações ainda sem adaptador real não podem confirmar sucesso em produção.
+  app.use('/api/v1', (req, res, next) => {
+    if (isProduction && isUnavailableProductionOperation(req.method, req.path)) {
+      return res.status(501).json({ error: 'Operação indisponível em produção: integração real ainda não homologada.', code: 'NOT_IMPLEMENTED' });
+    }
+    next();
   });
 
   // Perfil do usuário atualmente autenticado
@@ -259,8 +284,7 @@ async function startServer() {
     if (!authUser) {
       return res.status(401).json({ error: 'Não autenticado' });
     }
-    const user = (authUser.id ? await UserRepository.findById(authUser.id) : null) ||
-                 (authUser.email ? await UserRepository.findByEmail(authUser.email) : null);
+    const user = await UserRepository.findById(authUser.id, authUser.tenantId);
     if (!user) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
@@ -294,10 +318,10 @@ async function startServer() {
 
     const pgStatus = pgHealth.status === 'UP' ? 'UP' : (pgHealth.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'DOWN');
     const astStatus = asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'NOT_INSTALLED' : 'DOWN');
-    const amiStatus = asteriskHealth.amiConnected ? 'UP' : (asteriskHealth.status === 'UP' ? 'UP' : 'DOWN');
+    const amiStatus = asteriskHealth.amiConnected ? 'UP' : 'DOWN';
 
     // PostgreSQL é a dependência crítica obrigatória de persistência e autenticação
-    const isReady = pgHealth.status === 'UP';
+    const isReady = pgHealth.status === 'UP' && (!isProduction || (astStatus === 'UP' && amiStatus === 'UP'));
 
     const statusCode = isReady ? 200 : 503;
     res.status(statusCode).json({
@@ -315,7 +339,7 @@ async function startServer() {
   app.get('/ready', readyHandler);
 
   // 3. Diagnóstico do Sistema Protegido por RBAC (/api/v1/system/health)
-  app.get('/api/v1/system/health', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
+  app.get('/api/v1/system/health', requireRole('super_admin'), async (req, res) => {
     const asteriskHealth = await asteriskAdapter.checkHealth();
     const pgHealth = await postgresClient.checkHealth();
     const wgHealth = await VpnAdapter.getWireguardStatus();
@@ -736,7 +760,7 @@ async function startServer() {
       const wgConfig = await SystemRepository.getWireguardConfig();
       res.json({
         ...wgConfig,
-        status: wgStatus.status === 'UP' ? 'active' : (wgConfig?.status || 'active'),
+        status: wgStatus.status === 'UP' ? 'active' : 'inactive',
         installed: wgStatus.installed,
         interfaceName: wgStatus.interface || wgConfig?.interfaceName || 'wg0',
         peers: wgConfig?.peers || [],
@@ -1185,8 +1209,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       target: `${targetIp}:${targetPort}`,
       status: reachable ? 'online' : 'unreachable',
       latencyMs,
-      jitterMs: jitter,
-      ttl: reachable ? ttl : 0,
+      jitterMs: null,
+      ttl: null,
       timestamp: new Date().toISOString(),
       details: reachable
         ? `Socket TCP/SIP OPTIONS para ${targetIp}:${targetPort} respondeu em ${latencyMs}ms (Jitter ${jitter}ms, TTL ${ttl}).`
@@ -2180,7 +2204,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/events/asterisk', requireSseAuth, (req, res) => {
+  app.get('/api/v1/events/asterisk', requireSseAuth, requireTenant, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -4791,15 +4815,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   });
 
-  app.get('/api/v1/audit-logs', async (req, res) => {
+  app.get('/api/v1/audit-logs', requireRole('super_admin', 'admin', 'supervisor', 'readonly'), async (req, res) => {
     const { category, severity, search, format, limit } = req.query;
     try {
-      const { logs } = await AuditLogRepository.listAll({
-        category: category as string,
-        severity: severity as string,
-        search: search as string,
-        limit: limit ? parseInt(String(limit), 10) : 100,
-      });
+      const context = resolveTenantContext(req);
+      const maxLogs = Math.min(1000, Math.max(1, Number(limit) || 100));
+      const logs = context.accessMode === 'GLOBAL'
+        ? (await AuditLogRepository.listAll({ category: category as string, severity: severity as string, search: search as string, limit: maxLogs })).logs
+        : (await AuditLogRepository.listByTenant(context, maxLogs)).filter(log =>
+          (!category || category === 'ALL' || log.category === category) &&
+          (!severity || severity === 'ALL' || log.severity === severity) &&
+          (!search || JSON.stringify(log).toLowerCase().includes(String(search).toLowerCase())));
+
 
       // SIEM RFC 5424 Syslog Export
       if (format === 'syslog') {
@@ -4823,34 +4850,22 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/audit-logs/verify-integrity', requireRole('super_admin', 'admin', 'supervisor', 'readonly'), async (req, res) => {
     const { logId } = req.body;
     try {
+      const context = resolveTenantContext(req);
       if (logId) {
-        const log = await AuditLogRepository.findById(logId);
+        const log = await AuditLogRepository.findById(logId, context);
         if (!log) return res.status(404).json({ error: 'Registro de auditoria não encontrado.' });
-
-        const payloadStr = JSON.stringify(log.payload || {});
-        const calculatedHash = crypto.createHash('sha256').update(`${log.id}|${log.tenantId}|${log.action}|${log.resource}|${log.timestamp}|${payloadStr}`).digest('hex');
-        const isAuthentic = !log.sha256Hash || log.sha256Hash.length === 64; // In PostgreSQL, valid SHA-256 length
-
-        return res.json({
-          logId: log.id,
-          storedHash: log.sha256Hash,
-          calculatedHash,
-          isAuthentic: true,
-          verifiedAt: new Date().toISOString(),
-          algorithm: 'SHA-256 (NIST FIPS 180-4)',
-          chainOfCustodyStatus: 'INTEGRAL_UNALTERED',
+        const calculatedHash = AuditLogRepository.computeCanonicalHash({
+          previousHash: log.previousHash || '0'.repeat(64), id: log.id, tenantId: log.tenantId,
+          userId: log.userId, action: log.action, resource: log.resource, timestamp: log.timestamp,
         });
+        const isAuthentic = calculatedHash === log.sha256Hash;
+        return res.json({ logId: log.id, storedHash: log.sha256Hash, calculatedHash, isAuthentic,
+          verifiedAt: new Date().toISOString(), algorithm: 'SHA-256',
+          chainOfCustodyStatus: isAuthentic ? 'HASH_VALID' : 'HASH_MISMATCH' });
       }
-
-      // Check all logs
-      const { total } = await AuditLogRepository.listAll({ limit: 1 });
-      res.json({
-        totalLogsAudited: total,
-        compromisedCount: 0,
-        chainOfCustodyStatus: 'COMPLIANT_LGPD_GRADE',
-        algorithm: 'SHA-256 (HMAC-free Merkle Anchor)',
-        lastAuditCheck: new Date().toISOString(),
-      });
+      if (!context.tenantId) return res.status(400).json({ error: 'Selecione uma empresa para verificar a cadeia.' });
+      const result = await AuditLogRepository.verifyChain(context);
+      res.json({ ...result, chainOfCustodyStatus: result.valid ? 'CHAIN_VALID' : 'CHAIN_BROKEN' });
     } catch (e: any) {
       console.error('[AuditLogs] Erro ao verificar integridade:', e?.message || e);
       res.status(500).json({ error: 'Erro ao verificar integridade dos logs' });
@@ -4879,7 +4894,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json(log);
   });
 
-  app.get('/api/v1/users', requireAuth, requireTenant, async (req, res) => {
+  app.get('/api/v1/users', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
       const list = (tenantCtx.accessMode === 'GLOBAL')
@@ -5076,7 +5091,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   app.get('/api/v1/tenants', async (req, res) => {
-    const list = await TenantRepository.listAll();
+    const user = (req as any).user;
+    const list = user.role === 'super_admin' ? await TenantRepository.listAll() : [await TenantRepository.findById(user.tenantId)].filter(Boolean);
     res.json(list);
   });
 
@@ -5247,29 +5263,27 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // --- WhatsApp & Omnichannel API ---
 
-  app.get('/api/v1/whatsapp/config', requireAuth, requireTenant, async (req, res) => {
-    const config = await SystemRepository.getWhatsappConfig();
-    res.json(config);
+  const safeWhatsappConfig = (config: any) => {
+    if (!config) return null;
+    const { accessToken, verifyToken, ...safe } = config;
+    return { ...safe, hasAccessToken: Boolean(accessToken) };
+  };
+  app.get('/api/v1/whatsapp/config', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    res.json(safeWhatsappConfig(await SystemRepository.getWhatsappConfig(undefined, tenantId)));
   });
 
-  app.post('/api/v1/whatsapp/config', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      tenantId = 'UNKNOWN';
-    }
-    const current = (await SystemRepository.getWhatsappConfig()) || { tenantId };
-    const updated = {
-      ...current,
-      tenantId,
-      phoneNumberId: req.body.phoneNumberId,
-      accessToken: req.body.accessToken,
-      verifyToken: req.body.verifyToken,
-      isActive: req.body.isActive,
-    };
+  app.post('/api/v1/whatsapp/config', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    const current = await SystemRepository.getWhatsappConfig(undefined, tenantId);
+    const phoneNumberId = String(req.body.phoneNumberId || '');
+    if (!/^\d+$/.test(phoneNumberId)) return res.status(400).json({ error: 'Identificador de número WhatsApp inválido.' });
+    const existing = await OmnichannelRepository.findIntegrationByPhoneNumberId(phoneNumberId);
+    if (existing && existing.tenantId !== tenantId) return res.status(409).json({ error: 'Número já vinculado a outra empresa.' });
+    const updated = { tenantId, phoneNumberId, isActive: req.body.isActive === true,
+      accessToken: typeof req.body.accessToken === 'string' && req.body.accessToken ? req.body.accessToken : current?.accessToken || '' };
     await SystemRepository.setWhatsappConfig(updated);
-    res.json(updated);
+    res.json(safeWhatsappConfig(updated));
   });
 
   app.post('/api/v1/whatsapp/conversations/:id/reply', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
@@ -5283,43 +5297,28 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
     
     const { text } = req.body;
-    
-    const newMessage = {
-      id: `msg-${Date.now()}`,
-      sender: 'agent' as const,
-      senderName: 'Atendente',
-      content: text,
-      timestamp: new Date().toISOString(),
-      type: 'text' as const,
-    };
-    if (!conv.messages) conv.messages = [];
-    conv.messages.push(newMessage);
-    await OmnichannelRepository.save(conv);
-
-    const config = await SystemRepository.getWhatsappConfig();
-    if (config && config.isActive && config.accessToken) {
-      try {
-        const metaRes = await fetch(`https://graph.facebook.com/v17.0/${config.phoneNumberId}/messages`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${config.accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: conv.contactPhone ? conv.contactPhone.replace(/\D/g, '') : '',
-            type: 'text',
-            text: { body: text }
-          })
-        });
-        
-        if (!metaRes.ok) {
-          const errData = await metaRes.json();
-          console.error('Meta API Error:', errData);
-        }
-      } catch (err) {
-        console.error('Failed to send to Meta Graph API:', err);
-      }
+    if (typeof text !== 'string' || !text.trim() || text.length > 4096) return res.status(400).json({ error: 'Mensagem inválida.' });
+    const config = await SystemRepository.getWhatsappConfig(undefined, tenantId);
+    const graphVersion = process.env.WHATSAPP_GRAPH_API_VERSION;
+    if (!config?.isActive || !config.accessToken || !/^v\d+\.\d+$/.test(graphVersion || '')) {
+      return res.status(503).json({ error: 'Configure a integração WhatsApp e WHATSAPP_GRAPH_API_VERSION.' });
+    }
+    try {
+      const metaRes = await fetch(`https://graph.facebook.com/${graphVersion}/${config.phoneNumberId}/messages`, {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+        headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', to: (conv.contactPhone || conv.contactId).replace(/\D/g, ''), type: 'text', text: { body: text } }),
+      });
+      if (!metaRes.ok) return res.status(502).json({ error: 'A Meta rejeitou o envio da mensagem.' });
+      const delivery = await metaRes.json();
+      if (!delivery.messages?.[0]?.id) return res.status(502).json({ error: 'Envio sem confirmação da Meta.' });
+      if (!conv.messages) conv.messages = [];
+      conv.messages.push({ id: delivery.messages[0].id, sender: 'agent', senderName: (req as any).user.name,
+        content: text, timestamp: new Date().toISOString(), type: 'text' });
+      await OmnichannelRepository.save(conv);
+    } catch (error) {
+      console.error('[WhatsApp] Falha no envio ou persistência:', error);
+      return res.status(502).json({ error: 'Não foi possível confirmar o envio e o registro da mensagem. Confira a conversa antes de reenviar.' });
     }
 
     res.json(conv);
@@ -5458,8 +5457,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // Meta Webhook Verification
   app.get('/api/v1/webhooks/whatsapp', async (req, res) => {
-    const config = await SystemRepository.getWhatsappConfig();
-    const verifyToken = config?.verifyToken?.trim() || process.env.WHATSAPP_VERIFY_TOKEN?.trim();
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN?.trim();
 
     if (!verifyToken) {
       console.warn('[WhatsApp Webhook] Rejeitado: WHATSAPP_VERIFY_TOKEN não configurado no sistema.');
@@ -5490,143 +5488,39 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const rawSignature = (req.headers['x-hub-signature-256'] as string) || '';
     const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
 
-    // Validação criptográfica de assinatura Meta HMAC-SHA256 se appSecret estiver configurado
-    if (appSecret) {
-      if (!rawSignature.startsWith('sha256=')) {
-        console.warn('[WhatsApp Webhook] Rejeitado: Assinatura x-hub-signature-256 ausente ou malformatada.');
-        return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Assinatura x-hub-signature-256 ausente.' });
-      }
-
-      const receivedHash = rawSignature.slice(7);
-      const expectedHash = crypto
-        .createHmac('sha256', appSecret)
-        .update(JSON.stringify(req.body))
-        .digest('hex');
-
-      const isSignatureValid =
-        receivedHash.length === expectedHash.length &&
-        crypto.timingSafeEqual(Buffer.from(receivedHash), Buffer.from(expectedHash));
-
-      if (!isSignatureValid) {
-        console.warn('[WhatsApp Webhook] Rejeitado: Assinatura HMAC-SHA256 inválida.');
-        return res.status(403).json({ error: 'FORBIDDEN', message: 'Assinatura inválida do webhook.' });
-      }
+    if (!appSecret) {
+      return res.status(503).json({ error: 'Webhook WhatsApp não configurado.' });
+    }
+    if (!verifyWhatsAppSignature((req as RawBodyRequest).rawBody, rawSignature, appSecret)) {
+      return res.status(403).json({ error: 'Assinatura inválida do webhook.' });
     }
 
     const body = req.body;
-    
-    if (body.object) {
-      if (body.entry && body.entry[0].changes && body.entry[0].changes[0] && body.entry[0].changes[0].value.messages && body.entry[0].changes[0].value.messages[0]) {
-        const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
-        const from = body.entry[0].changes[0].value.messages[0].from; // sender number
-        const msg_body = body.entry[0].changes[0].value.messages[0].text?.body; 
-        const msgTimestamp = parseInt(body.entry[0].changes[0].value.messages[0].timestamp || '0', 10);
-
-        // Proteção contra Replay Attack: Rejeita mensagens com mais de 5 minutos de atraso
-        if (msgTimestamp > 0) {
-          const nowSeconds = Math.floor(Date.now() / 1000);
-          if (Math.abs(nowSeconds - msgTimestamp) > 300) {
-            console.warn(`[WhatsApp Webhook] Mensagem ignorada por expiração de timestamp (Replay Protection): ${msgTimestamp}`);
-            return res.status(200).json({ status: 'ignored_expired' });
-          }
-        }
-
-        if (!msg_body) {
-           return res.sendStatus(200); // Ignore non-text for now
-        }
-
-        const integration = await OmnichannelRepository.findIntegrationByPhoneNumberId(phone_number_id);
-        if (!integration || !integration.tenantId || integration.tenantId.trim() === '') {
-          console.warn(`[WhatsApp Webhook] Mensagem rejeitada (Fail-Closed): Nenhuma integração do WhatsApp localizada para phone_number_id=${phone_number_id}.`);
-          return res.status(200).json({ status: 'ignored_unmapped_phone_number_id', error: 'Nenhuma integração configurada para este número.' });
-        }
-        const tenantId = integration.tenantId.trim();
-        const conversations = await OmnichannelRepository.listConversations(tenantId);
-        let conv = conversations.find(c => c.contactId === from && c.channel === 'whatsapp');
-        if (!conv) {
-          conv = {
-            id: `conv-wa-${Date.now()}`,
-            tenantId,
-            contactId: from,
-            contactName: from,
-            contactPhone: from,
-            channel: 'whatsapp',
-            status: 'active',
-            sentiment: 'neutral',
-            tags: ['whatsapp', 'meta-api'],
-            createdAt: new Date().toISOString(),
-            messages: []
-          };
-        }
-
-        conv.messages.push({
-          id: body.entry[0].changes[0].value.messages[0].id || `msg-${Date.now()}`,
-          sender: 'contact',
-          senderName: from,
-          content: msg_body,
-          type: 'text',
-          timestamp: new Date().toISOString()
-        });
-
-        // Registrar auditoria do webhook recebido
-        try {
-          await AuditLogRepository.create({
-            tenantId,
-            userId: 'whatsapp-webhook',
-            userName: `WhatsApp (${from})`,
-            action: 'WHATSAPP_MESSAGE_RECEIVED',
-            resource: `whatsapp/conversation/${conv.id}`,
-            details: `Mensagem recebida do contato ${from} via Meta Cloud API.`,
-            ip: req.ip || '127.0.0.1',
-          });
-        } catch {}
-
-        // Trigger AI response if in active status
-        if (conv.status === 'active') {
-           const { geminiService } = await import('./server/geminiService.js');
-           const aiResponseText = await geminiService.processWhatsAppTurn(conv.id, msg_body);
-           
-           if (aiResponseText.toLowerCase().includes('transferir') || aiResponseText.toLowerCase().includes('atendente')) {
-              conv.status = 'waiting'; // Transfer to human
-           }
-           
-           const aiMsg: OmnichannelMessage = {
-             id: `msg-ai-${Date.now()}`,
-             sender: 'bot',
-             senderName: 'MaIA (IA)',
-             content: aiResponseText,
-             type: 'text',
-             timestamp: new Date().toISOString()
-           };
-           conv.messages.push(aiMsg);
-
-           // Actually send it via Meta API
-           if (integration && integration.accessToken) {
-             try {
-               await fetch(`https://graph.facebook.com/v17.0/${integration.phoneNumberId}/messages`, {
-                 method: 'POST',
-                 headers: {
-                   'Authorization': `Bearer ${integration.accessToken}`,
-                   'Content-Type': 'application/json'
-                 },
-                 body: JSON.stringify({
-                   messaging_product: 'whatsapp',
-                   to: from,
-                   type: 'text',
-                   text: { body: aiResponseText }
-                 })
-               });
-             } catch(e) {
-               console.error('Failed to send AI reply via Meta', e);
-             }
-           }
-        }
-        await OmnichannelRepository.save(conv);
-      }
-      res.sendStatus(200);
-    } else {
-      res.sendStatus(404);
+    if (body?.object !== 'whatsapp_business_account' || !Array.isArray(body.entry)) {
+      return res.status(400).json({ error: 'Formato de webhook inválido.' });
     }
+    for (const entry of body.entry) {
+      if (!Array.isArray(entry?.changes)) continue;
+      for (const change of entry.changes) {
+        const value = change?.value;
+        if (!Array.isArray(value?.messages)) continue;
+        const integration = await OmnichannelRepository.findIntegrationByPhoneNumberId(value?.metadata?.phone_number_id);
+        if (!integration) return res.status(503).json({ error: 'Número sem vínculo único com uma empresa ativa.' });
+        for (const message of value.messages) {
+          if (typeof message?.id !== 'string' || typeof message?.from !== 'string') {
+            return res.status(400).json({ error: 'Mensagem sem identificador ou remetente.' });
+          }
+          const timestamp = Number(message.timestamp) * 1000;
+          await OmnichannelRepository.receiveWhatsappMessage(integration.tenantId, {
+            id: message.id, from: message.from,
+            content: typeof message.text?.body === 'string' ? message.text.body : `[Mensagem ${message.type || 'sem texto'}]`,
+            timestamp: Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toISOString() : new Date().toISOString(),
+          });
+        }
+      }
+    }
+    // Respostas de IA exigem fila durável separada; nenhuma resposta fictícia é registrada.
+    res.sendStatus(200);
   });
 
   app.post('/api/v1/health/run-diagnostic', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
@@ -5713,6 +5607,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Static Assets & Vite Integration (Development vs Production)
   // -------------------------------------------------------------------------
+  app.use('/api', (_req, res) => { res.status(404).json({ error: 'Endpoint não encontrado.' }); });
+
   const publicPath = path.join(process.cwd(), 'public');
   app.use(express.static(publicPath));
 
@@ -5723,7 +5619,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), 'dist', 'client');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -5733,45 +5629,49 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Global Error Handler to always return JSON (no HTML stack traces)
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error('Unhandled Server Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+    if (res.headersSent) return next(err);
+    const status = err.type === 'entity.too.large' ? 413 : err.type === 'entity.parse.failed' ? 400 : 500;
+    res.status(status).json({ error: status === 500 ? 'Erro interno do servidor.' : 'Corpo da requisição inválido ou acima do limite.' });
   });
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Enlace-PBX] Servidor rodando em http://0.0.0.0:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`[Enlace-PBX] Servidor rodando em http://${HOST}:${PORT}`);
     console.log(`[Enlace-PBX] Núcleo Asterisk 20 LTS + Google Gemini AI Gateway pronto.`);
   });
 
   server.on('error', (err: any) => {
-    if (err.code === 'EADDRINUSE') {
-      console.warn(`[Enlace-PBX] Porta ${PORT} em uso temporário. Aguardando liberação para reanexar...`);
-      setTimeout(() => {
-        try {
-          server.close();
-        } catch {}
-        server.listen(PORT, '0.0.0.0');
-      }, 1000);
-    } else {
-      console.error('[Enlace-PBX] Erro no servidor HTTP:', err);
-    }
+    console.error('[Enlace-PBX] Erro fatal no servidor HTTP:', err.code || err.message);
+    process.exit(1);
   });
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log('[Enlace-PBX] Encerrando conexões HTTP e PostgreSQL...');
+    const deadline = setTimeout(() => {
+      server.closeAllConnections();
+      process.exit(1);
+    }, 20000);
+    deadline.unref();
+    server.close(async () => {
+      await postgresClient.close();
+      clearTimeout(deadline);
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 
-  process.on('SIGTERM', () => {
-    console.log('[Enlace-PBX] Sinal SIGTERM recebido. Encerrando de forma graciosa...');
-    server.close(() => process.exit(0));
-  });
-
-  process.on('SIGINT', () => {
-    console.log('[Enlace-PBX] Sinal SIGINT recebido. Encerrando de forma graciosa...');
-    server.close(() => process.exit(0));
-  });
 }
 
 process.on('uncaughtException', (err) => {
-  console.error('[Enlace-PBX] Uncaught Exception:', err);
+  console.error('[Enlace-PBX] Exceção fatal:', err);
+  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[Enlace-PBX] Unhandled Promise Rejection:', reason);
+  console.error('[Enlace-PBX] Rejeição assíncrona fatal:', reason);
+  process.exit(1);
 });
 
 startServer().catch((err) => {

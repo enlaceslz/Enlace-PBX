@@ -8,6 +8,7 @@ import { BillingRepository } from '../../infrastructure/postgres/repositories/Bi
  */
 export class BillingExecutor implements IMaiaExecutor {
   async execute(args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionOutput> {
+    if (process.env.NODE_ENV === 'production') return { status: 'failed', data: { result: 'UNAVAILABLE' }, message: 'Consulta de faturas indisponível: identificação e autorização do cliente ainda não homologadas.' };
     const rawDoc = (args.cpf_cnpj as string || args.documento as string || '').trim().replace(/\D/g, '');
 
     try {

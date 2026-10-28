@@ -231,6 +231,10 @@ class PostgresClient {
     return this.lastHealth;
   }
 
+  public async close(): Promise<void> {
+    if (this.pool) await this.pool.end();
+  }
+
   public getCachedHealth(): PostgresHealthStatus {
     return this.lastHealth;
   }

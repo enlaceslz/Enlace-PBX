@@ -1,3 +1,4 @@
+import { EncryptionService } from '../../security/EncryptionService.js';
 import { postgresClient } from '../client.js';
 
 export class SystemRepository {
@@ -12,6 +13,7 @@ export class SystemRepository {
         return defaultValue !== undefined ? defaultValue : null;
       });
     } catch (e: any) {
+      if (process.env.NODE_ENV === 'production') throw e;
       console.warn(`[SystemRepository] Falha ao consultar configuração '${key}':`, e?.message || e);
       return defaultValue !== undefined ? defaultValue : null;
     }
@@ -50,7 +52,7 @@ export class SystemRepository {
   }
 
   public static getDefaultInfraConfig(): any {
-    return {
+    const config = {
       hostname: 'pbx.enlace.slz.br',
       publicIp: '177.136.240.10',
       domain: 'enlace.slz.br',
@@ -121,9 +123,23 @@ export class SystemRepository {
       },
       updatedAt: new Date().toISOString(),
     };
+    if (process.env.NODE_ENV === 'production') {
+      config.hostname = process.env.PBX_DOMAIN || '';
+      config.domain = process.env.PBX_DOMAIN || '';
+      config.publicIp = process.env.PBX_PUBLIC_IP || '';
+      config.lanIp = ''; config.lanGateway = ''; config.lanSubnet = ''; config.lanInterface = '';
+      config.sslCertificate = { ...config.sslCertificate, status: 'unknown', issuedTo: '', issuer: '', validFrom: '', validTo: '', daysRemaining: 0, fingerprintSha256: '', san: [], certPath: '', keyPath: '' };
+      config.validationWebphone = { ...config.validationWebphone, status: 'not_tested', httpsEnabled: false, wssPortAccessible: false, webrtcDtlsSrtp: false, mediaMicrophonePermission: 'unknown', lastTested: '', details: 'Aguardando homologação real.' };
+      config.validationPwa = { ...config.validationPwa, status: 'not_tested', httpsSecured: false, serviceWorkerRegistered: false, manifestValid: false, pushVapidConfigured: false, vapidPublicKey: '', lastTested: '', details: 'Aguardando homologação real.' };
+      config.validationWhatsapp = { ...config.validationWhatsapp, status: 'not_tested', httpsVerified: false, publicCertTrusted: false, webhookEndpoint: '', verifyToken: '', lastTested: '', details: 'Aguardando homologação real.' };
+    }
+    return config;
   }
 
+
+
   public static getDefaultWireguardConfig(): any {
+    if (process.env.NODE_ENV === 'production') return { interfaceName: 'wg0', status: 'inactive', listenPort: 51820, address: '', publicKey: '', peersCount: 0, activePeersCount: 0, bytesTx: 0, bytesRx: 0, dns: '', peers: [] };
     return {
       interfaceName: 'wg0',
       status: 'active',
@@ -189,6 +205,7 @@ export class SystemRepository {
   }
 
   public static getDefaultZerotierConfig(): any {
+    if (process.env.NODE_ENV === 'production') return { nodeId: '', status: 'offline', version: '', networks: [], peers: [] };
     return {
       nodeId: 'e28f3a99bc',
       status: 'online',
@@ -229,6 +246,7 @@ export class SystemRepository {
   }
 
   public static getDefaultVpnRouting(): any {
+    if (process.env.NODE_ENV === 'production') return { primaryTunnel: 'wireguard', activeTunnel: 'none', autoFailover: false, healthCheckIntervalSec: 10, wireguardHealthy: false, zerotierHealthy: false, lastSwitch: null, sipPriorityQoS: false, mtuOptimization: false };
     return {
       primaryTunnel: 'wireguard',
       autoFailover: true,
@@ -243,6 +261,7 @@ export class SystemRepository {
   }
 
   public static getDefaultFail2banConfig(): any {
+    if (process.env.NODE_ENV === 'production') return { daemonStatus: 'unknown', version: '', uptime: '', totalJails: 0, totalBanned: 0, jails: [], bannedIps: [], whitelist: [] };
     return {
       daemonStatus: 'active',
       version: '1.0.2-debian',
@@ -493,12 +512,17 @@ export class SystemRepository {
     return true;
   }
 
-  public static async getWhatsappConfig(fallback?: any): Promise<any> {
-    return (await this.getSetting('whatsapp_config')) || fallback || null;
+  public static async getWhatsappConfig(fallback?: any, tenantId?: string): Promise<any> {
+    const scoped = tenantId ? await this.getSetting<any>(`whatsapp_config:${tenantId}`) : null;
+    const legacy = scoped || await this.getSetting<any>('whatsapp_config');
+    if (!legacy || (tenantId && legacy.tenantId !== tenantId)) return fallback || null;
+    return { ...legacy, accessToken: EncryptionService.decrypt(legacy.accessToken || '') };
   }
 
   public static async setWhatsappConfig(config: any): Promise<any> {
-    return this.setSetting('whatsapp_config', config, 'Configurações da API oficial do WhatsApp');
+    if (!config.tenantId) throw new Error('TENANT_REQUIRED: Configuração WhatsApp exige empresa explícita.');
+    const encrypted = { ...config, accessToken: EncryptionService.encrypt(config.accessToken || '') };
+    return this.setSetting(`whatsapp_config:${config.tenantId}`, encrypted, 'Configuração WhatsApp por empresa');
   }
 
   public static async getCrmProviders(fallback?: any[]): Promise<any[]> {

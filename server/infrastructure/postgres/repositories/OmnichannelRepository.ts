@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
 import { SystemRepository } from './SystemRepository.js';
@@ -137,43 +138,39 @@ export class OmnichannelRepository {
     const cleanId = phoneNumberId.trim();
 
     return postgresClient.executeGlobalScoped(async (client) => {
-      // 1. Tenta consulta em tabela dedicada whatsapp_integrations
-      try {
-        const res = await client.query(
-          'SELECT tenant_id, phone_number_id, access_token FROM whatsapp_integrations WHERE phone_number_id = $1 LIMIT 1',
-          [cleanId]
-        );
-        if (res.rows.length > 0 && res.rows[0].tenant_id && res.rows[0].tenant_id.trim() !== '') {
-          return {
-            tenantId: res.rows[0].tenant_id.trim(),
-            phoneNumberId: cleanId,
-            accessToken: res.rows[0].access_token || undefined,
-          };
-        }
-      } catch {
-        // Ignora se tabela whatsapp_integrations não estiver criada
-      }
-
-      // 2. Consulta em system_settings via SystemRepository.getWhatsappConfig()
-      try {
-        const config = await SystemRepository.getWhatsappConfig();
-        if (
-          config &&
-          config.phoneNumberId === cleanId &&
-          config.tenantId &&
-          config.tenantId.trim() !== ''
-        ) {
-          return {
-            tenantId: config.tenantId.trim(),
-            phoneNumberId: cleanId,
-            accessToken: config.accessToken,
-          };
-        }
-      } catch {
-        // Ignora erro em dev
+      const result = await client.query(`SELECT value FROM system_settings
+        WHERE (key = 'whatsapp_config' OR key LIKE 'whatsapp_config:%')
+          AND value->>'phoneNumberId' = $1 AND value->>'isActive' = 'true'`, [cleanId]);
+      const mappings = result.rows.map(row => typeof row.value === 'string' ? JSON.parse(row.value) : row.value);
+      const tenants = new Set(mappings.map(config => config.tenantId).filter(Boolean));
+      if (tenants.size !== 1) return null;
+      const config = mappings[0];
+      if (typeof config?.tenantId === 'string' && config.tenantId.trim()) {
+        return { tenantId: config.tenantId.trim(), phoneNumberId: cleanId };
       }
 
       return null;
+    });
+  }
+
+  /** Persiste a entrada antes do ACK; retries da Meta não duplicam mensagens. */
+  public static async receiveWhatsappMessage(tenantId: string, message: { id: string; from: string; content: string; timestamp: string }): Promise<void> {
+    await postgresClient.executeTenantScoped(tenantId, async (client, ctx) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`whatsapp:${ctx.tenantId}:${message.from}`]);
+      const result = await client.query(`SELECT id, messages FROM omnichannel_conversations
+        WHERE tenant_id = $1 AND contact_id = $2 AND channel = 'whatsapp' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [ctx.tenantId, message.from]);
+      const row = result.rows[0];
+      const messages = row ? (typeof row.messages === 'string' ? JSON.parse(row.messages) : row.messages || []) : [];
+      if (messages.some((entry: any) => entry.id === message.id)) return;
+      messages.push({ id: message.id, sender: 'contact', senderName: message.from, content: message.content, type: 'text', timestamp: message.timestamp });
+      if (row) {
+        await client.query('UPDATE omnichannel_conversations SET messages = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $3', [JSON.stringify(messages), row.id, ctx.tenantId]);
+      } else {
+        await client.query(`INSERT INTO omnichannel_conversations
+          (id, tenant_id, contact_id, contact_name, contact_phone, channel, status, sentiment, tags, messages)
+          VALUES ($1,$2,$3,$3,$3,'whatsapp','waiting','neutral','["whatsapp","meta-api"]',$4)`,
+          [`conv-wa-${crypto.randomUUID()}`, ctx.tenantId, message.from, JSON.stringify(messages)]);
+      }
     });
   }
 

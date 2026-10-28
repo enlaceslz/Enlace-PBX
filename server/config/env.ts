@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import crypto from 'crypto';
 import fs from 'fs';
 
@@ -67,6 +68,18 @@ export function loadEnvConfig(): AppEnvConfig {
     }
   }
 
+  if (!['development', 'production', 'test'].includes(nodeEnv)) throw new Error('NODE_ENV inválido.');
+  if (isProd && (jwtSecret.trim().length < 32 || /^(change|example|secret|password|enlace)/i.test(jwtSecret))) {
+    throw new Error('JWT_SECRET deve conter pelo menos 32 caracteres e não pode ser um segredo de exemplo.');
+  }
+  if (isProd && (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.trim().length < 32)) {
+    throw new Error('ENCRYPTION_KEY forte é obrigatória em produção.');
+  }
+  const parsePort = (value: string, name: string): number => {
+    if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535) throw new Error(`${name} deve ser uma porta válida.`);
+    return Number(value);
+  };
+
   // Validação de CORS em produção (proibido wildcard '*')
   const rawCorsOrigins = process.env.CORS_ALLOWED_ORIGINS;
   let corsOrigins: string[] = [];
@@ -84,7 +97,7 @@ export function loadEnvConfig(): AppEnvConfig {
 
   // Validação de credenciais de telefonia Asterisk
   const amiHost = process.env.ASTERISK_AMI_HOST || process.env.ASTERISK_HOST || '127.0.0.1';
-  const amiPort = parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10);
+  const amiPort = parsePort(process.env.ASTERISK_AMI_PORT || '5038', 'ASTERISK_AMI_PORT');
   const amiUser = process.env.ASTERISK_AMI_USERNAME || process.env.ASTERISK_AMI_USER || 'enlace_ami';
   const amiPassword = process.env.ASTERISK_AMI_PASSWORD;
 
@@ -109,7 +122,7 @@ export function loadEnvConfig(): AppEnvConfig {
 
   return {
     NODE_ENV: nodeEnv,
-    PORT: parseInt(process.env.PORT || '3000', 10),
+    PORT: parsePort(process.env.PORT || '3000', 'PORT'),
     JWT_SECRET: jwtSecret,
     CORS_ALLOWED_ORIGINS: corsOrigins,
     DATABASE_URL: process.env.DATABASE_URL,
