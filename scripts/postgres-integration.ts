@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import pg from 'pg';
 import jwt from 'jsonwebtoken';
 import net from 'node:net';
+import http from 'node:http';
+import { AiToolRepository } from '../server/infrastructure/postgres/repositories/AiToolRepository.js';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { postgresClient } from '../server/infrastructure/postgres/client.js';
@@ -76,8 +78,30 @@ try {
   await once(reservation, 'listening');
   const port = (reservation.address() as net.AddressInfo).port;
   await new Promise<void>(resolve => reservation.close(() => resolve()));
+  let externalHits = 0;
+  const externalErrors: string[] = [];
+  const external = http.createServer(async (req, res) => {
+    externalHits++;
+    try {
+      assert.equal(req.headers.authorization, 'Bearer segredo-da-integracao');
+      const rows = await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='AI_TOOL_HTTP_ATTEMPT' AND payload->>'executionId'=$2", [tenantA, req.headers['x-enlace-request-id']]);
+      assert.equal(rows.rows.length, 1, 'Auditoria deve estar persistida antes do envio externo.');
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), { documento: '123' });
+      res.end(JSON.stringify({ protocoloExterno: 'teste-integracao' }));
+    } catch (error) { externalErrors.push(String(error)); res.writeHead(500); res.end('{}'); }
+  });
+  external.listen(0, '127.0.0.1'); await once(external, 'listening');
+  const origin = `http://127.0.0.1:${(external.address() as net.AddressInfo).port}`;
+  const toolId = `tool-${id}`;
+  await AiToolRepository.saveTool(tenantA, { id: toolId, tenantId: tenantA, name: 'Teste HTTP', description: 'Integração descartável',
+    endpoint: origin + '/acao', method: 'POST', requiresConfirmation: true,
+    schemaJson: { type: 'object', properties: { documento: { type: 'string' } }, required: ['documento'] }, mockResponse: { ficticio: true } });
   const child = spawn(process.execPath, ['dist/server.cjs'], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '' },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
+      OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
+      AI_TOOL_BINDINGS_JSON: JSON.stringify([{ tenantId: tenantA, toolId, endpoint: origin + '/acao', method: 'POST', bearerToken: 'segredo-da-integracao' }]) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   try {
@@ -116,8 +140,30 @@ try {
     const readiness = await fetch(base + '/health/ready');
     assert.equal(readiness.status, 503, 'Sem Asterisk o PBX não declara prontidão de produção.');
     assert.equal((await readiness.json()).dependencies.postgresql, 'UP');
+    const adminAToken = jwt.sign({ id: `user-a-${id}`, tenantId: tenantA }, process.env.JWT_SECRET!, { expiresIn: '1m' });
+    const testHeaders = { Authorization: `Bearer ${adminAToken}`, 'Content-Type': 'application/json' };
+    const toolPath = base + `/api/v1/ai/tools/${toolId}/test`;
+    const execute = (body: unknown, requestHeaders = testHeaders) => fetch(toolPath, { method: 'POST', headers: requestHeaders, body: JSON.stringify(body) });
+    assert.equal((await execute({ params: { documento: '123' } })).status, 409);
+    assert.equal((await execute({ params: { documento: 123 }, confirmed: true })).status, 422);
+    const realExecution = await execute({ params: { documento: '123' }, confirmed: true });
+    assert.equal(realExecution.status, 200);
+    const execution = await realExecution.json();
+    assert.deepEqual(execution.result, { protocoloExterno: 'teste-integracao' });
+    assert.equal(JSON.stringify(execution).includes('segredo-da-integracao'), false);
+    assert.equal(externalHits, 1); assert.deepEqual(externalErrors, []);
+    await admin.query("UPDATE users SET role='admin' WHERE id=$1", [`user-b-${id}`]);
+    assert.equal((await execute({ params: { documento: '123' }, confirmed: true }, { ...testHeaders, Authorization: `Bearer ${operatorToken}` })).status, 404);
+    await admin.query("UPDATE users SET role='operator' WHERE id=$1", [`user-b-${id}`]);
+    await admin.query('UPDATE ai_tools SET endpoint=$1 WHERE id=$2', [origin + '/alterado', toolId]);
+    assert.equal((await execute({ params: { documento: '123' }, confirmed: true })).status, 403);
+    assert.equal(externalHits, 1);
+    const auditText = JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action='AI_TOOL_HTTP_ATTEMPT'", [tenantA])).rows);
+    assert.equal(auditText.includes('documento'), false); assert.equal(auditText.includes('segredo-da-integracao'), false);
+    console.log('Ferramenta HTTP em produção: execução real, auditoria anterior, confirmação, schema, vínculo e isolamento aprovados.');
     console.log('HTTP de produção: login bcrypt, perfil, RBAC, isolamento, arquivos públicos e readiness aprovados.');
   } finally {
+    external.closeAllConnections(); await new Promise<void>(resolve => external.close(() => resolve()));
     if (child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit');
       child.kill('SIGTERM');
@@ -128,6 +174,7 @@ try {
   }
   console.log('PostgreSQL real: migrações, RLS, identidade, privilégios mínimos e idempotência aprovados.');
 } finally {
+  await admin.query('DELETE FROM ai_tools WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM trunks WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM support_tickets WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM omnichannel_conversations WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});

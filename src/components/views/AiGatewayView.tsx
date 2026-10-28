@@ -193,8 +193,11 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
   }, [activeSubTab]);
   const [selectedAgent, setSelectedAgent] = useState<AiAgent | null>(agents[0] || null);
   const [selectedTool, setSelectedTool] = useState<AiTool | null>(null);
-  const [testToolArgs, setTestToolArgs] = useState('{"documento": "12345678900"}');
-  const [toolSimResult, setToolSimResult] = useState<any>(null);
+  const [testToolArgs, setTestToolArgs] = useState('{}');
+  const [toolTestResult, setToolTestResult] = useState<any>(null);
+  const [isTestingTool, setIsTestingTool] = useState(false);
+  const [toolTestError, setToolTestError] = useState('');
+  const [toolExecutionConfirmed, setToolExecutionConfirmed] = useState(false);
 
   // Quality Supervisor State
   const [qualityAudits, setQualityAudits] = useState<QualityAuditRecord[]>([]);
@@ -481,9 +484,33 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     }
   };
 
-  const handleSimulateTool = (tool: AiTool) => {
+  const handleSelectTool = (tool: AiTool) => {
+    if (isTestingTool) return;
     setSelectedTool(tool);
-    setToolSimResult(tool.mockResponse);
+    setToolTestResult(null);
+    setToolTestError('');
+    setTestToolArgs('{}');
+    setToolExecutionConfirmed(false);
+  };
+
+  const handleExecuteToolTest = async () => {
+    if (!selectedTool || isTestingTool) return;
+    let params: unknown;
+    try { params = JSON.parse(testToolArgs); }
+    catch { setToolTestError('Informe parâmetros em JSON válido.'); return; }
+    setIsTestingTool(true);
+    setToolTestError('');
+    setToolTestResult(null);
+    try {
+      const response = await fetch(`/api/v1/ai/tools/${encodeURIComponent(selectedTool.id)}/test`, {
+        method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params, confirmed: toolExecutionConfirmed }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error([result.error || 'Falha ao executar ferramenta.', result.warning].filter(Boolean).join(' '));
+      setToolTestResult(result);
+    } catch (error) { setToolTestError(error instanceof Error ? error.message : 'Não foi possível concluir o teste.'); }
+    finally { setIsTestingTool(false); setToolExecutionConfirmed(false); }
   };
 
   // ---------------------------------------------------------------------------
@@ -1712,7 +1739,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             {tools.map((tool) => (
               <div
                 key={tool.id}
-                onClick={() => handleSimulateTool(tool)}
+                onClick={() => handleSelectTool(tool)}
                 className={`p-4 rounded-2xl border cursor-pointer transition ${
                   selectedTool?.id === tool.id
                     ? 'bg-white border-cyan-500/80'
@@ -1741,7 +1768,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Code className="w-4 h-4 text-teal-600" />
-                Schema OpenAPI & Simulador de Resposta
+                JSON Schema e teste real da API
               </h3>
               <span className="text-xs font-mono text-slate-500">
                 {selectedTool ? selectedTool.name : 'Selecione uma ferramenta'}
@@ -1752,7 +1779,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               <div className="space-y-4 text-xs">
                 <div>
                   <label className="text-slate-500 font-semibold block mb-1">
-                    JSON Schema (Enviado para o Gemini):
+                    JSON Schema dos parâmetros:
                   </label>
                   <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-700 max-h-48 overflow-y-auto">
                     {JSON.stringify(selectedTool.schemaJson, null, 2)}
@@ -1760,13 +1787,36 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 </div>
 
                 <div>
-                  <label className="text-slate-500 font-semibold block mb-1">
-                    Simulação de Resposta Retornada pela API:
-                  </label>
-                  <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-blue-700 max-h-48 overflow-y-auto">
-                    {JSON.stringify(toolSimResult || selectedTool.mockResponse, null, 2)}
-                  </pre>
+                  <label htmlFor="tool-test-params" className="text-slate-500 font-semibold block mb-1">Parâmetros JSON:</label>
+                  <textarea id="tool-test-params" value={testToolArgs} onChange={event => setTestToolArgs(event.target.value)}
+                    disabled={isTestingTool} maxLength={16384} rows={6}
+                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono text-slate-700" />
                 </div>
+                <p className="text-amber-800 bg-amber-50 p-3 rounded-xl">
+                  Este teste chama a API de verdade e pode alterar dados. A URL e o método precisam estar autorizados no servidor.
+                  Em caso de falha de comunicação, confira o destino antes de repetir uma operação POST.
+                </p>
+                {selectedTool.requiresConfirmation && (
+                  <label className="flex items-center gap-2 text-slate-700">
+                    <input type="checkbox" checked={toolExecutionConfirmed} disabled={isTestingTool}
+                      onChange={event => setToolExecutionConfirmed(event.target.checked)} />
+                    Confirmo a execução real desta ferramenta.
+                  </label>
+                )}
+                <button type="button" onClick={handleExecuteToolTest}
+                  disabled={isTestingTool || (selectedTool.requiresConfirmation && !toolExecutionConfirmed)}
+                  className="px-4 py-2 rounded-xl bg-blue-700 text-white font-semibold disabled:opacity-50">
+                  {isTestingTool ? 'Executando...' : 'Executar teste real'}
+                </button>
+                {toolTestError && <p role="alert" className="text-rose-700">{toolTestError}</p>}
+                {toolTestResult && (
+                  <div aria-live="polite">
+                    <label className="text-slate-500 font-semibold block mb-1">Resposta real da API:</label>
+                    <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-blue-700 max-h-64 overflow-auto">
+                      {JSON.stringify(toolTestResult, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="py-12 text-center text-slate-500 text-xs">

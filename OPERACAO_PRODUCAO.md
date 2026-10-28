@@ -111,3 +111,21 @@ Integrações externas exigem HTTPS. Para serviço privado autorizado, incluir s
 O serviço sem root pode não ter permissão para consultar WireGuard ou o daemon ZeroTier. Nesse caso, corrigir o mecanismo de observação no host sem executar todo o PBX como root. Não conceder capacidade de administração de rede ao processo web apenas para contornar essa restrição. Ainda falta homologar um agente de observação com privilégios mínimos.
 
 Handshake WireGuard recente indica atividade do peer, sem assegurar registro SIP ou áudio. RTT, jitter, MOS, perda e contagem de pacotes indisponíveis aparecem sem valor medido. A sonda TCP/5060 é útil apenas para um destino que realmente escute TCP nessa porta; ausência de resposta não prova que o túnel UDP ou o telefone esteja offline. Se uma versão anterior expôs respostas de saúde do WireGuard, avaliar a rotação das chaves no host e nos peers correspondentes.
+
+## Teste real das ferramentas HTTP de IA
+
+A tela de ferramentas possui parâmetros JSON e execução real por `POST /api/v1/ai/tools/:id/test`, exclusiva de `admin` e `super_admin` no contexto da empresa. Selecionar a ferramenta não faz chamadas. O teste consulta o cadastro atual no banco; não usa `mockResponse`, endpoint enviado no pedido nem credenciais do navegador. O cadastro e a edição validam nome, URL absoluta, método e schema, e a consulta para edição/exclusão também respeita a empresa.
+
+Além de autorizar a origem em `OUTBOUND_ALLOWED_ORIGINS`, configure `AI_TOOL_BINDINGS_JSON` no servidor. O valor é uma string contendo um array JSON, com vínculo exato de empresa, ID da ferramenta, URL e método:
+
+```dotenv
+AI_TOOL_BINDINGS_JSON='[{"tenantId":"empresa-exemplo","toolId":"tool-ID-CADASTRADO","endpoint":"https://erp.example.invalid/api/consulta","method":"POST","bearerToken":"TOKEN-DO-ERP"}]'
+```
+
+O token é opcional e fica somente no arquivo protegido de configuração do serviço. No formato `runtime.json`, essa variável também deve ter um **valor string**, não um array nativo. Não usar senhas na URL, no schema ou em valores de exemplo. Reiniciar o serviço depois da atualização administrativa. Vínculo ausente, duplicado ou divergente bloqueia a chamada. Alterar URL/método no cadastro exige revisar o vínculo no servidor; a credencial não acompanha automaticamente essa alteração.
+
+O schema raiz deve ter `type: object`. Suportam-se `properties`, `required`, objetos fechados (propriedades adicionais são recusadas), arrays com `items`, tipos escalares, `enum` escalar, `minimum`, `maximum`, `minLength`, `maxLength`, `minItems`, `maxItems`, `title` e `description`. Referências, regex, formatos, composições e outros recursos não são aceitos. Há limites de 16 KB, seis níveis de schema e 128 nós; parâmetros também têm limite de 16 KB. Não há coerção de tipos nem preenchimento automático de valores. Parâmetros GET precisam ser escalares e não podem colidir com a query da URL cadastrada; POST envia JSON.
+
+Ferramentas marcadas com `requiresConfirmation` exigem confirmação explícita em cada tentativa. Há limite de dez testes por minuto por IP. A auditoria de tentativa, sem parâmetros, token ou resposta, deve estar persistida antes do envio. Cada tentativa leva `X-Enlace-Request-Id`; isso não garante idempotência no sistema externo. Não há retry automático. Uma falha de rede ou resposta inválida após POST pode ocorrer depois da alteração externa: conferir o destino antes de repetir.
+
+Este fluxo é um teste administrativo HTTP. Não ativa execução autônoma dessas ferramentas nas chamadas do agente MaIA. A homologação do contrato de cada ERP/CRM, das permissões do token e das operações que alteram dados continua obrigatória.

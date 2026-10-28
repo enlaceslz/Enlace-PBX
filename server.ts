@@ -1,3 +1,5 @@
+import { executeAiToolHttp, validateToolDefinition } from './server/maia/integrations/AiToolHttpExecution.js';
+import { OutboundHttpError } from './server/infrastructure/security/OutboundHttp.js';
 import { assertSingleLineConfig, safeTrunkPayload } from './server/infrastructure/asterisk/configValidation.js';
 import { TicketRepository } from './server/infrastructure/postgres/repositories/TicketRepository.js';
 import { listBackups, backupPath } from './server/infrastructure/security/BackupInventory.js';
@@ -1151,7 +1153,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const targetPort = 5060;
     if (!net.isIP(targetIp) || targetIp.startsWith('127.') || targetIp === '::1') return res.status(422).json({ error: 'Peer sem endereço virtual válido para a sonda.' });
 
-    const { reachable, latencyMs } = await measureSocketLatency(targetIp, targetPort, 1200);
+    const probe = await measureSocketLatency(targetIp, targetPort, 1200);
+    const { latencyMs } = probe;
+    const reachable = probe.reachable && !probe.error;
 
     res.json({
       success: reachable,
@@ -3965,20 +3969,22 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar ferramenta.' });
     }
     const newTool = {
-      id: `tool-${Date.now()}`,
+      id: `tool-${crypto.randomUUID()}`,
       tenantId,
       name: req.body.name,
-      description: req.body.description,
-      endpoint: req.body.endpoint || '/api/v1/integrations/custom',
-      method: req.body.method || 'POST',
-      requiresConfirmation: req.body.requiresConfirmation === true,
-      schemaJson: req.body.schemaJson || { type: 'object', properties: {} },
-      mockResponse: req.body.mockResponse || { status: 'sucesso' },
+      description: req.body.description ?? '',
+      endpoint: req.body.endpoint || '',
+      method: req.body.method ?? 'POST',
+      requiresConfirmation: req.body.requiresConfirmation ?? false,
+      schemaJson: req.body.schemaJson ?? { type: 'object', properties: {} },
+      mockResponse: {},
     };
     try {
+      validateToolDefinition(newTool);
       await AiToolRepository.saveTool(tenantId, newTool);
       res.status(201).json(newTool);
     } catch (e: any) {
+      if (e instanceof OutboundHttpError) return res.status(e.statusCode).json({ error: e.message });
       console.error('[AI Tools] Erro ao salvar ferramenta:', e?.message || e);
       res.status(500).json({ error: 'Erro ao salvar ferramenta de IA' });
     }
@@ -3987,21 +3993,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.put('/api/v1/ai/tools/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const prev = await AiToolRepository.findAnyByIdForSuperAdmin(req.params.id);
+      const prev = await AiToolRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!prev) return res.status(404).json({ error: 'Ferramenta não encontrada' });
 
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A ferramenta pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
+      const updated = { ...prev, name: req.body.name ?? prev.name, description: req.body.description ?? prev.description,
+        endpoint: req.body.endpoint ?? prev.endpoint, method: req.body.method ?? prev.method,
+        requiresConfirmation: req.body.requiresConfirmation ?? prev.requiresConfirmation, schemaJson: req.body.schemaJson ?? prev.schemaJson,
+        mockResponse: {} };
+      validateToolDefinition(updated);
       await AiToolRepository.saveTool(updated.tenantId, updated);
       res.json(updated);
     } catch (e: any) {
+      if (e instanceof OutboundHttpError) return res.status(e.statusCode).json({ error: e.message });
       console.error('[AI Tools] Erro ao atualizar ferramenta:', e?.message || e);
       res.status(500).json({ error: 'Erro ao atualizar ferramenta de IA' });
     }
@@ -4010,16 +4013,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.delete('/api/v1/ai/tools/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const prev = await AiToolRepository.findAnyByIdForSuperAdmin(req.params.id);
+      const prev = await AiToolRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!prev) return res.status(404).json({ error: 'Ferramenta não encontrada' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A ferramenta pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
 
       await AiToolRepository.delete(req.params.id, prev.tenantId);
       res.json({ success: true });
@@ -4029,20 +4024,27 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/ai/tools/:id/test', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
+  const toolTestLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Limite de testes atingido. Aguarde um minuto.' } });
+  app.post('/api/v1/ai/tools/:id/test', requireAuth, requireTenant, requireRole('super_admin', 'admin'), toolTestLimiter, async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    const tool = await AiToolRepository.findById(req.params.id, tenantId);
+    if (!tool) return res.status(404).json({ error: 'Ferramenta não encontrada' });
     try {
-      const tenantCtx = resolveTenantContext(req);
-      const tool = await AiToolRepository.findById(req.params.id, tenantCtx.tenantId);
-      if (!tool) return res.status(404).json({ error: 'Ferramenta não encontrada' });
-      res.json({
-        executedAt: new Date().toISOString(),
-        toolName: tool.name,
-        inputParams: req.body.params || {},
-        result: tool.mockResponse,
+      const result = await executeAiToolHttp(tool, req.body.params === undefined ? {} : req.body.params, req.body.confirmed, {
+        beforeSend: async executionId => {
+          const actor = (req as any).user;
+          await recordAuditLog({ tenantId, userId: actor.id, userName: actor.name, ip: req.ip,
+            action: 'AI_TOOL_HTTP_ATTEMPT', resource: `ai/tools/${tool.id}`, category: 'AI_GATEWAY',
+            details: 'Tentativa de execução HTTP real de ferramenta autorizada.', strict: true,
+            payload: { executionId, method: tool.method } });
+        },
       });
-    } catch (e: any) {
-      console.error('[AI Tools] Erro ao testar ferramenta:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao testar ferramenta de IA' });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message,
+        ...(tool.method === 'POST' && error.statusCode >= 500 ? { outcome: 'UNKNOWN', warning: 'O destino pode ter executado a operação. Confira antes de repetir.' } : {}) });
+      throw error;
     }
   });
 
