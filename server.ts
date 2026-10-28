@@ -1,3 +1,4 @@
+import { callExtension, channelReference } from './server/infrastructure/asterisk/CallControl.js';
 import { privateApiResponse, unexpectedHttpError, telephonyFailure } from './server/infrastructure/security/ApiResponsePolicy.js';
 import { fail2banMonitor } from './server/infrastructure/security/Fail2banMonitor.js';
 import { CampaignPlanningRepository } from './server/infrastructure/postgres/repositories/CampaignPlanningRepository.js';
@@ -4216,137 +4217,56 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/asterisk/channels', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
+  const callControlLimiter = rateLimit({ windowMs:60000, limit:30, standardHeaders:true, legacyHeaders:false,
+    message:{error:'Limite de operações de telefonia excedido. Aguarde antes de uma nova solicitação.'} });
+  app.use('/api/v1/asterisk/channels', (req,res,next)=> ['GET','HEAD'].includes(req.method) ? next() : callControlLimiter(req,res,next));
+  const callAttempt = async (req:any, operation:string) => {
+    const actor=req.user;
+    await recordAuditLog({ tenantId:resolveTenantContext(req).tenantId || 'SYSTEM', userId:actor.id,userName:actor.name,
+      action:operation,resource:'asterisk/channels',ip:req.ip,category:'TELECOM_SIP',strict:true,
+      details:'Tentativa administrativa de controle de chamada; aceite AMI não comprova execução concluída.',
+      payload:{requestId:req.res.locals.requestId} });
+  };
+  const callFailure = (error:unknown,res:any) => {
+    if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});
+    const failure=telephonyFailure(error);return res.status(failure.status).json({error:failure.error});
+  };
+  app.post('/api/v1/asterisk/channels', requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
     try {
-      const tenantCtx = resolveTenantContext(req);
-      const user = (req as any).user;
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      if (!tenantId && !isSuper) {
-        return res.status(403).json({ error: 'Tenant obrigatório para originar chamadas.' });
-      }
-      const chan = await asteriskService.originateCall(
-        req.body.caller || user?.extension || '4101',
-        req.body.callee || '4102',
-        tenantId,
-        Boolean(req.body.isAi),
-        isSuper
-      );
-      res.status(201).json(chan);
-    } catch (err: any) {
-      const failure = telephonyFailure(err);
-      res.status(failure.status).json({ error: failure.error });
-    }
+      const caller=callExtension(req.body.caller);const callee=callExtension(req.body.callee);
+      if(req.body.isAi !== undefined && req.body.isAi !== false)return res.status(501).json({error:'Ponte de IA não homologada para esta originação.'});
+      const context=resolveTenantContext(req);
+      await callAttempt(req,'ORIGINATE_CHANNEL_ATTEMPT');
+      res.status(202).json(await asteriskService.originateCall(caller,callee,context.tenantId,false,false));
+    }catch(error){callFailure(error,res);}
   });
-
-  app.delete('/api/v1/asterisk/channels/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
-      res.json({ success });
-    } catch (err: any) {
-      const failure = telephonyFailure(err);
-      res.status(failure.status).json({ error: failure.error });
-    }
+  const hangupCall = async(req:any,res:any)=>{
+    try {channelReference(req.params.id);const context=resolveTenantContext(req);
+      await callAttempt(req,'HANGUP_CHANNEL_ATTEMPT');
+      const result=await asteriskService.hangupChannel(req.params.id,context.tenantId,context.actorRole==='super_admin');
+      res.status(202).json(result);
+    }catch(error){callFailure(error,res);}
+  };
+  app.delete('/api/v1/asterisk/channels/:id',requireRole('super_admin','admin','supervisor','operator'),hangupCall);
+  app.post('/api/v1/asterisk/channels/:id/hangup',requireRole('super_admin','admin','supervisor','operator'),hangupCall);
+  app.post('/api/v1/asterisk/channels/:id/transfer',requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+    try {channelReference(req.params.id);const destination=callExtension(req.body.destination);const context=resolveTenantContext(req);
+      await callAttempt(req,'TRANSFER_CHANNEL_ATTEMPT');
+      res.status(202).json(await asteriskService.transferChannel(req.params.id,destination,context.tenantId,context.actorRole==='super_admin'));
+    }catch(error){callFailure(error,res);}
   });
-
-  app.post('/api/v1/asterisk/channels/:id/hangup', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
-      recordAuditLog({
-        tenantId: tenantId || 'SYSTEM',
-        action: 'HANGUP_CHANNEL',
-        resource: `channels/${req.params.id}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Canal ${req.params.id} desconectado manualmente via comando ARI/CLI.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-      });
-      res.json({ success, message: `Canal ${req.params.id} encerrado.` });
-    } catch (err: any) {
-      const failure = telephonyFailure(err);
-      res.status(failure.status).json({ error: failure.error });
-    }
+  app.post('/api/v1/asterisk/channels/:id/redirect',requireRole('super_admin','admin','supervisor'),async(req,res)=>{
+    try {channelReference(req.params.id);const destination=callExtension(req.body.destination);const context=resolveTenantContext(req);
+      if(req.body.context!=='from-internal' || req.body.priority!==1)return res.status(400).json({error:'Informe from-internal e prioridade 1.'});
+      await callAttempt(req,'REDIRECT_CHANNEL_ATTEMPT');
+      res.status(202).json(await asteriskService.redirectChannel(req.params.id,'from-internal',destination,1,context.tenantId,context.actorRole==='super_admin'));
+    }catch(error){callFailure(error,res);}
   });
-
-  app.post('/api/v1/asterisk/channels/:id/transfer', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const destination = (req.body.destination || '4102').trim();
-      const chan = await asteriskService.transferChannel(req.params.id, destination, tenantId, isSuper);
-      if (!chan) {
-        return res.status(404).json({ error: 'Canal não encontrado para transferência.' });
-      }
-      recordAuditLog({
-        tenantId: tenantId || 'SYSTEM',
-        action: 'TRANSFER_CHANNEL',
-        resource: `channels/${req.params.id}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Transferência cega/assistida do canal ${chan.name} para destino ${destination}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-      });
-      res.json({ success: true, channel: chan, message: `Canal transferido para ${destination}.` });
-    } catch (err: any) {
-      const failure = telephonyFailure(err);
-      res.status(failure.status).json({ error: failure.error });
-    }
-  });
-
-  app.post('/api/v1/asterisk/channels/:id/redirect', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const context = (req.body.context || 'from-internal').trim();
-      const destination = (req.body.destination || '4102').trim();
-      const priority = Number(req.body.priority) || 1;
-      const success = await asteriskService.redirectChannel(req.params.id, context, destination, priority, tenantId, isSuper);
-      recordAuditLog({
-        tenantId: tenantId || 'SYSTEM',
-        action: 'REDIRECT_CHANNEL',
-        resource: `channels/${req.params.id}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Redirecionamento de canal ${req.params.id} para ${destination}@${context},${priority}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-      });
-      res.json({ success, message: `Canal ${req.params.id} redirecionado para ${destination}.` });
-    } catch (err: any) {
-      const failure = telephonyFailure(err);
-      res.status(failure.status).json({ error: failure.error });
-    }
-  });
-
-  app.post('/api/v1/asterisk/channels/:id/spy', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const user = (req as any).user;
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const supervisorExt = (req.body.supervisorExt || user?.extension || '4101').trim();
-      const spyChan = await asteriskService.spyChannel(req.params.id, supervisorExt, tenantId, isSuper);
-      recordAuditLog({
-        tenantId: tenantId || 'SYSTEM',
-        action: 'CHANSPY_CHANNEL',
-        resource: `channels/${req.params.id}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Originação de ChanSpy no ramal supervisor ${supervisorExt} para monitoramento silencioso do canal ${req.params.id}.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-      });
-      res.json({ success: true, channel: spyChan, message: `ChanSpy iniciado no ramal ${supervisorExt}.` });
-    } catch (err: any) {
-      const failure = telephonyFailure(err);
-      res.status(failure.status).json({ error: failure.error });
-    }
+  app.post('/api/v1/asterisk/channels/:id/spy',requireRole('super_admin','admin','supervisor'),async(req,res)=>{
+    try {channelReference(req.params.id);const supervisor=callExtension(req.body.supervisorExt);const context=resolveTenantContext(req);
+      await callAttempt(req,'CHANSPY_CHANNEL_ATTEMPT');
+      res.status(202).json(await asteriskService.spyChannel(req.params.id,supervisor,context.tenantId,context.actorRole==='super_admin'));
+    }catch(error){callFailure(error,res);}
   });
 
   app.get('/api/v1/asterisk/configs', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
@@ -4403,24 +4323,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.send(asteriskService.generateInstallScript());
   });
 
-  app.post('/api/v1/asterisk/reload', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'SYSTEM';
-    const userId = (req as any).user?.id || 'admin';
-    const ip = req.ip || '127.0.0.1';
-
-    const output = await asteriskService.executeCliCommand('core reload', { tenantId, userId, ip });
-    recordAuditLog({
-      tenantId,
-      userId,
-      userName: (req as any).user?.name || 'Administrador',
-      action: 'RELOAD_ASTERISK_CORE',
-      resource: 'asterisk/core',
-      ip,
-      details: 'Recarregamento seguro dos módulos do Asterisk (PJSIP, Dialplan, AudioSocket e ARI).',
-      category: 'TELECOM_SIP',
-      severity: 'WARNING',
-    });
-    res.json({ success: true, message: output });
+  app.post('/api/v1/asterisk/reload', requireRole('super_admin'), async (req,res) => {
+    await recordAuditLog({ tenantId:(req as any).user.tenantId || 'SYSTEM',userId:(req as any).user.id,
+      userName:(req as any).user.name,action:'RELOAD_ASTERISK_CORE_ATTEMPT',resource:'asterisk/core',ip:req.ip,
+      details:'Tentativa de envio de core reload; não certifica recarga individual de módulos.',category:'TELECOM_SIP',strict:true });
+    const result=await AsteriskCommandService.executeSafeCli('core reload');
+    if(!result.success)return res.status(502).json({error:'Comando de recarga sem confirmação do Asterisk.'});
+    res.json({success:true,message:'Comando core reload aceito. Verifique o estado dos módulos no host.'});
   });
 
   app.post('/api/v1/asterisk/cli', requireRole('super_admin', 'admin'), async (req, res) => {

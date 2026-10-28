@@ -1,3 +1,5 @@
+import { asteriskAdapter } from '../server/infrastructure/asterisk/AsteriskAdapter.js';
+import { AsteriskService } from '../server/asteriskService.js';
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -231,6 +233,40 @@ try {
     assert.equal((await readiness.json()).dependencies.postgresql, 'UP');
     const adminAToken = jwt.sign({ id: `user-a-${id}`, tenantId: tenantA }, process.env.JWT_SECRET!, { expiresIn: '1m' });
     const testHeaders = { Authorization: `Bearer ${adminAToken}`, 'Content-Type': 'application/json' };
+    const callHeaders=testHeaders;
+    const callApi=async(path:string,body:any)=>fetch(base+'/api/v1/asterisk/channels'+path,{method:'POST',headers:callHeaders,body:JSON.stringify(body)});
+    assert.equal((await callApi('',{})).status,400,'Sem ramais padrão que originem chamada por engano.');
+    assert.equal((await callApi('',{caller:'4101',callee:'00900123456789'})).status,400);
+    assert.equal((await callApi('',{caller:'4101',callee:'4102',isAi:true})).status,501);
+    assert.equal((await callApi('/canal-inexistente/transfer',{})).status,400);
+    assert.equal((await callApi('/canal-inexistente/spy',{})).status,400);
+    assert.equal((await callApi('/canal-inexistente/redirect',{destination:'4102',context:'outbound-routes',priority:1})).status,400);
+    await admin.query(`INSERT INTO extensions(id,tenant_id,number,name,sip_secret,caller_id) VALUES
+      ($1,$2,'871001','A','sem-uso','871001'),($3,$4,'871002','B','sem-uso','871002'),
+      ($5,$2,'871003','Duplicado A','sem-uso','871003'),($6,$4,'871003','Duplicado B','sem-uso','871003')`,
+      ['call-a-'+id,tenantA,'call-b-'+id,tenantB,'call-duplicate-a-'+id,'call-duplicate-b-'+id]);
+    const calls=new AsteriskService();
+    assert.equal(await calls.resolveChannelTenant({name:'PJSIP/871001-00000001',tenantId:tenantB,callerNumber:'871002'} as any),tenantA);
+    assert.equal(await calls.resolveChannelTenant({name:'Local/nao-identificado',tenantId:tenantA,callerNumber:'871001',connectedLine:'871001'} as any),null);
+    assert.equal(await calls.resolveChannelTenant({name:'PJSIP/871003-00000001',callerNumber:'871001'} as any),null);
+    assert.equal((await callApi('',{caller:'871001',callee:'871002'})).status,403,'Originação não alcança ramal de outra empresa.');
+    assert.equal((await callApi('',{caller:'871003',callee:'871001'})).status,409,'Endpoint ambíguo não é originado.');
+    assert.equal((await callApi('',{caller:'871001',callee:'871001'})).status,502,'AMI ausente não gera canal fictício.');
+    const originalChannels=asteriskAdapter.getChannels.bind(asteriskAdapter);
+    const originalAmi=asteriskAdapter.executeAmiAction.bind(asteriskAdapter);
+    const amiOperations:any[]=[];
+    try {
+      asteriskAdapter.getChannels=async()=>[{id:'12345.1',name:'PJSIP/871001-00000001',state:'Up',callerNumber:'871002',connectedLine:'871002',context:'from-internal',exten:'871002',application:'Dial',durationSeconds:1,aiBridgeActive:false,tenantId:tenantB}];
+      asteriskAdapter.executeAmiAction=async(action,params)=>{amiOperations.push({action,params});return 'Response: Success\r\nActionID: 12345678-1234-4234-8234-123456789012\r\n';};
+      assert.equal((await calls.getActiveChannels(tenantB,false)).length,0,'Caller ID e tenantId fornecidos no canal não concedem acesso.');
+      assert.equal((await calls.hangupChannel('12345.1',tenantA,false)).accepted,true);
+      assert.equal(amiOperations[0].params.Channel,'PJSIP/871001-00000001','Uniqueid deve ser resolvido para o nome real.');
+      await assert.rejects(calls.hangupChannel('12345.1',tenantB,false),/ACCESS_DENIED/);
+      await assert.rejects(calls.hangupChannel('12345.1',tenantB,true),/ACCESS_DENIED/,'Superadmin direcionado continua limitado à empresa selecionada.');
+      await assert.rejects(calls.transferChannel('12345.1','871002',tenantA,false),/ACCESS_DENIED/);
+      assert.equal(amiOperations.length,1,'Recusas não enviam ação ao AMI.');
+    }finally{asteriskAdapter.getChannels=originalChannels;asteriskAdapter.executeAmiAction=originalAmi;}
+    await admin.query('DELETE FROM extensions WHERE id=ANY($1::text[])',[['call-a-'+id,'call-b-'+id,'call-duplicate-a-'+id,'call-duplicate-b-'+id]]);
     const toolPath = base + `/api/v1/ai/tools/${toolId}/test`;
     const execute = (body: unknown, requestHeaders = testHeaders) => fetch(toolPath, { method: 'POST', headers: requestHeaders, body: JSON.stringify(body) });
     assert.equal((await execute({ params: { documento: '123' } })).status, 409);

@@ -1322,9 +1322,8 @@ export async function runAllTests(): Promise<{
   // -------------------------------------------------------------------------
   console.log('\n[GRUPO 7] Telefonia Asterisk & Isolamento Estrito de Canais');
 
-  // Registra canal em memória para Tenant B
+  // Canal inexistente não pode conceder autorização para o Tenant B
   const chanBetaId = 'PJSIP/9201-0000003c';
-  asteriskService.bindChannelTenant(chanBetaId, TENANT_B);
 
   // 7.1: getActiveChannels isolado por Tenant
   try {

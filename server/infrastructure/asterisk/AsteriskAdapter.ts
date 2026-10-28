@@ -1,3 +1,4 @@
+import { acceptedCallAction, callExtension, channelReference } from './CallControl.js';
 import crypto from 'node:crypto';
 import { sendAmiAction } from './AmiClient.js';
 import { execFile } from 'child_process';
@@ -267,85 +268,30 @@ export class AsteriskAdapter {
   /**
    * Encerra um canal real do Asterisk.
    */
-  public async hangup(channelId: string): Promise<boolean> {
-    const hasAsterisk = await this.checkBinaryExists();
-    if (hasAsterisk) {
-      const res = await this.executeCli(`channel request hangup ${channelId}`);
-      return res.success;
-    }
-
-    try {
-      await this.executeAmiAction('Hangup', { Channel: channelId });
-      return true;
-    } catch {
-      return false;
-    }
+  public async hangup(channelId: string) {
+    channelReference(channelId);
+    return acceptedCallAction(this.executeAmiAction.bind(this),'Hangup',{Channel:channelId});
   }
 
-  /**
-   * Transfere chamada real (Redirect).
-   */
-  public async transfer(channelId: string, destination: string, context: string = 'from-internal'): Promise<boolean> {
-    const hasAsterisk = await this.checkBinaryExists();
-    if (hasAsterisk) {
-      const res = await this.executeCli(`channel redirect ${channelId} ${context},${destination},1`);
-      return res.success;
-    }
-
-    try {
-      await this.executeAmiAction('Redirect', {
-        Channel: channelId,
-        Context: context,
-        Exten: destination,
-        Priority: '1',
-      });
-      return true;
-    } catch {
-      return false;
-    }
+  public async transfer(channelId: string, destination: string, context='from-internal') {
+    channelReference(channelId);callExtension(destination);
+    if(context!=='from-internal')throw new Error('Contexto de transferência inválido.');
+    return acceptedCallAction(this.executeAmiAction.bind(this),'Redirect',{Channel:channelId,Context:context,Exten:destination,Priority:'1'});
   }
 
-  /**
-   * Origina uma chamada real via Asterisk CLI ou AMI (Action: Originate).
-   */
-  public async originateCall(
-    caller: string,
-    callee: string,
-    isAi: boolean = false,
-    context: string = 'from-internal'
-  ): Promise<AsteriskChannelInfo> {
-    const channelName = `PJSIP/${caller}-${Date.now().toString(36)}`;
-    const hasAsterisk = await this.checkBinaryExists();
+  public async originateCall(caller: string, callee: string, isAi=false, context='from-internal') {
+    callExtension(caller);callExtension(callee);
+    if(isAi || context!=='from-internal')throw new Error('Modo de originação indisponível.');
+    return acceptedCallAction(this.executeAmiAction.bind(this),'Originate',{
+      Channel:`PJSIP/${caller}`,Exten:callee,Context:context,Priority:'1',CallerID:caller,Async:'true',Timeout:'30000',
+    });
+  }
 
-    if (hasAsterisk) {
-      const result = await this.executeCli(`channel originate PJSIP/${caller} extension ${callee}@${context}`);
-      if (!result.success) throw new Error(result.error || 'Asterisk recusou a originação.');
-    } else {
-      try {
-        await this.executeAmiAction('Originate', {
-          Channel: `PJSIP/${caller}`,
-          Exten: callee,
-          Context: context,
-          Priority: '1',
-          CallerID: caller,
-        });
-      } catch (err: any) {
-        throw new Error('Asterisk recusou a originação via AMI.');
-      }
-    }
-
-    return {
-      id: channelName,
-      name: channelName,
-      state: 'Dialing',
-      callerNumber: caller,
-      connectedLine: callee,
-      context,
-      exten: callee,
-      application: isAi ? 'AudioSocket(gemini-live)' : 'Dial',
-      durationSeconds: 0,
-      aiBridgeActive: isAi,
-    };
+  public async supervise(channelId: string, supervisor: string) {
+    channelReference(channelId);callExtension(supervisor);
+    return acceptedCallAction(this.executeAmiAction.bind(this),'Originate',{
+      Channel:`PJSIP/${supervisor}`,Application:'ChanSpy',Data:`${channelId},qb`,Async:'true',Timeout:'30000',
+    });
   }
 
   /**

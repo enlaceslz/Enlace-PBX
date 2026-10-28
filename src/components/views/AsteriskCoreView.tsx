@@ -1,3 +1,4 @@
+import { getAuthHeaders } from '../../utils/api';
 import React, { useState, useEffect } from 'react';
 import {
   Server,
@@ -50,7 +51,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [transferModalChan, setTransferModalChan] = useState<AsteriskChannel | null>(null);
-  const [transferTarget, setTransferTarget] = useState('4102');
+  const [transferTarget, setTransferTarget] = useState('');
 
   const showActionMsg = (text: string, type: 'success' | 'error' = 'success') => {
     setActionMessage({ text, type });
@@ -60,13 +61,13 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   const handleHangupChannel = async (chanId: string) => {
     setActionLoading(`hangup-${chanId}`);
     try {
-      const res = await fetch(`/api/v1/asterisk/channels/${chanId}/hangup`, { method: 'POST' });
+      const res = await fetch(`/api/v1/asterisk/channels/${encodeURIComponent(chanId)}/hangup`, { method: 'POST', headers:getAuthHeaders() });
       const data = await res.json();
-      if (data.success) {
-        showActionMsg(`Canal ${chanId} desconectado pelo ARI.`);
+      if (res.ok && data.accepted) {
+        showActionMsg('Solicitação de encerramento aceita pelo AMI. Atualize a leitura para verificar o canal.');
         onRefreshChannels();
       } else {
-        showActionMsg('Não foi possível derrubar o canal.', 'error');
+        showActionMsg(data.error || 'Solicitação de encerramento não confirmada.', 'error');
       }
     } catch {
       showActionMsg('Erro de comunicação com o Asterisk.', 'error');
@@ -80,14 +81,14 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
     const chanId = transferModalChan.id;
     setActionLoading(`transfer-${chanId}`);
     try {
-      const res = await fetch(`/api/v1/asterisk/channels/${chanId}/transfer`, {
+      const res = await fetch(`/api/v1/asterisk/channels/${encodeURIComponent(chanId)}/transfer`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ destination: transferTarget.trim() }),
       });
       const data = await res.json();
-      if (data.success) {
-        showActionMsg(`Canal transferido com sucesso para ${transferTarget.trim()}.`);
+      if (res.ok && data.accepted) {
+        showActionMsg('Solicitação de redirecionamento aceita pelo AMI; verifique o atendimento no destino.');
         setTransferModalChan(null);
         onRefreshChannels();
       } else {
@@ -101,16 +102,18 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   };
 
   const handleSpyChannel = async (chanId: string) => {
+    const supervisor = window.prompt('Informe o ramal de supervisão cadastrado na mesma empresa:');
+    if (!supervisor) return;
     setActionLoading(`spy-${chanId}`);
     try {
-      const res = await fetch(`/api/v1/asterisk/channels/${chanId}/spy`, {
+      const res = await fetch(`/api/v1/asterisk/channels/${encodeURIComponent(chanId)}/spy`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ supervisorExt: '4101' }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ supervisorExt: supervisor }),
       });
       const data = await res.json();
-      if (data.success) {
-        showActionMsg(`ChanSpy iniciado no ramal supervisor 4101 ouvindo canal ${chanId}.`);
+      if (res.ok && data.accepted) {
+        showActionMsg('Solicitação de supervisão aceita pelo AMI; isso não confirma áudio ou conexão.');
         onRefreshChannels();
       }
     } catch {
@@ -121,16 +124,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   };
 
   // Asterisk CLI Terminal state
-  const [cliHistory, setCliHistory] = useState<Array<{ cmd: string; output: string }>>([
-    {
-      cmd: 'core show version',
-      output: 'Asterisk 20.17.0 LTS built by root @ enlace-core-node-01 on a x86_64 running Linux',
-    },
-    {
-      cmd: 'core show uptime',
-      output: 'System uptime: 4 days, 18 hours, 32 minutes, 14 seconds\nLast reload: 1 day, 6 hours, 10 minutes, 2 segundos',
-    },
-  ]);
+  const [cliHistory, setCliHistory] = useState<Array<{ cmd: string; output: string }>>([]);
   const [cliInput, setCliInput] = useState('');
   const [cliLoading, setCliLoading] = useState(false);
 
@@ -141,11 +135,11 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
     try {
       const res = await fetch('/api/v1/asterisk/cli', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ command: cmd }),
       });
       const data = await res.json();
-      setCliHistory((prev) => [...prev, { cmd, output: data.output }]);
+      setCliHistory((prev) => [...prev, { cmd, output: res.ok ? (data.output || data.message || 'Sem saída do comando.') : (data.error || 'Comando recusado.') }]);
       if (commandToRun === undefined) setCliInput('');
     } catch (e) {
       setCliHistory((prev) => [...prev, { cmd, output: 'Erro de conexão com o socket CLI do Asterisk.' }]);
@@ -158,13 +152,14 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
     setReloadingCore(true);
     setReloadSuccessMsg(null);
     try {
-      const res = await fetch('/api/v1/asterisk/reload', { method: 'POST' });
+      const res = await fetch('/api/v1/asterisk/reload', { method: 'POST', headers:getAuthHeaders() });
       const data = await res.json();
-      setReloadSuccessMsg('Módulos PJSIP, Dialplan e AudioSocket recarregados com sucesso!');
+      if (!res.ok || !data.success) throw new Error(data.error || 'Recarga não confirmada.');
+      setReloadSuccessMsg(data.message || 'Solicitação de recarga confirmada.');
       setTimeout(() => setReloadSuccessMsg(null), 4000);
       onRefreshChannels();
     } catch (e) {
-      console.error('Reload error:', e);
+      showActionMsg(e instanceof Error ? e.message : 'Recarga não confirmada.', 'error');
     } finally {
       setReloadingCore(false);
     }
@@ -178,7 +173,8 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   const fetchConfig = async (file: 'pjsip' | 'extensions' | 'queues' | 'rtp' | 'audiosocket' | 'ari') => {
     setLoadingConfig(true);
     try {
-      const res = await fetch(`/api/v1/asterisk/configs/${file}`);
+      const res = await fetch(`/api/v1/asterisk/configs/${file}`, {headers:getAuthHeaders()});
+      if (!res.ok) throw new Error('Consulta administrativa recusada.');
       const text = await res.text();
       setConfigContent(text);
     } catch (e) {
@@ -190,7 +186,8 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
 
   const fetchInstallerScript = async () => {
     try {
-      const res = await fetch('/api/v1/asterisk/install-script');
+      const res = await fetch('/api/v1/asterisk/install-script', {headers:getAuthHeaders()});
+      if (!res.ok) throw new Error('Consulta administrativa recusada.');
       const text = await res.text();
       setInstallerScript(text);
     } catch (e) {
@@ -494,48 +491,18 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
                   </p>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 uppercase mb-1">
-                      Destino da Transferência (Ramal, Fila ou IA)
+                      Ramal de destino na mesma empresa
                     </label>
                     <input
                       type="text"
                       value={transferTarget}
                       onChange={(e) => setTransferTarget(e.target.value)}
-                      placeholder="Ex: 4102, 7001, 9001"
+                      placeholder="Número do ramal cadastrado"
                       className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     />
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    <span className="text-[10px] text-slate-400">Atalhos:</span>
-                    <button
-                      type="button"
-                      onClick={() => setTransferTarget('4102')}
-                      className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-mono"
-                    >
-                      4102 (Suporte)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTransferTarget('4103')}
-                      className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-mono"
-                    >
-                      4103 (Comercial)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTransferTarget('7001')}
-                      className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-mono"
-                    >
-                      7001 (Fila N1)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTransferTarget('9001')}
-                      className="text-[10px] px-2 py-0.5 bg-cyan-100 hover:bg-cyan-200 text-cyan-800 rounded-md font-mono"
-                    >
-                      9001 (MaIA IA)
-                    </button>
-                  </div>
+                  <p className="text-xs text-slate-500">Informe um ramal cadastrado na empresa do canal. Filas, IA e destinos externos não são aceitos neste controle.</p>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">

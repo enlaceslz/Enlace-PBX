@@ -241,3 +241,11 @@ A leitura aceita até 32 jails e usa prazo total de cinco segundos, limite de sa
 As respostas de `/api` usam `Cache-Control: no-store`, inclusive autenticação, erros e SSE. O proxy/CDN deve respeitar essa política; não configure cache forçado nas rotas da API. Recursos estáticos mantêm o comportamento próprio do servidor de arquivos.
 
 O servidor gera `X-Request-Id` por requisição; falhas inesperadas também devolvem `requestId` no JSON. Use esse identificador ao investigar uma falha. O handler global registra status/identificador sem copiar o corpo da requisição ou o erro bruto. Isso não substitui a revisão dos logs específicos de cada integração nem comprova a política de um proxy externo.
+
+### Controle administrativo de chamadas e confirmação AMI
+
+As rotas administrativas de canais exigem AMI configurado, inclusive com Asterisk local. Resposta 202 com `accepted: true`, `status: ACCEPTED` e `operationId` significa que o AMI aceitou a ação. Verifique canais e eventos no host para confirmar o resultado; não repita automaticamente após timeout/502, pois o comando pode ter chegado ao Asterisk.
+
+Originação exige empresa selecionada e dois ramais internos cadastrados e sem ambiguidade entre empresas. Este endpoint não habilita discagem externa nem ponte IA. Transferência e supervisão exigem destino na empresa do canal; redirecionamento aceita apenas contexto `from-internal`, prioridade 1. Nomes Local e endpoints não identificados ficam sem empresa inferida; Caller ID nunca é autorização. O superadmin global pode consultar todos os canais, mas uma empresa explicitamente selecionada limita a operação a esse escopo.
+
+O identificador do canal pode ser Uniqueid ou nome na API: uma leitura nova resolve o nome real para AMI. Regras de empresa vêm do endpoint provisionado; namespaces SIP por empresa ainda exigem homologação. Validar chamada atendida, sinalização, encerramento, transferência e áudio de ChanSpy no servidor real antes de liberar esses fluxos ao uso operacional.
