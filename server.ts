@@ -1,3 +1,5 @@
+import { CampaignPlanningRepository } from './server/infrastructure/postgres/repositories/CampaignPlanningRepository.js';
+import { plannedPhones } from './server/maia/integrations/CampaignPlanning.js';
 import { validateWorkflowInput,validateInternalNote,assertWorkflowAccess } from './server/maia/integrations/ConversationWorkflow.js';
 import { suggestCopilot } from './server/maia/integrations/OmnichannelCopilot.js';
 import { QualityReviewRepository } from './server/infrastructure/postgres/repositories/QualityReviewRepository.js';
@@ -636,98 +638,30 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Campaigns API
   // -------------------------------------------------------------------------
-  app.get('/api/v1/campaigns', requireAuth, requireTenant, async (req, res) => {
-    try {
-      const tenantId = getAuthorizedTenantId(req);
-      const campaigns = await CampaignRepository.listByTenant(tenantId);
-      res.json(campaigns || []);
-    } catch (err: any) {
-      console.error('[Campaigns] Erro ao listar campanhas:', err?.message || err);
-      res.status(500).json({ error: 'Erro ao listar campanhas do PostgreSQL' });
-    }
+  const campaignError=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+  const campaignAudit=async(req:any,action:string)=>recordAuditLog({tenantId:getAuthorizedTenantId(req),userId:req.user.id,userName:req.user.name,ip:req.ip,action,resource:`campaigns/${req.params.id||'new'}`,category:action==='CAMPAIGN_LEADS_READ'?'LGPD_ACCESS':'TELECOM_SIP',strict:true,details:action==='CAMPAIGN_LEADS_READ'?'Consulta administrativa de destinos planejados.':'Tentativa de alteração de planejamento, sem execução de discagem.'});
+  app.get('/api/v1/campaigns',async(req,res)=>res.json(await CampaignPlanningRepository.list(getAuthorizedTenantId(req))));
+  app.post('/api/v1/campaigns',async(req,res)=>{try{await campaignAudit(req,'CAMPAIGN_CREATE_ATTEMPT');const result=await CampaignPlanningRepository.create(getAuthorizedTenantId(req),req.body);res.status(201).json(result);}catch(error){campaignError(error,res);}});
+  app.put('/api/v1/campaigns/:id',async(req,res)=>{try{await campaignAudit(req,'CAMPAIGN_UPDATE_ATTEMPT');await CampaignPlanningRepository.update(getAuthorizedTenantId(req),req.params.id,req.body);res.json({updated:true});}catch(error){campaignError(error,res);}});
+  app.delete('/api/v1/campaigns/:id',async(req,res)=>{try{if(!Number.isInteger(req.body.planVersion))return res.status(400).json({error:'Informe a versão do planejamento.'});await campaignAudit(req,'CAMPAIGN_DELETE_ATTEMPT');await CampaignPlanningRepository.remove(getAuthorizedTenantId(req),req.params.id,req.body.planVersion);res.json({deleted:true});}catch(error){campaignError(error,res);}});
+  app.post('/api/v1/campaigns/:id/toggle',async(req,res)=>{
+    if(!await CampaignPlanningRepository.find(getAuthorizedTenantId(req),req.params.id))return res.status(404).json({error:'Campanha não encontrada.'});
+    res.status(501).json({error:'Discagem de campanha indisponível: não há worker homologado para iniciar, pausar ou encerrar chamadas.'});
   });
-
-  app.post('/api/v1/campaigns', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantId = getAuthorizedTenantId(req);
-      if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar campanha.' });
-      }
-      const newCampaign = {
-        id: req.body.id || `camp-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-        tenantId,
-        name: req.body.name || 'Nova Campanha Outbound',
-        type: req.body.type || 'ai_voicebot',
-        status: req.body.status || 'paused',
-        aiAgentId: req.body.aiAgentId || 'MaIA Comercial',
-        totalLeads: Number(req.body.totalLeads) || 0,
-        processedLeads: Number(req.body.processedLeads) || 0,
-        successCount: Number(req.body.successCount) || 0,
-        activeCalls: 0,
-        createdAt: new Date().toISOString(),
-      };
-      await CampaignRepository.save(newCampaign);
-      res.status(201).json(newCampaign);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao criar campanha' });
-    }
-  });
-
-  app.put('/api/v1/campaigns/:id', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-      if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para atualizar campanha.' });
-      }
-      let camp = await CampaignRepository.findById(req.params.id, tenantId);
-      if (!camp) return res.status(404).json({ error: 'Campanha não encontrada' });
-
-      camp = {
-        ...camp,
-        ...req.body,
-        id: camp.id,
-        tenantId: camp.tenantId,
-      };
-      await CampaignRepository.save(camp);
-      res.json(camp);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao atualizar campanha' });
-    }
-  });
-
-  app.delete('/api/v1/campaigns/:id', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-      if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para excluir campanha.' });
-      }
-      await CampaignRepository.delete(req.params.id, tenantId);
-      res.json({ success: true, message: 'Campanha removida com sucesso' });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao remover campanha' });
-    }
-  });
-
-  app.post('/api/v1/campaigns/:id/toggle', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-      if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para alternar status da campanha.' });
-      }
-      const camp = await CampaignRepository.findById(req.params.id, tenantId);
-      if (!camp) return res.status(404).json({ error: 'Campanha não encontrada' });
-      
-      if (camp.status === 'running') {
-        camp.status = 'paused';
-        camp.activeCalls = 0;
-      } else if (camp.status === 'paused' || camp.status === 'draft') {
-        camp.status = 'running';
-      }
-      await CampaignRepository.save(camp);
-      res.json(camp);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao alternar campanha' });
-    }
+  app.post('/api/v1/campaigns/:id/leads',async(req,res)=>{try{
+    const tenantId=getAuthorizedTenantId(req);if(!await CampaignPlanningRepository.find(tenantId,req.params.id))return res.status(404).json({error:'Campanha não encontrada.'});
+    const phones=plannedPhones(req.body.phones);await campaignAudit(req,'CAMPAIGN_IMPORT_ATTEMPT');res.json(await CampaignPlanningRepository.import(tenantId,req.params.id,phones));
+  }catch(error){campaignError(error,res);}});
+  app.delete('/api/v1/campaigns/:id/leads',async(req,res)=>{try{
+    if(!Number.isInteger(req.body.planVersion))return res.status(400).json({error:'Informe a versão do planejamento.'});
+    const phone=plannedPhones([req.body.phone])[0];await campaignAudit(req,'CAMPAIGN_LEAD_DELETE_ATTEMPT');
+    await CampaignPlanningRepository.removeLead(getAuthorizedTenantId(req),req.params.id,phone,req.body.planVersion);res.json({deleted:true});
+  }catch(error){campaignError(error,res);}});
+  app.get('/api/v1/campaigns/:id/leads',async(req,res)=>{
+    const tenantId=getAuthorizedTenantId(req);if(!await CampaignPlanningRepository.find(tenantId,req.params.id))return res.status(404).json({error:'Campanha não encontrada.'});
+    const after=req.query.after??'';if(typeof after!=='string'||(after!==''&&!/^55[1-9]\d{9,10}$/.test(after)))return res.status(400).json({error:'Cursor de paginação inválido.'});
+    await campaignAudit(req,'CAMPAIGN_LEADS_READ');const rows=await CampaignPlanningRepository.leads(tenantId,req.params.id,after);const page=rows.slice(0,100);
+    res.json({leads:page,nextCursor:rows.length>100?page.at(-1).phone:null});
   });
 
   app.get('/api/v1/health', async (req, res) => {

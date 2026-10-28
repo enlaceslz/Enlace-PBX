@@ -5,6 +5,7 @@ import pg from 'pg';
 import jwt from 'jsonwebtoken';
 import net from 'node:net';
 import http from 'node:http';
+import { CampaignPlanningRepository } from '../server/infrastructure/postgres/repositories/CampaignPlanningRepository.js';
 import { QualityReviewRepository } from '../server/infrastructure/postgres/repositories/QualityReviewRepository.js';
 import { EntitySchemaRepository } from '../server/infrastructure/postgres/repositories/EntitySchemaRepository.js';
 import { WebhookRepository } from '../server/infrastructure/postgres/repositories/WebhookRepository.js';
@@ -371,6 +372,53 @@ try {
     assert.equal([extraUser,fourthUser].includes(reserved.assignedUserId!),true);assert.equal(reserved.status,'active');assert.equal(reserved.messages.length,reopened.messages.length);
     const privateAudit=JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action IN ('OMNICHANNEL_WORKFLOW_ATTEMPT','OMNICHANNEL_NOTE_ATTEMPT')",[tenantA])).rows);
     assert.equal(privateAudit.includes(noteBody.text),false);
+    const campaignPath=base+'/api/v1/campaigns';
+    const campaignRequest=(path:string,method='GET',body?:unknown,headers=testHeaders)=>fetch(campaignPath+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body)});
+    assert.equal((await campaignRequest('','POST',{name:'Injetada',type:'predictive',status:'running',successCount:20})).status,422);
+    const agentA=`agent-a-${id}`;const agentB=`agent-b-${id}`;
+    await admin.query("INSERT INTO ai_agents(id,tenant_id,name,system_instruction,initial_greeting) VALUES($1,$2,'Agente A','Teste','Olá'),($3,$4,'Agente B','Teste','Olá')",[agentA,tenantA,agentB,tenantB]);
+    assert.equal((await campaignRequest('','POST',{name:'Vínculo cruzado',type:'ai_voicebot',aiAgentId:agentB})).status,422);
+    const createdPlan=await campaignRequest('','POST',{name:'Rascunho CI',type:'ai_voicebot',aiAgentId:agentA});assert.equal(createdPlan.status,201);const planId=(await createdPlan.json()).id;
+    const imported=await Promise.all([
+      campaignRequest(`/${planId}/leads`,'POST',{phones:['(98) 99999-0000','+55 98 99999-0000']}),
+      campaignRequest(`/${planId}/leads`,'POST',{phones:['5598999990000']}),
+    ]);assert.equal(imported.every(response=>response.status===200),true);
+    let plan=(await (await campaignRequest('')).json()).find((entry:any)=>entry.id===planId);assert.equal(plan.leadCount,1);assert.equal(plan.planVersion,1);assert.equal(plan.executionAvailable,false);
+    const actualLeads=await (await campaignRequest(`/${planId}/leads`)).json();assert.deepEqual(actualLeads.leads.map((entry:any)=>entry.phone),['5598999990000']);
+    assert.equal((await campaignRequest(`/${planId}/leads`,'POST',{phones:['11999990000','+1 202 555 0100']})).status,422);
+    assert.equal((await CampaignPlanningRepository.leads(tenantA,planId,'')).length,1);
+    assert.equal((await campaignRequest(`/${planId}/toggle`,'POST',{})).status,501);
+    assert.equal((await CampaignPlanningRepository.find(tenantA,planId)).status,'draft');
+    const edits=await Promise.all([
+      campaignRequest(`/${planId}`,'PUT',{name:'Nome A',planVersion:plan.planVersion}),campaignRequest(`/${planId}`,'PUT',{name:'Nome B',planVersion:plan.planVersion}),
+    ]);assert.deepEqual(edits.map(response=>response.status).sort(),[200,409]);
+    await admin.query("UPDATE users SET role='admin' WHERE id=$1",[`user-b-${id}`]);
+    assert.equal((await campaignRequest(`/${planId}/leads`,'GET',undefined,otherHeaders)).status,404);
+    assert.equal((await campaignRequest(`/${planId}/leads`,'POST',{phones:['11999990000']},otherHeaders)).status,404);
+    assert.equal((await campaignRequest(`/${planId}`,'PUT',{name:'Outra empresa',planVersion:2},otherHeaders)).status,404);
+    assert.equal((await campaignRequest(`/${planId}`,'DELETE',{planVersion:2},otherHeaders)).status,404);
+    assert.equal((await CampaignPlanningRepository.leads(tenantB,planId,'')).length,0);
+    await admin.query("UPDATE users SET role='operator' WHERE id=$1",[`user-b-${id}`]);
+    await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query('INSERT INTO campaign_leads(campaign_id,tenant_id,phone) VALUES($1,$2,$3)',[planId,tenantB,'5511999990000'])));
+    await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query("INSERT INTO campaigns(id,tenant_id,name,type,status,ai_agent_id) VALUES($1,$2,'Proibida','ai_voicebot','draft',$3)",[crypto.randomUUID(),tenantA,agentB])));
+    plan=(await (await campaignRequest('')).json()).find((entry:any)=>entry.id===planId);
+    assert.equal((await campaignRequest(`/${planId}/leads`,'DELETE',{phone:'98999990000',planVersion:plan.planVersion})).status,200);
+    assert.equal((await CampaignPlanningRepository.leads(tenantA,planId,'')).length,0);
+    const capPlan=(await (await campaignRequest('','POST',{name:'Limite CI',type:'power_dialer'})).json()).id;
+    await admin.query("INSERT INTO campaign_leads(campaign_id,tenant_id,phone) SELECT $1,$2,'55'||(98000000000+n)::text FROM generate_series(0,9999) AS n",[capPlan,tenantA]);
+    const firstPage=await (await campaignRequest(`/${capPlan}/leads`)).json();assert.equal(firstPage.leads.length,100);assert.equal(typeof firstPage.nextCursor,'string');
+    const secondPage=await (await campaignRequest(`/${capPlan}/leads?after=${firstPage.nextCursor}`)).json();assert.equal(secondPage.leads.length,100);assert.equal(new Set([...firstPage.leads,...secondPage.leads].map((entry:any)=>entry.phone)).size,200);
+    assert.equal((await campaignRequest(`/${capPlan}/leads`,'POST',{phones:['11999990000']})).status,413);
+    assert.equal((await admin.query('SELECT count(*)::int AS total FROM campaign_leads WHERE campaign_id=$1',[capPlan])).rows[0].total,10000);
+    assert.equal((await campaignRequest(`/${capPlan}`,'DELETE',{planVersion:0})).status,200);
+    assert.equal((await admin.query('SELECT count(*)::int AS total FROM campaign_leads WHERE campaign_id=$1',[capPlan])).rows[0].total,0);
+    const legacyPlan=`legacy-${id}`;await admin.query("INSERT INTO campaigns(id,tenant_id,name,type,status,total_leads,processed_leads,success_count,active_calls) VALUES($1,$2,'Legado CI','predictive','running',500,100,50,3)",[legacyPlan,tenantA]);
+    const legacy=(await (await campaignRequest('')).json()).find((entry:any)=>entry.id===legacyPlan);assert.equal(legacy.status,'unverified');assert.equal(legacy.leadCount,0);assert.equal(legacy.executionAvailable,false);
+    assert.equal((await campaignRequest(`/${legacyPlan}`,'PUT',{name:'Não substituir',planVersion:0})).status,409);
+    assert.equal((await campaignRequest(`/${legacyPlan}`,'DELETE',{planVersion:0})).status,409);
+    assert.equal((await campaignRequest(`/${crypto.randomUUID()}`,'DELETE',{planVersion:0})).status,404);
+    const campaignAudit=JSON.stringify((await admin.query("SELECT details,payload FROM audit_logs WHERE tenant_id=$1 AND action LIKE 'CAMPAIGN%'",[tenantA])).rows);assert.equal(campaignAudit.includes('5598999990000'),false);
+    console.log('Campanhas: preparação real, importação deduplicada/atômica, limites, legado preservado e isolamento aprovados.');
     console.log('Atendimento: responsável autenticado, versão concorrente, anotação idempotente e reabertura por entrada real aprovados.');
     console.log('Copiloto: catálogo fechado, mensagem persistida, auditoria prévia, isolamento e histórico concorrente preservado.');
     console.log('Supervisor: evidências reais, revisão humana única, proteção contra sobrescrita e isolamento aprovados.');
@@ -390,6 +438,8 @@ try {
   }
   console.log('PostgreSQL real: migrações, RLS, identidade, privilégios mínimos e idempotência aprovados.');
 } finally {
+  await admin.query('DELETE FROM campaigns WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
+  await admin.query('DELETE FROM ai_agents WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM quality_reviews WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM entity_extraction_schemas WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM webhook_deliveries WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
