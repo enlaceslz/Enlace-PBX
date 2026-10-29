@@ -18,8 +18,8 @@ export class IvrRepository {
           name: row.name,
           number: row.number,
           audioPrompt: row.audio_prompt,
-          timeoutSeconds: row.timeout_seconds || 10,
-          invalidRetries: row.invalid_retries || 3,
+          timeoutSeconds: row.timeout_seconds ?? 10,
+          invalidRetries: row.invalid_retries ?? 3,
           options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
           flow: typeof row.flow === 'string' ? JSON.parse(row.flow) : (row.flow || undefined),
         }));
@@ -43,8 +43,8 @@ export class IvrRepository {
           name: row.name,
           number: row.number,
           audioPrompt: row.audio_prompt,
-          timeoutSeconds: row.timeout_seconds || 10,
-          invalidRetries: row.invalid_retries || 3,
+          timeoutSeconds: row.timeout_seconds ?? 10,
+          invalidRetries: row.invalid_retries ?? 3,
           options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
           flow: typeof row.flow === 'string' ? JSON.parse(row.flow) : (row.flow || undefined),
         }));
@@ -74,8 +74,8 @@ export class IvrRepository {
             name: row.name,
             number: row.number,
             audioPrompt: row.audio_prompt,
-            timeoutSeconds: row.timeout_seconds || 10,
-            invalidRetries: row.invalid_retries || 3,
+            timeoutSeconds: row.timeout_seconds ?? 10,
+            invalidRetries: row.invalid_retries ?? 3,
             options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
             flow: typeof row.flow === 'string' ? JSON.parse(row.flow) : (row.flow || undefined),
           };
@@ -100,8 +100,8 @@ export class IvrRepository {
             name: row.name,
             number: row.number,
             audioPrompt: row.audio_prompt,
-            timeoutSeconds: row.timeout_seconds || 10,
-            invalidRetries: row.invalid_retries || 3,
+            timeoutSeconds: row.timeout_seconds ?? 10,
+            invalidRetries: row.invalid_retries ?? 3,
             options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
             flow: typeof row.flow === 'string' ? JSON.parse(row.flow) : (row.flow || undefined),
           };

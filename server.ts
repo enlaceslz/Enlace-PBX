@@ -1,3 +1,5 @@
+import {ivrPatch,managedIvr,renderIvr} from './server/infrastructure/asterisk/IvrMutation.js';
+import {IvrManagementRepository} from './server/infrastructure/postgres/repositories/IvrManagementRepository.js';
 import {collectionPatch,queueDto,CollectionKind} from './server/infrastructure/asterisk/CollectionMutation.js';
 import {CollectionManagementRepository} from './server/infrastructure/postgres/repositories/CollectionManagementRepository.js';
 import {routePatch} from './server/infrastructure/asterisk/RouteMutation.js';
@@ -2184,141 +2186,30 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/ivr', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar URA.' });
-    }
-    const ivr = { ...req.body, id: `ivr-${Date.now()}`, tenantId };
-
-    try {
-      await IvrRepository.save(ivr);
-      res.status(201).json(ivr);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao criar URA no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/ivr/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await IvrRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) {
-        return res.status(404).json({ error: 'URA não encontrada' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A URA pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: req.params.id, tenantId: prev.tenantId };
-      await IvrRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar URA no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/ivr/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const ivr = await IvrRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!ivr) {
-        return res.status(404).json({ error: 'URA não encontrada' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && ivr.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A URA pertence ao tenant '${ivr.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await IvrRepository.delete(req.params.id, ivr.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir URA do PostgreSQL' });
-    }
-  });
-
-  // Exportador de Dialplan Asterisk (extensions.conf) para a URA
-  app.get('/api/v1/ivr/:id/dialplan', requireAuth, requireTenant, async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const ivr = await IvrRepository.findById(req.params.id);
-    if (!ivr) {
-      return res.status(404).json({ error: 'URA não encontrada' });
-    }
-    if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && ivr.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. A URA pertence ao tenant '${ivr.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-      });
-    }
-
-    const contextName = `ivr-${ivr.number}`;
-    let dialplan = `; ==========================================================================\n`;
-    dialplan += `; Asterisk 20 PBX - Gerado Automaticamente pelo Editor Visual de URA\n`;
-    dialplan += `; URA: ${ivr.name} (${ivr.number})\n`;
-    dialplan += `; Contexto: [${contextName}]\n`;
-    dialplan += `; ==========================================================================\n\n`;
-    dialplan += `[${contextName}]\n`;
-    dialplan += `exten => s,1,NoOp(==> URA [${ivr.name}] iniciada por \${CALLERID(all)} <==)\n`;
-    dialplan += ` same => n,Answer()\n`;
-    dialplan += ` same => n,Wait(1)\n`;
-    dialplan += ` same => n,Set(TIMEOUT(digit)=3)\n`;
-    dialplan += ` same => n,Set(TIMEOUT(response)=${ivr.timeoutSeconds || 8})\n`;
-    dialplan += ` same => n(menu),Background(${ivr.audioPrompt ? (ivr.audioPrompt.endsWith('.wav') ? ivr.audioPrompt.replace('.wav', '') : 'custom/ura-prompt') : 'custom/ura-prompt'})\n`;
-    dialplan += ` same => n,WaitExten(${ivr.timeoutSeconds || 8})\n\n`;
-
-    if (ivr.options && ivr.options.length > 0) {
-      ivr.options.forEach((opt) => {
-        dialplan += `; Opção ${opt.digit}: ${opt.label}\n`;
-        dialplan += `exten => ${opt.digit},1,NoOp(==> URA [${ivr.name}]: Digitado [${opt.digit}] - ${opt.label} <==)\n`;
-        if (opt.destinationType === 'ai_agent') {
-          dialplan += ` same => n,Set(AI_AGENT_ID=${opt.destinationTarget})\n`;
-          dialplan += ` same => n,Stasis(MaiaVoiceApp,${opt.destinationTarget})\n`;
-          dialplan += ` same => n,Hangup()\n\n`;
-        } else if (opt.destinationType === 'queue') {
-          dialplan += ` same => n,Queue(${opt.destinationTarget},tT,,,120)\n`;
-          dialplan += ` same => n,Hangup()\n\n`;
-        } else if (opt.destinationType === 'extension') {
-          dialplan += ` same => n,Dial(PJSIP/${opt.destinationTarget},30,tT)\n`;
-          dialplan += ` same => n,Hangup()\n\n`;
-        } else if (opt.destinationType === 'hangup') {
-          dialplan += ` same => n,Playback(vm-goodbye)\n`;
-          dialplan += ` same => n,Hangup()\n\n`;
-        } else {
-          dialplan += ` same => n,Goto(from-internal,${opt.destinationTarget},1)\n\n`;
-        }
-      });
-    }
-
-    dialplan += `; Tratamento de Timeout e Entrada Invalida\n`;
-    dialplan += `exten => t,1,NoOp(==> URA [${ivr.name}]: Tempo limite esgotado <==)\n`;
-    dialplan += ` same => n,Playback(pbx-invalid)\n`;
-    dialplan += ` same => n,Goto(s,menu)\n\n`;
-    dialplan += `exten => i,1,NoOp(==> URA [${ivr.name}]: Opção invalida digitada <==)\n`;
-    dialplan += ` same => n,Playback(pbx-invalid)\n`;
-    dialplan += ` same => n,Goto(s,menu)\n`;
-
-    res.json({
-      ivrId: ivr.id,
-      name: ivr.name,
-      number: ivr.number,
-      context: contextName,
-      dialplan,
-    });
-  });
+  const findIvr=async(req:any)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?IvrRepository.findAnyByIdForSuperAdmin(req.params.id):IvrRepository.findById(req.params.id,context.tenantId);};
+  const ivrAudit=async(req:any,tenantId:string,action:string,id='new')=>AuditLogRepository.logStrict({tenantId,userId:req.user.id,userName:req.user.name,action,resource:'ivr/'+id,category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Alteração cadastral de URA; não confirma execução no host.'});
+  const ivrFailure=(error:any,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});logOperational('SERVER_OPERATION_FAILURE',{requestId:res.locals.requestId});return res.status(500).json({error:'Não foi possível concluir a operação de URA.'});};
+  app.post('/api/v1/ivr',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});
+    const patch=ivrPatch(req.body,true);await ivrAudit(req,context.tenantId,'CREATE_IVR_ATTEMPT');
+    const id=await IvrManagementRepository.mutate(context.tenantId,undefined,patch);return res.status(201).json(await IvrRepository.findById(id,context.tenantId));
+  }catch(error){return ivrFailure(error,res);}});
+  app.put('/api/v1/ivr/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findIvr(req);if(!previous)return res.status(404).json({error:'URA não encontrada nesta empresa.'});
+    const patch=ivrPatch(req.body);await ivrAudit(req,previous.tenantId,'UPDATE_IVR_ATTEMPT',previous.id);
+    await IvrManagementRepository.mutate(previous.tenantId,previous.id,patch);return res.json(await IvrRepository.findById(previous.id,previous.tenantId));
+  }catch(error){return ivrFailure(error,res);}});
+  app.delete('/api/v1/ivr/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findIvr(req);if(!previous)return res.status(404).json({error:'URA não encontrada nesta empresa.'});
+    await ivrAudit(req,previous.tenantId,'DELETE_IVR_ATTEMPT',previous.id);await IvrManagementRepository.remove(previous.tenantId,previous.id);return res.json({deleted:true});
+  }catch(error){return ivrFailure(error,res);}});
+  app.get('/api/v1/ivr/:id/dialplan',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    return res.json(await postgresClient.withReadSnapshot(async()=>{
+      const ivr=await findIvr(req);if(!ivr)throw new OutboundHttpError('URA não encontrada nesta empresa.',404);
+      managedIvr(ivr,await ExtensionRepository.listByTenant(ivr.tenantId),await QueueRepository.listByTenant(ivr.tenantId));
+      return {ivrId:ivr.id,name:ivr.name,number:ivr.number,context:'ivr-'+ivr.id,dialplan:renderIvr(ivr),status:'DRAFT_NOT_APPLIED'};
+    }));
+  }catch(error){return ivrFailure(error,res);}});
 
   // -------------------------------------------------------------------------
   // AI Gateway & Gemini Integrations

@@ -1,3 +1,4 @@
+import {managedIvr,renderIvr} from './infrastructure/asterisk/IvrMutation.js';
 import {managedCollection,assertInternalNumbers} from './infrastructure/asterisk/CollectionMutation.js';
 import {managedRoutePlan} from './infrastructure/asterisk/RouteMutation.js';
 import {managedDidDestination} from './infrastructure/asterisk/DidDialplan.js';
@@ -402,6 +403,7 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
     assertSingleLineConfig({ extensions, routes, groups, queues, ivrs, dids, trunks });
     for(const route of routes)managedRoutePlan(route,trunks);
     assertInternalNumbers(extensions,groups,queues,ivrs);
+    for(const ivr of ivrs)managedIvr(ivr,extensions,queues);
     for(const group of groups)managedCollection('group',group,extensions);
     for(const queue of queues)managedCollection('queue',queue,extensions);
 
@@ -488,33 +490,10 @@ ${queues
 
 ; URAs / IVR
 [ivr-menus]
-${ivrs
-  .map(
-    (ivr) => `exten => ${ivr.number},1,NoOp(URA: ${ivr.name})
- same => n,Set(CDR(tenant_id)=${tenantId})
- same => n,Answer()
- same => n,Wait(1)
- same => n(menu),Background(enlace/prompts/${ivr.id})
- same => n,WaitExten(${ivr.timeoutSeconds})
-${ivr.options
-  .map(
-    (opt) => `exten => ${opt.digit},1,NoOp(URA Opção ${opt.digit}: ${opt.label})
-${
-  opt.destinationType === 'extension'
-    ? ` same => n,Goto(from-internal,${opt.destinationTarget},1)`
-    : opt.destinationType === 'queue'
-    ? ` same => n,Goto(call-queues,${opt.destinationTarget},1)`
-    : opt.destinationType === 'ai_agent'
-    ? ` same => n,Goto(from-gemini,s,1)`
-    : ` same => n,Hangup()`
-}`
-  )
-  .join('\n')}
-exten => t,1,Goto(menu)
-exten => i,1,Playback(pbx-invalid)
- same => n,Goto(menu)`
-  )
-  .join('\n\n')}
+${ivrs.map(ivr=>`exten => ${ivr.number},1,Set(CDR(tenant_id)=${tenantId})
+ same => n,Goto(ivr-${ivr.id},s,1)`).join('\n')}
+
+${ivrs.map(ivr=>renderIvr(ivr)).join('\n\n')}
 
 ; ====================================================================
 ; Contexto do Agente de Voz Google Gemini (ARI / AudioSocket / Stasis)
