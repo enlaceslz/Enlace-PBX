@@ -84,7 +84,7 @@ try {
   assert.equal(toolResult.data.protocolo, ticket.protocol);
   const trunk = { id: `trunk-${id}`, tenantId: tenantA, name: 'Tronco de teste', providerName: 'Teste', host: 'sip.example.invalid', port: 5060,
     username: 'usuario', secretMasked: '', transport: 'UDP', callerId: '1001', codecs: ['alaw'], context: 'from-trunk', register: true,
-    status: 'unregistered', channelsMax: 2, channelsInUse: 0, authMode: 'credentials', secret: 'senha-sip-especial!123' } as Trunk & { secret: string };
+    status: 'unregistered', channelsMax: 2, channelsInUse: 0, authMode: 'credentials', callerIdMode:'from', secret: 'senha-sip-especial!123' } as Trunk & { secret: string };
   const savedTrunk = await TrunkRepository.save(trunk);
   assert.equal('secret' in savedTrunk, false);
   assert.equal(savedTrunk.hasSecret, true);
@@ -793,7 +793,24 @@ try {
     await assert.rejects(generatorService.generatePjsipConf(tenantA,true));
     const fixtureSecret=' credencial#[]de-teste-forte ';
     await admin.query('UPDATE extensions SET sip_secret=$1 WHERE tenant_id=$2',[EncryptionService.encrypt(fixtureSecret),tenantA]);
+    const previousInfra=(await admin.query("SELECT value FROM system_settings WHERE key='infra_config'")).rows[0]?.value;
+    const testInfra={hostname:'pbx.example.invalid',domain:'pbx.example.invalid',publicIp:'192.0.2.10',lanIp:'192.168.3.150',lanSubnet:'255.255.255.0',ports:{sipUdp:5060,sipTls:5061},sslCertificate:{status:'not_configured'}};
+    await admin.query("DELETE FROM system_settings WHERE key='infra_config'");await assert.rejects(generatorService.generatePjsipConf(tenantA,true));
+    assert.equal((await admin.query("SELECT key FROM system_settings WHERE key='infra_config'")).rowCount,0);
+    const saveTestInfra=async(value:any)=>admin.query("INSERT INTO system_settings(key,value) VALUES('infra_config',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",[JSON.stringify(value)]);
+    await saveTestInfra(testInfra);
     const pjsipPreview=await generatorService.generatePjsipConf(tenantA,true);assert.match(pjsipPreview,/\[980001\]/);assert.equal(pjsipPreview.includes(fixtureSecret),false);assert.match(pjsipPreview,/password=••••••••/);
+    assert.match(pjsipPreview,/local_net=192\.168\.3\.0\/24/);assert.doesNotMatch(pjsipPreview,/local_net=255\.255\.255\.0/);
+    for(const patch of [{publicIp:'192.0.2.10;exec=x'},{lanSubnet:'255.0.255.0'},{ports:{sipUdp:0,sipTls:5061}},{sslCertificate:{status:'valid',certPath:'/etc/full.pem',keyPath:'/etc/../key.pem'}}]){
+      try{await saveTestInfra({...testInfra,...patch});await assert.rejects(generatorService.generatePjsipConf(tenantA,true));}finally{await saveTestInfra(testInfra);}
+    }
+    for(const [column,value] of [['context','from-internal'],['host','host;directive=x'],['outbound_proxy','sip:proxy.example.invalid'],['authorized_ips',JSON.stringify(['0.0.0.0/0'])],['codecs',JSON.stringify(['alaw;allow=all'])],['caller_id_mode','custom'],['secret_encrypted',EncryptionService.encrypt('senha;diretiva=x')]] as const){
+      const before=(await admin.query('SELECT '+column+' FROM trunks WHERE id=$1',[trunk.id])).rows[0][column];
+      try{await admin.query('UPDATE trunks SET '+column+'=$1 WHERE id=$2',[value,trunk.id]);await assert.rejects(generatorService.generatePjsipConf(tenantA,true));}
+      finally{await admin.query('UPDATE trunks SET '+column+'=$1 WHERE id=$2',[['authorized_ips','codecs'].includes(column)?JSON.stringify(before):before,trunk.id]);}
+    }
+    const previousQualify=(await admin.query('SELECT qualify_frequency FROM trunks WHERE id=$1',[trunk.id])).rows[0].qualify_frequency;
+    try{await admin.query('UPDATE trunks SET qualify_frequency=0 WHERE id=$1',[trunk.id]);assert.match(await generatorService.generatePjsipConf(tenantA,true),/qualify_frequency=0/);}finally{await admin.query('UPDATE trunks SET qualify_frequency=$1 WHERE id=$2',[previousQualify,trunk.id]);}
     for(const [column,value] of [['context','from-trunk'],['codecs',JSON.stringify(['opus','pcma'])],['caller_id','\u0024{SHELL(id)}'],['voicemail',true],['dnd',true],['nat',false],['recording','on_demand'],['cli_caller_id','5511999999999']] as const){
       const before=(await admin.query('SELECT '+column+' FROM extensions WHERE id=$1',['collection-ext-a-'+id])).rows[0][column];
       try{
@@ -801,6 +818,7 @@ try {
         await assert.rejects(generatorService.generateExtensionsConf(tenantA));await assert.rejects(generatorService.generatePjsipConf(tenantA,true));
       }finally{await admin.query('UPDATE extensions SET '+column+'=$1 WHERE id=$2',[column==='codecs'?JSON.stringify(before):before,'collection-ext-a-'+id]);}
     }
+    if(previousInfra===undefined)await admin.query("DELETE FROM system_settings WHERE key='infra_config'");else await saveTestInfra(previousInfra);
     const collectionPlan=await new AsteriskService().generateExtensionsConf(tenantA);assert.ok(collectionPlan.includes('Queue('+apiQueue.id+',t,,,45)'));assert.ok(collectionPlan.includes('Dial(PJSIP/980001&PJSIP/980003,25,tT)'));
     // Mudança confirmada entre geradores não pode misturar versões do mesmo cadastro.
     const snapshotService=new AsteriskService();

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {trunkPatch} from '../server/infrastructure/asterisk/TrunkMutation.js';
+import {trunkPatch,managedTrunk} from '../server/infrastructure/asterisk/TrunkMutation.js';
 test('cadastro aceita apenas campos editáveis com tipos e limites explícitos',()=>{
  assert.deepEqual(trunkPatch({name:' Tronco ',host:'sip.example.invalid',port:5060,register:false,qualifyFrequency:0,codecs:['alaw','ulaw']},true),{name:'Tronco',host:'sip.example.invalid',port:5060,register:false,qualifyFrequency:0,codecs:['alaw','ulaw']});
  for(const field of ['tenantId','id','status','channelsInUse','lastPingStatus','lastPingAt','secretEncrypted','secretMasked','hasSecret','natEnabled'])assert.throws(()=>trunkPatch({[field]:'forjado'}));
@@ -10,4 +10,10 @@ test('campos SIP recusam diretivas, objetos e entradas descontroladas sem altera
  for(const value of [{name:'teste\n#exec segredo'},{secret:'abc;secret=x'},{secret:{senha:'x'}},{authorizedIps:['192.0.2.1\nmatch=0.0.0.0']},{username:'user?header=x'},{name:'x'.repeat(129)},[],null])assert.throws(()=>trunkPatch(value));
  assert.equal(trunkPatch({secret:' senha!123#[] '}).secret,' senha!123#[] ');
  assert.deepEqual(trunkPatch({authorizedIps:['192.0.2.0/24','sip.example.invalid'],failoverTrunkId:''}).authorizedIps,['192.0.2.0/24','sip.example.invalid']);
+});
+
+test('gerador revalida todos os campos legados de tronco e preserva qualify zero',()=>{
+ const trunk={id:'trunk-a',name:'Operadora',providerName:'Operadora',host:'sip.example.invalid',port:5060,transport:'UDP',username:'',callerId:'',codecs:['alaw'],context:'from-trunk',register:false,channelsMax:30,authMode:'ip',authorizedIps:['192.0.2.10'],inboundContext:'from-trunk',sendPai:false,sendRpid:false,directMedia:false,dtmfMode:'rfc4733',fromDomain:null,fromUser:null,qualifyFrequency:0,callerIdMode:'from',failoverTrunkId:null};
+ assert.equal(managedTrunk(trunk).qualifyFrequency,0);
+ for(const patch of [{id:'id]injecao'},{outboundProxy:'sip:proxy'},{context:'from-internal'},{authorizedIps:['0.0.0.0/0']},{codecs:['opus\nallow=all']},{transport:'HTTP'},{port:0},{authMode:'ip',register:true},{authMode:'credentials',username:''}])assert.throws(()=>managedTrunk({...trunk,...patch}));
 });

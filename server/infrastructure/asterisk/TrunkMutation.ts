@@ -36,3 +36,12 @@ function validAddress(value:string){
  if(parts.length===1)return host(value);
  return net.isIP(parts[0])===4&&/^\d{1,2}$/.test(parts[1])&&Number(parts[1])>=1&&Number(parts[1])<=32;
 }
+
+/** Revalida o registro persistido, inclusive campos que não passam pela API atual. */
+export function managedTrunk(value:any){
+ if(!/^[-a-z0-9_]{1,64}$/i.test(value.id)||value.outboundProxy)throw new OutboundHttpError('Tronco legado com identificador ou proxy não suportado exige revisão.',400);
+ const fields=Object.fromEntries(Object.keys(trunkColumns).map(key=>[key,['fromDomain','fromUser','failoverTrunkId'].includes(key)?value[key]??'':value[key]]));
+ const checked=trunkPatch(fields,true);
+ if(checked.authMode==='ip'&&checked.register||checked.authMode==='credentials'&&!checked.username)throw new OutboundHttpError('Modo de autenticação do tronco incompatível com usuário ou registro.',400);
+ return {...value,...checked};
+}

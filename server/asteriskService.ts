@@ -1,3 +1,5 @@
+import {managedTrunk,trunkPatch} from './infrastructure/asterisk/TrunkMutation.js';
+import {pjsipInfrastructure} from './infrastructure/asterisk/PjsipInfrastructure.js';
 import {managedExtension} from './infrastructure/asterisk/ExtensionMutation.js';
 import {managedIvr,renderIvr} from './infrastructure/asterisk/IvrMutation.js';
 import {managedCollection,assertInternalNumbers} from './infrastructure/asterisk/CollectionMutation.js';
@@ -226,9 +228,8 @@ export class AsteriskService {
 
   async generatePjsipConf(tenantId: string, maskSecrets: boolean = false): Promise<string> {
     const extensions = (await ExtensionRepository.listByTenant(tenantId)).map(extension=>managedExtension(extension,true));
-    const trunks = await TrunkRepository.listByTenant(tenantId);
-    const infraStored = await SystemRepository.getInfraConfig();
-    const infra = infraStored || defaultInfraConfig;
+    const trunks = (await TrunkRepository.listByTenant(tenantId)).map(trunk=>managedTrunk(trunk));
+    const infra = pjsipInfrastructure(await SystemRepository.getSetting('infra_config'));
 
     assertSingleLineConfig({ extensions, trunks, infra });
     if (process.env.NODE_ENV === 'production' && !maskSecrets) {
@@ -238,9 +239,9 @@ export class AsteriskService {
     let output = `; ====================================================================
 ; Enlace-PBX — Configuração Automática PJSIP (pjsip.conf)
 ; Asterisk 20 LTS Puro — Enlace Telecom (Brasil)
-; Hostname: ${infra.hostname || defaultInfraConfig.hostname} | Domínio: ${infra.domain || defaultInfraConfig.domain}
-; IP Público (WAN): ${infra.publicIp || defaultInfraConfig.publicIp} | Rede Local (LAN): ${infra.lanSubnet || defaultInfraConfig.lanSubnet}
-; Certificado SSL: ${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
+; Hostname: ${infra.hostname} | Domínio: ${infra.domain}
+; IP Público (WAN): ${infra.publicIp} | Rede Local (LAN): ${infra.localNet}
+; Certificado SSL: ${infra.sslCertificate.status==='valid'?infra.sslCertificate.certPath:'não configurado para SIP TLS'}
 ; Data de geração: ${new Date().toISOString()}
 ; ====================================================================
 
@@ -253,16 +254,16 @@ default_outbound_endpoint=default
 [transport-udp]
 type=transport
 protocol=udp
-bind=0.0.0.0:${infra.ports?.sipUdp || 5060}
-local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
-external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
-external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
+bind=0.0.0.0:${infra.ports.sipUdp}
+local_net=${infra.localNet}
+external_media_address=${infra.publicIp}
+external_signaling_address=${infra.publicIp}
 
 ; --- Transporte TCP ---
 [transport-tcp]
 type=transport
 protocol=tcp
-bind=0.0.0.0:${infra.ports?.sipUdp || 5060}
+bind=0.0.0.0:${infra.ports.sipUdp}
 
 ; --- WebSocket interno: TLS termina no NGINX; HTTP Asterisk fica no loopback ---
 [transport-ws]
@@ -273,7 +274,7 @@ bind=127.0.0.1
 ${infra.sslCertificate?.status === 'valid' && infra.sslCertificate?.certPath && infra.sslCertificate?.keyPath ? `[transport-tls]
 type=transport
 protocol=tls
-bind=0.0.0.0:${infra.ports?.sipTls || 5061}
+bind=0.0.0.0:${infra.ports.sipTls}
 cert_file=${infra.sslCertificate.certPath}
 priv_key_file=${infra.sslCertificate.keyPath}
 method=tlsv1_2
@@ -324,8 +325,8 @@ qualify_frequency=30
     for (const trk of trunks) {
       const isIpAuth = trk.authMode === 'ip';
       if (trk.transport === 'TLS' && !(infra.sslCertificate?.status === 'valid' && infra.sslCertificate?.certPath && infra.sslCertificate?.keyPath)) throw new Error('Configure certificados SIP TLS válidos antes de aplicar troncos TLS.');
-      const trunkSecret = !isIpAuth && !maskSecrets ? await TrunkRepository.getSecret(trk.id, tenantId) : '';
-      if (!isIpAuth && !maskSecrets && !trunkSecret) throw new Error(`Senha SIP não configurada para o tronco ${trk.name}.`);
+      const trunkSecret = !isIpAuth ? await TrunkRepository.getSecret(trk.id, tenantId) : '';
+      if(!isIpAuth){if(!trunkSecret.trim())throw new OutboundHttpError('Tronco sem senha SIP válida. Revise antes de gerar.',400);trunkPatch({secret:trunkSecret});}
       const authorizedIpsList = (trk.authorizedIps && trk.authorizedIps.length > 0)
         ? trk.authorizedIps
         : [trk.host];
@@ -354,7 +355,7 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 [trunk-${trk.id}-aor]
 type=aor
 contact=sip:${trk.host}:${trk.port || 5060}
-qualify_frequency=${trk.qualifyFrequency || 60}
+qualify_frequency=${trk.qualifyFrequency}
 ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 `;
 
