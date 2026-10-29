@@ -1,9 +1,10 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import {environmentValues,parseEnvironmentJson,assertProductionSecrets,applicationDatabaseUrl,administrativeDatabaseUrl,bootstrapCredentials} from '../server/config/environmentPolicy.mjs';
 import {asteriskSettings} from './asterisk-settings.mjs';
+import {assertDistinctSettingsFiles,readSettingsFile,writeConfigurationFiles} from './configuration-files.mjs';
+export {writeSettings} from './configuration-files.mjs';
 
 /** @returns {Record<string, string>} */
 export function productionSettings(existing = {}, legacy = {}, inputs = {}) {
@@ -41,15 +42,6 @@ export function productionSettings(existing = {}, legacy = {}, inputs = {}) {
   return values;
 }
 
-export function writeSettings(file, values, mode = 0o600) {
-  const temporary = `${file}.${crypto.randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(values, null, 2) + '\n', { mode, flag: 'wx' });
-    fs.renameSync(temporary, file);
-    fs.chmodSync(file, mode);
-  } finally { fs.rmSync(temporary, { force: true }); }
-}
-
 export function assertPreservedRuntime(existing, candidate) {
   const keys = new Set([...Object.keys(existing), ...Object.keys(candidate)]);
   if ([...keys].some(key => existing[key] !== candidate[key])) {
@@ -61,19 +53,22 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   const destination = process.argv[2];
   const bootstrap = process.argv[3];
   if (!destination || !bootstrap) throw new Error('Informe os caminhos de configuração e bootstrap temporário.');
-  const existing = fs.existsSync(destination) ? parseEnvironmentJson(fs.readFileSync(destination, 'utf8')) : {};
+  if(process.argv.length>5||process.argv[4]&&process.argv[4]!=='--preserve-existing')throw new Error('Modo de configuração inválido.');
+  assertDistinctSettingsFiles(destination,bootstrap);
+  const existingBytes=readSettingsFile(destination);
+  const existing = existingBytes===undefined ? {} : parseEnvironmentJson(existingBytes.toString('utf8'));
   const legacyPath = process.env.PBX_LEGACY_ENV;
-  const legacy = legacyPath && fs.existsSync(legacyPath) ? dotenv.parse(fs.readFileSync(legacyPath)) : {};
+  const legacyBytes=legacyPath?readSettingsFile(legacyPath):undefined;
+  const legacy = legacyBytes===undefined ? {} : dotenv.parse(legacyBytes);
   const names = ['PBX_DOMAIN', 'PBX_PUBLIC_IP', 'PBX_LAN_SUBNET', 'DATABASE_URL', 'ASTERISK_HOST', 'ASTERISK_AMI_PASSWORD', 'ASTERISK_ARI_PASSWORD'];
   const settings = productionSettings(existing, legacy, Object.fromEntries(names.filter(name=>process.env[name]!==undefined).map(name => [name, process.env[name]])));
-  const preserve = process.argv[4] === '--preserve-existing' && fs.existsSync(destination);
+  const preserve = process.argv[4] === '--preserve-existing' && existingBytes!==undefined;
   // Valida antes de criar bootstrap ou substituir qualquer configuração existente.
   if (preserve) assertPreservedRuntime(existing, settings);
   const {email:initialEmail,password:initialPassword}=bootstrapCredentials(process.env.ADMIN_INITIAL_EMAIL || legacy.ADMIN_INITIAL_EMAIL || '',process.env.ADMIN_INITIAL_PASSWORD || legacy.ADMIN_INITIAL_PASSWORD || '');
   const migrationUrl=process.env.DATABASE_MIGRATION_URL || 'postgresql:///enlace_pbx?host=/var/run/postgresql';
   administrativeDatabaseUrl(migrationUrl);
-  writeSettings(bootstrap, { ...settings, ADMIN_INITIAL_EMAIL: initialEmail, ADMIN_INITIAL_PASSWORD: initialPassword,
-    DATABASE_MIGRATION_URL: migrationUrl });
-  if (!preserve) writeSettings(destination, settings, 0o640);
+  writeConfigurationFiles(destination,settings,bootstrap,{ ...settings, ADMIN_INITIAL_EMAIL: initialEmail, ADMIN_INITIAL_PASSWORD: initialPassword,
+    DATABASE_MIGRATION_URL: migrationUrl },{preserveRuntime:preserve});
   console.log('Configuração preservada e gravada; credenciais administrativas separadas do serviço.');
 }

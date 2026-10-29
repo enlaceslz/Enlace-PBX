@@ -119,8 +119,8 @@ chmod -R a+rX,u+w,go-w "$RELEASE"
 
 BOOTSTRAP=$(mktemp /run/enlace-pbx-bootstrap.XXXXXX)
 trap 'rm -f -- "$BOOTSTRAP"' EXIT
-if [[ ! -f /etc/enlace-pbx/runtime.json && ! -f "$SOURCE_DIR/.env" ]]; then
-  if [[ -z "${PBX_DOMAIN:-}" ]]; then read -r -p 'Domínio HTTPS do PBX: ' PBX_DOMAIN; fi
+if [[ "$DEPLOY_MODE" == INITIAL && ! -f "$SOURCE_DIR/.env" ]]; then
+  if [[ ! -f /etc/enlace-pbx/runtime.json && -z "${PBX_DOMAIN:-}" ]]; then read -r -p 'Domínio HTTPS do PBX: ' PBX_DOMAIN; fi
   if [[ -z "${ADMIN_INITIAL_EMAIL:-}" ]]; then read -r -p 'E-mail do primeiro administrador: ' ADMIN_INITIAL_EMAIL; fi
   if [[ -z "${ADMIN_INITIAL_PASSWORD:-}" ]]; then read -r -s -p 'Senha do primeiro administrador (mínimo 12 caracteres): ' ADMIN_INITIAL_PASSWORD; echo; fi
   export PBX_DOMAIN ADMIN_INITIAL_EMAIL ADMIN_INITIAL_PASSWORD
