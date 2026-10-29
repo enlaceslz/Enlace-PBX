@@ -1,6 +1,7 @@
 import {logOperational} from '../security/OperationalLog.js';
 import '../../config/loadEnvironment.js';
 import pg from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { embeddedDatabaseEngine } from './embeddedEngine.js';
 import { TenantContext, toCanonicalTenantContext } from '../auth/tenantContext.js';
 
@@ -26,6 +27,7 @@ export type TenantTransactionContext = TenantContext;
 
 class PostgresClient {
   private pool: pg.Pool | null = null;
+  private readonly readSnapshot = new AsyncLocalStorage<{id:string;active:boolean}>();
   public isConfigured: boolean = false;
   private lastHealth: PostgresHealthStatus = {
     status: 'UP',
@@ -90,7 +92,36 @@ class PostgresClient {
     }
   }
 
+  /** Compartilha a visão MVCC sem compartilhar as permissões RLS de cada consulta. */
+  public async withReadSnapshot<T>(callback: () => Promise<T>): Promise<T> {
+    const inherited=this.readSnapshot.getStore();
+    if(inherited){
+      if(!inherited.active)throw new Error('Snapshot de leitura encerrado.');
+      return callback();
+    }
+    if(!this.pool || !this.isConfigured)throw new Error('Geração consistente exige PostgreSQL conectado.');
+    const client=await this.pool.connect();
+    const state={id:'',active:true};
+    try {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const exported=await client.query('SELECT pg_export_snapshot() AS snapshot');
+      state.id=exported.rows[0]?.snapshot;
+      // O comando PostgreSQL exige literal; somente identificador emitido pelo servidor é aceito.
+      if(typeof state.id!=='string'||!/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[0-9]+$/.test(state.id))throw new Error('Identificador de snapshot inválido.');
+      const result=await this.readSnapshot.run(state,callback);
+      await client.query('COMMIT');
+      return result;
+    } catch(error){
+      await client.query('ROLLBACK').catch(()=>{});
+      throw error;
+    } finally {
+      state.active=false;
+      client.release();
+    }
+  }
+
   public async query<T = any>(text: string, params?: any[]): Promise<pg.QueryResult<T>> {
+    if(this.readSnapshot.getStore())throw new Error('Snapshot exige acesso pelo gate RLS.');
     const isProd = process.env.NODE_ENV === 'production';
 
     // Se PostgreSQL externo estiver configurado e operacional
@@ -121,6 +152,7 @@ class PostgresClient {
   }
 
   public async getClient(): Promise<pg.PoolClient> {
+    if(this.readSnapshot.getStore())throw new Error('Snapshot exige acesso pelo gate RLS.');
     if (this.pool && this.isConfigured) {
       try {
         return await this.pool.connect();
@@ -277,7 +309,10 @@ class PostgresClient {
     if (this.pool && this.isConfigured) {
       const client = await this.pool.connect();
       try {
-        await client.query('BEGIN');
+        const snapshot=this.readSnapshot.getStore();
+        if(snapshot&&!snapshot.active)throw new Error('Snapshot de leitura encerrado.');
+        await client.query(snapshot?'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY':'BEGIN');
+        if(snapshot)await client.query("SET TRANSACTION SNAPSHOT '"+snapshot.id+"'");
 
         // Configuração segura e isolada da sessão local da transação via SET LOCAL
         if (accessMode === 'TENANT') {

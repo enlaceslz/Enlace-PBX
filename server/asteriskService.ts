@@ -214,6 +214,14 @@ export class AsteriskService {
    * Gerador oficial de configuração PJSIP (pjsip.conf) baseado em PostgreSQL.
    * Suporta mascaramento de segredos para exibição segura na API administrativa.
    */
+  async generateConfiguration(tenantId:string):Promise<{pjsip:string;dialplan:string;queues:string}>{
+    return postgresClient.withReadSnapshot(async()=>({
+      pjsip:await this.generatePjsipConf(tenantId),
+      dialplan:await this.generateExtensionsConf(tenantId),
+      queues:await this.generateQueuesConf(tenantId),
+    }));
+  }
+
   async generatePjsipConf(tenantId: string, maskSecrets: boolean = false): Promise<string> {
     const extensions = await ExtensionRepository.listByTenant(tenantId);
     const trunks = await TrunkRepository.listByTenant(tenantId);

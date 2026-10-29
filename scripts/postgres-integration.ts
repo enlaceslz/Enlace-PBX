@@ -789,6 +789,23 @@ try {
     const namespaceRace=await Promise.all([collectionRequest('queues','POST','',{...queueBody,name:'Concorrente fila '+id,number:'8001'}),collectionRequest('ring-groups','POST','',{...groupBody,name:'Concorrente grupo '+id,number:'8001'})]);assert.deepEqual(namespaceRace.map(response=>response.status).sort(),[201,409]);const namespaceWinner=namespaceRace.findIndex(response=>response.status===201);const namespaceRecord=await namespaceRace[namespaceWinner].json();assert.equal((await collectionRequest(namespaceWinner===0?'queues':'ring-groups','DELETE','/'+namespaceRecord.id)).status,200);
     const queuesConfig=await new AsteriskService().generateQueuesConf(tenantA);assert.ok(queuesConfig.includes('['+apiQueue.id+']'));assert.match(queuesConfig,/wrapuptime = 0/);assert.match(queuesConfig,/strategy = rrmemory/);assert.match(queuesConfig,/member => PJSIP\/980001/);assert.doesNotMatch(queuesConfig,/member => PJSIP\/980002/);
     const collectionPlan=await new AsteriskService().generateExtensionsConf(tenantA);assert.ok(collectionPlan.includes('Queue('+apiQueue.id+',t,,,45)'));assert.ok(collectionPlan.includes('Dial(PJSIP/980001&PJSIP/980003,25,tT)'));
+    // Mudança confirmada entre geradores não pode misturar versões do mesmo cadastro.
+    const snapshotService=new AsteriskService();
+    snapshotService.generatePjsipConf=async()=>{
+      const before=await postgresClient.executeTenantScoped(tenantA,client=>client.query('SELECT timeout_seconds FROM queues WHERE id=$1',[apiQueue.id]));
+      assert.equal(before.rows[0].timeout_seconds,45);
+      await admin.query('UPDATE queues SET timeout_seconds=46 WHERE id=$1',[apiQueue.id]);
+      const foreign=await postgresClient.executeTenantScoped(tenantB,client=>client.query('SELECT id FROM queues WHERE id=$1',[apiQueue.id]));
+      assert.equal(foreign.rowCount,0);
+      await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query('UPDATE queues SET timeout_seconds=47 WHERE id=$1',[apiQueue.id])),/read.only/i);
+      return 'prévia de teste';
+    };
+    const coherent=await snapshotService.generateConfiguration(tenantA);
+    assert.ok(coherent.dialplan.includes('Queue('+apiQueue.id+',t,,,45)'));
+    assert.match(coherent.queues,/timeout = 45/);
+    assert.equal((await admin.query('SELECT timeout_seconds FROM queues WHERE id=$1',[apiQueue.id])).rows[0].timeout_seconds,46);
+    await assert.rejects(postgresClient.withReadSnapshot(async()=>{throw new Error('interrupção de teste');}),/interrupção de teste/);
+    const afterSnapshot=await new AsteriskService().generateQueuesConf(tenantA);assert.match(afterSnapshot,/timeout = 46/);
     await admin.query('UPDATE queues SET calls_waiting=99,answered_today=500 WHERE id=$1',[apiQueue.id]);const queueRead=(await (await collectionRequest('queues','GET','')).json()).find((record:any)=>record.id===apiQueue.id);assert.equal(queueRead.callsWaiting,null);assert.equal(queueRead.answeredToday,null);
     const collectionDid='collection-did-'+id;await admin.query("INSERT INTO dids(id,tenant_id,did,normalized_number,presented_number,operator_name,trunk_id,destination_type,destination_id,status) VALUES($1,$2,'1132222000','+551132222000','1132222000','CI',$3,'queue',$4,'inactive')",[collectionDid,tenantA,trunk.id,apiQueue.id]);
     assert.equal((await collectionRequest('queues','DELETE','/'+apiQueue.id)).status,409);assert.equal((await collectionRequest('queues','PUT','/'+apiQueue.id,{number:'6002'})).status,409);await admin.query('DELETE FROM dids WHERE id=$1',[collectionDid]);

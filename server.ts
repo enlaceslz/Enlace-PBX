@@ -2049,7 +2049,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const actor=(req as any).user;
       const result=await applyConfiguration({
         audit:()=>AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action:'APPLY_PJSIP_CONFIG_ATTEMPT',resource:'asterisk/configuration',category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Tentativa de gravação e recarga; não certifica registro SIP, chamadas ou mídia.'}),
-        generate:async()=>({pjsip:await asteriskService.generatePjsipConf(tenantId),dialplan:await asteriskService.generateExtensionsConf(tenantId),queues:await asteriskService.generateQueuesConf(tenantId)}),
+        generate:()=>asteriskService.generateConfiguration(tenantId),
         apply:(pjsip,dialplan,queues)=>asteriskAdapter.applyPjsipConfig(pjsip,dialplan,queues),
       });
       return res.status(result.success?200:502).json(result);
