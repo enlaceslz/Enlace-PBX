@@ -13,12 +13,16 @@ export function readBounded(fd,maxBytes=16*1024*1024){
   return data;
 }
 export class AnchoredDirectory {
-  constructor(directory){
+  constructor(directory,{trustedUid}={}){
     if(process.platform!=='linux'||!path.isAbsolute(directory)||directory.split('/').some(part=>part==='.'||part==='..'))throw new Error('Diretório Linux absoluto obrigatório.');
     let fd=fs.openSync('/',C.O_RDONLY|C.O_DIRECTORY|C.O_NOFOLLOW);
     try{
+      const rootState=fs.fstatSync(fd);
+      if(trustedUid!==undefined&&(rootState.uid!==trustedUid||(rootState.mode&0o022)!==0))throw new Error('Raiz de diretório não confiável.');
       for(const part of directory.split('/').filter(Boolean)){
         const next=fs.openSync('/proc/self/fd/'+fd+'/'+leaf(part),C.O_RDONLY|C.O_DIRECTORY|C.O_NOFOLLOW);
+        const state=fs.fstatSync(next);
+        if(trustedUid!==undefined&&(state.uid!==trustedUid||(state.mode&0o022)!==0)){fs.closeSync(next);throw new Error('Ancestral de diretório não confiável.');}
         fs.closeSync(fd);fd=next;
       }
       this.fd=fd;fd=undefined;
@@ -27,12 +31,12 @@ export class AnchoredDirectory {
   location(name){return '/proc/self/fd/'+this.fd+'/'+leaf(name);}
   state(){return fs.fstatSync(this.fd);}
   close(){if(this.fd!==undefined){fs.closeSync(this.fd);this.fd=undefined;}}
-  read(name,{uid,normalizeGid,metadataOnly=false}={}){
+  read(name,{uid,normalizeGid,metadataOnly=false,protectedMode=false}={}){
     let fd;
     try{
       fd=fs.openSync(this.location(name),C.O_RDONLY|C.O_NOFOLLOW|C.O_NONBLOCK);
       const state=fs.fstatSync(fd);
-      if(!state.isFile()||state.nlink!==1||uid!==undefined&&state.uid!==uid)throw new Error('Arquivo não regular, vinculado ou com proprietário inesperado.');
+      if(!state.isFile()||state.nlink!==1||uid!==undefined&&state.uid!==uid||protectedMode&&(state.mode&0o022)!==0)throw new Error('Arquivo não regular, vinculado ou com proprietário inesperado.');
       if(normalizeGid!==undefined){fs.fchownSync(fd,uid,normalizeGid);fs.fchmodSync(fd,0o640);}
       return metadataOnly?state:readBounded(fd);
     }catch(error){if(error.code==='ENOENT')return undefined;throw error;}

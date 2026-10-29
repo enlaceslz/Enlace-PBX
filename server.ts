@@ -387,6 +387,7 @@ async function startServer() {
     const statusCode = isReady ? 200 : 503;
     res.status(statusCode).json({
       status: isReady ? 'ready' : 'not_ready',
+      releaseId: /^[-a-zA-Z0-9_]{1,80}$/.test(process.env.PBX_RELEASE_ID||'')?process.env.PBX_RELEASE_ID:undefined,
       timestamp: new Date().toISOString(),
       dependencies: {
         postgresql: pgStatus,

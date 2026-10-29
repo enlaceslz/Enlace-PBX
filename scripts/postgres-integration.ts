@@ -188,7 +188,7 @@ try {
     VALUES($1,$1,$2,'871001','871002','internal',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'ANSWERED','original.wav','Preciso de suporte. Vou verificar.','Legado preservado'),
     ($3,$3,$4,'871003','871004','internal',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'ANSWERED','original.wav','Texto de outra empresa',NULL)`,[cdrA,tenantA,cdrB,tenantB]);
   const child = spawn(process.execPath, ['dist/server.cjs'], {
-    env: { ...process.env, PUBLIC_IP:'192.0.2.45', ASTERISK_ARI_USERNAME:'enlace_ci',ASTERISK_ARI_PASSWORD:'senha-ari-descartavel-ci-2026',ASTERISK_ARI_ALLOWED_ORIGINS:'https://pbx.example.invalid', PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
+    env: { ...process.env, PUBLIC_IP:'192.0.2.45',PBX_RELEASE_ID:'integration-release-2026', ASTERISK_ARI_USERNAME:'enlace_ci',ASTERISK_ARI_PASSWORD:'senha-ari-descartavel-ci-2026',ASTERISK_ARI_ALLOWED_ORIGINS:'https://pbx.example.invalid', PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
       OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
       PBX_BACKUP_DIRECTORY:recordingsRoot,RECORDINGS_ROOT:recordingsRoot,CDR_ANALYSIS_ENABLED_TENANTS:tenantA,CDR_ANALYSIS_MODEL:'modelo-cdr-test',
       NINEROUTER_URL: origin + '/v1', NINEROUTER_API_KEY: 'segredo-extracao-ci', ENTITY_EXTRACTION_MODEL: 'modelo-extracao-test', ENTITY_EXTRACTION_ENABLED_TENANTS: tenantA,
@@ -262,7 +262,7 @@ try {
     assert.match(await backendSource.text(), /<!doctype html>/i);
     const readiness = await fetch(base + '/health/ready');
     assert.equal(readiness.status, 503, 'Sem Asterisk o PBX não declara prontidão de produção.');
-    assert.equal((await readiness.json()).dependencies.postgresql, 'UP');
+    const readinessBody=await readiness.json();assert.equal(readinessBody.dependencies.postgresql,'UP');assert.equal(readinessBody.releaseId,'integration-release-2026');
     const adminAToken = await fixtureToken(`user-a-${id}`,tenantA);
     const testHeaders = { Authorization: `Bearer ${adminAToken}`, 'Content-Type': 'application/json' };
     const otherHeaders={...testHeaders,Authorization:`Bearer ${operatorToken}`};

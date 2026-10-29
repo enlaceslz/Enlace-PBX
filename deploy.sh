@@ -6,6 +6,16 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 unset NODE_OPTIONS NODE_PATH BASH_ENV ENV PYTHONPATH PYTHONHOME PYTHONSTARTUP
 
 [[ $EUID -eq 0 ]] || { echo 'Execute como root para provisionar o serviço.' >&2; exit 1; }
+command -v flock >/dev/null || { echo 'flock obrigatório para serializar deploys.' >&2; exit 1; }
+[[ ! -L /run && $(stat -c %u /run) == 0 ]] || { echo 'Diretório de trava inválido.' >&2; exit 1; }
+run_mode=$(stat -c %a /run)
+(( (8#$run_mode & 8#022) == 0 )) || { echo 'Diretório de trava gravável por terceiros.' >&2; exit 1; }
+DEPLOY_LOCK=/run/enlace-pbx-deploy.lock
+if [[ -e "$DEPLOY_LOCK" || -L "$DEPLOY_LOCK" ]]; then
+  [[ ! -L "$DEPLOY_LOCK" && -f "$DEPLOY_LOCK" && $(stat -c %u "$DEPLOY_LOCK") == 0 && $(stat -c %h "$DEPLOY_LOCK") == 1 ]] || { echo 'Trava de deploy inválida.' >&2; exit 1; }
+fi
+exec 9>>"$DEPLOY_LOCK"
+flock -n 9 || { echo 'Outro deploy está em andamento.' >&2; exit 1; }
 SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 NODE_BIN=$(command -v node) || { echo 'Instale Node.js 22 ou 24 antes de continuar.' >&2; exit 1; }
 [[ "$NODE_BIN" =~ ^/[a-zA-Z0-9_./-]+$ ]] || { echo 'Caminho do Node inválido.' >&2; exit 1; }
@@ -49,6 +59,10 @@ for target in ['/opt','/opt/enlace-pbx','/opt/enlace-pbx/releases','/opt/enlace-
 PYTRUST
 python3 -I "$SOURCE_DIR/scripts/trusted-source.py" "$SOURCE_DIR"
 
+# Migração PM2 exige procedimento próprio; o deploy não apaga o estado legado.
+if command -v pm2 >/dev/null && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '[1-9][0-9]*'; then
+  echo 'Instância PM2 ativa: migre em procedimento separado antes de usar este deploy.' >&2; exit 1
+fi
 getent group enlace-pbx >/dev/null || groupadd --system enlace-pbx
 id enlace-pbx >/dev/null 2>&1 || useradd --system --gid enlace-pbx --home-dir /var/lib/enlace-pbx --shell /usr/sbin/nologin enlace-pbx
 install -d -m 0755 -o root -g root /opt/enlace-pbx /opt/enlace-pbx/releases
@@ -105,6 +119,10 @@ export PBX_LEGACY_ENV="$SOURCE_DIR/.env"
 "$NODE_BIN" "$PROVISIONING/scripts/configure-production.mjs" /etc/enlace-pbx/runtime.json "$BOOTSTRAP"
 chown root:enlace-pbx /etc/enlace-pbx/runtime.json
 DOMAIN=$("$NODE_BIN" -p "JSON.parse(require('fs').readFileSync('/etc/enlace-pbx/runtime.json','utf8')).PBX_DOMAIN")
+# TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.
+[[ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" && -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]] || {
+  echo "Provisione o certificado de $DOMAIN e repita o deploy. O serviço anterior não foi substituído." >&2; exit 1;
+}
 if [[ "${INSTALL_ASTERISK:-0}" == 1 ]]; then
   PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json bash "$PROVISIONING/install-enlace-pbx.sh"
 fi
@@ -115,10 +133,6 @@ if getent passwd asterisk >/dev/null && [[ -d /etc/asterisk ]]; then
   PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" "$PROVISIONING/scripts/asterisk-settings.mjs"
   asterisk -rx "manager reload"
 fi
-# TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.
-[[ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" && -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]] || {
-  echo "Provisione o certificado de $DOMAIN e repita o deploy. O serviço anterior não foi substituído." >&2; exit 1;
-}
 LOCAL_DATABASE=$("$NODE_BIN" -p "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); const u=new URL(c.DATABASE_URL); ['127.0.0.1','localhost'].includes(u.hostname) && !process.env.DATABASE_MIGRATION_URL" "$BOOTSTRAP")
 if [[ "$LOCAL_DATABASE" == true ]]; then
   chown postgres:postgres "$BOOTSTRAP"
@@ -137,7 +151,8 @@ if [[ ! -f /etc/enlace-pbx/backup.key ]]; then
   chmod 0400 /etc/enlace-pbx/backup.key
 fi
 
-cat > /etc/nginx/sites-available/enlace-pbx <<NGINX
+NGINX_CANDIDATE=$(mktemp "$PROVISIONING/nginx-candidate.XXXXXX")
+cat > "$NGINX_CANDIDATE" <<NGINX
 server {
     listen 80;
     server_name $DOMAIN;
@@ -171,32 +186,8 @@ server {
     }
 }
 NGINX
-ln -sfn /etc/nginx/sites-available/enlace-pbx /etc/nginx/sites-enabled/enlace-pbx
-nginx -t
-# Não remove outros sites, não altera o firewall nem interrompe outro processo PM2.
-if command -v pm2 >/dev/null && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '[1-9][0-9]*'; then
-  if [[ "${MIGRATE_FROM_PM2:-0}" != 1 ]]; then
-    echo 'Há uma instância legada PM2 ativa. Use MIGRATE_FROM_PM2=1 em janela de manutenção para migrar o serviço.' >&2
-    exit 1
-  fi
-  pm2 stop enlace-pbx
-  pm2 delete enlace-pbx
-  pm2 save
-fi
-ln -sfn "$RELEASE" /opt/enlace-pbx/current.next
-mv -Tf /opt/enlace-pbx/current.next /opt/enlace-pbx/current
-sed "s|/usr/bin/node|$NODE_BIN|g" "$PROVISIONING/ops/enlace-pbx.service" > /etc/systemd/system/enlace-pbx.service
-systemctl daemon-reload
-systemctl enable enlace-pbx.service
-systemctl restart enlace-pbx.service
-systemctl reload nginx
-READY=false
-for attempt in $(seq 1 20); do
-  if curl --max-time 4 --silent --fail http://127.0.0.1:3000/health/ready >/dev/null; then READY=true; break; fi
-  sleep 1
-done
-if [[ "$READY" != true ]]; then
-  echo 'Prontidão não aprovada: consulte journalctl -u enlace-pbx. Deploy não homologado.' >&2
-  exit 1
-fi
+UNIT_CANDIDATE=$(mktemp "$PROVISIONING/unit-candidate.XXXXXX")
+RELEASE_ID=$(basename -- "$RELEASE")
+sed -e "s|/usr/bin/node|$NODE_BIN|g" -e "/^ExecStart=/i Environment=PBX_RELEASE_ID=$RELEASE_ID" "$PROVISIONING/ops/enlace-pbx.service" > "$UNIT_CANDIDATE"
+"$NODE_BIN" "$PROVISIONING/scripts/release-activation.mjs" "$RELEASE" "$UNIT_CANDIDATE" "$NGINX_CANDIDATE"
 printf 'Versão instalada: %s\nServiço: enlace-pbx.service (usuário enlace-pbx)\nPainel: https://%s\n' "$RELEASE" "$DOMAIN"

@@ -7,6 +7,7 @@ import {AnchoredDirectory,prepareManagedDirectory,readBounded} from './anchored-
 const fixture=()=>fs.mkdtempSync(path.join(os.tmpdir(),'pbx-anchor-'));
 test('troca do nome do diretório por link não redireciona escrita privilegiada',()=>{
  const root=fixture();let held;
+ assert.throws(()=>new AnchoredDirectory(root,{trustedUid:2147483647}));
  try{
   const original=path.join(root,'config');const moved=path.join(root,'anterior');const outside=path.join(root,'externo');fs.mkdirSync(original);fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'ari.conf'),'preservar');
   held=new AnchoredDirectory(original);fs.renameSync(original,moved);fs.symlinkSync(outside,original,'dir');
