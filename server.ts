@@ -333,7 +333,7 @@ async function startServer() {
     if (!authUser) {
       return res.status(401).json({ error: 'Sessão não autenticada.', code: 'AUTH_REQUIRED' });
     }
-    const tenantId = (req as any).tenantId || authUser.tenantId;
+    const tenantId = getAuthorizedTenantId(req);
     const ticketInfo = SseTicketManager.generateTicket(authUser, tenantId);
     res.json(ticketInfo);
   });
@@ -1816,6 +1816,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         if(!current || !current.isActive || !validCredentialStamp(actor.authStamp,current,getJwtSecret())){clearInterval(intervalId);res.end();return;}
         const metrics = await getDashboardMetrics(authorizedTenant);
         const data = JSON.stringify({
+          tenantId:authorizedTenant,
           channels: await asteriskService.getActiveChannels(authorizedTenant),
           metrics,
         });

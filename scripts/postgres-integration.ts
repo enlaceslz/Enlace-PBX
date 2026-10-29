@@ -625,6 +625,16 @@ try {
     console.log('Webhooks de produção: assinatura dos bytes, auditoria anterior, histórico real e isolamento aprovados.');
     console.log('Ferramenta HTTP em produção: execução real, auditoria anterior, confirmação, schema, vínculo e isolamento aprovados.');
     console.log('HTTP de produção: login bcrypt, perfil, RBAC, isolamento, arquivos públicos e readiness aprovados.');
+    const directedTicketResponse=await fetch(base+'/api/v1/auth/sse-ticket',{method:'POST',headers:{...rootHeaders,'x-tenant-id':tenantA},body:'{}'});
+    assert.equal(directedTicketResponse.status,200);const directedTicket=(await directedTicketResponse.json()).ticket;
+    const sseAbort=new AbortController();const sseTimeout=setTimeout(()=>sseAbort.abort(),10000);
+    try{
+      const stream=await fetch(base+'/api/v1/events/asterisk?ticket='+directedTicket+'&tenantId='+tenantB,{signal:sseAbort.signal});
+      assert.equal(stream.status,200);const reader=stream.body!.getReader();let frame='';
+      while(!frame.includes('\n\n')){const chunk=await reader.read();assert.equal(chunk.done,false);frame+=Buffer.from(chunk.value!).toString();}
+      const payload=JSON.parse(frame.slice(frame.indexOf('data: ')+6).trim());assert.equal(payload.tenantId,tenantA,'Query não retargeta ticket emitido para outra empresa.');assert.equal(Array.isArray(payload.channels),true);
+      await reader.cancel();
+    }finally{clearTimeout(sseTimeout);sseAbort.abort();}
     const recording=await fetch(base+`/api/v1/cdr/${cdrA}/recording`,{headers:testHeaders});assert.equal(recording.status,200);
     assert.equal(recording.headers.get('content-type'),'audio/wav');assert.equal(recording.headers.get('cache-control'),'no-store');
     assert.deepEqual(Buffer.from(await recording.arrayBuffer()),recordingBytes);

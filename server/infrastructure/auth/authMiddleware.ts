@@ -413,7 +413,12 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
     const session = SseTicketManager.consumeTicket(queryTicket);
     const current=await UserRepository.findById(session.user.id,session.user.identityTenantId||session.user.tenantId);
     if(!current || !current.isActive || !validCredentialStamp(session.user.authStamp,current,getJwtSecret()))return res.status(401).json({error:'Ticket SSE revogado. Entre novamente.',code:'AUTH_SESSION_REVOKED'});
-    req.user = session.user;
+    const role=normalizeRole(current.role);
+    if(session.tenantId!==current.tenantId && role!=='super_admin')return res.status(403).json({error:'Ticket fora da empresa autorizada.'});
+    req.user = {...session.user,role,name:current.name,permissions:ROLE_PERMISSIONS[role]};
+    // O escopo emitido do ticket prevalece sobre query/cabeçalhos da conexão SSE.
+    req.tenantContext={tenantId:session.tenantId,actorUserId:current.id,actorRole:role,originTenantId:current.tenantId,
+      accessMode:session.tenantId===current.tenantId?'TENANT':'SUPER_ADMIN_TARGET',requestId:crypto.randomUUID()};
     req.tenantId = session.tenantId;
     return next();
   } catch (err: any) {

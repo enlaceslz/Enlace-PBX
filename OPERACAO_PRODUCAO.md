@@ -287,3 +287,5 @@ Após instalar esta revisão, usuários precisam fazer novo login: tokens antigo
 Admin de empresa não modifica contas superadmin, inclusive senha e e-mail. Apenas superadmin pode atribuir esse papel. A aplicação protege o último superadmin ativo e recusa autoexclusão; administração direta do banco exige o procedimento operacional próprio. Criação requer senha explícita, com no mínimo 12 caracteres e até 72 bytes UTF-8; não há senha temporária escondida ou senha padrão. Espaços fazem parte da senha.
 
 A revisão está no banco e o vínculo JWT usa JWT_SECRET. Ao restaurar backup antigo e preparar o corte, substitua JWT_SECRET por novo segredo forte para invalidar tokens do estado anterior; não altere ENCRYPTION_KEY sem o procedimento de recifragem, pois ela protege credenciais. Dados de backup podem representar revisão de sessão anterior. Nenhum reset global de senhas ou corte de produção foi executado pela auditoria.
+
+O ticket SSE mantém a empresa autorizada na emissão. Query ou cabeçalhos da conexão não alteram esse escopo; para mudar a empresa, emita novo ticket no contexto autorizado correspondente.
