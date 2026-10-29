@@ -2301,59 +2301,33 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }catch(error){callFailure(error,res);}
   });
 
-  app.get('/api/v1/asterisk/configs', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para gerar configurações do Asterisk.' });
-    }
-    // Sempre mascara segredos para exibição segura na API administrativa
-    res.json({
-      pjsipConf: await asteriskService.generatePjsipConf(tenantId, true),
-      extensionsConf: asteriskService.generateExtensionsConf(tenantId),
-      ariConf: asteriskService.generateAriConf(true),
-      queuesConf: await asteriskService.generateQueuesConf(tenantId),
-      rtpConf: asteriskService.generateRtpConf(),
-      audioSocketConf: asteriskService.generateAudioSocketConf(),
-      installerScript: asteriskService.generateInstallScript(),
+  app.get('/api/v1/asterisk/configs',requireAuth,requireTenant,requireRole('super_admin'),async(req,res)=>{try{
+    const tenantId=getAuthorizedTenantId(req);if(!tenantId)return res.status(400).json({error:'Selecione uma empresa.'});
+    return res.json(await postgresClient.withReadSnapshot(async()=>({
+      pjsipConf:await asteriskService.generatePjsipConf(tenantId,true),
+      extensionsConf:await asteriskService.generateExtensionsConf(tenantId),
+      ariConf:asteriskService.generateAriConf(true),
+      queuesConf:await asteriskService.generateQueuesConf(tenantId),
+      rtpConf:await asteriskService.generateRtpConf(),
+      status:'DRAFT_NOT_APPLIED',unavailable:{audioSocket:'NOT_IMPLEMENTED',installerScript:'LEGACY_RETIRED'},
+    })));
+  }catch(error){return administrativeFailure(error,res);}});
+  app.get('/api/v1/asterisk/configs/:file',requireAuth,requireTenant,requireRole('super_admin'),async(req,res)=>{try{
+    const tenantId=getAuthorizedTenantId(req);if(!tenantId)return res.status(400).json({error:'Selecione uma empresa.'});
+    const content=await postgresClient.withReadSnapshot(async()=>{
+      switch(req.params.file){
+        case 'pjsip':return asteriskService.generatePjsipConf(tenantId,true);
+        case 'extensions':return asteriskService.generateExtensionsConf(tenantId);
+        case 'ari':return asteriskService.generateAriConf(true);
+        case 'queues':return asteriskService.generateQueuesConf(tenantId);
+        case 'rtp':return asteriskService.generateRtpConf();
+        case 'audiosocket':return asteriskService.generateAudioSocketConf();
+        default:throw new OutboundHttpError('Arquivo de configuração não encontrado.',404);
+      }
     });
-  });
-
-  app.get('/api/v1/asterisk/configs/:file', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
-    }
-    const { file } = req.params;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-
-    // Mascara segredos para visualização na UI administrativa
-    if (file === 'pjsip') {
-      return res.send(await asteriskService.generatePjsipConf(tenantId, true));
-    }
-    if (file === 'extensions') {
-      return res.send(asteriskService.generateExtensionsConf(tenantId));
-    }
-    if (file === 'ari') {
-      return res.send(asteriskService.generateAriConf(true));
-    }
-    if (file === 'queues') {
-      return res.send(await asteriskService.generateQueuesConf(tenantId));
-    }
-    if (file === 'rtp') {
-      return res.send(asteriskService.generateRtpConf());
-    }
-    if (file === 'audiosocket') {
-      return res.send(asteriskService.generateAudioSocketConf());
-    }
-    return res.status(404).send('; Arquivo de configuração não encontrado');
-  });
-
-  app.get('/api/v1/asterisk/install-script', requireAuth, requireRole('super_admin', 'admin'), (req, res) => {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(asteriskService.generateInstallScript());
-  });
+    return res.type('text/plain').send(content);
+  }catch(error){return administrativeFailure(error,res);}});
+  app.get('/api/v1/asterisk/install-script',requireAuth,requireRole('super_admin'),(_req,res)=>res.status(501).json({code:'LEGACY_INSTALLER_RETIRED',error:'Use install-enlace-pbx.sh e o procedimento revisado do repositório. Download legado retirado.'}));
 
   app.post('/api/v1/asterisk/reload', requireRole('super_admin'), async (req,res) => {
     await recordAuditLog({ tenantId:(req as any).user.tenantId || 'SYSTEM',userId:(req as any).user.id,

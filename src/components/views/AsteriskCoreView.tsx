@@ -43,7 +43,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   }, [initialTab]);
   const [activeConfigFile, setActiveConfigFile] = useState<'pjsip' | 'extensions' | 'queues' | 'rtp' | 'audiosocket' | 'ari'>('pjsip');
   const [configContent, setConfigContent] = useState<string>('');
-  const [installerScript, setInstallerScript] = useState<string>('');
+  const [configError,setConfigError]=useState(false);
   const [copied, setCopied] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [reloadingCore, setReloadingCore] = useState(false);
@@ -166,32 +166,25 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
   };
 
   useEffect(() => {
-    fetchConfig(activeConfigFile);
-    fetchInstallerScript();
+    const controller=new AbortController();
+    void fetchConfig(activeConfigFile,controller.signal);
+    return ()=>controller.abort();
   }, [activeConfigFile]);
 
-  const fetchConfig = async (file: 'pjsip' | 'extensions' | 'queues' | 'rtp' | 'audiosocket' | 'ari') => {
-    setLoadingConfig(true);
+  const fetchConfig = async (file: 'pjsip' | 'extensions' | 'queues' | 'rtp' | 'audiosocket' | 'ari',signal:AbortSignal) => {
+    setLoadingConfig(true);setConfigError(false);setConfigContent('');
     try {
-      const res = await fetch(`/api/v1/asterisk/configs/${file}`, {headers:getAuthHeaders()});
-      if (!res.ok) throw new Error('Consulta administrativa recusada.');
+      const res = await fetch(`/api/v1/asterisk/configs/${file}`, {headers:getAuthHeaders(),signal});
+      if (!res.ok){const error=await res.json();throw new Error(error.error||'Consulta administrativa recusada.');}
       const text = await res.text();
+      if(signal.aborted)return;
       setConfigContent(text);
     } catch (e) {
-      console.error('Fetch config error:', e);
+      if(signal.aborted)return;
+      setConfigError(true);
+      setConfigContent('; '+(e instanceof Error?e.message:'Prévia indisponível.'));
     } finally {
-      setLoadingConfig(false);
-    }
-  };
-
-  const fetchInstallerScript = async () => {
-    try {
-      const res = await fetch('/api/v1/asterisk/install-script', {headers:getAuthHeaders()});
-      if (!res.ok) throw new Error('Consulta administrativa recusada.');
-      const text = await res.text();
-      setInstallerScript(text);
-    } catch (e) {
-      console.error('Fetch installer script error:', e);
+      if(!signal.aborted)setLoadingConfig(false);
     }
   };
 
@@ -681,7 +674,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
                 rtp.conf
               </button>
               <button
-                onClick={() => setActiveConfigFile('audiosocket')}
+                disabled title="Prévia AudioSocket retirada; implementação pendente"
                 className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
                   activeConfigFile === 'audiosocket'
                     ? 'bg-blue-600 text-white font-bold shadow-sm'
@@ -714,6 +707,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
               </button>
 
               <button
+                disabled={loadingConfig||configError||!configContent}
                 onClick={() => handleCopy(configContent)}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium border border-slate-200"
               >
@@ -722,6 +716,7 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
               </button>
 
               <button
+                disabled={loadingConfig||configError||!configContent}
                 onClick={() => handleDownloadFile(configContent, `${activeConfigFile}.conf`)}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium border border-slate-200"
               >
@@ -751,48 +746,10 @@ export const AsteriskCoreView: React.FC<AsteriskCoreViewProps> = ({
 
       {/* 3. INSTALLER TAB */}
       {activeTab === 'installer' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-            <div>
-              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-blue-600" />
-                Script Oficial de Instalação Asterisk 20 LTS (Ubuntu / Debian)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Compilação pura do Asterisk 20, AudioSocket, Opus codec e integração nativa com o Enlace-PBX
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleCopy(installerScript)}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-xl flex items-center gap-1.5 transition font-medium"
-              >
-                {copied ? <Check className="w-3.5 h-3.5 text-blue-600" /> : <Copy className="w-3.5 h-3.5" />}
-                {copied ? 'Copiado!' : 'Copiar Script'}
-              </button>
-              <button
-                onClick={() => handleDownloadFile(installerScript, 'install-enlace-pbx.sh')}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Baixar install-enlace-pbx.sh
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
-            <span className="text-slate-500 font-mono block mb-2 font-bold">
-              Como executar em um servidor Linux puro (Ubuntu 22.04/24.04 ou Debian 12):
-            </span>
-            <div className="bg-white p-3 rounded-lg border border-slate-200 font-mono text-blue-600 select-all">
-              curl -fsSL https://app.enlacepbx.com.br/install.sh | sudo bash
-            </div>
-          </div>
-
-          <pre className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs font-mono text-slate-700 overflow-x-auto max-h-[440px] leading-relaxed">
-            {installerScript}
-          </pre>
+        <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+          <h3 className="font-semibold">Instalação pelo repositório revisado</h3>
+          <p>O download legado de script foi retirado. Use install-enlace-pbx.sh e OPERACAO_PRODUCAO.md do repositório, revisando a versão antes de executar no host.</p>
+          <p>Este painel não instala componentes, gera configuração AudioSocket ou comprova integração de áudio.</p>
         </div>
       )}
 

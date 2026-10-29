@@ -1,3 +1,4 @@
+import {ariConfiguration,rtpConfiguration} from './infrastructure/asterisk/AuxiliaryConfig.js';
 import {managedTrunk,trunkPatch} from './infrastructure/asterisk/TrunkMutation.js';
 import {pjsipInfrastructure} from './infrastructure/asterisk/PjsipInfrastructure.js';
 import {managedExtension} from './infrastructure/asterisk/ExtensionMutation.js';
@@ -42,28 +43,6 @@ export interface AsteriskChannel {
     packetLossPercent: number;
   };
 }
-
-const defaultInfraConfig = {
-  hostname: process.env.PBX_HOSTNAME || 'enlace-pbx-core',
-  publicIp: process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP || 'NOT_CONFIGURED',
-  domain: process.env.PBX_DOMAIN || 'NOT_CONFIGURED',
-  lanIp: process.env.PBX_LAN_IP || '127.0.0.1',
-  lanSubnet: process.env.PBX_LAN_SUBNET || '192.168.1.0/24',
-  ports: {
-    sipUdp: 5060,
-    sipTls: 5061,
-    webrtcWss: 8089,
-    http: 80,
-    https: 443,
-    rtpRange: '10000-20000',
-    ariPort: 8088,
-    amiPort: 5038,
-  },
-  sslCertificate: {
-    certPath: '/etc/asterisk/keys/asterisk.crt',
-    keyPath: '/etc/asterisk/keys/asterisk.key',
-  },
-};
 
 export class AsteriskService {
   private realLiveChannels: AsteriskChannel[] = [];
@@ -564,93 +543,11 @@ exten => i,1,Hangup(1)
   }
 
   generateInstallScript(): string {
-    return `#!/usr/bin/env bash
-# ====================================================================
-# Enlace-PBX — Asterisk 20 LTS Installer Oficial
-# Slogan: Telefonia inteligente. Simples, aberta e brasileira.
-# Empresa: Enlace Telecom
-# Compatibilidade: Debian 12 / Ubuntu Server 24.04 LTS
-# ====================================================================
-
-set -e
-
-ASTERISK_VERSION="\${ASTERISK_VERSION:-20.17.0}"
-ENLACE_USER="asterisk"
-ENLACE_CONF_DIR="/etc/asterisk"
-ENLACE_LOG_DIR="/var/log/asterisk"
-ENLACE_SPOOL_DIR="/var/spool/asterisk"
-
-echo "=== [ENLACE-PBX] Instalador do Asterisk 20 LTS Puro Iniciado ==="
-
-if [ "$EUID" -ne 0 ]; then
-  echo "[ERRO] Este script deve ser executado como root."
-  exit 1
-fi
-
-apt-get update
-apt-get install -y build-essential wget subversion libncurses5-dev libssl-dev libxml2-dev libsqlite3-dev pkg-config libjansson-dev libedit-dev uuid-dev git sox libsox-fmt-all
-
-cd /usr/src
-if [ ! -d "asterisk-\${ASTERISK_VERSION}" ]; then
-  wget "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-\${ASTERISK_VERSION}.tar.gz"
-  tar -zxvf "asterisk-\${ASTERISK_VERSION}.tar.gz"
-fi
-
-cd "asterisk-\${ASTERISK_VERSION}"
-contrib/scripts/install_prereq install
-
-./configure --with-jansson --with-ssl --with-srtp --with-pjproject-bundled
-make menuselect.makeopts
-menuselect/menuselect --enable res_pjsip --enable res_pjsip_transport_websocket --enable res_http_websocket --enable res_srtp --enable app_audiosocket --enable codec_opus --enable format_wav menuselect.makeopts
-
-make -j$(nproc)
-make install
-make samples
-make config
-ldconfig
-
-if ! id "$ENLACE_USER" >/dev/null 2>&1; then
-  useradd -m -d /var/lib/asterisk -s /sbin/nologin "$ENLACE_USER"
-fi
-
-chown -R $ENLACE_USER:$ENLACE_USER $ENLACE_CONF_DIR $ENLACE_LOG_DIR $ENLACE_SPOOL_DIR /var/lib/asterisk /usr/lib/asterisk
-
-echo "=== [ENLACE-PBX] Instalação concluída com sucesso! ==="
-`;
+    throw new OutboundHttpError('Instalador legado retirado. Use install-enlace-pbx.sh e o procedimento revisado do repositório.',501);
   }
 
-  generateAriConf(maskSecrets: boolean = false): string {
-    const rawOrigins = process.env.ASTERISK_ARI_ALLOWED_ORIGINS || process.env.CORS_ALLOWED_ORIGINS;
-    const allowedOrigins = rawOrigins && rawOrigins.trim() !== '' && !rawOrigins.includes('*')
-      ? rawOrigins.trim()
-      : 'http://127.0.0.1:3000,http://localhost:3000';
-
-    const isProd = process.env.NODE_ENV === 'production';
-    const ariUser = process.env.ASTERISK_ARI_USERNAME || process.env.ASTERISK_ARI_USER || 'enlace_ari';
-    const ariPassword = process.env.ASTERISK_ARI_PASSWORD?.trim();
-
-    if (!ariPassword && isProd) {
-      throw new Error('FATAL PRODUÇÃO: ASTERISK_ARI_PASSWORD é obrigatória e deve ser configurada explicitamente sem fallback.');
-    }
-
-    const effectivePassword = ariPassword || (isProd ? '' : 'CONFIGURAR_ASTERISK_ARI_PASSWORD_NO_ENV');
-
-    return `; ====================================================================
-; Enlace-PBX — Configuração ARI (Asterisk REST Interface)
-; Asterisk 20 LTS — Enlace Telecom
-; ====================================================================
-
-[general]
-enabled = yes
-pretty = yes
-allowed_origins = ${allowedOrigins}
-
-[${ariUser}]
-type = user
-read_only = no
-password = ${maskSecrets ? '••••••••' : effectivePassword}
-password_format = plain
-`;
+  generateAriConf(maskSecrets:boolean=false):string {
+    return ariConfiguration(process.env,maskSecrets);
   }
 
   async generateQueuesConf(tenantId: string): Promise<string> {
@@ -697,43 +594,12 @@ announce-position = yes
     return output;
   }
 
-  generateRtpConf(): string {
-    return `; ====================================================================
-; Enlace-PBX — Configuração RTP & WebRTC ICE/STUN (rtp.conf)
-; Asterisk 20 LTS — Enlace Telecom
-; ====================================================================
-
-[general]
-rtpstart=10000
-rtpend=20000
-dtmftimeout=3000
-strictrtp=yes
-probation=8
-
-; Servidores STUN públicos e corporativos para atravessamento NAT WebRTC
-icesupport=yes
-stunaddr=stun.l.google.com:19302
-`;
+  async generateRtpConf():Promise<string> {
+    return rtpConfiguration(await SystemRepository.getSetting('infra_config'));
   }
 
-  generateAudioSocketConf(): string {
-    return `; ====================================================================
-; Enlace-PBX — Configuração AudioSocket para Google Gemini (audiosocket.conf)
-; Asterisk 20 LTS — Stasis AI Bridge / app_audiosocket
-; Taxa de Amostragem: 24000 Hz Linear PCM16 Bidirecional (Zero Latency)
-; ====================================================================
-
-[general]
-bindaddr = 127.0.0.1
-port = 9092
-
-[gemini-live]
-uuid = e8a7419c-09b3-4f9e-8c34-7164b97d8123
-endpoint = 127.0.0.1:9092
-timeout = 10
-sample_rate = 24000
-format = slin24
-`;
+  generateAudioSocketConf():string {
+    throw new OutboundHttpError('Arquivo AudioSocket legado retirado. O fluxo de áudio ainda exige implementação e homologação no host.',501);
   }
 
   /**

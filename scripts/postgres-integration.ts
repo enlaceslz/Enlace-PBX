@@ -188,7 +188,7 @@ try {
     VALUES($1,$1,$2,'871001','871002','internal',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'ANSWERED','original.wav','Preciso de suporte. Vou verificar.','Legado preservado'),
     ($3,$3,$4,'871003','871004','internal',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'ANSWERED','original.wav','Texto de outra empresa',NULL)`,[cdrA,tenantA,cdrB,tenantB]);
   const child = spawn(process.execPath, ['dist/server.cjs'], {
-    env: { ...process.env, PUBLIC_IP:'192.0.2.45', PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
+    env: { ...process.env, PUBLIC_IP:'192.0.2.45', ASTERISK_ARI_USERNAME:'enlace_ci',ASTERISK_ARI_PASSWORD:'senha-ari-descartavel-ci-2026',ASTERISK_ARI_ALLOWED_ORIGINS:'https://pbx.example.invalid', PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
       OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
       PBX_BACKUP_DIRECTORY:recordingsRoot,RECORDINGS_ROOT:recordingsRoot,CDR_ANALYSIS_ENABLED_TENANTS:tenantA,CDR_ANALYSIS_MODEL:'modelo-cdr-test',
       NINEROUTER_URL: origin + '/v1', NINEROUTER_API_KEY: 'segredo-extracao-ci', ENTITY_EXTRACTION_MODEL: 'modelo-extracao-test', ENTITY_EXTRACTION_ENABLED_TENANTS: tenantA,
@@ -794,7 +794,7 @@ try {
     const fixtureSecret=' credencial#[]de-teste-forte ';
     await admin.query('UPDATE extensions SET sip_secret=$1 WHERE tenant_id=$2',[EncryptionService.encrypt(fixtureSecret),tenantA]);
     const previousInfra=(await admin.query("SELECT value FROM system_settings WHERE key='infra_config'")).rows[0]?.value;
-    const testInfra={hostname:'pbx.example.invalid',domain:'pbx.example.invalid',publicIp:'192.0.2.10',lanIp:'192.168.3.150',lanSubnet:'255.255.255.0',ports:{sipUdp:5060,sipTls:5061},sslCertificate:{status:'not_configured'}};
+    const testInfra={hostname:'pbx.example.invalid',domain:'pbx.example.invalid',publicIp:'192.0.2.10',lanIp:'192.168.3.150',lanSubnet:'255.255.255.0',ports:{sipUdp:5060,sipTls:5061,rtpRange:'12000-13000'},stunServer:'',sslCertificate:{status:'not_configured'}};
     await admin.query("DELETE FROM system_settings WHERE key='infra_config'");await assert.rejects(generatorService.generatePjsipConf(tenantA,true));
     assert.equal((await fetch(base+'/api/v1/infra/config',{headers:rootHeaders})).status,200);
     assert.equal((await admin.query("SELECT key FROM system_settings WHERE key='infra_config'")).rowCount,0);
@@ -817,6 +817,9 @@ try {
     const infraTls=await infraRequest({expectedRevision:2,sslCertificate:{provider:'custom',certPath:'/etc/pbx/cert.pem',keyPath:'/etc/pbx/key.pem'}});assert.equal(infraTls.status,200);assert.equal((await admin.query("SELECT value FROM system_settings WHERE key='infra_config'")).rows[0].value.sslCertificate.status,'pending');
     for(const endpoint of ['validate-ssl','validate-webphone','validate-pwa','validate-whatsapp','vapid/generate','send-test-push'])assert.equal((await fetch(base+'/api/v1/infra/'+endpoint,{method:'POST',headers:rootHeaders})).status,501);
     await saveTestInfra(testInfra);
+    const configBundleResponse=await fetch(base+'/api/v1/asterisk/configs',{headers:{...rootHeaders,'x-tenant-id':tenantA}});assert.equal(configBundleResponse.status,200);const configBundle=await configBundleResponse.json();assert.equal(typeof configBundle.extensionsConf,'string');assert.match(configBundle.extensionsConf,/\[internal-extensions\]/);assert.match(configBundle.rtpConf,/rtpstart=12000/);assert.match(configBundle.ariConf,/password=••••••••/);assert.equal(JSON.stringify(configBundle).includes('senha-ari-descartavel-ci-2026'),false);assert.equal(configBundle.status,'DRAFT_NOT_APPLIED');assert.equal('installerScript' in configBundle,false);assert.equal('audioSocketConf' in configBundle,false);
+    const dialplanFile=await fetch(base+'/api/v1/asterisk/configs/extensions',{headers:{...rootHeaders,'x-tenant-id':tenantA}});assert.equal(dialplanFile.status,200);assert.match(await dialplanFile.text(),/\[internal-extensions\]/);
+    for(const route of ['/asterisk/configs/audiosocket','/asterisk/install-script'])assert.equal((await fetch(base+'/api/v1'+route,{headers:{...rootHeaders,'x-tenant-id':tenantA}})).status,501);
     const pjsipPreview=await generatorService.generatePjsipConf(tenantA,true);assert.match(pjsipPreview,/\[980001\]/);assert.equal(pjsipPreview.includes(fixtureSecret),false);assert.match(pjsipPreview,/password=••••••••/);
     assert.match(pjsipPreview,/local_net=192\.168\.3\.0\/24/);assert.doesNotMatch(pjsipPreview,/local_net=255\.255\.255\.0/);
     for(const patch of [{publicIp:'192.0.2.10;exec=x'},{lanSubnet:'255.0.255.0'},{ports:{sipUdp:0,sipTls:5061}},{sslCertificate:{status:'valid',certPath:'/etc/full.pem',keyPath:'/etc/../key.pem'}}]){
