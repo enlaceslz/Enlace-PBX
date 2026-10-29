@@ -332,16 +332,16 @@ export class AsteriskAdapter {
    */
   private configurationQueue: Promise<void> = Promise.resolve();
 
-  public async applyPjsipConfig(pjsipContent: string, extensionsContent?: string): Promise<{ success: boolean; backupPath?: string; message: string }> {
+  public async applyPjsipConfig(pjsipContent: string, extensionsContent?: string,queuesContent?:string): Promise<{ success: boolean; backupPath?: string; message: string }> {
     const previous = this.configurationQueue;
     let unlock!: () => void;
     this.configurationQueue = new Promise<void>(resolve => { unlock = resolve; });
     await previous;
-    try { return await this.applyConfigurationFiles(pjsipContent, extensionsContent); }
+    try { return await this.applyConfigurationFiles(pjsipContent, extensionsContent,queuesContent); }
     finally { unlock(); }
   }
 
-  private async applyConfigurationFiles(pjsipContent: string, extensionsContent?: string): Promise<{ success: boolean; backupPath?: string; message: string }> {
+  private async applyConfigurationFiles(pjsipContent: string, extensionsContent?: string,queuesContent?:string): Promise<{ success: boolean; backupPath?: string; message: string }> {
     const fs = await import('node:fs');
     const path = await import('node:path');
     if (process.env.NODE_ENV === 'production' && !['127.0.0.1', 'localhost', '::1'].includes(this.host)) {
@@ -355,6 +355,7 @@ export class AsteriskAdapter {
     }
     const files = new Map<string, string>([['pjsip.conf', pjsipContent]]);
     if (extensionsContent !== undefined) files.set('extensions.conf', extensionsContent);
+    if(queuesContent!==undefined)files.set('queues.conf',queuesContent);
     for (const content of files.values()) if (typeof content !== 'string' || !content.trim() || content.length > 2 * 1024 * 1024 || content.includes('\0')) throw new Error('Configuração Asterisk inválida.');
     const backupDir = path.join(baseDir, 'backup', crypto.randomUUID());
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o750 });
@@ -376,8 +377,9 @@ export class AsteriskAdapter {
       for (const [name, content] of files) atomicWrite(name, content);
       const pjsip = await this.reloadPjsip();
       const dialplan = extensionsContent === undefined ? { success: true } : await this.reloadDialplan();
-      if (!pjsip.success || !dialplan.success) throw new Error('Recarga recusada pelo Asterisk.');
-      return { success: true, backupPath: backupDir, message: extensionsContent === undefined ? 'PJSIP gravado e recarregado.' : 'PJSIP e plano de discagem gravados e recarregados.' };
+      const queues=queuesContent===undefined?{success:true}:await this.reloadQueues();
+      if (!pjsip.success || !dialplan.success||!queues.success) throw new Error('Recarga recusada pelo Asterisk.');
+      return { success: true, backupPath: backupDir, message: queuesContent!==undefined?'PJSIP, plano e filas gravados; recargas aceitas.':extensionsContent === undefined ? 'PJSIP gravado e recarregado.' : 'PJSIP e plano de discagem gravados e recarregados.' };
     } catch (error) {
       for (const [name, original] of before) {
         if (original !== undefined) atomicWrite(name, original);
@@ -385,7 +387,8 @@ export class AsteriskAdapter {
       }
       const pjsip = await this.reloadPjsip();
       const dialplan = extensionsContent === undefined ? { success: true } : await this.reloadDialplan();
-      return { success: false, backupPath: backupDir, message: pjsip.success && dialplan.success
+      const queues=queuesContent===undefined?{success:true}:await this.reloadQueues();
+      return { success: false, backupPath: backupDir, message: pjsip.success && dialplan.success&&queues.success
         ? 'A configuração foi recusada; a versão anterior foi restaurada e recarregada.'
         : 'A versão anterior foi restaurada; verifique as recargas manualmente.' };
     }
@@ -394,6 +397,11 @@ export class AsteriskAdapter {
   /**
    * Recarrega o Dialplan no Asterisk.
    */
+  public async reloadQueues():Promise<{success:boolean;message:string}>{
+    try{await this.executeAmiAction('QueueReload',{Members:'yes',Parameters:'yes',Rules:'no'});return {success:true,message:'Recarga de membros e parâmetros de filas aceita pelo AMI.'};}
+    catch{return {success:false,message:'Recarga de filas sem confirmação.'};}
+  }
+
   public async reloadDialplan(): Promise<{ success: boolean; message: string }> {
     const hasAsterisk = await this.checkBinaryExists();
     if (hasAsterisk) {

@@ -210,6 +210,7 @@ export interface Route {
 }
 
 export interface RingGroup {
+  fallbackType?:string;
   id: string;
   tenantId: string;
   name: string;
@@ -225,7 +226,7 @@ export interface Queue {
   tenantId: string;
   name: string;
   number: string;
-  strategy: 'ringall' | 'roundrobin' | 'leastrecent' | 'fewestcalls' | 'random';
+  strategy: 'ringall' | 'roundrobin' | 'rrmemory' | 'linear' | 'leastrecent' | 'fewestcalls' | 'random';
   timeoutSeconds: number;
   wrapUpTimeSeconds: number;
   mohSound: string;

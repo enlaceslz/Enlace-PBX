@@ -50,3 +50,9 @@ test('AMI aguarda a lista completa, ignora ActionID alheio e rejeita Error', asy
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });
+
+test('QueueReload exige contrato fechado e resposta autenticada com ActionID correspondente',async()=>{
+ const server=net.createServer(socket=>{let buffer='';socket.on('data',data=>{buffer+=data;let end:number;while((end=buffer.indexOf('\r\n\r\n'))>=0){const frame=buffer.slice(0,end);buffer=buffer.slice(end+4);const id=frame.match(/ActionID: ([^\r]+)/)?.[1];if(!frame.startsWith('Action: Login')){assert.match(frame,/Action: QueueReload/);assert.match(frame,/Members: yes/);assert.match(frame,/Parameters: yes/);assert.match(frame,/Rules: no/);}socket.write(`Response: Success\r\nActionID: ${id}\r\n\r\n`);}});});
+ server.listen(0,'127.0.0.1');await once(server,'listening');const connection={host:'127.0.0.1',port:(server.address() as net.AddressInfo).port,username:'teste',password:'segredo-descartavel',timeoutMs:1000};
+ try{assert.match(await sendAmiAction(connection,'QueueReload',{Members:'yes',Parameters:'yes',Rules:'no'}),/Response: Success/);for(const params of [{Members:'no',Parameters:'yes',Rules:'no'},{Members:'yes',Parameters:'yes',Rules:'yes'},{Queue:'externa',Members:'yes',Parameters:'yes',Rules:'no'}])await assert.rejects(sendAmiAction(connection,'QueueReload',params),/contrato/);}finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});

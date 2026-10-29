@@ -6,12 +6,13 @@ import { isAsteriskCommandAllowed } from './AsteriskAllowlist.js';
 export interface AmiConnection { host: string; port: number; username: string; password: string; timeoutMs?: number }
 
 export async function sendAmiAction(connection: AmiConnection, action: string, params: Record<string, string> = {}): Promise<string> {
-  if (!['CoreStatus', 'CoreShowChannels', 'Command', 'Hangup', 'Redirect', 'Originate'].includes(action)) throw new Error('Ação AMI não autorizada.');
+  if (!['CoreStatus', 'CoreShowChannels', 'Command', 'Hangup', 'Redirect', 'Originate','QueueReload'].includes(action)) throw new Error('Ação AMI não autorizada.');
   for (const [name, value] of Object.entries({ Username: connection.username, Secret: connection.password, ...params })) {
     if (!/^[A-Za-z][A-Za-z0-9]*$/.test(name) || typeof value !== 'string' || /[\r\n\0]/.test(value) || value.length > 4096) throw new Error('Campo AMI inválido.');
   }
   if (Object.keys(params).some(name => ['action', 'actionid', 'username', 'secret'].includes(name.toLowerCase()))) throw new Error('Cabeçalho AMI reservado.');
   if (!connection.password) throw new Error('Credencial AMI não configurada.');
+  if(action==='QueueReload'&&(Object.keys(params).sort().join(',')!=='Members,Parameters,Rules'||params.Members!=='yes'||params.Parameters!=='yes'||params.Rules!=='no'))throw new Error('Recarga de filas fora do contrato permitido.');
   if (action === 'Command' && !isAsteriskCommandAllowed(params.Command || '')) throw new Error('Comando AMI fora da lista permitida.');
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();

@@ -768,6 +768,32 @@ try {
     await new AsteriskService().generateExtensionsConf(tenantA);
     assert.equal((await routeRequest('POST','/simulate-callerid',{routeId:apiRoute.id,extensionNumber:'4101'})).status,501);
     for(const row of [apiRoute,duplicateRoute])assert.equal((await routeRequest('DELETE','/'+row.id)).status,200);
+    await admin.query("INSERT INTO extensions(id,tenant_id,number,name,sip_secret,caller_id) VALUES($1,$2,'980001','Membro A','sem-uso','980001'),($3,$4,'980002','Membro B','sem-uso','980002'),($5,$2,'980003','Membro A2','sem-uso','980003')",['collection-ext-a-'+id,tenantA,'collection-ext-b-'+id,tenantB,'collection-ext-a2-'+id]);
+    const collectionRequest=async(basePath:string,method:string,suffix:string,body?:any,headers:Record<string,string>=testHeaders)=>fetch(base+'/api/v1/'+basePath+suffix,{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const queueBody={name:'Fila CI '+id,number:'6001',strategy:'rrmemory',timeoutSeconds:35,wrapUpTimeSeconds:0,mohSound:'default',members:['980001','980003']};
+    const queueResponse=await collectionRequest('queues','POST','',queueBody);assert.equal(queueResponse.status,201);const apiQueue=await queueResponse.json();assert.equal(apiQueue.wrapUpTimeSeconds,0);assert.equal(apiQueue.callsWaiting,null);assert.equal(apiQueue.telemetryStatus,'NOT_MEASURED');
+    const groupBody={name:'Grupo CI '+id,number:'7001',strategy:'ringall',timeoutSeconds:25,members:['980001','980003'],failoverDestination:''};
+    const groupResponse=await collectionRequest('ring-groups','POST','',groupBody);assert.equal(groupResponse.status,201);const apiGroup=await groupResponse.json();assert.equal(apiGroup.failoverDestination,'');assert.equal(apiGroup.fallbackType,'hangup');
+    for(const basePath of ['queues','ring-groups']){
+      const record=basePath==='queues'?apiQueue:apiGroup;const body=basePath==='queues'?queueBody:groupBody;
+      assert.equal((await collectionRequest(basePath,'POST','',{...body,name:'Membro externo',number:'9001',members:['980002']})).status,400);
+      assert.equal((await collectionRequest(basePath,'POST','',{...body,tenantId:tenantB})).status,400);
+      for(const method of ['PUT','DELETE'])assert.equal((await collectionRequest(basePath,method,'/'+record.id,method==='PUT'?{name:'Não alterar'}:undefined,{...rootHeaders,'x-tenant-id':tenantB})).status,404);
+    }
+    assert.equal((await collectionRequest('queues','PUT','/'+apiQueue.id,{callsWaiting:99})).status,400);
+    assert.equal((await collectionRequest('queues','PUT','/'+apiQueue.id,{number:'7001'})).status,409);
+    assert.equal((await collectionRequest('ring-groups','PUT','/'+apiGroup.id,{number:'980001'})).status,409);
+    assert.equal((await collectionRequest('ring-groups','PUT','/'+apiGroup.id,{strategy:'random'})).status,501);
+    const collectionParallel=await Promise.all([collectionRequest('queues','PUT','/'+apiQueue.id,{name:'Fila atualizada '+id}),collectionRequest('queues','PUT','/'+apiQueue.id,{timeoutSeconds:45})]);assert.equal(collectionParallel.every(response=>response.status===200),true);
+    const queueStored=(await admin.query('SELECT name,timeout_seconds,wrap_up_time_seconds FROM queues WHERE id=$1',[apiQueue.id])).rows[0];assert.equal(queueStored.name,'Fila atualizada '+id);assert.equal(queueStored.timeout_seconds,45);assert.equal(queueStored.wrap_up_time_seconds,0);
+    const namespaceRace=await Promise.all([collectionRequest('queues','POST','',{...queueBody,name:'Concorrente fila '+id,number:'8001'}),collectionRequest('ring-groups','POST','',{...groupBody,name:'Concorrente grupo '+id,number:'8001'})]);assert.deepEqual(namespaceRace.map(response=>response.status).sort(),[201,409]);const namespaceWinner=namespaceRace.findIndex(response=>response.status===201);const namespaceRecord=await namespaceRace[namespaceWinner].json();assert.equal((await collectionRequest(namespaceWinner===0?'queues':'ring-groups','DELETE','/'+namespaceRecord.id)).status,200);
+    const queuesConfig=await new AsteriskService().generateQueuesConf(tenantA);assert.ok(queuesConfig.includes('['+apiQueue.id+']'));assert.match(queuesConfig,/wrapuptime = 0/);assert.match(queuesConfig,/strategy = rrmemory/);assert.match(queuesConfig,/member => PJSIP\/980001/);assert.doesNotMatch(queuesConfig,/member => PJSIP\/980002/);
+    const collectionPlan=await new AsteriskService().generateExtensionsConf(tenantA);assert.ok(collectionPlan.includes('Queue('+apiQueue.id+',t,,,45)'));assert.ok(collectionPlan.includes('Dial(PJSIP/980001&PJSIP/980003,25,tT)'));
+    await admin.query('UPDATE queues SET calls_waiting=99,answered_today=500 WHERE id=$1',[apiQueue.id]);const queueRead=(await (await collectionRequest('queues','GET','')).json()).find((record:any)=>record.id===apiQueue.id);assert.equal(queueRead.callsWaiting,null);assert.equal(queueRead.answeredToday,null);
+    const collectionDid='collection-did-'+id;await admin.query("INSERT INTO dids(id,tenant_id,did,normalized_number,presented_number,operator_name,trunk_id,destination_type,destination_id,status) VALUES($1,$2,'1132222000','+551132222000','1132222000','CI',$3,'queue',$4,'inactive')",[collectionDid,tenantA,trunk.id,apiQueue.id]);
+    assert.equal((await collectionRequest('queues','DELETE','/'+apiQueue.id)).status,409);assert.equal((await collectionRequest('queues','PUT','/'+apiQueue.id,{number:'6002'})).status,409);await admin.query('DELETE FROM dids WHERE id=$1',[collectionDid]);
+    assert.equal((await collectionRequest('queues','DELETE','/'+apiQueue.id)).status,200);assert.equal((await collectionRequest('ring-groups','DELETE','/'+apiGroup.id)).status,200);
+    await admin.query('DELETE FROM extensions WHERE id=ANY($1::text[])',[['collection-ext-a-'+id,'collection-ext-b-'+id,'collection-ext-a2-'+id]]);
     const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
     for(const route of ['backup','restore']){
       const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});

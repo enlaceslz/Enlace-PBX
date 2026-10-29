@@ -118,3 +118,22 @@ test('política de saída bloqueia DDI, premium e caracteres fora do plano nacio
   for (const number of ['00441234567890', '+441234567890', '09001234567', '9001234567', '5590012345678', '0159001234567', '123;System(x)', 'invalid', '']) assert.equal(isAllowedOutboundNumber(number), false, number);
   assert.match(outboundGuardDialplan(), /Hangup\(21\)/);
 });
+
+test('falha na recarga de filas recupera PJSIP, plano e queues.conf',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'pbx-three-config-'));const previous=process.env.ASTERISK_CONFIG_DIR;process.env.ASTERISK_CONFIG_DIR=directory;
+ try{
+  for(const name of ['pjsip.conf','extensions.conf','queues.conf'])await fs.writeFile(path.join(directory,name),'anterior '+name);
+  const adapter=new AsteriskAdapter();adapter.reloadPjsip=async()=>({success:true,message:'teste'});adapter.reloadDialplan=async()=>({success:true,message:'teste'});let attempts=0;
+  adapter.reloadQueues=async()=>({success:++attempts>1,message:'teste'});
+  const result=await adapter.applyPjsipConfig('pjsip novo','plano novo','filas novas');assert.equal(result.success,false);assert.equal(attempts,2);
+  for(const name of ['pjsip.conf','extensions.conf','queues.conf'])assert.equal(await fs.readFile(path.join(directory,name),'utf8'),'anterior '+name);
+  await fs.rm(path.join(directory,'queues.conf'));adapter.reloadQueues=async()=>({success:false,message:'teste'});assert.equal((await adapter.applyPjsipConfig('pjsip novo','plano novo','filas novas')).success,false);await assert.rejects(fs.stat(path.join(directory,'queues.conf')),(error:any)=>error.code==='ENOENT');
+ }finally{if(previous===undefined)delete process.env.ASTERISK_CONFIG_DIR;else process.env.ASTERISK_CONFIG_DIR=previous;await fs.rm(directory,{recursive:true,force:true});}
+});
+test('aplicação com filas só aceita resultado após a recarga das três configurações',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'pbx-queue-config-'));const previous=process.env.ASTERISK_CONFIG_DIR;process.env.ASTERISK_CONFIG_DIR=directory;
+ try{
+  const order:string[]=[];const adapter=new AsteriskAdapter();adapter.reloadPjsip=async()=>{order.push('pjsip');return {success:true,message:'teste'};};adapter.reloadDialplan=async()=>{order.push('dialplan');return {success:true,message:'teste'};};adapter.reloadQueues=async()=>{order.push('queues');return {success:true,message:'teste'};};
+  const result=await adapter.applyPjsipConfig('pjsip novo','plano novo','filas novas');assert.equal(result.success,true);assert.deepEqual(order,['pjsip','dialplan','queues']);assert.equal(await fs.readFile(path.join(directory,'queues.conf'),'utf8'),'filas novas');
+ }finally{if(previous===undefined)delete process.env.ASTERISK_CONFIG_DIR;else process.env.ASTERISK_CONFIG_DIR=previous;await fs.rm(directory,{recursive:true,force:true});}
+});

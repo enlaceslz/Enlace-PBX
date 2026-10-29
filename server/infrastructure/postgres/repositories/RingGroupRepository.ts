@@ -20,7 +20,8 @@ export class RingGroupRepository {
           strategy: row.strategy || 'ringall',
           timeoutSeconds: row.timeout_seconds || 25,
           members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
-          failoverDestination: row.fallback_target || 'voicemail',
+          failoverDestination: row.fallback_target ?? '',
+          fallbackType:row.fallback_type,
         }));
       } catch (err: any) {
         logOperational('DB_OPERATION_FAILURE');
@@ -44,7 +45,8 @@ export class RingGroupRepository {
           strategy: row.strategy || 'ringall',
           timeoutSeconds: row.timeout_seconds || 25,
           members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
-          failoverDestination: row.fallback_target || 'voicemail',
+          failoverDestination: row.fallback_target ?? '',
+          fallbackType:row.fallback_type,
         }));
       } catch (err: any) {
         logOperational('DB_OPERATION_FAILURE');
@@ -74,7 +76,8 @@ export class RingGroupRepository {
             strategy: row.strategy || 'ringall',
             timeoutSeconds: row.timeout_seconds || 25,
             members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
-            failoverDestination: row.fallback_target || 'voicemail',
+            failoverDestination: row.fallback_target ?? '',
+          fallbackType:row.fallback_type,
           };
         }
         return null;
@@ -99,7 +102,8 @@ export class RingGroupRepository {
             strategy: row.strategy || 'ringall',
             timeoutSeconds: row.timeout_seconds || 25,
             members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
-            failoverDestination: row.fallback_target || 'voicemail',
+            failoverDestination: row.fallback_target ?? '',
+          fallbackType:row.fallback_type,
           };
         }
         return null;

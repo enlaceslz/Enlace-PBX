@@ -1,3 +1,4 @@
+import {managedCollection,assertInternalNumbers} from './infrastructure/asterisk/CollectionMutation.js';
 import {managedRoutePlan} from './infrastructure/asterisk/RouteMutation.js';
 import {managedDidDestination} from './infrastructure/asterisk/DidDialplan.js';
 import { callExtension, callDestination, channelReference, endpointFromChannel } from './infrastructure/asterisk/CallControl.js';
@@ -392,6 +393,9 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
     const trunks = await TrunkRepository.listByTenant(tenantId);
     assertSingleLineConfig({ extensions, routes, groups, queues, ivrs, dids, trunks });
     for(const route of routes)managedRoutePlan(route,trunks);
+    assertInternalNumbers(extensions,groups,queues,ivrs);
+    for(const group of groups)managedCollection('group',group,extensions);
+    for(const queue of queues)managedCollection('queue',queue,extensions);
 
     return `; ====================================================================
 ; Enlace-PBX — Dialplan Oficial Asterisk 20 LTS (extensions.conf)
@@ -455,7 +459,7 @@ exten => _[1-9]XXXX,1,Dial(PJSIP/\${EXTEN},30,tT)
 [ring-groups]
 ${groups
   .map(
-    (g) => `exten => ${g.number},1,NoOp(Grupo de Toque: ${g.name})
+    (g) => `exten => ${g.number},1,NoOp(Grupo de toque gerenciado)
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Dial(${g.members.map((m) => `PJSIP/${m}`).join('&')},${g.timeoutSeconds},tT)
  same => n,Hangup()`
@@ -466,7 +470,7 @@ ${groups
 [call-queues]
 ${queues
   .map(
-    (q) => `exten => ${q.number},1,NoOp(Fila: ${q.name})
+    (q) => `exten => ${q.number},1,NoOp(Fila gerenciada)
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Answer()
  same => n,Queue(${q.id},t,,,${q.timeoutSeconds})
@@ -677,6 +681,9 @@ password_format = plain
 
   async generateQueuesConf(tenantId: string): Promise<string> {
     const queues = await QueueRepository.listByTenant(tenantId);
+    const extensions=await ExtensionRepository.listByTenant(tenantId);
+    assertInternalNumbers(extensions,await RingGroupRepository.listByTenant(tenantId),queues,await IvrRepository.listByTenant(tenantId));
+    for(const queue of queues)managedCollection('queue',queue,extensions);
 
     let output = `; ====================================================================
 ; Enlace-PBX — Configuração de Filas de Atendimento ACD (queues.conf)
@@ -694,11 +701,11 @@ shared_lastcall = yes
 
     queues.forEach((q) => {
       output += `[${q.id}]
-musicclass = default
+musicclass = ${q.mohSound}
 strategy = ${q.strategy}
 timeout = ${q.timeoutSeconds}
 retry = 5
-wrapuptime = 15
+wrapuptime = ${q.wrapUpTimeSeconds}
 maxlen = 50
 joinempty = no
 leavewhenempty = yes

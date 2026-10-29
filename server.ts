@@ -1,3 +1,5 @@
+import {collectionPatch,queueDto,CollectionKind} from './server/infrastructure/asterisk/CollectionMutation.js';
+import {CollectionManagementRepository} from './server/infrastructure/postgres/repositories/CollectionManagementRepository.js';
 import {routePatch} from './server/infrastructure/asterisk/RouteMutation.js';
 import {RouteManagementRepository} from './server/infrastructure/postgres/repositories/RouteManagementRepository.js';
 import {didPatch} from './server/infrastructure/asterisk/DidMutation.js';
@@ -2047,8 +2049,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const actor=(req as any).user;
       const result=await applyConfiguration({
         audit:()=>AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action:'APPLY_PJSIP_CONFIG_ATTEMPT',resource:'asterisk/configuration',category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Tentativa de gravação e recarga; não certifica registro SIP, chamadas ou mídia.'}),
-        generate:async()=>({pjsip:await asteriskService.generatePjsipConf(tenantId),dialplan:await asteriskService.generateExtensionsConf(tenantId)}),
-        apply:(pjsip,dialplan)=>asteriskAdapter.applyPjsipConfig(pjsip,dialplan),
+        generate:async()=>({pjsip:await asteriskService.generatePjsipConf(tenantId),dialplan:await asteriskService.generateExtensionsConf(tenantId),queues:await asteriskService.generateQueuesConf(tenantId)}),
+        apply:(pjsip,dialplan,queues)=>asteriskAdapter.applyPjsipConfig(pjsip,dialplan,queues),
       });
       return res.status(result.success?200:502).json(result);
     } catch (err: any) {
@@ -2159,156 +2161,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Ring Groups & Queues
   // -------------------------------------------------------------------------
-  app.get('/api/v1/ring-groups', requireAuth, requireTenant, async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const list = await RingGroupRepository.listByTenant(tenantCtx.tenantId);
-      res.json(list || []);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao listar grupos de toque do PostgreSQL' });
-    }
-  });
-
-  app.post('/api/v1/ring-groups', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    const group = { id: `group-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, tenantId, ...req.body };
-    try {
-      await RingGroupRepository.save(group);
-      res.status(201).json(group);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao criar grupo de toque no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/ring-groups/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await RingGroupRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Grupo de toque não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O grupo de toque pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await RingGroupRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar grupo de toque no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/ring-groups/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await RingGroupRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) {
-        return res.status(404).json({ error: 'Grupo de toque não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O grupo de toque pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await RingGroupRepository.delete(req.params.id, prev.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir grupo de toque no PostgreSQL' });
-    }
-  });
-
-  app.get('/api/v1/queues', requireAuth, requireTenant, async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const list = await QueueRepository.listByTenant(tenantCtx.tenantId);
-      res.json(list || []);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao listar filas de atendimento do PostgreSQL' });
-    }
-  });
-
-  app.post('/api/v1/queues', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    const queue = {
-      id: `queue-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-      tenantId,
-      callsWaiting: 0,
-      avgWaitTimeSeconds: 0,
-      abandonedToday: 0,
-      answeredToday: 0,
-      ...req.body,
-    };
-
-    try {
-      await QueueRepository.save(queue);
-      res.status(201).json(queue);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao criar fila no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/queues/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await QueueRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Fila não encontrada' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A fila pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await QueueRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar fila no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/queues/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const q = await QueueRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!q) {
-        return res.status(404).json({ error: 'Fila não encontrada' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && q.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A fila pertence ao tenant '${q.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await QueueRepository.delete(req.params.id, q.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir fila do PostgreSQL' });
-    }
-  });
+  for(const kind of ['queue','group'] as CollectionKind[]){
+    const base=kind==='queue'?'/api/v1/queues':'/api/v1/ring-groups';const repository=kind==='queue'?QueueRepository:RingGroupRepository;
+    const project=(value:any)=>kind==='queue'?queueDto(value):value;
+    const find=(req:any,id:string)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?repository.findAnyByIdForSuperAdmin(id):repository.findById(id,context.tenantId);};
+    const audit=async(req:any,tenantId:string,action:string,id?:string)=>{const actor=req.user;await AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action,resource:base+'/'+(id||'new'),ip:req.ip||'127.0.0.1',category:'ROUTING',details:'Tentativa de alteração cadastral; não aplica arquivos nem comprova atendimento ou SLA.',payload:{requestId:req.res.locals.requestId}});};
+    const fail=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+    app.get(base,async(req,res)=>res.json((await repository.listByTenant(getAuthorizedTenantId(req))).map(project)));
+    app.post(base,requireRole('super_admin','admin'),async(req,res)=>{try{const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});const patch=collectionPatch(kind,req.body,true);await audit(req,context.tenantId,'CREATE_'+kind.toUpperCase()+'_ATTEMPT');const id=await CollectionManagementRepository.mutate(kind,context.tenantId,undefined,patch);res.status(201).json(project(await repository.findById(id,context.tenantId)));}catch(error){fail(error,res);}});
+    app.put(base+'/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const previous=await find(req,req.params.id);if(!previous)return res.status(404).json({error:'Cadastro não encontrado nesta empresa.'});const patch=collectionPatch(kind,req.body);await audit(req,previous.tenantId,'UPDATE_'+kind.toUpperCase()+'_ATTEMPT',previous.id);await CollectionManagementRepository.mutate(kind,previous.tenantId,previous.id,patch);res.json(project(await repository.findById(previous.id,previous.tenantId)));}catch(error){fail(error,res);}});
+    app.delete(base+'/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const previous=await find(req,req.params.id);if(!previous)return res.status(404).json({error:'Cadastro não encontrado nesta empresa.'});await audit(req,previous.tenantId,'DELETE_'+kind.toUpperCase()+'_ATTEMPT',previous.id);await CollectionManagementRepository.remove(kind,previous.tenantId,previous.id);res.json({deleted:true});}catch(error){fail(error,res);}});
+  }
 
   app.get('/api/v1/ivr', requireAuth, requireTenant, async (req, res) => {
     try {
