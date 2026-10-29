@@ -1,3 +1,4 @@
+import {csvDocument,downloadCsv} from '../../utils/reportData';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
@@ -196,30 +197,10 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
   };
 
   // Export LGPD Audit Logs to CSV with SHA-256 and Category
-  const handleExportLgpdCsv = () => {
-    const headers = ['ID', 'Data/Hora', 'Usuário', 'Ação', 'Categoria', 'Severidade', 'Recurso', 'Endereço IP', 'Detalhes', 'Hash SHA-256 (Cadeia de Custódia)'];
-    const rows = filteredLogs.map((l) => [
-      `"${l.id}"`,
-      `"${new Date(l.timestamp).toLocaleString('pt-BR')}"`,
-      `"${l.userName}"`,
-      `"${l.action}"`,
-      `"${l.category || 'GERAL'}"`,
-      `"${l.severity || 'INFO'}"`,
-      `"${l.resource}"`,
-      `"${l.ip}"`,
-      `"${l.details.replace(/"/g, '""')}"`,
-      `"${l.hashSha256 || 'N/A'}"`,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `relatorio_auditoria_lgpd_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const handleExportLgpdCsv=()=>downloadCsv(csvDocument(
+    ['ID','Data/hora registrada','Usuário','Ação','Categoria','Severidade','Recurso','IP','Detalhes','Hash registrado - não certifica conformidade'],
+    filteredLogs.map(log=>[log.id,log.timestamp,log.userName,log.action,log.category,log.severity,log.resource,log.ip,log.details,log.hashSha256])
+  ),'amostra-auditoria.csv');
 
   // Export Syslog RFC 5424 formatted for SIEM (Splunk, Elastic, QRadar)
   const handleExportSyslog = async () => {

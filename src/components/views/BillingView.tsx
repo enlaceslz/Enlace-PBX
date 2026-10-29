@@ -92,7 +92,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'invoices' | 'statement' | 'dids_billing'>('overview');
   const [didsList, setDidsList] = useState<Did[]>([]);
   const [didsSearchTerm, setDidsSearchTerm] = useState('');
-  
+
   // Selected Invoice Modal
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceData | null>(null);
 
@@ -106,13 +106,6 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
     monthlyFee: '29.90',
     billingCycleDay: '10',
   });
-  
-  // Recharge Modal
-  const [isRechargeModalOpen, setIsRechargeModalOpen] = useState(false);
-  const [rechargeAmount, setRechargeAmount] = useState<number>(500);
-  const [isProcessingRecharge, setIsProcessingRecharge] = useState(false);
-  const [rechargeSuccess, setRechargeSuccess] = useState(false);
-  const [copiedPix, setCopiedPix] = useState(false);
 
   // Statement Period Filter
   const [statementPeriod, setStatementPeriod] = useState<'current_month' | 'last_30_days' | 'all'>('current_month');
@@ -176,106 +169,13 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
   const handleExportStatement = () => {
     if (!billing) return;
     const txs = billing.transactions || [];
-    exportFinancialStatementPdf(billing, txs, 'Setembro de 2026', currentTenant);
+    exportFinancialStatementPdf(billing, txs, 'Transações carregadas no painel', currentTenant);
   };
 
   // Handle Add Balance
-  const handleConfirmRecharge = async () => {
-    if (!billing || !currentTenant?.id) return;
-    const tenantId = currentTenant.id;
-    setIsProcessingRecharge(true);
-    try {
-      const res = await fetch(`/api/v1/billing/${tenantId}/recharge`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ amount: rechargeAmount, paymentMethod: 'PIX Instantâneo' }),
-      });
-      if (res.ok) {
-        setRechargeSuccess(true);
-        setTimeout(() => {
-          setRechargeSuccess(false);
-          setIsRechargeModalOpen(false);
-          fetchBilling();
-        }, 1500);
-      }
-    } catch (err) {
-      console.error('Error recharging:', err);
-    } finally {
-      setIsProcessingRecharge(false);
-    }
-  };
 
-  // Handle Pay Invoice Simulated
-  const handlePayInvoice = async (invoiceId: string) => {
-    if (!billing || !currentTenant?.id) return;
-    const tenantId = currentTenant.id;
-    try {
-      const res = await fetch(`/api/v1/billing/${tenantId}/invoices/${invoiceId}/pay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ paymentMethod: 'PIX' }),
-      });
-      if (res.ok) {
-        if (selectedInvoice && selectedInvoice.id === invoiceId) {
-          setSelectedInvoice({ ...selectedInvoice, status: 'paid' });
-        }
-        fetchBilling();
-      }
-    } catch (err) {
-      console.error('Error paying invoice:', err);
-    }
-  };
 
-  // Handle Export Single DID Invoice PDF
-  const handleGenerateDidInvoicePdf = (didItem: Did) => {
-    const fee = didItem.monthlyFee !== undefined ? didItem.monthlyFee : 29.90;
-    const invData: InvoiceData = {
-      id: `INV-DID-${(didItem.did || '').slice(-4)}-${new Date().getMonth() + 1}${new Date().getFullYear()}`,
-      date: new Date().toISOString(),
-      dueDate: new Date(Date.now() + 7 * 86400000).toISOString(),
-      amount: fee,
-      status: 'pending',
-      pixKey: '12.345.678/0001-90',
-      barcode: '34191.79001 01043.510047 91020.150008 8 98450000002990',
-      items: [
-        {
-          description: `Locação Mensal de DID Telefônico E.164 (${didItem.presentedNumber || didItem.did})`,
-          category: 'Numeração DID & Telefonia',
-          qty: '1 número DID',
-          unitPrice: fee,
-          total: fee,
-        },
-      ],
-    };
 
-    const summaryData: BillingSummaryData = {
-      tenantId: didItem.tenantId || currentTenant?.id || '',
-      tenantName: didItem.assignedCompany || 'Cliente Assinante de Linha DID',
-      tenantCnpj: didItem.assignedCnpj || '00.000.000/0001-00',
-      plan: 'Locação de Linha Telefônica DID Receptiva',
-      balance: 0,
-      currency: 'BRL',
-      currentMonthCosts: {
-        telephony: fee,
-        aiTokens: 0,
-        omnichannel: 0,
-        licenses: 0,
-      },
-    };
-
-    const targetTenant: Tenant = currentTenant || {
-      id: didItem.tenantId,
-      name: didItem.assignedCompany || 'Cliente Assinante de Linha DID',
-      cnpj: didItem.assignedCnpj || 'NÃO INFORMADO',
-      plan: 'Locação DID Receptivo',
-      maxExtensions: 10,
-      maxTrunks: 2,
-      aiCreditsUsd: 0,
-      createdAt: new Date().toISOString(),
-    };
-
-    exportInvoicePdf(invData, summaryData, targetTenant);
-  };
 
   // Open Edit DID Modal from Billing Tab
   const handleOpenEditDid = (didItem: Did) => {
@@ -373,11 +273,11 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
 
           {/* Quick Recharge */}
           <button
-            onClick={() => setIsRechargeModalOpen(true)}
+            disabled title="Integração de pagamento e conciliação ainda não implementadas"
             className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center gap-2"
           >
             <CreditCard className="w-4 h-4" />
-            <span>Adicionar Saldo (PIX)</span>
+            <span>Recarga indisponível</span>
           </button>
         </div>
       </div>
@@ -465,10 +365,10 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                   <span className="font-bold text-white bg-white/10 px-2.5 py-0.5 rounded-md">Enterprise AI Plus</span>
                 </div>
                 <button
-                  onClick={() => setIsRechargeModalOpen(true)}
+                  disabled title="Integração de pagamento e conciliação ainda não implementadas"
                   className="w-full py-2.5 mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-blue-900/30 flex items-center justify-center gap-2"
                 >
-                  <CreditCard className="w-4 h-4" /> Realizar Recarga Instantânea (PIX)
+                  <CreditCard className="w-4 h-4" /> Recarga indisponível
                 </button>
               </div>
             </div>
@@ -650,7 +550,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
             <div>
               <h2 className="text-lg font-black text-slate-900">Histórico de Faturas & Notas Fiscais</h2>
               <p className="text-xs font-medium text-slate-500 mt-0.5">
-                Emissão eletrônica com discriminação de telefonia SIP, tokens de IA e chave PIX para quitação.
+                Consulta aos registros financeiros carregados. O extrato não é nota fiscal nem confirmação independente de pagamento.
               </p>
             </div>
             <div className="text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
@@ -686,7 +586,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                       <span>•</span>
                       <span>Vencimento: {new Date(invoice.dueDate || invoice.date).toLocaleDateString('pt-BR')}</span>
                       <span>•</span>
-                      <span>Forma: {invoice.paymentMethod || 'PIX'}</span>
+                      <span>Forma: {invoice.paymentMethod || 'Não informado'}</span>
                     </div>
                   </div>
                 </div>
@@ -986,14 +886,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
 
                         <td className="p-3.5 text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => handleGenerateDidInvoicePdf(item)}
-                              className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition font-bold text-[11px] flex items-center gap-1 border border-blue-200 shadow-xs"
-                              title="Emitir Fatura PDF Individual do DID"
-                            >
-                              <Download className="w-3.5 h-3.5 text-blue-600" />
-                              <span>Fatura PDF</span>
-                            </button>
+
                             <button
                               onClick={() => handleOpenEditDid(item)}
                               className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition border border-slate-200"
@@ -1066,15 +959,10 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                 <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-3">
                   Discriminação dos Serviços
                 </h4>
+                {!selectedInvoice.items?.length && <p className="text-sm text-slate-500">Sem itens detalhados carregados para esta fatura.</p>}
                 <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
                   {(
-                    selectedInvoice.items || [
-                      { description: 'Telefonia SIP Asterisk 20', category: 'Telefonia', qty: '12.450 min', unitPrice: 0.028, total: 345.20 },
-                      { description: 'Locação e Roteamento de Numeração DID Receptiva', category: 'Numeração DID', qty: '5 números', unitPrice: 29.90, total: 149.50 },
-                      { description: 'Processamento de Voz Gemini Live', category: 'IA Gemini', qty: '2.85M tokens', unitPrice: 0.000045, total: 128.50 },
-                      { description: 'Licenças Ramais PJSIP Cloud', category: 'Licenças', qty: '30 ramais', unitPrice: 5.0, total: 150.00 },
-                      { description: 'Mensagens WhatsApp Business API', category: 'Omnichannel', qty: '4.500 msgs', unitPrice: 0.02, total: 90.00 },
-                    ]
+                    selectedInvoice.items || []
                   ).map((item, i) => (
                     <div key={i} className="p-3 text-xs flex justify-between items-center bg-white hover:bg-slate-50">
                       <div>
@@ -1087,41 +975,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                 </div>
               </div>
 
-              {/* Payment Section if pending */}
-              {selectedInvoice.status !== 'paid' && (
-                <div className="p-5 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black text-blue-950 uppercase tracking-wider flex items-center gap-1.5">
-                      <QrCode className="w-4 h-4 text-blue-600" /> Chave PIX Copia e Cola
-                    </h4>
-                    <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
-                      Compensação Instantânea
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2 bg-white p-2.5 rounded-xl border border-blue-200 font-mono text-[11px] text-slate-700 break-all select-all">
-                    <span>00020126580014br.gov.bcb.pix0136slzenlace@gmail.com5204000053039865405{selectedInvoice.amount.toFixed(2)}5802BR5925ENLACE TELECOMUNICACOES6009SAO LUIS62070503***6304</span>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText('slzenlace@gmail.com');
-                        setCopiedPix(true);
-                        setTimeout(() => setCopiedPix(false), 2000);
-                      }}
-                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg shrink-0 transition"
-                      title="Copiar Chave PIX"
-                    >
-                      {copiedPix ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={() => handlePayInvoice(selectedInvoice.id)}
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2"
-                  >
-                    <CheckCircle2 className="w-4 h-4" /> Confirmar Pagamento via PIX
-                  </button>
-                </div>
-              )}
+              <p className="p-4 text-sm text-slate-600">Situação exibida conforme registro existente. Cobrança e confirmação de pagamento pelo painel estão indisponíveis até a integração e conciliação financeira.</p>
             </div>
 
             {/* Modal Footer */}
@@ -1137,97 +991,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ currentTenant }) => {
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center gap-2"
               >
                 <Download className="w-4 h-4" />
-                Baixar PDF Oficial com Logo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: RECHARGE BALANCE */}
-      {isRechargeModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
-                  <CreditCard className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 text-base">Adicionar Saldo Pré-pago</h3>
-                  <p className="text-xs text-slate-500">Recarga instantânea para telefonia e IA</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsRechargeModalOpen(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-5">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-2">Escolha o Valor do Crédito:</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[100, 250, 500, 1000, 2000].map((val) => (
-                    <button
-                      key={val}
-                      onClick={() => setRechargeAmount(val)}
-                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition border ${
-                        rechargeAmount === val
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      R$ {val}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => setRechargeAmount(100)}
-                    className="py-2.5 px-3 rounded-xl text-xs font-bold bg-white text-slate-500 border border-slate-200"
-                  >
-                    Outro
-                  </button>
-                </div>
-              </div>
-
-              {/* PIX Mock instructions */}
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-3">
-                <div className="w-24 h-24 mx-auto bg-white p-2 rounded-xl border border-slate-200 shadow-xs flex items-center justify-center">
-                  <QrCode className="w-20 h-20 text-slate-800" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-800">Chave PIX: CNPJ Enlace Telecom</div>
-                  <div className="text-[11px] font-mono text-slate-500 select-all">12.345.678/0001-90</div>
-                </div>
-              </div>
-
-              {rechargeSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-xs font-bold flex items-center gap-2 justify-center">
-                  <CheckCircle2 className="w-4 h-4" /> Recarga realizada com sucesso! Saldo atualizado.
-                </div>
-              )}
-            </div>
-
-            <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
-              <button
-                onClick={() => setIsRechargeModalOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 rounded-xl"
-              >
-                Cancelar
-              </button>
-              <button
-                disabled={isProcessingRecharge || rechargeSuccess}
-                onClick={handleConfirmRecharge}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center gap-2"
-              >
-                {isProcessingRecharge ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4" />
-                )}
-                Confirmar Crédito de R$ {rechargeAmount.toFixed(2)}
+                Baixar extrato gerencial PDF
               </button>
             </div>
           </div>

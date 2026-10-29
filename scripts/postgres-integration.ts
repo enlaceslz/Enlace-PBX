@@ -302,6 +302,18 @@ try {
     assert.equal((await previewRequest({userMessage:'Olá',sessionId:'phone-session-'+id})).status,409);
     assert.equal((await previewRequest({userMessage:'Olá',sessionId:'other-session-'+id})).status,404);
     await admin.query('DELETE FROM ai_sessions WHERE id=ANY($1::text[])',[['phone-session-'+id,'other-session-'+id]]);
+    const invoiceId='invoice-'+id;
+    await admin.query("INSERT INTO billing(tenant_id,plan,balance,currency) VALUES($1,'prepaid',12.34,'BRL')",[tenantA]);
+    await admin.query("INSERT INTO billing_invoices(id,tenant_id,reference_month,due_date,amount,status) VALUES($1,$2,'2026-10','2026-11-01',50,'pending')",[invoiceId,tenantA]);
+    const previousTransactions=Number((await admin.query('SELECT count(*) AS count FROM billing_transactions WHERE tenant_id=$1',[tenantA])).rows[0].count);
+    for(const operation of ['recharge',`invoices/${invoiceId}/pay`]){
+      const response=await fetch(base+`/api/v1/billing/${tenantA}/${operation}`,{method:'POST',headers:testHeaders,body:JSON.stringify({amount:100,paymentMethod:'PIX'})});
+      assert.equal(response.status,501,'Sem provedor não confirma pagamento nem crédito.');
+    }
+    assert.equal((await fetch(base+`/api/v1/billing/${tenantB}/recharge`,{method:'POST',headers:testHeaders,body:'{}'})).status,403);
+    assert.equal((await admin.query('SELECT balance::text FROM billing WHERE tenant_id=$1',[tenantA])).rows[0].balance,'12.34');
+    assert.equal((await admin.query('SELECT status FROM billing_invoices WHERE id=$1',[invoiceId])).rows[0].status,'pending');
+    assert.equal(Number((await admin.query('SELECT count(*) AS count FROM billing_transactions WHERE tenant_id=$1',[tenantA])).rows[0].count),previousTransactions);
     const callHeaders=testHeaders;
     const callApi=async(path:string,body:any)=>fetch(base+'/api/v1/asterisk/channels'+path,{method:'POST',headers:callHeaders,body:JSON.stringify(body)});
     assert.equal((await callApi('',{})).status,400,'Sem ramais padrão que originem chamada por engano.');

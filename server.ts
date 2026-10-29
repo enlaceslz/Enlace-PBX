@@ -573,75 +573,11 @@ async function startServer() {
     }
   });
 
-  app.post('/api/v1/billing/:tenantId/recharge', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    if (req.params.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. Você não possui autorização para realizar recarga no tenant '${req.params.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-      });
-    }
-
-    const amount = Number(req.body.amount) || 100;
-    const paymentMethod = req.body.paymentMethod || 'PIX Instantâneo';
-
-    try {
-      const result = await BillingRepository.recharge(tenantCtx, amount, paymentMethod);
-
-      await recordAuditLog({
-        tenantId: tenantCtx.tenantId,
-        userId: (req as any).user?.id || 'SYSTEM',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'BILLING_RECHARGE',
-        resource: `billing/${tenantCtx.tenantId}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Recarga de crédito no valor de R$ ${amount.toFixed(2)} confirmada via ${paymentMethod}.`,
-        category: 'SYSTEM',
-        severity: 'INFO',
-      });
-
-      res.json({ success: true, balance: result.balance, transaction: result.transaction });
-    } catch (e: any) {
-      console.error('[Billing] Erro ao recarregar saldo:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao processar recarga' });
-    }
-  });
-
-  app.post('/api/v1/billing/:tenantId/invoices/:invoiceId/pay', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    if (req.params.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. Você não possui autorização para quitar faturas do tenant '${req.params.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-      });
-    }
-
-    const invoiceId = req.params.invoiceId;
-    const paymentMethod = req.body.paymentMethod || 'PIX';
-
-    try {
-      const paid = await BillingRepository.payInvoice(tenantCtx, invoiceId, paymentMethod);
-      if (!paid) {
-        return res.status(404).json({ error: 'Fatura não encontrada ou já quitada' });
-      }
-
-      await recordAuditLog({
-        tenantId: tenantCtx.tenantId,
-        userId: (req as any).user?.id || 'SYSTEM',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'BILLING_INVOICE_PAY',
-        resource: `billing/${tenantCtx.tenantId}/invoices/${invoiceId}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Fatura ${invoiceId} quitada com sucesso via ${paymentMethod}.`,
-        category: 'SYSTEM',
-        severity: 'INFO',
-      });
-
-      res.json({ success: true, invoiceId, status: 'paid' });
-    } catch (e: any) {
-      console.error('[Billing] Erro ao pagar fatura:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao processar pagamento de fatura' });
-    }
+  // Cobrança requer provedor, confirmação autenticada e conciliação idempotente.
+  app.post(['/api/v1/billing/:tenantId/recharge','/api/v1/billing/:tenantId/invoices/:invoiceId/pay'],requireRole('super_admin','admin'),(req,res)=>{
+    const tenant=resolveTenantContext(req);
+    if(req.params.tenantId!==tenant.tenantId)return res.status(403).json({error:'Operação financeira fora da empresa autorizada.'});
+    res.status(501).json({code:'PAYMENT_NOT_IMPLEMENTED',error:'Cobrança e confirmação de pagamento indisponíveis: integração financeira e conciliação ainda não implementadas.'});
   });
 
   // -------------------------------------------------------------------------
