@@ -1,3 +1,4 @@
+import {managedDidDestination} from './infrastructure/asterisk/DidDialplan.js';
 import { callExtension, callDestination, channelReference, endpointFromChannel } from './infrastructure/asterisk/CallControl.js';
 import { OutboundHttpError } from './infrastructure/security/OutboundHttp.js';
 import { postgresClient } from './infrastructure/postgres/client.js';
@@ -594,19 +595,13 @@ ${routes
 [from-trunk]
 ${dids
   .map((d) => {
-    let dest = 'Goto(from-internal,4101,1)';
-    if (d.destinationType === 'extension') dest = `Goto(from-internal,${d.destinationId},1)`;
-    else if (d.destinationType === 'queue') dest = `Goto(call-queues,${d.destinationId},1)`;
-    else if (d.destinationType === 'ivr') dest = `Goto(ivr-menus,${d.destinationId},1)`;
-    else if (d.destinationType === 'ai_agent') dest = `Goto(from-gemini,s,1)`;
-    else if (d.destinationType === 'ring_group') dest = `Goto(ring-groups,${d.destinationId},1)`;
+    const managed=managedDidDestination(d,extensions,trunks);
+    const dest=`Goto(from-internal,${managed.extension},1)`;
+    const cleanNational=managed.national;
+    const cleanE164=`55${cleanNational}`;
 
-    const cleanNumber = d.did.replace(/\D/g, '');
-    const cleanNational = cleanNumber.startsWith('55') ? cleanNumber.slice(2) : cleanNumber;
-    const cleanE164 = `55${cleanNational}`;
-
-    let lines = `; DID: ${d.presentedNumber} (${d.operatorName} - ${d.description})
-exten => ${cleanNational},1,NoOp(DID: ${d.presentedNumber} [${d.operatorName}])
+    let lines = `; DID: ${cleanNational}
+exten => ${cleanNational},1,NoOp(DID ${cleanNational})
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CDR(did)=${d.did})
  same => n,Set(CALLFILENAME=rec-did-\${EPOCH}-${cleanNational})

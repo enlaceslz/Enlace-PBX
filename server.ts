@@ -1,3 +1,5 @@
+import {didPatch} from './server/infrastructure/asterisk/DidMutation.js';
+import {DidManagementRepository} from './server/infrastructure/postgres/repositories/DidManagementRepository.js';
 import {trunkPatch} from './server/infrastructure/asterisk/TrunkMutation.js';
 import {TrunkManagementRepository} from './server/infrastructure/postgres/repositories/TrunkManagementRepository.js';
 import {applyConfiguration} from './server/infrastructure/asterisk/ApplyConfiguration.js';
@@ -2008,7 +2010,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       const pjsipBlock = sipTrunkService.generatePjsipForTrunk(trunk);
-      const dialplanBlock = await sipTrunkService.generateDialplanForDids(trunk.tenantId);
+      const dialplanBlock = await asteriskService.generateExtensionsConf(trunk.tenantId);
 
       res.json({
         trunkId: trunk.id,
@@ -2048,6 +2050,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
       return res.status(result.success?200:502).json(result);
     } catch (err: any) {
+      if(err instanceof OutboundHttpError)return res.status(err.statusCode).json({success:false,error:err.message});
       logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       return res.status(500).json({
         success: false,
@@ -2110,311 +2113,29 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/dids', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar DID.' });
-    }
-    const rawDid = String(req.body.did || '').trim();
-    const trunkId = req.body.trunkId;
-    const destinationType = req.body.destinationType || 'extension';
-    const destinationId = req.body.destinationId || '4101';
-
-    if (!rawDid) {
-      return res.status(400).json({ error: 'Número de telefone / DID é obrigatório.' });
-    }
-    if (!trunkId) {
-      return res.status(400).json({ error: 'Tronco SIP associado é obrigatório.' });
-    }
-
-    const norm = sipTrunkService.normalizeDid(rawDid);
-    if (!norm.isValid) {
-      return res.status(400).json({ error: 'Número de DID inválido. Informe DDD + Número (ex: 1135008000) ou 0800.' });
-    }
-
-    try {
-      // Verificar colisão
-      const existing = await DidRepository.listByTenant(tenantId);
-      const exists = existing.some(
-        (d) => d.did === norm.national || d.normalizedNumber === norm.e164
-      );
-      if (exists) {
-        return res.status(409).json({ error: `O DID ${norm.presented} já está cadastrado neste tenant.` });
-      }
-
-      const trunk = await TrunkRepository.findById(trunkId);
-      const operatorName = trunk ? trunk.providerName : req.body.operatorName || 'Operadora SIP';
-
-      const newDid = {
-        id: `did-${Date.now()}`,
-        tenantId,
-        did: norm.national,
-        normalizedNumber: norm.e164,
-        presentedNumber: norm.presented,
-        operatorName,
-        trunkId,
-        description: req.body.description || `DID ${norm.presented} (${operatorName})`,
-        status: req.body.status || 'active',
-        assignedCompany: req.body.assignedCompany || undefined,
-        assignedCnpj: req.body.assignedCnpj || undefined,
-        assignedUser: req.body.assignedUser || undefined,
-        monthlyFee: req.body.monthlyFee !== undefined ? Number(req.body.monthlyFee) : undefined,
-        billingCycleDay: req.body.billingCycleDay ? Number(req.body.billingCycleDay) : 10,
-        destinationType,
-        destinationId,
-        destinationLabel: req.body.destinationLabel || `${destinationType}: ${destinationId}`,
-        timeConditionEnabled: req.body.timeConditionEnabled === true,
-        timeSchedule: req.body.timeSchedule,
-        afterHoursDestType: req.body.afterHoursDestType,
-        afterHoursDestId: req.body.afterHoursDestId,
-        fallbackType: req.body.fallbackType || 'human',
-        fallbackTarget: req.body.fallbackTarget || '4101',
-        didSourceHeader: req.body.didSourceHeader || 'request_uri',
-        customHeaderName: req.body.customHeaderName,
-        unknownDidAction: req.body.unknownDidAction || 'reject_404',
-        channelsInUse: 0,
-        totalCallsReceived: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      await DidRepository.save(newDid);
-
-      recordAuditLog({
-        tenantId,
-        action: 'CREATE_DID',
-        resource: `dids/${newDid.id}`,
-        details: `DID [${newDid.presentedNumber}] cadastrado e vinculado ao tronco [${trunk ? trunk.name : trunkId}]. Destino: ${newDid.destinationLabel}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { didId: newDid.id, did: newDid.did, trunkId: newDid.trunkId },
-      });
-
-      res.status(201).json(newDid);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao cadastrar DID no PostgreSQL' });
-    }
+  const findAuthorizedDid=(req:any,id:string)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?DidRepository.findAnyByIdForSuperAdmin(id):DidRepository.findById(id,context.tenantId);};
+  const didAudit=async(req:any,tenantId:string,action:string,id?:string)=>{const actor=req.user;await AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action,resource:id?'dids/'+id:'dids/new',ip:req.ip||'127.0.0.1',category:'ROUTING',details:'Tentativa de alteração cadastral; não aplica plano de discagem nem confirma chamada.',payload:{requestId:req.res.locals.requestId}});};
+  const didError=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+  app.post(['/api/v1/dids','/api/v1/dids/batch'],requireRole('super_admin','admin'),async(req,res)=>{
+    try{
+      const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});
+      if(!req.body||typeof req.body!=='object'||Array.isArray(req.body))return res.status(400).json({error:'Cadastro inválido.'});
+      const batch=req.path.endsWith('/batch');let body=req.body;let count=1;
+      if(batch){const {startNumber,count:requested,...fields}=req.body;count=requested;if(!Number.isInteger(count)||count<1||count>100)return res.status(400).json({error:'Lote deve ter entre 1 e 100 números.'});if(Object.hasOwn(fields,'did'))return res.status(400).json({error:'Use startNumber no lote.'});body={...fields,did:startNumber};}
+      const patch=didPatch(body,true);await didAudit(req,context.tenantId,batch?'DID_BATCH_CREATE_ATTEMPT':'CREATE_DID_ATTEMPT');
+      const ids=await DidManagementRepository.mutate(context.tenantId,undefined,patch,count);const saved=await Promise.all(ids.map(id=>DidRepository.findById(id,context.tenantId)));
+      res.status(201).json(batch?{count:saved.length,added:saved}:saved[0]);
+    }catch(error){didError(error,res);}
   });
-
-  app.put('/api/v1/dids/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await DidRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'DID não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O DID pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      let updatedNorm = undefined;
-      if (req.body.did && req.body.did !== prev.did) {
-        const norm = sipTrunkService.normalizeDid(req.body.did);
-        if (norm.isValid) {
-          updatedNorm = {
-            did: norm.national,
-            normalizedNumber: norm.e164,
-            presentedNumber: norm.presented,
-          };
-        }
-      }
-
-      const updated = {
-        ...prev,
-        ...req.body,
-        ...(updatedNorm || {}),
-        id: prev.id,
-        tenantId: prev.tenantId,
-        updatedAt: new Date().toISOString(),
-      };
-
-      await DidRepository.save(updated);
-
-      recordAuditLog({
-        tenantId: updated.tenantId,
-        action: 'UPDATE_DID',
-        resource: `dids/${req.params.id}`,
-        details: `DID [${updated.presentedNumber}] atualizado. Destino: [${updated.destinationType}] -> ${updated.destinationId}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { didId: req.params.id, changes: req.body },
-      });
-
-      res.json(updated);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar DID no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/dids/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const did = await DidRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!did) {
-        return res.status(404).json({ error: 'DID não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && did.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O DID pertence ao tenant '${did.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await DidRepository.delete(req.params.id, did.tenantId);
-
-      recordAuditLog({
-        tenantId: did.tenantId,
-        action: 'DELETE_DID',
-        resource: `dids/${req.params.id}`,
-        details: `DID [${did.presentedNumber}] excluído da numeração ativa.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-        ip: req.ip || '127.0.0.1',
-        payload: { didId: req.params.id, presentedNumber: did.presentedNumber },
-      });
-
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir DID no PostgreSQL' });
-    }
-  });
-
-  // Importação em Lote de Faixas de DIDs (ex: 1135008000 a 1135008099)
-  app.post('/api/v1/dids/batch', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const { startNumber, count, trunkId, destinationType = 'extension', destinationId = '4101' } = req.body;
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para importação de DIDs.' });
-    }
-    if (!startNumber || !count || count <= 0) {
-      return res.status(400).json({ error: 'startNumber e count (> 0) são obrigatórios.' });
-    }
-    if (!trunkId) {
-      return res.status(400).json({ error: 'trunkId é obrigatório.' });
-    }
-
-    try {
-      const trunk = await findAuthorizedTrunk(req,trunkId);
-      if (!trunk) {
-        return res.status(404).json({ error: 'Tronco SIP informado não foi encontrado.' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const operatorName = trunk.providerName || 'Operadora SIP';
-      const baseNumber = parseInt(startNumber.replace(/\D/g, ''), 10);
-      const existingDids = await DidRepository.listByTenant(tenantId);
-      const addedDids = [];
-
-      for (let i = 0; i < Math.min(count, 100); i++) {
-        const numStr = (baseNumber + i).toString();
-        const norm = sipTrunkService.normalizeDid(numStr);
-        if (!norm.isValid) continue;
-
-        const exists = existingDids.some((d) => d.did === norm.national);
-        if (exists) continue;
-
-        const item = {
-          id: `did-${Date.now()}-${i}`,
-          tenantId,
-          did: norm.national,
-          normalizedNumber: norm.e164,
-          presentedNumber: norm.presented,
-          operatorName,
-          trunkId,
-          description: `Faixa DID ${norm.presented}`,
-          status: 'active' as const,
-          destinationType,
-          destinationId,
-          destinationLabel: `${destinationType}: ${destinationId}`,
-          timeConditionEnabled: false,
-          fallbackType: 'human' as const,
-          fallbackTarget: '4101',
-          didSourceHeader: 'request_uri' as const,
-          unknownDidAction: 'reject_404' as const,
-          channelsInUse: 0,
-          totalCallsReceived: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        await DidRepository.save(item);
-        addedDids.push(item);
-      }
-
-      recordAuditLog({
-        tenantId,
-        action: 'BATCH_IMPORT_DIDS',
-        resource: 'dids/batch',
-        details: `Importação em lote de ${addedDids.length} DIDs finalizada para o tronco ${trunk ? trunk.name : trunkId}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { count: addedDids.length, trunkId },
-      });
-
-      res.json({ success: true, count: addedDids.length, added: addedDids });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao importar DIDs em lote no PostgreSQL' });
-    }
-  });
-
-  // Simulação em Tempo Real do Roteamento de Chamada Recebida
-  app.post('/api/v1/dids/simulate', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const { sourceIp, rawDid, callerNumber, trunkId } = req.body;
-      if (!sourceIp || !rawDid) {
-        return res.status(400).json({ error: 'sourceIp e rawDid são campos obrigatórios para a simulação de chamada recebida.' });
-      }
-
-      if (trunkId) {
-        const trunk = await findAuthorizedTrunk(req,trunkId);
-        if (trunk && tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-          return res.status(403).json({
-            error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-            code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-          });
-        }
-      }
-
-      const result = await sipTrunkService.simulateInboundCall({
-        sourceIp: String(sourceIp).trim(),
-        rawDid: String(rawDid).trim(),
-        callerNumber: callerNumber ? String(callerNumber).trim() : 'UNKNOWN',
-        trunkId,
-      });
-
-      res.json(result);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao simular chamada no PBX' });
-    }
-  });
+  app.put('/api/v1/dids/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const prev=await findAuthorizedDid(req,req.params.id);if(!prev)return res.status(404).json({error:'DID não encontrado nesta empresa.'});const patch=didPatch(req.body);await didAudit(req,prev.tenantId,'UPDATE_DID_ATTEMPT',prev.id);await DidManagementRepository.mutate(prev.tenantId,prev.id,patch);res.json(await DidRepository.findById(prev.id,prev.tenantId));}catch(error){didError(error,res);}});
+  app.delete('/api/v1/dids/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const did=await findAuthorizedDid(req,req.params.id);if(!did)return res.status(404).json({error:'DID não encontrado nesta empresa.'});await didAudit(req,did.tenantId,'DELETE_DID_ATTEMPT',did.id);await DidManagementRepository.remove(did.tenantId,did.id);res.json({deleted:true});}catch(error){didError(error,res);}});
+  app.post('/api/v1/dids/simulate',requireRole('super_admin','admin'),(_req,res)=>res.status(501).json({error:'Simulação de DID indisponível até existir planejador isolado por empresa. Esta operação não executa chamada.'}));
 
   // -------------------------------------------------------------------------
   // Routes (Rotas de Entrada e Saída com LCR, Prepend, Time Conditions e Persistência)
   // -------------------------------------------------------------------------
+  const findAuthorizedRoute=(req:any,id:string)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?RouteRepository.findAnyByIdForSuperAdmin(id):RouteRepository.findById(id,context.tenantId);};
+  app.use('/api/v1/routes',(req,res,next)=>{if(['POST','PUT'].includes(req.method)&&req.body&&['id','tenantId'].some(key=>Object.hasOwn(req.body,key)))return res.status(400).json({error:'Identidade e empresa são definidas pelo servidor.'});next();});
   app.get('/api/v1/routes', requireAuth, requireTenant, async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
@@ -2480,7 +2201,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.put('/api/v1/routes/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const prev = await RouteRepository.findAnyByIdForSuperAdmin(req.params.id);
+      const prev = await findAuthorizedRoute(req,req.params.id);
       if (!prev) return res.status(404).json({ error: 'Rota não encontrada' });
 
       // Verificação BOLA/IDOR estrita
@@ -2515,7 +2236,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.delete('/api/v1/routes/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const route = await RouteRepository.findAnyByIdForSuperAdmin(req.params.id);
+      const route = await findAuthorizedRoute(req,req.params.id);
       if (!route) {
         return res.status(404).json({ error: 'Rota não encontrada' });
       }
@@ -2559,7 +2280,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       // Verificação BOLA/IDOR de ownership da rota
-      const route = await RouteRepository.findAnyByIdForSuperAdmin(String(routeId));
+      const route = await findAuthorizedRoute(req,String(routeId));
       if (!route) {
         return res.status(404).json({ error: 'Rota não encontrada.' });
       }

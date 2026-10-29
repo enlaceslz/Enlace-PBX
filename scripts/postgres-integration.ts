@@ -1,3 +1,4 @@
+import {DidRepository} from '../server/infrastructure/postgres/repositories/DidRepository.js';
 import { UserManagementRepository } from '../server/infrastructure/postgres/repositories/UserManagementRepository.js';
 import { credentialStamp } from '../server/infrastructure/auth/CredentialStamp.js';
 import { UserRepository } from '../server/infrastructure/postgres/repositories/UserRepository.js';
@@ -719,6 +720,25 @@ try {
     assert.equal((await trunkRequest('DELETE','/'+duplicate.id)).status,200);
     assert.equal((await TrunkRepository.findById(duplicate.id,tenantA)),null);
     const trunkAudit=JSON.stringify((await admin.query("SELECT details,payload FROM audit_logs WHERE tenant_id=$1 AND action IN ('CREATE_TRUNK_ATTEMPT','UPDATE_TRUNK_ATTEMPT','DELETE_TRUNK_ATTEMPT')",[tenantA])).rows);assert.equal(trunkAudit.includes(newSipSecret),false);assert.match(trunkAudit,/UPDATE_TRUNK_ATTEMPT|fields/);
+    const didRequest=async(method:string,suffix:string,body?:any,headers:Record<string,string>=testHeaders)=>fetch(base+'/api/v1/dids'+suffix,{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const didBody={did:'5532221000',trunkId:trunk.id,destinationType:'extension',destinationId:'871001',monthlyFee:0,billingCycleDay:10};
+    const didCreatedResponse=await didRequest('POST','',didBody);assert.equal(didCreatedResponse.status,201);const managedDid=await didCreatedResponse.json();assert.equal(managedDid.did,'5532221000');assert.equal(managedDid.normalizedNumber,'+555532221000');assert.equal(Number(managedDid.monthlyFee),0);
+    assert.equal((await didRequest('POST','',{...didBody,did:'1132221001',destinationId:'871002'})).status,400);
+    assert.equal((await didRequest('POST','',{...didBody,did:'1132221001',trunkId:foreignTrunk.id})).status,400);
+    assert.equal((await didRequest('POST','',{...didBody,did:'1132221001',tenantId:tenantB})).status,400);
+    assert.equal((await didRequest('POST','',{...didBody,did:'1132221001',destinationType:'ai_agent'})).status,501);
+    for(const method of ['PUT','DELETE'])assert.equal((await didRequest(method,'/'+managedDid.id,method==='PUT'?{description:'Não alterar'}:undefined,{...rootHeaders,'x-tenant-id':tenantB})).status,404);
+    const parallelDidUpdates=await Promise.all([didRequest('PUT','/'+managedDid.id,{description:'Descrição atualizada'}),didRequest('PUT','/'+managedDid.id,{assignedUser:'Responsável CI'})]);assert.equal(parallelDidUpdates.every(response=>response.status===200),true);
+    const afterDidEdit=await DidRepository.findById(managedDid.id,tenantA);assert.equal(afterDidEdit?.description,'Descrição atualizada');assert.equal(afterDidEdit?.assignedUser,'Responsável CI');
+    assert.equal((await didRequest('PUT','/'+managedDid.id,{totalCallsReceived:42})).status,400);
+    const conflictBatch={startNumber:'5532220999',count:3,trunkId:trunk.id,destinationType:'extension',destinationId:'871001'};
+    assert.equal((await didRequest('POST','/batch',conflictBatch)).status,409);
+    assert.equal((await admin.query("SELECT count(*)::int AS total FROM dids WHERE tenant_id=$1 AND did IN ('5532220999','5532221001')",[tenantA])).rows[0].total,0);
+    const goodBatch=await didRequest('POST','/batch',{...conflictBatch,startNumber:'1132221100'});assert.equal(goodBatch.status,201);const importedDids=await goodBatch.json();assert.equal(importedDids.count,3);
+    assert.equal((await didRequest('POST','/batch',{...conflictBatch,count:101})).status,400);
+    assert.equal((await didRequest('POST','/simulate',{sourceIp:'127.0.0.1',rawDid:managedDid.did})).status,501);
+    for(const patch of [{id:'forjado'},{tenantId:tenantB}])assert.equal((await fetch(base+'/api/v1/routes',{method:'POST',headers:testHeaders,body:JSON.stringify(patch)})).status,400);
+    for(const item of [managedDid,...importedDids.added])assert.equal((await didRequest('DELETE','/'+item.id)).status,200);
     const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
     for(const route of ['backup','restore']){
       const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});
