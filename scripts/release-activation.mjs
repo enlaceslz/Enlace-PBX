@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {AnchoredDirectory} from './anchored-files.mjs';
+import {readProcessStatus,processProfileMatches} from './process-profile.mjs';
 const execute=promisify(execFile);
 const service='enlace-pbx.service';
 export async function activateWithRollback(operations){
@@ -85,12 +86,20 @@ async function main(){
   const replaceLink=(directory,name,target)=>{const temporary=name+'.activation-'+crypto.randomUUID();fs.symlinkSync(target,directory.location(temporary));try{directory.activate(temporary,name);}finally{directory.remove(temporary);}};
   const restore=(directory,name,value)=>{if(value.kind==='absent')directory.remove(name);else if(value.kind==='link')replaceLink(directory,name,value.target);else replaceFile(directory,name,Buffer.from(value.bytes,'base64'),value.mode,value.gid);};
   const command=(...args)=>execute('systemctl',args,{timeout:30000,maxBuffer:65536});
+  const accountNumber=async(command,args)=>{
+   const value=(await execute(command,args,{timeout:10000,maxBuffer:65536})).stdout.trim();
+   if(!/^[1-9][0-9]*$/.test(value)||!Number.isSafeInteger(Number(value)))throw new Error('Identidade numérica do serviço inválida.');return Number(value);
+  };
+  const uid=await accountNumber('id',['-u','enlace-pbx']);const gid=await accountNumber('id',['-g','enlace-pbx']);let asteriskGid;
+  try{const result=await execute('getent',['group','asterisk'],{timeout:10000,maxBuffer:65536});const value=result.stdout.trim().split(':')[2];if(!/^[1-9][0-9]*$/.test(value)||Number(value)===gid)throw new Error('Grupo Asterisk inválido.');asteriskGid=Number(value);}
+  catch(error){if(error.code!==2)throw error;}
   const stopped=async()=>{try{await command('is-active',service);return false;}catch(error){return ['inactive','unknown'].includes(error.stdout?.trim());}};
   const ready=async(expected,expectedId)=>{
    for(let attempt=0;attempt<20;attempt++){
     try{
      const state=await command('show','--property=MainPID','--value',service);const pid=state.stdout.trim();
      if(!/^[1-9][0-9]*$/.test(pid)||fs.readlinkSync('/proc/'+pid+'/cwd')!==expected)throw new Error();
+     if(!processProfileMatches(readProcessStatus(pid),{uid,gid,asteriskGid}))throw new Error('Perfil do processo não confirmado.');
      const response=await fetch('http://127.0.0.1:3000/health/ready',{signal:AbortSignal.timeout(3000),redirect:'error'});
      const reader=response.body.getReader();const chunks=[];let size=0;
      try{while(true){const part=await reader.read();if(part.done)break;size+=part.value.length;if(size>16384)throw new Error('Prontidão fora do limite.');chunks.push(Buffer.from(part.value));}}

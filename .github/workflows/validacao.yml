@@ -36,6 +36,8 @@ jobs:
       - run: npm ci --ignore-scripts --include=dev
       - run: npm run lint
       - run: npm run test:security
+        env:
+          PBX_REQUIRE_PROC_PROFILE: '1'
       - run: npm test
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=moderate

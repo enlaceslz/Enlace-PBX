@@ -1,12 +1,67 @@
 """Verifica a posse e os vínculos do checkout antes de copiá-lo para provisionamento."""
 import os
+import pwd
+import grp
 import re
 import stat
 import sys
 
 EXCLUDED = {'.git', 'node_modules', 'dist'}
 
-def verify_installation(root='/', trusted_uid=0, check_ancestors=True):
+def verify_service_identity(identity, required=False):
+    """Valida conta dedicada sem alterar usuários, grupos ou credenciais do host."""
+    uid, gid = identity.get('uid'), identity.get('gid')
+    asterisk_gid = identity.get('asterisk_gid')
+    if asterisk_gid is not None and (type(asterisk_gid) is not int or asterisk_gid <= 0 or asterisk_gid == gid):
+        raise ValueError('Grupo Asterisk privilegiado ou compartilhado exige revisão.')
+    if uid is None and gid is None and not required:
+        return None
+    if type(gid) is not int or gid <= 0 or identity.get('gid_shared'):
+        raise ValueError('Grupo de serviço ausente, privilegiado ou compartilhado.')
+    if uid is None and not required:
+        return None
+    if type(uid) is not int or uid <= 0 or identity.get('uid_shared') or identity.get('primary_gid') != gid:
+        raise ValueError('Usuário de serviço ausente, privilegiado ou compartilhado.')
+    if identity.get('home') != '/var/lib/enlace-pbx' or identity.get('shell') not in ('/usr/sbin/nologin', '/sbin/nologin', '/bin/false', '/usr/bin/false'):
+        raise ValueError('Home ou shell da conta de serviço exige manutenção.')
+    allowed = {gid}
+    if type(asterisk_gid) is int and asterisk_gid > 0:
+        allowed.add(asterisk_gid)
+    membership = identity.get('groups', [])
+    if not isinstance(membership, (list, tuple)) or any(type(item) is not int for item in membership) or gid not in membership or set(membership) - allowed:
+        raise ValueError('Grupos suplementares da conta de serviço exigem revisão.')
+    return identity
+
+def service_access_identity(required=False):
+    try:
+        user = pwd.getpwnam('enlace-pbx')
+    except KeyError:
+        user = None
+    try:
+        group = grp.getgrnam('enlace-pbx')
+    except KeyError:
+        group = None
+    groups = grp.getgrall()
+    users = pwd.getpwall() if user else []
+    asterisk = next((item for item in groups if item.gr_name == 'asterisk'), None)
+    # Um alias de grupo privilegiado não passa a ser permitido apenas por mudar de nome.
+    if asterisk and (asterisk.gr_gid <= 0 or sum(item.gr_gid == asterisk.gr_gid for item in groups) != 1 or sum(item.gr_name == 'asterisk' for item in groups) != 1):
+        raise ValueError('Grupo Asterisk privilegiado ou compartilhado exige revisão antes de associar o serviço.')
+    asterisk_gid = asterisk.gr_gid if asterisk else None
+    identity = {
+        'uid': user.pw_uid if user else None,
+        'gid': group.gr_gid if group else None,
+        'primary_gid': user.pw_gid if user else None,
+        'home': user.pw_dir if user else None,
+        'shell': user.pw_shell if user else None,
+        'groups': os.getgrouplist('enlace-pbx', user.pw_gid) if user else [],
+        'asterisk_gid': asterisk_gid,
+        'uid_shared': bool(user and (sum(item.pw_uid == user.pw_uid for item in users) != 1 or sum(item.pw_name == 'enlace-pbx' for item in users) != 1)),
+        'gid_shared': bool(group and (sum(item.gr_gid == group.gr_gid for item in groups) != 1 or sum(item.gr_name == 'enlace-pbx' for item in groups) != 1)),
+    }
+    return verify_service_identity(identity, required)
+
+def verify_installation(root='/', trusted_uid=0, check_ancestors=True, identity_provider=None):
     """Confere destinos existentes sem criar, corrigir permissões ou ler segredos."""
     root = os.path.abspath(root)
 
@@ -66,6 +121,8 @@ def verify_installation(root='/', trusted_uid=0, check_ancestors=True):
         raise ValueError('Instalação anterior incompleta.')
     if unit is not None:
         protected(unit)
+    release = None
+    binary = None
     if current is not None:
         protected(current, link=True)
         target = os.readlink(location('/opt/enlace-pbx/current'))
@@ -78,6 +135,9 @@ def verify_installation(root='/', trusted_uid=0, check_ancestors=True):
             raise ValueError('Backend anterior ausente.')
         protected(binary)
 
+    runtime = entry('/etc/enlace-pbx/runtime.json')
+    # O provedor padrão resolve e valida NSS; a injeção existe para fixtures isoladas.
+    identity = (identity_provider or service_access_identity)(current is not None or runtime is not None)
     for name in ['runtime.json', 'backup.key']:
         value = entry('/etc/enlace-pbx/' + name)
         if current is not None and value is None:
@@ -86,6 +146,34 @@ def verify_installation(root='/', trusted_uid=0, check_ancestors=True):
             protected(value)
             if name == 'backup.key' and stat.S_IMODE(value.st_mode) not in (0o400, 0o600):
                 raise ValueError('Chave de backup deve ser privada do proprietário confiável.')
+
+    def accessible(info, permission):
+        if info.st_uid == identity['uid']:
+            bits = (info.st_mode >> 6) & 7
+        elif info.st_gid in set(identity['groups']) | {identity['gid']}:
+            bits = (info.st_mode >> 3) & 7
+        else:
+            bits = info.st_mode & 7
+        return bool(bits & permission)
+
+    def traversable(relative):
+        current_path = root
+        if check_ancestors and not accessible(os.lstat(current_path), 1):
+            raise ValueError('Raiz sem acesso de travessia para o serviço.')
+        for component in relative.strip('/').split('/'):
+            current_path = os.path.join(current_path, component)
+            if not accessible(os.lstat(current_path), 1):
+                raise ValueError('Diretório sem acesso de travessia para o serviço.')
+
+    if runtime is not None:
+        configuration_directory = entry('/etc/enlace-pbx')
+        if identity is None or runtime.st_gid != identity['gid'] or stat.S_IMODE(runtime.st_mode) != 0o640 or configuration_directory.st_gid != identity['gid'] or stat.S_IMODE(configuration_directory.st_mode) != 0o750:
+            raise ValueError('Runtime exige root:enlace-pbx 0640 e diretório root:enlace-pbx 0750.')
+        traversable('/etc/enlace-pbx')
+    if release is not None:
+        if identity is None or not accessible(binary, 4):
+            raise ValueError('Backend anterior não pode ser lido pelo serviço.')
+        traversable(release + '/dist')
 
     proxy = entry('/etc/nginx/sites-available/enlace-pbx')
     enabled = entry('/etc/nginx/sites-enabled/enlace-pbx')
