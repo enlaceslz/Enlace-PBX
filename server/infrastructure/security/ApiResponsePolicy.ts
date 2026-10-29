@@ -1,3 +1,4 @@
+import {systemLogsManager} from '../../systemLogs.js';
 import crypto from 'node:crypto';
 import type { RequestHandler, ErrorRequestHandler } from 'express';
 
@@ -9,6 +10,8 @@ export const privateApiResponse: RequestHandler = (_req, res, next) => {
   // Identidade gerada pelo servidor, sem copiar cabeçalhos controlados pelo cliente.
   res.locals.requestId = crypto.randomUUID();
   res.setHeader('X-Request-Id', res.locals.requestId);
+  const requestId=res.locals.requestId;
+  res.once('finish',()=>systemLogsManager.recordHttpFailure(res.statusCode,requestId));
   next();
 };
 

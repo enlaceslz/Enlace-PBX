@@ -1,3 +1,4 @@
+import {systemLogsManager} from '../server/systemLogs.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
@@ -36,6 +37,10 @@ test('política HTTP protege respostas, rejeições e falhas sem refletir segred
       const body=await response.text();assert.doesNotMatch(body,/senha-secreta|tenant-secreto|postgres:|SELECT/);
       if([400,413].includes(expected)||path==='/api/error')assert.equal(JSON.parse(body).requestId,requestId);
     }
+    const events=systemLogsManager.getLogs({limit:600});
+    assert.equal(events.logs.some(entry=>entry.metadata?.status===500),true);
+    assert.equal(JSON.stringify(events).includes('senha-secreta'),false);
+    assert.equal(events.logs.every(entry=>typeof entry.metadata?.requestId==='string'),true);
     const conditional=await fetch(base+'/api/private',{headers:{'If-None-Match':'*'}});
     assert.equal(conditional.status,200);assert.equal((await conditional.json()).data,'dado privado');
   } finally { server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve())); }

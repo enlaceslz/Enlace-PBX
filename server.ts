@@ -40,7 +40,7 @@ import bcrypt from 'bcrypt';
 import { geminiService } from './server/geminiService.js';
 import { asteriskService } from './server/asteriskService.js';
 import { sipTrunkService } from './server/sipTrunkService.js';
-import { systemLogsManager } from './server/systemLogs.js';
+import { systemLogsManager,logQuery } from './server/systemLogs.js';
 import {
   UserRepository,
   TenantRepository,
@@ -471,41 +471,29 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Logs de Sistema em Tempo Real (Asterisk, Nginx, WireGuard, Fail2ban, etc.)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/system/logs', (req, res) => {
-    const { service, level, date, search, since, limit } = req.query;
-    const result = systemLogsManager.getLogs({
-      service: service as string,
-      level: level as string,
-      date: date as string,
-      search: search as string,
-      since: since as string,
-      limit: limit ? parseInt(limit as string, 10) : 200,
-    });
-    res.json(result);
+  const logAccessAudit=async(req:any,action:string)=>{
+    const actor=req.user;
+    await AuditLogRepository.logStrict({tenantId:actor.tenantId,userId:actor.id,userName:actor.name,
+      action,category:'SYSTEM',resource:'system/logs',ip:req.ip||'127.0.0.1',
+      details:'Tentativa administrativa sobre buffer volátil de falhas HTTP; não altera auditoria persistente ou logs do host.'});
+  };
+  app.get('/api/v1/system/logs', (req,res)=>{
+    try{res.json(systemLogsManager.getLogs(logQuery(req.query)));}
+    catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
-
-  app.post('/api/v1/system/logs/clear', requireRole('super_admin', 'admin'), (req, res) => {
-    systemLogsManager.clearLogs();
-    res.json({ success: true, message: 'Buffer de logs limpo com sucesso' });
+  app.post('/api/v1/system/logs/clear',async(req,res)=>{
+    await logAccessAudit(req,'APPLICATION_LOG_BUFFER_CLEAR_ATTEMPT');
+    systemLogsManager.clearLogs();res.json({cleared:true,scope:'application_http_errors'});
   });
-
-  app.get('/api/v1/system/logs/download', (req, res) => {
-    const { service, level, date, search } = req.query;
-    const result = systemLogsManager.getLogs({
-      service: service as string,
-      level: level as string,
-      date: date as string,
-      search: search as string,
-      limit: 1000,
-    });
-
-    const lines = result.logs.map(
-      (l) => `[${l.timestamp}] [${l.level.padEnd(8)}] [${l.service.padEnd(14)}] [${l.component || 'sys'}]: ${l.message}`
-    ).join('\n');
-
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="system-logs-${new Date().toISOString().split('T')[0]}.log"`);
-    res.send(lines);
+  app.all('/api/v1/system/logs/simulate',(_req,res)=>res.status(501).json({error:'Injeção de eventos não disponível. Este buffer registra apenas respostas HTTP reais.'}));
+  app.get('/api/v1/system/logs/download',async(req,res)=>{
+    let query:ReturnType<typeof logQuery>;
+    try{query=logQuery(req.query,true);}catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
+    await logAccessAudit(req,'APPLICATION_LOG_BUFFER_DOWNLOAD_ATTEMPT');
+    const result=systemLogsManager.getLogs(query);
+    const lines=['# Falhas HTTP da aplicação; buffer volátil de até 600 eventos. Sem coletor de logs do host.',...result.logs.map(entry=>JSON.stringify(entry))].join('\n');
+    res.setHeader('Content-Type','text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition','attachment; filename="eventos-http.log"');res.send(lines);
   });
 
   // -------------------------------------------------------------------------

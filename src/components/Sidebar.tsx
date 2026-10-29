@@ -160,7 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onOp
       items: [
         { id: 'network_security' as ActiveView, label: 'Redes, VPN & Fail2ban', icon: ShieldCheck },
         { id: 'infra_settings' as ActiveView, label: 'Infraestrutura, Domínio & SSL', icon: Globe },
-        { id: 'system_logs' as ActiveView, label: 'Logs do Sistema em Tempo Real', icon: ScrollText },
+        { id: 'system_logs' as ActiveView, label: 'Eventos HTTP da aplicação', icon: ScrollText },
         { id: 'asterisk_monitor' as ActiveView, label: 'Monitor ARI & Canais', icon: Terminal },
         { id: 'asterisk_configs' as ActiveView, label: 'Configurações PJSIP/Dialplan', icon: FileCode },
         { id: 'asterisk_installer' as ActiveView, label: 'Instalador Linux Oficial', icon: Download },

@@ -765,6 +765,7 @@ export interface VpnTelemetryResponse {
 export type SystemLogLevel = 'DEBUG' | 'INFO' | 'NOTICE' | 'WARNING' | 'ERROR' | 'CRITICAL';
 
 export type SystemLogService =
+  | 'application'
   | 'asterisk'
   | 'nginx'
   | 'wireguard'

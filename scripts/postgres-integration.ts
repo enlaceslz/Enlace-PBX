@@ -667,6 +667,20 @@ try {
     assert.equal(JSON.stringify(platformData).includes('error'),false);
     const diagnostic=await fetch(base+'/api/v1/health/run-diagnostic',{method:'POST',headers:rootHeaders});assert.equal(diagnostic.status,200);const diagnosticData=await diagnostic.json();
     assert.equal(diagnosticData.overallHealth,'DEGRADED');assert.equal(diagnosticData.diagnostics.find((d:any)=>d.name==='aiGateway').pingMs,null);
+    assert.equal((await fetch(base+'/api/v1/system/logs',{headers:testHeaders})).status,403);
+    assert.equal((await fetch(base+'/api/v1/system/logs/download',{headers:testHeaders})).status,403);
+    assert.equal((await fetch(base+'/api/v1/system/logs/clear',{method:'POST',headers:testHeaders})).status,403);
+    const applicationLogs=await fetch(base+'/api/v1/system/logs',{headers:rootHeaders});assert.equal(applicationLogs.status,200);const logData=await applicationLogs.json();
+    assert.equal(logData.source.kind,'application_http_errors');assert.equal(logData.source.hostCollectorConfigured,false);assert.ok(logData.logs.length>0);
+    assert.equal(logData.logs.every((entry:any)=>entry.service==='application'&&Object.keys(entry.metadata).sort().join(',')==='requestId,status'),true);
+    const logDownload=await fetch(base+'/api/v1/system/logs/download',{headers:rootHeaders});assert.equal(logDownload.status,200);assert.equal(logDownload.headers.get('cache-control'),'no-store');assert.match(await logDownload.text(),/buffer volátil/);
+    assert.equal((await fetch(base+'/api/v1/system/logs?limit=-1',{headers:rootHeaders})).status,400);
+    assert.equal((await fetch(base+'/api/v1/system/logs/simulate',{method:'POST',headers:rootHeaders,body:JSON.stringify({message:'SEGREDO_NAO_INGERIR'})})).status,501);
+    const beforeClearAudit=Number((await admin.query('SELECT count(*) AS total FROM audit_logs')).rows[0].total);
+    const clearResponse=await fetch(base+'/api/v1/system/logs/clear',{method:'POST',headers:rootHeaders});assert.equal(clearResponse.status,200);
+    const clearedLogData=await (await fetch(base+'/api/v1/system/logs',{headers:rootHeaders})).json();assert.equal(clearedLogData.stats.total,0);assert.equal(clearedLogData.stats.lastTimestamp,null);
+    assert.ok(Number((await admin.query('SELECT count(*) AS total FROM audit_logs')).rows[0].total)>beforeClearAudit);
+    assert.equal((await admin.query("SELECT count(*)::int AS total FROM audit_logs WHERE user_id=$1 AND action='APPLICATION_LOG_BUFFER_DOWNLOAD_ATTEMPT'",[session.user.id])).rows[0].total,1);
     const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
     for(const route of ['backup','restore']){
       const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});
