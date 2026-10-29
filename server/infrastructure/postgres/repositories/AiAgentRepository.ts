@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { AiAgent } from '../../../../src/types/pbx.js';
 import { TenantContext } from '../../auth/tenantContext.js';
@@ -37,7 +38,7 @@ export class AiAgentRepository {
           isActive: row.is_active ?? true,
         }));
       } catch (err: any) {
-        console.error('[AiAgentRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -76,7 +77,7 @@ export class AiAgentRepository {
           isActive: row.is_active ?? true,
         }));
       } catch (err: any) {
-        console.error('[AiAgentRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -123,7 +124,7 @@ export class AiAgentRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AiAgentRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -163,7 +164,7 @@ export class AiAgentRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AiAgentRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -226,7 +227,7 @@ export class AiAgentRepository {
         );
         return agent;
       } catch (err: any) {
-        console.error('[AiAgentRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -244,7 +245,7 @@ export class AiAgentRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[AiAgentRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

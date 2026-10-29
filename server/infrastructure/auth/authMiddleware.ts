@@ -1,3 +1,4 @@
+import {logOperational} from '../security/OperationalLog.js';
 import { validCredentialStamp } from './CredentialStamp.js';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
@@ -594,7 +595,7 @@ export const requireTenant = async (req: AuthenticatedRequest, res: Response, ne
         ip: req.ip || '127.0.0.1',
       });
     } catch (auditErr: any) {
-      console.error('[requireTenant] Falha na auditoria obrigatória cross-tenant (FAIL-CLOSED):', auditErr?.message || auditErr);
+      logOperational('SERVER_OPERATION_FAILURE');
       return res.status(503).json({
         error: 'Operação cross-tenant cancelada: falha ao persistir auditoria obrigatória de conformidade (FAIL-CLOSED).',
         code: 'AUDIT_REQUIRED_FAILURE',

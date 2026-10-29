@@ -1,3 +1,4 @@
+import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { MaiaAIProvider } from './MaiaAIProvider.js';
 import { GeminiProvider } from './providers/GeminiProvider.js';
 import { NineRouterProvider } from './providers/NineRouterProvider.js';
@@ -103,7 +104,7 @@ export class MaiaRouter {
         return res;
       } catch (err: any) {
         lastError = err;
-        console.warn(`[MaiaRouter] Falha no provider '${target.provider.id}' (${err.message}). Avançando para próximo elo da cadeia...`);
+        logOperational('AI_PROVIDER_FAILURE');
       }
     }
 

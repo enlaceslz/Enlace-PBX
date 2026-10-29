@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoString } from '../dateUtils.js';
 import { CrmContact, CustomerMemory } from '../../../../src/types/pbx.js';
@@ -21,7 +22,7 @@ export class CrmRepository {
           lastInteraction: toSafeIsoString(row.last_interaction),
         }));
       } catch (err: any) {
-        console.error('[CrmRepository.listContacts] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -52,7 +53,7 @@ export class CrmRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[CrmRepository.findContactById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -76,7 +77,7 @@ export class CrmRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[CrmRepository.findAnyContactByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -108,7 +109,7 @@ export class CrmRepository {
         );
         return contact;
       } catch (err: any) {
-        console.error('[CrmRepository.saveContact] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -126,7 +127,7 @@ export class CrmRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[CrmRepository.deleteContact] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -138,7 +139,7 @@ export class CrmRepository {
         const res = await client.query('DELETE FROM crm_contacts WHERE id = $1', [id]);
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[CrmRepository.deleteAnyContactForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -163,7 +164,7 @@ export class CrmRepository {
           churnRisk: row.churn_risk || 0,
         }));
       } catch (err: any) {
-        console.error('[CrmRepository.listMemories] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -193,7 +194,7 @@ export class CrmRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[CrmRepository.findMemoryByPhone] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -225,7 +226,7 @@ export class CrmRepository {
         );
         return memory;
       } catch (err: any) {
-        console.error('[CrmRepository.saveMemory] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

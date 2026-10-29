@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
 import { OutboundCampaign } from '../../../../src/types/pbx.js';
@@ -28,7 +29,7 @@ export class CampaignRepository {
           createdAt: toSafeIsoStringOrNow(row.created_at),
         }));
       } catch (err: any) {
-        console.error('[CampaignRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -55,7 +56,7 @@ export class CampaignRepository {
           createdAt: toSafeIsoStringOrNow(row.created_at),
         }));
       } catch (err: any) {
-        console.error('[CampaignRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -90,7 +91,7 @@ export class CampaignRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[CampaignRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -118,7 +119,7 @@ export class CampaignRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[CampaignRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -150,7 +151,7 @@ export class CampaignRepository {
         );
         return campaign;
       } catch (err: any) {
-        console.error('[CampaignRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -165,7 +166,7 @@ export class CampaignRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[CampaignRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

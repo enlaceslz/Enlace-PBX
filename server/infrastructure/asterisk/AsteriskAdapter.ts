@@ -1,3 +1,4 @@
+import {logOperational} from '../security/OperationalLog.js';
 import { acceptedCallAction, callExtension, channelReference } from './CallControl.js';
 import crypto from 'node:crypto';
 import { sendAmiAction } from './AmiClient.js';
@@ -106,7 +107,7 @@ export class AsteriskAdapter {
 
     // Verificação estrita na Allowlist de comandos corporativos autorizados
     if (!isAsteriskCommandAllowed(sanitizedCommand)) {
-      console.warn(`[AsteriskAdapter] BLOQUEIO DE SEGURANÇA: Comando rejeitado pela Allowlist: "${sanitizedCommand}"`);
+      logOperational('SIP_COMMAND_REJECTED');
       return {
         success: false,
         output: '',

@@ -1,3 +1,4 @@
+import {logOperational} from './OperationalLog.js';
 import {systemLogsManager} from '../../systemLogs.js';
 import crypto from 'node:crypto';
 import type { RequestHandler, ErrorRequestHandler } from 'express';
@@ -26,7 +27,7 @@ export const unexpectedHttpError: ErrorRequestHandler = (error, _req, res, next)
   if (res.headersSent) return next(error);
   const status = error?.type === 'entity.too.large' ? 413 : error?.type === 'entity.parse.failed' ? 400 : 500;
   const requestId = res.locals.requestId;
-  console.error('[HTTP] Falha na requisição', { status, requestId });
+  logOperational('HTTP_RESPONSE_FAILURE', {status,requestId});
   res.status(status).json({ error: status === 500 ? 'Erro interno do servidor.' : 'Corpo da requisição inválido ou acima do limite.',
     ...(requestId ? { requestId } : {}) });
 };

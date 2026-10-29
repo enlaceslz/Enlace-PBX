@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { Ivr } from '../../../../src/types/pbx.js';
 import { TenantContext } from '../../auth/tenantContext.js';
@@ -23,7 +24,7 @@ export class IvrRepository {
           flow: typeof row.flow === 'string' ? JSON.parse(row.flow) : (row.flow || undefined),
         }));
       } catch (err: any) {
-        console.error('[IvrRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -48,7 +49,7 @@ export class IvrRepository {
           flow: typeof row.flow === 'string' ? JSON.parse(row.flow) : (row.flow || undefined),
         }));
       } catch (err: any) {
-        console.error('[IvrRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -81,7 +82,7 @@ export class IvrRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[IvrRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -107,7 +108,7 @@ export class IvrRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[IvrRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -145,7 +146,7 @@ export class IvrRepository {
         );
         return ivr;
       } catch (err: any) {
-        console.error('[IvrRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -160,7 +161,7 @@ export class IvrRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[IvrRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

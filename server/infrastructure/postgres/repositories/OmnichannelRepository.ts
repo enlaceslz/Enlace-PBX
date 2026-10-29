@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { nextWorkflow, validateInternalNote, assertWorkflowAccess, type WorkflowActor } from '../../../maia/integrations/ConversationWorkflow.js';
 import { OutboundHttpError } from '../../security/OutboundHttp.js';
 import crypto from 'node:crypto';
@@ -59,7 +60,7 @@ export class OmnichannelRepository {
           createdAt: toSafeIsoStringOrNow(row.created_at),
         }));
       } catch (err: any) {
-        console.error('[OmnichannelRepository.listConversations] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -97,7 +98,7 @@ export class OmnichannelRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[OmnichannelRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -128,7 +129,7 @@ export class OmnichannelRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[OmnichannelRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -264,7 +265,7 @@ export class OmnichannelRepository {
         );
         return conv;
       } catch (err: any) {
-        console.error('[OmnichannelRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

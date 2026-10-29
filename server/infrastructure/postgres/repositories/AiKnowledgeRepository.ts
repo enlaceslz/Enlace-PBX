@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
 import { AiKnowledgeSource } from '../../../../src/types/pbx.js';
@@ -26,7 +27,7 @@ export class AiKnowledgeRepository {
           fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
         }));
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -51,7 +52,7 @@ export class AiKnowledgeRepository {
           fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
         }));
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -84,7 +85,7 @@ export class AiKnowledgeRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -110,7 +111,7 @@ export class AiKnowledgeRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -146,7 +147,7 @@ export class AiKnowledgeRepository {
         );
         return source;
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -164,7 +165,7 @@ export class AiKnowledgeRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -176,7 +177,7 @@ export class AiKnowledgeRepository {
         const res = await client.query('DELETE FROM ai_knowledge WHERE id = $1', [id]);
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.deleteAnyForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { Extension, SafeExtension } from '../../../../src/types/pbx.js';
 import { EncryptionService } from '../../security/EncryptionService.js';
@@ -40,7 +41,7 @@ export class ExtensionRepository {
           allowAiTransfer: row.allow_ai_transfer,
         }));
       } catch (err: any) {
-        console.error('[ExtensionRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -73,7 +74,7 @@ export class ExtensionRepository {
           allowAiTransfer: row.allow_ai_transfer,
         }));
       } catch (err: any) {
-        console.error('[ExtensionRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -110,7 +111,7 @@ export class ExtensionRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[ExtensionRepository.findByNumber] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -151,7 +152,7 @@ export class ExtensionRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[ExtensionRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -185,7 +186,7 @@ export class ExtensionRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[ExtensionRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -226,7 +227,7 @@ export class ExtensionRepository {
         );
         return ext;
       } catch (err: any) {
-        console.error('[ExtensionRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -241,7 +242,7 @@ export class ExtensionRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[ExtensionRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

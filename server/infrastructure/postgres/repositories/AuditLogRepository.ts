@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import crypto from 'crypto';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
@@ -132,9 +133,9 @@ export class AuditLogRepository {
       }
       return await postgresClient.executeTenantScoped(entry.tenantId, (client, ctx) => performLog(client, ctx.tenantId));
     } catch (err: any) {
-      console.error('[AuditLogRepository.log] Erro ao gravar log de auditoria no PostgreSQL sob transação RLS:', err?.message || err);
+      logOperational('AUDIT_OPERATION_FAILURE');
       if (options?.strict) {
-        throw new Error(`AUDIT_REQUIRED_FAILURE: Falha crítica na persistência imutável de auditoria: ${err?.message || err}`);
+        throw new Error('AUDIT_REQUIRED_FAILURE: Falha crítica na persistência imutável de auditoria.');
       }
       return {
         id,
@@ -212,7 +213,7 @@ export class AuditLogRepository {
 
         return { logs, total };
       } catch (err: any) {
-        console.error('[AuditLogRepository.listAll] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -248,7 +249,7 @@ export class AuditLogRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AuditLogRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     };
@@ -283,7 +284,7 @@ export class AuditLogRepository {
           payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload || {}),
         }));
       } catch (err: any) {
-        console.error('[AuditLogRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     });

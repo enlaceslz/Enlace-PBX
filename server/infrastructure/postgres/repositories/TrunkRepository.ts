@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { EncryptionService } from '../../security/EncryptionService.js';
 import { assertSingleLineConfig } from '../../asterisk/configValidation.js';
 import { postgresClient } from '../client.js';
@@ -54,7 +55,7 @@ export class TrunkRepository {
         const res = await client.query('SELECT * FROM trunks ORDER BY name ASC');
         return res.rows.map(row => this.mapRow(row));
       } catch (err: any) {
-        console.error('[TrunkRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -69,7 +70,7 @@ export class TrunkRepository {
         );
         return res.rows.map(row => this.mapRow(row));
       } catch (err: any) {
-        console.error('[TrunkRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -91,7 +92,7 @@ export class TrunkRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[TrunkRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -106,7 +107,7 @@ export class TrunkRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[TrunkRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -185,7 +186,7 @@ export class TrunkRepository {
         if (!saved.rows[0]) throw new Error('Tronco não confirmado na persistência.');
         return this.mapRow(saved.rows[0]);
       } catch (err: any) {
-        console.error('[TrunkRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -208,7 +209,7 @@ export class TrunkRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[TrunkRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

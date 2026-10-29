@@ -1,3 +1,4 @@
+import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { MaiaSessionRepository } from './MaiaSessionRepository.js';
 import { MaiaToolExecution } from '../types.js';
 import { AuditLogRepository } from '../../infrastructure/postgres/repositories/AuditLogRepository.js';
@@ -17,7 +18,7 @@ export class MaiaAuditRepository {
       ip: 'internal-ari-voice',
       details: `[Correlation: ${exec.correlationId}] Risco: ${exec.risk} | Decisão: ${exec.policyDecision} | Status: ${exec.resultStatus} | ArgsHash: ${exec.argumentsHash} | Duração: ${exec.durationMs}ms`,
     }).catch((err) => {
-      console.warn('[MaiaAuditRepository] Falha ao registrar log de auditoria secundário:', err.message);
+      logOperational('AI_PROVIDER_FAILURE');
     });
 
     return exec;

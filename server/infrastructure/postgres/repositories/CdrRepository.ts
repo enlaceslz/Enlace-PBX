@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import crypto from 'crypto';
 import { postgresClient } from '../client.js';
 import { CdrRecord } from '../../../../src/types/pbx.js';
@@ -89,7 +90,7 @@ export class CdrRepository {
         );
         return cdrItem;
       } catch (err: any) {
-        console.error('[CdrRepository.insertOfficialCdr] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -120,7 +121,7 @@ export class CdrRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[CdrRepository.updateAnalysis] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         return false;
       }
     };
@@ -167,7 +168,7 @@ export class CdrRepository {
           costBrl: parseFloat(row.cost_brl || '0'),
         }));
       } catch (err: any) {
-        console.error('[CdrRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -222,7 +223,7 @@ export class CdrRepository {
           costBrl: parseFloat(row.cost_brl || '0'),
         }));
       } catch (err: any) {
-        console.error('[CdrRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -266,7 +267,7 @@ export class CdrRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[CdrRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -306,7 +307,7 @@ export class CdrRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[CdrRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

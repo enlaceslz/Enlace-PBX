@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoString } from '../dateUtils.js';
 import { TenantBilling, BillingInvoice, BillingTransaction, BillingInvoiceItem } from '../../../types/billing.js';
@@ -39,7 +40,7 @@ export class BillingRepository {
         );
         return billing;
       } catch (err: any) {
-        console.error('[BillingRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -110,7 +111,7 @@ export class BillingRepository {
           transactions,
         };
       } catch (err: any) {
-        console.error('[BillingRepository.getByTenantId] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -160,7 +161,7 @@ export class BillingRepository {
 
         return { balance: newBalance, transaction: tx };
       } catch (err: any) {
-        console.error('[BillingRepository.recharge] Falha atômica durante recarga sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw new Error(`BILLING_TRANSACTION_FAILED: Falha atômica ao registrar recarga: ${err?.message || err}`);
       }
     });
@@ -203,7 +204,7 @@ export class BillingRepository {
 
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[BillingRepository.payInvoice] Falha durante quitação de fatura sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

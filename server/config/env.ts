@@ -1,3 +1,4 @@
+import {logOperational} from '../infrastructure/security/OperationalLog.js';
 import './loadEnvironment.js';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -61,9 +62,7 @@ export function loadEnvConfig(): AppEnvConfig {
         } catch {
           // ignora erro de escrita em sandbox
         }
-        console.warn(
-          '[SEGURANÇA] JWT_SECRET não configurado. Gerando segredo criptográfico persistente de 256 bits para desenvolvimento.'
-        );
+        logOperational('SERVER_WARNING');
       }
     }
   }
@@ -115,9 +114,7 @@ export function loadEnvConfig(): AppEnvConfig {
   }
 
   if (isProd && (!amiPassword || amiPassword.trim() === '')) {
-    console.warn(
-      '[CONFIG] ASTERISK_AMI_PASSWORD não fornecido. Conexões AMI locais/remotas serão rejeitadas pelo Asterisk até a definição da credencial.'
-    );
+    logOperational('SERVER_WARNING');
   }
 
   return {

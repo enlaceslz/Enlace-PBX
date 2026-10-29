@@ -1,3 +1,4 @@
+import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { persistedDialogue, voiceMessage } from '../core/MaiaHistory.js';
 import { OutboundHttpError } from '../../infrastructure/security/OutboundHttp.js';
 import crypto from 'crypto';
@@ -413,7 +414,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
         audioBase64 = vRes.audioBase64;
       }
     } catch (err: any) {
-      console.warn('[MaiaAIGateway] Síntese de voz neural indisponível, fallback para áudio do cliente:', err.message);
+      logOperational('AI_PROVIDER_FAILURE');
     }
 
     const latencyMs = Date.now() - startTime;

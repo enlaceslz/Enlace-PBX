@@ -1,3 +1,4 @@
+import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { MaiaRouter } from './MaiaRouter.js';
 import { MaiaVoiceRequest, MaiaVoiceResponse } from '../types.js';
 
@@ -29,7 +30,7 @@ export class MaiaVoiceGateway {
           return res;
         }
       } catch (err: any) {
-        console.warn(`[MaiaVoiceGateway] Provedor preferencial '${providerId}' falhou para síntese de voz:`, err.message);
+        logOperational('AI_PROVIDER_FAILURE');
       }
     }
 
@@ -38,13 +39,13 @@ export class MaiaVoiceGateway {
       for (const p of this.router.getAllProviders()) {
         if (p.id !== providerId && typeof (p as any).generateVoice === 'function') {
           try {
-            console.log(`[MaiaVoiceGateway] Acionando contingência de voz via provedor '${p.id}'...`);
+            logOperational('AI_PROVIDER_FALLBACK');
             const res = await (p as any).generateVoice(request);
             if (res && res.audioBase64) {
               return res;
             }
           } catch (fallbackErr: any) {
-            console.warn(`[MaiaVoiceGateway] Fallback '${p.id}' também falhou:`, fallbackErr.message);
+            logOperational('AI_PROVIDER_FAILURE');
           }
         }
       }

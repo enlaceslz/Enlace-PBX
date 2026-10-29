@@ -1,3 +1,4 @@
+import {logOperational} from '../security/OperationalLog.js';
 import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcrypt';
@@ -41,7 +42,7 @@ export class EmbeddedDatabaseEngine {
         }
       }
     } catch (e: any) {
-      console.warn('[EmbeddedDB] Não foi possível ler cache prévio, inicializando novo banco:', e.message);
+      logOperational('DB_WARNING');
     }
 
     if (!loadedFromCache) {

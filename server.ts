@@ -1,3 +1,4 @@
+import {logOperational} from './server/infrastructure/security/OperationalLog.js';
 import {healthEvidence,diagnosticEvidence} from './server/infrastructure/security/HealthEvidence.js';
 import {pipeline} from 'node:stream/promises';
 import { retiredJsonBackup } from './server/infrastructure/security/RetiredJsonBackup.js';
@@ -91,16 +92,16 @@ async function startServer() {
     const migrationRes = await DatabaseMigrator.runMigrations();
     if (!migrationRes.success) {
       if (process.env.NODE_ENV === 'production') {
-        console.error('[Enlace-PBX] FATAL PRODUÇÃO: Falha crítica na execução das migrações PostgreSQL:', migrationRes.error);
+        logOperational('SERVER_OPERATION_FAILURE');
         process.exit(1);
       } else {
-        console.warn('[Enlace-PBX] Aviso: Migrações PostgreSQL em modo de desenvolvimento:', migrationRes.error || 'Aguardando conexão');
+        logOperational('SERVER_WARNING');
       }
     } else {
       console.log(`[Enlace-PBX] [PostgreSQL] Migrações e tabelas consolidadas com sucesso (${migrationRes.applied} novas aplicadas).`);
     }
   } catch (err: any) {
-    console.error('[PostgreSQL] Erro ao aplicar migrações:', err.message);
+    logOperational('SERVER_OPERATION_FAILURE');
     if (process.env.NODE_ENV === 'production') {
       process.exit(1);
     }
@@ -271,7 +272,7 @@ async function startServer() {
         });
       }
     } catch (err: any) {
-      console.error('[Auth Login Error]:', err?.message || err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       return res.status(500).json({ error: 'Erro interno durante a autenticação.' });
     }
   });
@@ -407,7 +408,7 @@ async function startServer() {
       if (!billing) return res.status(404).json({ error: 'Registro de faturamento não encontrado' });
       res.json(billing);
     } catch (e: any) {
-      console.error('[Billing] Erro ao buscar faturamento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao buscar dados de faturamento' });
     }
   });
@@ -425,7 +426,7 @@ async function startServer() {
       if (!billing) return res.status(404).json({ error: 'Registro de faturamento não encontrado' });
       res.json(billing);
     } catch (e: any) {
-      console.error('[Billing] Erro ao buscar faturamento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao buscar dados de faturamento' });
     }
   });
@@ -525,7 +526,7 @@ async function startServer() {
       await SystemRepository.setWireguardConfig(wgConfig);
       res.json({ success: true, status: wgConfig.status });
     } catch (err: any) {
-      console.error('[Network/WireGuard] Erro ao alternar:', err?.message || err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao alternar WireGuard' });
     }
   });
@@ -576,7 +577,7 @@ async function startServer() {
 
       res.json({ success: true, peer: newPeer });
     } catch (err: any) {
-      console.error('[Network/WireGuard] Erro ao cadastrar peer:', err?.message || err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao cadastrar peer WireGuard' });
     }
   });
@@ -826,7 +827,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         nodes,
       });
     } catch (err: any) {
-      console.error('[Network/Telemetry] Erro ao coletar telemetria:', err?.message || err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(503).json({ error: 'Telemetria VPN indisponível no momento.' });
     }
   });
@@ -1262,7 +1263,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await SystemRepository.getSnapshots();
       res.json(list);
     } catch (e: any) {
-      console.error('[Snapshots] Erro ao listar snapshots:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar snapshots' });
     }
   });
@@ -1328,7 +1329,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       try {
         await ExtensionRepository.save(newExt);
       } catch (e: any) {
-        console.error(`[QuickSetup] Erro ao salvar ramal ${ext} no PostgreSQL:`, e?.message || e);
+        logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       }
     }
 
@@ -1359,7 +1360,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       try {
         await TrunkRepository.save(createdTrunk);
       } catch (e: any) {
-        console.error(`[QuickSetup] Erro ao salvar tronco ${trunkName} no PostgreSQL:`, e?.message || e);
+        logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       }
     }
     
@@ -1453,7 +1454,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const authorizedTenant = getAuthorizedTenantId(req);
       res.json(metricsDto(await getDashboardMetrics(authorizedTenant),(req as any).user.role));
     } catch (e: any) {
-      console.error('[Dashboard] Erro ao obter métricas:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao calcular métricas do dashboard' });
     }
   });
@@ -1510,7 +1511,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       // NUNCA expor sipSecret em listagens normais
       res.json((list || []).map(ExtensionRepository.toSafeExtension));
     } catch (e: any) {
-      console.error('[Extensions] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar ramais do PostgreSQL' });
     }
   });
@@ -1527,7 +1528,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
       res.json(ExtensionRepository.toSafeExtension(ext));
     } catch (e: any) {
-      console.error('[Extensions] Erro ao consultar ramal:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao consultar ramal no PostgreSQL' });
     }
   });
@@ -1600,7 +1601,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       // Retorna SafeExtension (sem expor o segredo)
       res.status(201).json(ExtensionRepository.toSafeExtension(ext));
     } catch (e: any) {
-      console.error('[Extensions] Erro ao cadastrar ramal:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao criar ramal no PostgreSQL' });
     }
   });
@@ -1667,7 +1668,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(ExtensionRepository.toSafeExtension(updated));
     } catch (e: any) {
-      console.error('[Extensions] Erro ao atualizar no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar ramal no PostgreSQL' });
     }
   });
@@ -1707,7 +1708,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[Extensions] Erro ao excluir do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir ramal no PostgreSQL' });
     }
   });
@@ -1752,7 +1753,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         codecs: ext.codecs,
       });
     } catch (e: any) {
-      console.error('[Extensions] Erro ao consultar credencial de provisionamento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao recuperar credencial de provisionamento.' });
     }
   });
@@ -1808,7 +1809,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(credential);
     } catch (err: any) {
-      console.error('[WebRTC Credential] Erro ao recuperar credencial:', err?.message || err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro interno ao recuperar credenciais WebRTC.' });
     }
   });
@@ -1918,7 +1919,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         category: data.category,
         severity: data.severity,
         payload: data.payload,
-      }).catch((err) => console.error('[AuditLog] Erro ao gravar log no PostgreSQL:', err?.message || err));
+      }).catch((err) => logOperational('SERVER_OPERATION_FAILURE'));
     }
 
     return logEntry;
@@ -1945,7 +1946,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await TrunkRepository.listByTenant(tenantCtx.tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[Trunks] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar troncos SIP do PostgreSQL' });
     }
   });
@@ -2003,7 +2004,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.status(201).json(safeTrunkPayload(trunk));
     } catch (e: any) {
-      console.error('[Trunks] Erro ao criar tronco no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao persistir tronco SIP no PostgreSQL' });
     }
   });
@@ -2040,7 +2041,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(safeTrunkPayload(updated));
     } catch (e: any) {
-      console.error('[Trunks] Erro ao atualizar no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar tronco SIP no PostgreSQL' });
     }
   });
@@ -2078,7 +2079,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[Trunks] Erro ao excluir do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir tronco SIP do PostgreSQL' });
     }
   });
@@ -2118,7 +2119,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       try {
         await TrunkRepository.save(trunk);
       } catch (e: any) {
-        console.error('[Trunks] Erro ao atualizar status de ping no PostgreSQL:', e?.message || e);
+        logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       }
 
       recordAuditLog({
@@ -2315,7 +2316,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         message: applyResult.message,
       });
     } catch (err: any) {
-      console.error('[apply-pjsip] Erro ao aplicar configuração PJSIP:', err.message);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       return res.status(500).json({
         success: false,
         error: 'Falha ao aplicar configuração PJSIP no Asterisk. Consulte o administrador.',
@@ -2372,7 +2373,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
       res.json(list || []);
     } catch (e: any) {
-      console.error('[DIDs] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar DIDs do PostgreSQL' });
     }
   });
@@ -2461,7 +2462,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.status(201).json(newDid);
     } catch (e: any) {
-      console.error('[DIDs] Erro ao cadastrar DID no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao cadastrar DID no PostgreSQL' });
     }
   });
@@ -2516,7 +2517,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(updated);
     } catch (e: any) {
-      console.error('[DIDs] Erro ao atualizar DID no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar DID no PostgreSQL' });
     }
   });
@@ -2552,7 +2553,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[DIDs] Erro ao excluir DID no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir DID no PostgreSQL' });
     }
   });
@@ -2641,7 +2642,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json({ success: true, count: addedDids.length, added: addedDids });
     } catch (e: any) {
-      console.error('[DIDs] Erro na importação em lote de DIDs:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao importar DIDs em lote no PostgreSQL' });
     }
   });
@@ -2674,7 +2675,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(result);
     } catch (e: any) {
-      console.error('[DIDs] Erro ao simular chamada recebida:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao simular chamada no PBX' });
     }
   });
@@ -2688,7 +2689,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await RouteRepository.listByTenant(tenantCtx.tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[Routes] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar rotas do PostgreSQL' });
     }
   });
@@ -2739,7 +2740,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.status(201).json(route);
     } catch (e: any) {
-      console.error('[Routes] Erro ao persistir no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao criar rota no PostgreSQL' });
     }
   });
@@ -2774,7 +2775,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(updated);
     } catch (e: any) {
-      console.error('[Routes] Erro ao atualizar no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar rota no PostgreSQL' });
     }
   });
@@ -2810,7 +2811,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[Routes] Erro ao excluir do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir rota no PostgreSQL' });
     }
   });
@@ -2844,7 +2845,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(result);
     } catch (e: any) {
-      console.error('[Routes] Erro ao simular CallerID:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao simular CallerID' });
     }
   });
@@ -2858,7 +2859,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await RingGroupRepository.listByTenant(tenantCtx.tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[RingGroups] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar grupos de toque do PostgreSQL' });
     }
   });
@@ -2871,7 +2872,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await RingGroupRepository.save(group);
       res.status(201).json(group);
     } catch (e: any) {
-      console.error('[RingGroups] Erro ao salvar grupo de toque:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao criar grupo de toque no PostgreSQL' });
     }
   });
@@ -2894,7 +2895,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await RingGroupRepository.save(updated);
       res.json(updated);
     } catch (e: any) {
-      console.error('[RingGroups] Erro ao atualizar grupo de toque:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar grupo de toque no PostgreSQL' });
     }
   });
@@ -2918,7 +2919,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await RingGroupRepository.delete(req.params.id, prev.tenantId);
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[RingGroups] Erro ao excluir grupo de toque:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir grupo de toque no PostgreSQL' });
     }
   });
@@ -2929,7 +2930,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await QueueRepository.listByTenant(tenantCtx.tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[Queues] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar filas de atendimento do PostgreSQL' });
     }
   });
@@ -2951,7 +2952,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await QueueRepository.save(queue);
       res.status(201).json(queue);
     } catch (e: any) {
-      console.error('[Queues] Erro ao persistir no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao criar fila no PostgreSQL' });
     }
   });
@@ -2974,7 +2975,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await QueueRepository.save(updated);
       res.json(updated);
     } catch (e: any) {
-      console.error('[Queues] Erro ao atualizar no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar fila no PostgreSQL' });
     }
   });
@@ -2998,7 +2999,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await QueueRepository.delete(req.params.id, q.tenantId);
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[Queues] Erro ao excluir do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir fila do PostgreSQL' });
     }
   });
@@ -3009,7 +3010,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await IvrRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[IVR] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar URAs do PostgreSQL' });
     }
   });
@@ -3027,7 +3028,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await IvrRepository.save(ivr);
       res.status(201).json(ivr);
     } catch (e: any) {
-      console.error('[IVR] Erro ao persistir no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao criar URA no PostgreSQL' });
     }
   });
@@ -3052,7 +3053,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await IvrRepository.save(updated);
       res.json(updated);
     } catch (e: any) {
-      console.error('[IVR] Erro ao atualizar no PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar URA no PostgreSQL' });
     }
   });
@@ -3076,7 +3077,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await IvrRepository.delete(req.params.id, ivr.tenantId);
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[IVR] Erro ao excluir do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir URA do PostgreSQL' });
     }
   });
@@ -3159,7 +3160,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await AiToolRepository.listProviders(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[AI Providers] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar provedores de IA' });
     }
   });
@@ -3170,7 +3171,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await AiAgentRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[AI Agents] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar agentes de IA' });
     }
   });
@@ -3192,7 +3193,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await AiAgentRepository.save(agent);
       res.status(201).json(agent);
     } catch (e: any) {
-      console.error('[AI Agents] Erro ao salvar agente:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao criar agente de IA' });
     }
   });
@@ -3215,7 +3216,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await AiAgentRepository.save(updated);
       res.json(updated);
     } catch (e: any) {
-      console.error('[AI Agents] Erro ao atualizar agente:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar agente de IA' });
     }
   });
@@ -3239,7 +3240,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await AiAgentRepository.delete(req.params.id, prev.tenantId);
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[AI Agents] Erro ao excluir agente:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir agente de IA' });
     }
   });
@@ -3250,7 +3251,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await AiToolRepository.listToolsByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[AI Tools] Erro ao listar ferramentas:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar ferramentas de IA' });
     }
   });
@@ -3279,7 +3280,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       res.status(201).json(newTool);
     } catch (e: any) {
       if (e instanceof OutboundHttpError) return res.status(e.statusCode).json({ error: e.message });
-      console.error('[AI Tools] Erro ao salvar ferramenta:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao salvar ferramenta de IA' });
     }
   });
@@ -3299,7 +3300,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       res.json(updated);
     } catch (e: any) {
       if (e instanceof OutboundHttpError) return res.status(e.statusCode).json({ error: e.message });
-      console.error('[AI Tools] Erro ao atualizar ferramenta:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar ferramenta de IA' });
     }
   });
@@ -3313,7 +3314,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await AiToolRepository.delete(req.params.id, prev.tenantId);
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[AI Tools] Erro ao excluir ferramenta:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir ferramenta de IA' });
     }
   });
@@ -3348,7 +3349,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await AiKnowledgeRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[AI Knowledge] Erro ao listar conhecimento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar base de conhecimento' });
     }
   });
@@ -3390,7 +3391,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.status(201).json(newDoc);
     } catch (e: any) {
-      console.error('[AI Knowledge] Erro ao salvar documento RAG:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao salvar documento na base de conhecimento' });
     }
   });
@@ -3451,7 +3452,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         message: 'Arquivo carregado e integrado com sucesso à base de conhecimento dos agentes.',
       });
     } catch (err: unknown) {
-      console.error('Error in knowledge upload:', err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({
         error: 'Erro ao processar e salvar arquivo na base de conhecimento.',
       });
@@ -3476,7 +3477,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await AiKnowledgeRepository.save(updated);
       res.json(updated);
     } catch (e: any) {
-      console.error('[AI Knowledge] Erro ao atualizar documento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar documento RAG' });
     }
   });
@@ -3508,7 +3509,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[AI Knowledge] Erro ao excluir documento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir documento RAG' });
     }
   });
@@ -3553,7 +3554,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(enrichedSessions);
     } catch (e: any) {
-      console.error('[AI Sessions] Erro ao listar sessões:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar sessões da MaIA' });
     }
   });
@@ -3656,7 +3657,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       res.json(result);
     } catch (err: unknown) {
       if(err instanceof OutboundHttpError)return res.status(err.statusCode).json({error:err.message});
-      console.error('Error in voice turn endpoint:', err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({
         error: 'Erro no AI Gateway',
       });
@@ -3675,7 +3676,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
       res.json(preview);
     } catch (err: unknown) {
-      console.error('Error in preview-voice endpoint:', err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({
         error: 'Erro ao gerar prévia de voz',
       });
@@ -3704,7 +3705,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         : await CdrRepository.listByTenant(tenantCtx.tenantId, { limit: 100 });
       res.json(records || []);
     } catch (e: any) {
-      console.error('[CDR] Erro ao consultar CdrRepository:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao consultar bilhetagem no PostgreSQL' });
     }
   });
@@ -3974,7 +3975,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(logs);
     } catch (e: any) {
-      console.error('[AuditLogs] Erro ao listar logs:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar logs de auditoria' });
     }
   });
@@ -4000,7 +4001,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const result = await AuditLogRepository.verifyChain(context);
       res.json({ ...result, chainOfCustodyStatus: result.valid ? 'CHAIN_VALID' : 'CHAIN_BROKEN' });
     } catch (e: any) {
-      console.error('[AuditLogs] Erro ao verificar integridade:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao verificar integridade dos logs' });
     }
   });
@@ -4037,7 +4038,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const safeList = list.map((u) => UserRepository.toSafeUser(u));
       res.json(safeList);
     } catch (e: any) {
-      console.error('[Users] Erro ao listar usuários:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar usuários no PostgreSQL' });
     }
   });
@@ -4177,7 +4178,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       if (!contact) return res.status(404).json({ error: 'Contato não encontrado para o seu tenant.' });
       res.json(contact);
     } catch (e: any) {
-      console.error('[CRM Contacts] Erro ao consultar contato:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao consultar contato no PostgreSQL.' });
     }
   });
@@ -4200,7 +4201,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await CrmRepository.saveContact(updated);
       res.json(updated);
     } catch (e: any) {
-      console.error('[CRM Contacts] Erro ao atualizar contato:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar contato no PostgreSQL.' });
     }
   });
@@ -4222,7 +4223,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await CrmRepository.deleteContact(req.params.id, prev.tenantId);
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[CRM Contacts] Erro ao excluir contato:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir contato no PostgreSQL.' });
     }
   });
@@ -4297,7 +4298,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.json(updated);
     } catch (error) {
       if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});
-      console.error('[WhatsApp] Falha no envio ou persistência; confirmação indisponível.');
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       return res.status(502).json({ error: 'Não foi possível confirmar o envio e o registro da mensagem. Confira a conversa antes de reenviar.' });
     }
 
@@ -4337,7 +4338,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await QualityAuditRepository.listByTenant(tenantId);
       res.json((list || []).map(item=>({...item,score:null,complianceScore:null,sentiment:'unknown',resolutionStatus:'unverified',summary:'Registro legado não verificado.',feedback:'',legacy:true})));
     } catch (e: any) {
-      console.error('[Quality Supervisor] Erro ao listar auditorias:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar auditorias de qualidade' });
     }
   });
@@ -4421,7 +4422,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN?.trim();
 
     if (!verifyToken) {
-      console.warn('[WhatsApp Webhook] Rejeitado: WHATSAPP_VERIFY_TOKEN não configurado no sistema.');
+      logOperational('SERVER_WARNING', {requestId:res.locals.requestId});
       return res.status(503).json({
         error: 'NOT_CONFIGURED',
         message: 'Token de verificação do WhatsApp Meta não configurado no servidor.',
@@ -4520,7 +4521,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   server.on('error', (err: any) => {
-    console.error('[Enlace-PBX] Erro fatal no servidor HTTP:', err.code || err.message);
+    logOperational('SERVER_OPERATION_FAILURE');
     process.exit(1);
   });
   let shuttingDown = false;
@@ -4545,16 +4546,16 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 }
 
 process.on('uncaughtException', (err) => {
-  console.error('[Enlace-PBX] Exceção fatal:', err);
+  logOperational('UNCAUGHT_EXCEPTION');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[Enlace-PBX] Rejeição assíncrona fatal:', reason);
+  logOperational('UNHANDLED_REJECTION');
   process.exit(1);
 });
 
 startServer().catch((err) => {
-  console.error('[Enlace-PBX] Erro fatal ao iniciar o servidor:', err);
+  logOperational('SERVER_STARTUP_FAILURE');
   process.exit(1);
 });

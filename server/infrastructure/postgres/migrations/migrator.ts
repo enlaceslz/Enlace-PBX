@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import '../../../config/loadEnvironment.js';
 import pg from 'pg';
 import fs from 'fs';
@@ -123,7 +124,7 @@ export class DatabaseMigrator {
           'FATAL BOOTSTRAP: Nenhum super_admin foi localizado no banco de dados PostgreSQL ' +
           'e as variáveis de ambiente obrigatórias ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD não foram fornecidas. ' +
           'Para inicializar a central Enlace-PBX com segurança, defina ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD.';
-        console.error(`[BOOTSTRAP] ${errorMsg}`);
+        logOperational('DB_OPERATION_FAILURE');
         throw new Error(errorMsg);
       }
 
@@ -146,7 +147,7 @@ export class DatabaseMigrator {
         const errorCollision =
           `FATAL BOOTSTRAP: O e-mail de bootstrap '${adminEmail.toLowerCase()}' já pertence ao usuário ${row.id} (papel: ${row.role}). ` +
           `O Enlace-PBX recusa-se a sobrescrever silenciosamente senhas ou papéis de usuários existentes.`;
-        console.error(`[BOOTSTRAP] ${errorCollision}`);
+        logOperational('DB_OPERATION_FAILURE');
         throw new Error(errorCollision);
       }
 
@@ -192,9 +193,9 @@ export class DatabaseMigrator {
         [auditId, defaultTenantId, newAdminId, 'Bootstrap do Sistema', action, resource,
           '127.0.0.1', timestamp, 'Criação do primeiro administrador.', hash, previousHash]);
 
-      console.log(`[BOOTSTRAP] Primeiro super_admin provisionado com sucesso: ${adminEmail.toLowerCase()}`);
+      logOperational('BOOTSTRAP_COMPLETED');
     } catch (err: any) {
-      console.error('[BOOTSTRAP] Erro crítico no bootstrap administrativo:', err.message);
+      logOperational('DB_OPERATION_FAILURE');
       throw err;
     }
   }

@@ -1,3 +1,4 @@
+import {logOperational} from '../security/OperationalLog.js';
 import '../../config/loadEnvironment.js';
 import pg from 'pg';
 import { embeddedDatabaseEngine } from './embeddedEngine.js';
@@ -56,9 +57,7 @@ class PostgresClient {
         error: isProd ? 'DATABASE_URL obrigatória em produção' : undefined,
       };
       if (isProd) {
-        console.error(
-          '[PostgresClient] FATAL DE PRODUÇÃO: Nenhuma string DATABASE_URL detectada. O Enlace-PBX exige PostgreSQL relacional em produção.'
-        );
+        logOperational('DB_NOT_CONFIGURED');
       } else {
         console.log(
           '[PostgresClient] Nenhuma string DATABASE_URL detectada. Ativando Modo de Persistência Embarcada para desenvolvimento/testes.'
@@ -83,10 +82,10 @@ class PostgresClient {
       this.isConfigured = true;
 
       this.pool.on('error', (err) => {
-        console.error('[PostgresClient] Erro no pool do PostgreSQL externo:', err.message);
+        logOperational('DB_POOL_FAILURE');
       });
     } catch (err: any) {
-      console.warn('[PostgresClient] Falha ao instanciar pool externo, mantendo motor embarcado:', err.message);
+      logOperational('DB_WARNING');
       this.isConfigured = false;
     }
   }
@@ -101,14 +100,14 @@ class PostgresClient {
         const res = await this.pool.query<T>(text, params);
         const duration = Date.now() - start;
         if (duration > 500) {
-          console.warn(`[PostgresClient] Query lenta (${duration}ms): ${text.substring(0, 80)}...`);
+          logOperational('DB_SLOW_QUERY', {durationMs:duration});
         }
         return res;
       } catch (err: any) {
         if (isProd) {
           throw new Error(`FATAL DE PRODUÇÃO: Falha ao consultar PostgreSQL externo (${err.message}). Fallback em memória estritamente proibido em produção.`);
         }
-        console.warn(`[PostgresClient] Falha ao consultar PostgreSQL externo (${err.message}). Utilizando failover embarcado de desenvolvimento.`);
+        logOperational('DB_WARNING');
         return await embeddedDatabaseEngine.query<T>(text, params);
       }
     }
@@ -129,7 +128,7 @@ class PostgresClient {
         if (process.env.NODE_ENV === 'production') {
           throw new Error(`FATAL DE PRODUÇÃO: Falha ao obter conexão física com PostgreSQL (${err.message}).`);
         }
-        console.warn('[PostgresClient] Falha ao obter client do pool, retornando cliente simulado resiliente:', err.message);
+        logOperational('DB_WARNING');
       }
     }
 
@@ -178,7 +177,7 @@ class PostgresClient {
 
           if (isProd && (!isDbAppRole || isSuperUser || hasBypassRls || hasCreateDb || hasCreateRole)) {
             const fatalMsg = `FATAL DE PRODUÇÃO (Fail-Closed): Conectado ao PostgreSQL como "${currentUser}" (super=${isSuperUser}, bypassrls=${hasBypassRls}, createdb=${hasCreateDb}, createrole=${hasCreateRole}). Em produção é estritamente obrigatório o uso do usuário operacional "enlace_app" sem privilégios administrativos (NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE). Inicialização recusada.`;
-            console.error(`[PostgresClient] ${fatalMsg}`);
+            logOperational('DB_POLICY_REJECTED');
             this.lastHealth = {
               status: 'DOWN',
               latencyMs: latency,

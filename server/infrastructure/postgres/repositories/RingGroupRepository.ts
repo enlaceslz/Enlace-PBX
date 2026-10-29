@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { RingGroup } from '../../../../src/types/pbx.js';
 import { TenantContext } from '../../auth/tenantContext.js';
@@ -22,7 +23,7 @@ export class RingGroupRepository {
           failoverDestination: row.fallback_target || 'voicemail',
         }));
       } catch (err: any) {
-        console.error('[RingGroupRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -46,7 +47,7 @@ export class RingGroupRepository {
           failoverDestination: row.fallback_target || 'voicemail',
         }));
       } catch (err: any) {
-        console.error('[RingGroupRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -78,7 +79,7 @@ export class RingGroupRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[RingGroupRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -103,7 +104,7 @@ export class RingGroupRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[RingGroupRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -137,7 +138,7 @@ export class RingGroupRepository {
         );
         return group;
       } catch (err: any) {
-        console.error('[RingGroupRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -152,7 +153,7 @@ export class RingGroupRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[RingGroupRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

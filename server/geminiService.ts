@@ -1,3 +1,4 @@
+import {logOperational} from './infrastructure/security/OperationalLog.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import zlib from 'zlib';
 import { maiaAIGateway } from './maia/gateway/MaiaAIGateway.js';
@@ -195,7 +196,7 @@ export class GeminiService {
   async processWhatsAppTurn(conversationId: string, userMessage: string, agentId?: string): Promise<string> {
     const ai = getAiClient();
     if (!ai) {
-      console.warn('Gemini API key missing, returning fallback for WhatsApp.');
+      logOperational('SERVER_WARNING');
       return 'Desculpe, o sistema de IA está temporariamente indisponível.';
     }
 
@@ -270,7 +271,7 @@ ${historyContext}
       });
       return response.text || "Desculpe, não consegui formular uma resposta.";
     } catch (e) {
-      console.error('Gemini API error during WhatsApp turn:', e);
+      logOperational('SERVER_OPERATION_FAILURE');
       return 'Desculpe, ocorreu um erro interno ao processar sua mensagem.';
     }
   }
@@ -466,7 +467,7 @@ ${historyContext}
       const text = response.text;
       return JSON.parse(text || '{}');
     } catch (e) {
-      console.error('Supervisor Evaluation failed', e);
+      logOperational('SERVER_OPERATION_FAILURE');
       return null;
     }
   }
@@ -500,7 +501,7 @@ ${historyContext}
             rawContent = response.text.trim();
           }
         } catch (err) {
-          console.warn('Gemini PDF inline extraction warning:', err);
+          logOperational('SERVER_WARNING');
         }
       }
 
@@ -510,7 +511,7 @@ ${historyContext}
           const buffer = Buffer.from(params.base64Data, 'base64');
           rawContent = extractTextFromPdfBuffer(buffer);
         } catch (err) {
-          console.warn('PDF stream extraction fallback error:', err);
+          logOperational('SERVER_WARNING');
         }
       }
     }

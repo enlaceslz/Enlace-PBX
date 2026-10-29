@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { EncryptionService } from '../../security/EncryptionService.js';
 import { postgresClient } from '../client.js';
 
@@ -14,7 +15,7 @@ export class SystemRepository {
       });
     } catch (e: any) {
       if (process.env.NODE_ENV === 'production') throw e;
-      console.warn(`[SystemRepository] Falha ao consultar configuração '${key}':`, e?.message || e);
+      logOperational('DB_WARNING');
       return defaultValue !== undefined ? defaultValue : null;
     }
   }
@@ -34,7 +35,7 @@ export class SystemRepository {
         return value;
       });
     } catch (e: any) {
-      console.error(`[SystemRepository] Falha ao salvar configuração '${key}':`, e?.message || e);
+      logOperational('DB_OPERATION_FAILURE');
       throw e;
     }
   }
@@ -46,7 +47,7 @@ export class SystemRepository {
         return (res.rowCount ?? 0) > 0;
       });
     } catch (e: any) {
-      console.error(`[SystemRepository] Falha ao excluir configuração '${key}':`, e?.message || e);
+      logOperational('DB_OPERATION_FAILURE');
       return false;
     }
   }
