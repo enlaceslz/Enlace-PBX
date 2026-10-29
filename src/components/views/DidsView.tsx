@@ -220,7 +220,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
     setIsSaving(true);
 
     try {
-      if(formData.destinationType!=='extension'||formData.timeConditionEnabled||formData.didSourceHeader!=='request_uri'||formData.unknownDidAction!=='reject_404'||formData.fallbackTarget){setFormError('Horários, IA, fallback e cabeçalhos alternativos ainda não são executados. Use ramal explícito sem recursos avançados.');return;}
+      if(formData.destinationType!=='extension'||formData.timeConditionEnabled||formData.didSourceHeader!=='request_uri'||formData.unknownDidAction!=='reject_404'||formData.fallbackTarget||(formData.fallbackType&&formData.fallbackType!=='human')){setFormError('Horários, IA, fallback e cabeçalhos alternativos ainda não são executados. Use ramal explícito sem recursos avançados.');return;}
       const payload={did:formData.did,trunkId:formData.trunkId,description:formData.description,
         assignedCompany:formData.assignedCompany,assignedCnpj:formData.assignedCnpj,assignedUser:formData.assignedUser,
         ...(formData.monthlyFee!==''?{monthlyFee:Number(formData.monthlyFee)}:{}),

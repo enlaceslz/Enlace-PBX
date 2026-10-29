@@ -721,8 +721,10 @@ try {
     assert.equal((await TrunkRepository.findById(duplicate.id,tenantA)),null);
     const trunkAudit=JSON.stringify((await admin.query("SELECT details,payload FROM audit_logs WHERE tenant_id=$1 AND action IN ('CREATE_TRUNK_ATTEMPT','UPDATE_TRUNK_ATTEMPT','DELETE_TRUNK_ATTEMPT')",[tenantA])).rows);assert.equal(trunkAudit.includes(newSipSecret),false);assert.match(trunkAudit,/UPDATE_TRUNK_ATTEMPT|fields/);
     const didRequest=async(method:string,suffix:string,body?:any,headers:Record<string,string>=testHeaders)=>fetch(base+'/api/v1/dids'+suffix,{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});
+    await admin.query("INSERT INTO extensions(id,tenant_id,number,name,sip_secret,caller_id) VALUES($1,$2,'871001','Destino DID A','sem-uso','871001'),($3,$4,'871002','Destino DID B','sem-uso','871002')",['did-extension-a-'+id,tenantA,'did-extension-b-'+id,tenantB]);
     const didBody={did:'5532221000',trunkId:trunk.id,destinationType:'extension',destinationId:'871001',monthlyFee:0,billingCycleDay:10};
     const didCreatedResponse=await didRequest('POST','',didBody);assert.equal(didCreatedResponse.status,201);const managedDid=await didCreatedResponse.json();assert.equal(managedDid.did,'5532221000');assert.equal(managedDid.normalizedNumber,'+555532221000');assert.equal(Number(managedDid.monthlyFee),0);
+    const didPlan=await new AsteriskService().generateExtensionsConf(tenantA);assert.match(didPlan,/exten => 5532221000,1/);assert.match(didPlan,/exten => 555532221000,1/);assert.doesNotMatch(didPlan,/exten => 32221000,1/);
     assert.equal((await didRequest('POST','',{...didBody,did:'1132221001',destinationId:'871002'})).status,400);
     assert.equal((await didRequest('POST','',{...didBody,did:'1132221001',trunkId:foreignTrunk.id})).status,400);
     assert.equal((await didRequest('POST','',{...didBody,did:'1132221001',tenantId:tenantB})).status,400);
@@ -738,7 +740,13 @@ try {
     assert.equal((await didRequest('POST','/batch',{...conflictBatch,count:101})).status,400);
     assert.equal((await didRequest('POST','/simulate',{sourceIp:'127.0.0.1',rawDid:managedDid.did})).status,501);
     for(const patch of [{id:'forjado'},{tenantId:tenantB}])assert.equal((await fetch(base+'/api/v1/routes',{method:'POST',headers:testHeaders,body:JSON.stringify(patch)})).status,400);
+    await admin.query("UPDATE dids SET time_condition_enabled=true,fallback_type='human',fallback_target='4101' WHERE id=$1",[managedDid.id]);
+    assert.equal((await didRequest('PUT','/'+managedDid.id,{description:'Não substituir legado'})).status,501);
+    assert.equal((await didRequest('PUT','/'+managedDid.id,{status:'inactive'})).status,200);
+    const disabledLegacy=await DidRepository.findById(managedDid.id,tenantA);assert.equal(disabledLegacy?.timeConditionEnabled,true);assert.equal(disabledLegacy?.fallbackTarget,'4101');
+    assert.doesNotMatch(await new AsteriskService().generateExtensionsConf(tenantA),/exten => 5532221000,1/);
     for(const item of [managedDid,...importedDids.added])assert.equal((await didRequest('DELETE','/'+item.id)).status,200);
+    await admin.query('DELETE FROM extensions WHERE id=ANY($1::text[])',[['did-extension-a-'+id,'did-extension-b-'+id]]);
     const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
     for(const route of ['backup','restore']){
       const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});
