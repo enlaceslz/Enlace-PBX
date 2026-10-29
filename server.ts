@@ -1,3 +1,4 @@
+import {extensionBatch} from './server/infrastructure/asterisk/ExtensionBatch.js';
 import {extensionPatch} from './server/infrastructure/asterisk/ExtensionMutation.js';
 import {ExtensionManagementRepository} from './server/infrastructure/postgres/repositories/ExtensionManagementRepository.js';
 import {ivrPatch,managedIvr,renderIvr} from './server/infrastructure/asterisk/IvrMutation.js';
@@ -1271,130 +1272,16 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Quick Setup (FASE 6)
   // -------------------------------------------------------------------------
-  app.get(['/api/v1/setup/snapshots', '/api/v1/system/snapshots'], async (req, res) => {
-    try {
-      const list = await SystemRepository.getSnapshots();
-      res.json(list);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao listar snapshots' });
-    }
+  app.all(['/api/v1/setup/snapshots','/api/v1/system/snapshots','/api/v1/setup/rollback','/api/v1/system/snapshots/:id/rollback'],requireAuth,requireTenant,requireRole('super_admin','admin'),(_req,res)=>res.status(501).json({code:'LEGACY_SNAPSHOT_RETIRED',error:'Snapshot parcial legado retirado. Use backup integral e restauração em destino novo.'}));
+  app.post(['/api/v1/setup/preview','/api/v1/system/quick-setup/preview'],requireAuth,requireTenant,requireRole('super_admin','admin'),(req,res)=>{
+    try{return res.json({extensions:extensionBatch(req.body),status:'DRAFT_NOT_CREATED'});}catch(error){return extensionFailure(error,res);}
   });
-
-  app.post(['/api/v1/setup/preview', '/api/v1/system/quick-setup/preview'], (req, res) => {
-    const { prefix, quantity, startNumber, trunkName } = req.body;
-    const qty = parseInt(quantity) || 10;
-    const start = parseInt(startNumber) || 1;
-    
-    const previewExtensions = [];
-    for (let i = 0; i < qty; i++) {
-      const numStr = (start + i).toString().padStart(2, '0');
-      const ext = `${prefix}${numStr}`;
-      previewExtensions.push({ number: ext, name: `Ramal ${ext}` });
-    }
-    
-    res.json({
-      extensions: previewExtensions,
-      trunks: trunkName ? [{ name: trunkName, provider: 'SIP Genérico' }] : [],
-    });
-  });
-
-  app.post(['/api/v1/setup/apply', '/api/v1/system/quick-setup/apply'], requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const { prefix, quantity, startNumber, trunkName } = req.body;
-    let tId: string;
-    try {
-      tId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para aplicar configuração.' });
-    }
-    const qty = parseInt(quantity) || 10;
-    const start = parseInt(startNumber) || 1;
-
-    // Snapshot before applying
-    const snap = await SystemRepository.takeSnapshot(tId, `Pré-geração em massa (${prefix})`);
-
-    // Generate Extensions
-    const createdExtensions = [];
-    for (let i = 0; i < qty; i++) {
-      const numStr = (start + i).toString().padStart(2, '0');
-      const ext = `${prefix}${numStr}`;
-      const randomSecret = crypto.randomBytes(8).toString('hex');
-      
-      const newExt = {
-        id: `ext-${Date.now()}-${i}`,
-        tenantId: tId,
-        number: ext,
-        name: `Ramal ${ext}`,
-        sipSecret: `sec_${randomSecret}`,
-        context: 'from-internal',
-        callerId: `"${ext}" <${ext}>`,
-        codecs: ['alaw', 'ulaw', 'opus'],
-        nat: true,
-        webrtc: true,
-        recording: 'on_demand' as any,
-        voicemail: true,
-        dnd: false,
-        status: 'offline' as any,
-        allowAiTransfer: true,
-      };
-      createdExtensions.push(newExt);
-
-      try {
-        await ExtensionRepository.save(newExt);
-      } catch (e: any) {
-        logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      }
-    }
-
-    let createdTrunk = null;
-    if (trunkName) {
-      createdTrunk = {
-        id: `trunk-${Date.now()}`,
-        tenantId: tId,
-        name: trunkName,
-        providerName: trunkName,
-        host: 'sip.provider.com',
-        port: 5060,
-        username: 'user',
-        secretMasked: '********',
-        transport: 'UDP' as any,
-        callerId: '0800000000',
-        codecs: ['alaw', 'ulaw'],
-        context: 'from-trunk',
-        register: true,
-        status: 'unregistered' as any,
-        lastPingLatencyMs: null,
-        lastPingStatus: 'NOT_TESTED' as any,
-        lastPingAt: null,
-        channelsMax: 30,
-        channelsInUse: 0,
-      };
-
-      try {
-        await TrunkRepository.save(createdTrunk);
-      } catch (e: any) {
-        logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      }
-    }
-    
-    res.json({
-      success: true,
-      snapshotId: snap.id,
-      generatedCount: createdExtensions.length,
-      stats: { extensionsCount: createdExtensions.length },
-      trunk: createdTrunk
-    });
-  });
-
-  app.post(['/api/v1/setup/rollback', '/api/v1/system/snapshots/:id/rollback'], requireRole('super_admin', 'admin'), async (req, res) => {
-    const snapshotId = req.params.id || req.body.snapshotId;
-    const success = await SystemRepository.rollbackSnapshot(snapshotId);
-    if (success) {
-      res.json({ success: true, snapshotId });
-    } else {
-      res.status(400).json({ error: 'Falha no rollback. Snapshot não encontrado ou inválido.' });
-    }
-  });
+  app.post(['/api/v1/setup/apply','/api/v1/system/quick-setup/apply'],requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});
+    const items=extensionBatch(req.body);await extensionAudit(req,context.tenantId,'CREATE_EXTENSION_BATCH_ATTEMPT');
+    const ids=await ExtensionManagementRepository.createBatch(context.tenantId,items);
+    return res.status(201).json({success:true,generatedCount:ids.length,extensions:items.map((item,index)=>({...item,id:ids[index]})),status:'CREATED_NOT_APPLIED'});
+  }catch(error){return extensionFailure(error,res);}});
 
   // -------------------------------------------------------------------------
   // Dashboard Metrics (PRD Section 36) & Real-time SSE
@@ -1630,9 +1517,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       if (!ext.sipSecret || ext.sipSecret.trim() === '') {
-        ext.sipSecret = crypto.randomBytes(32).toString('base64url');
-        await ExtensionRepository.save(ext);
+        return res.status(409).json({code:'WEBRTC_CREDENTIAL_REQUIRES_ADMIN',error:'Ramal sem credencial SIP. Solicite correção administrativa; consulta não altera cadastro.'});
       }
+      if(!ext.webrtc)return res.status(409).json({code:'WEBRTC_DISABLED',error:'WebRTC não está habilitado neste ramal.'});
+      await extensionAudit(req,tenantId,'VIEW_OWN_WEBRTC_CREDENTIAL',ext.id);
 
       const infra = await SystemRepository.getInfraConfig();
       const domain = infra?.domain || process.env.PUBLIC_IP || req.hostname || '127.0.0.1';
