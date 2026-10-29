@@ -351,13 +351,14 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
       ? formData.authorizedIpsText.split(',').map((ip) => ip.trim()).filter((ip) => ip.length > 0)
       : [formData.host];
 
+    const {authorizedIpsText,natEnabled,...editable}=formData;
     const payload = {
-      ...formData,
+      ...editable,
       codecs: formData.codecs.split(',').map((c) => c.trim()),
       authorizedIps: authorizedIpsList,
       register: formData.authMode === 'credentials' ? formData.register : false,
       context: 'from-trunk',
-      failoverTrunkId: formData.failoverTrunkId || undefined,
+      failoverTrunkId: formData.failoverTrunkId,
     };
 
     try {
@@ -387,7 +388,8 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Deseja realmente remover o tronco ${name}?`)) return;
     try {
-      await trunkRequest(`/api/v1/trunks/${id}`, { method: 'DELETE' });
+      const response=await trunkRequest(`/api/v1/trunks/${id}`, { method: 'DELETE' });
+      if(!response.ok){const body=await response.json().catch(()=>({}));alert(body.error||'Exclusão não confirmada.');return;}
       onRefresh();
     } catch (err) {
       console.error('Delete error:', err);

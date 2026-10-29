@@ -1,3 +1,5 @@
+import {trunkPatch} from './server/infrastructure/asterisk/TrunkMutation.js';
+import {TrunkManagementRepository} from './server/infrastructure/postgres/repositories/TrunkManagementRepository.js';
 import {applyConfiguration} from './server/infrastructure/asterisk/ApplyConfiguration.js';
 import {logOperational} from './server/infrastructure/security/OperationalLog.js';
 import {healthEvidence,diagnosticEvidence} from './server/infrastructure/security/HealthEvidence.js';
@@ -1956,137 +1958,32 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/trunks', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    const name = String(req.body.name || '').trim();
-    const host = String(req.body.host || '').trim();
-    try { assertSingleLineConfig(req.body); } catch { return res.status(400).json({ error: 'Campos SIP devem conter uma única linha.' }); }
-
-    if (!name || !host) {
-      return res.status(400).json({ error: 'Nome do tronco e Host SIP (IP/FQDN) são campos obrigatórios.' });
-    }
-
-    try {
-      const existing = await TrunkRepository.listByTenant(tenantId);
-      const exists = existing.some((t) => t.name.toLowerCase() === name.toLowerCase());
-      if (exists) {
-        return res.status(409).json({ error: `Já existe um tronco SIP com o nome "${name}".` });
-      }
-
-      const trunk = {
-        ...req.body,
-        id: `trunk-${Date.now()}`,
-        tenantId,
-        channelsInUse: 0,
-        status: 'unregistered' as const,
-        secretMasked: '••••••••••••',
-        dtmfMode: req.body.dtmfMode || 'rfc4733',
-        qualifyFrequency: req.body.qualifyFrequency || 60,
-        directMedia: req.body.directMedia === true,
-        callerIdMode: req.body.callerIdMode || 'pai',
-        lastPingLatencyMs: null,
-        lastPingStatus: 'NOT_TESTED' as const,
-        lastPingAt: null,
-        name,
-        host,
-      };
-
-      await TrunkRepository.save(trunk);
-
-      recordAuditLog({
-        tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'CREATE_TRUNK',
-        resource: `trunks/${trunk.id}`,
-        details: `Novo tronco SIP [${trunk.name}] (${trunk.providerName}) cadastrado no host ${trunk.host}:${trunk.port}. Status inicial: NOT_TESTED.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: { trunkId: trunk.id, provider: trunk.providerName, host: trunk.host, transport: trunk.transport },
-      });
-
-      res.status(201).json(safeTrunkPayload(trunk));
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao persistir tronco SIP no PostgreSQL' });
-    }
+  const trunkMutationAudit=async(req:any,tenantId:string,action:string,fields:string[]=[],targetId?:string)=>{
+    const actor=req.user;
+    await AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action,resource:targetId?'trunks/'+targetId:'trunks/new',ip:req.ip||'127.0.0.1',category:'TELECOM_SIP',details:'Tentativa de alteração de cadastro; não aplica arquivos nem certifica registro SIP.',payload:{fields,requestId:req.res.locals.requestId}});
+  };
+  const trunkMutationError=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+  app.post('/api/v1/trunks',requireRole('super_admin','admin'),async(req,res)=>{
+    try{
+      const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa para cadastrar tronco.'});
+      const patch=trunkPatch(req.body,true);await trunkMutationAudit(req,context.tenantId,'CREATE_TRUNK_ATTEMPT',Object.keys(patch));
+      const id=await TrunkManagementRepository.mutate(context.tenantId,undefined,patch);
+      res.status(201).json(await TrunkRepository.findById(id,context.tenantId));
+    }catch(error){trunkMutationError(error,res);}
   });
-
-  app.put('/api/v1/trunks/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await findAuthorizedTrunk(req,req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Tronco não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-      
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await TrunkRepository.save(updated);
-
-      recordAuditLog({
-        tenantId: updated.tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'UPDATE_TRUNK',
-        resource: `trunks/${req.params.id}`,
-        details: `Tronco SIP [${updated.name}] atualizado. Transporte: ${updated.transport}, Failover: ${updated.failoverTrunkId || 'Nenhum'}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: { trunkId: req.params.id, changedFields: Object.keys(safeTrunkPayload(req.body)) },
-      });
-
-      res.json(safeTrunkPayload(updated));
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar tronco SIP no PostgreSQL' });
-    }
+  app.put('/api/v1/trunks/:id',requireRole('super_admin','admin'),async(req,res)=>{
+    try{
+      const prev=await findAuthorizedTrunk(req,req.params.id);if(!prev)return res.status(404).json({error:'Tronco não encontrado nesta empresa.'});
+      const patch=trunkPatch(req.body);await trunkMutationAudit(req,prev.tenantId,'UPDATE_TRUNK_ATTEMPT',Object.keys(patch),prev.id);
+      await TrunkManagementRepository.mutate(prev.tenantId,prev.id,patch);
+      res.json(await TrunkRepository.findById(prev.id,prev.tenantId));
+    }catch(error){trunkMutationError(error,res);}
   });
-
-  app.delete('/api/v1/trunks/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const trunk = await findAuthorizedTrunk(req,req.params.id);
-      if (!trunk) {
-        return res.status(404).json({ error: 'Tronco não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await TrunkRepository.delete(req.params.id, trunk.tenantId);
-
-      await recordCriticalAuditLog({
-        tenantId: trunk.tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'DELETE_TRUNK',
-        resource: `trunks/${req.params.id}`,
-        details: `Tronco SIP [${trunk.name}] excluído permanentemente da infraestrutura.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: { trunkId: req.params.id, name: trunk.name },
-      });
-
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir tronco SIP do PostgreSQL' });
-    }
+  app.delete('/api/v1/trunks/:id',requireRole('super_admin','admin'),async(req,res)=>{
+    try{
+      const trunk=await findAuthorizedTrunk(req,req.params.id);if(!trunk)return res.status(404).json({error:'Tronco não encontrado nesta empresa.'});
+      await trunkMutationAudit(req,trunk.tenantId,'DELETE_TRUNK_ATTEMPT',[],trunk.id);await TrunkManagementRepository.remove(trunk.tenantId,trunk.id);res.json({deleted:true});
+    }catch(error){trunkMutationError(error,res);}
   });
 
   // Sondas antigas não possuem política administrativa de destino nem evidência suficiente de registro SIP.
