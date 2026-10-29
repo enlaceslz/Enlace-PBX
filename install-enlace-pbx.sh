@@ -145,20 +145,8 @@ usermod -aG audio,dialout asterisk 2>/dev/null || true
 
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
 chown -R asterisk:asterisk /var/{lib,log,run,spool}/asterisk
-# Configuração usa os mesmos segredos do serviço, sem valores previsíveis.
-if [[ -L /etc/asterisk || ! -d /etc/asterisk ]]; then echo "Diretório Asterisk inválido; revise manualmente." >&2; exit 1; fi
-chown root:asterisk /etc/asterisk
-chmod 0750 /etc/asterisk
-for config_name in manager ari http asterisk pjsip extensions queues; do
-  config_path="/etc/asterisk/${config_name}.conf"
-  if [[ -L "$config_path" || ( -e "$config_path" && ! -f "$config_path" ) ]]; then echo "Configuração Asterisk não regular; revise manualmente." >&2; exit 1; fi
-  if [[ -f "$config_path" ]]; then chown root:asterisk "$config_path"; chmod 0640 "$config_path"; fi
-done
+# O helper assume posse por descritor e não segue links nos destinos.
 node "$SCRIPT_DIR/scripts/asterisk-settings.mjs"
-for config_name in manager ari http asterisk pjsip extensions queues; do
-  config_path="/etc/asterisk/${config_name}.conf"
-  if [[ -f "$config_path" ]]; then chown root:asterisk "$config_path"; chmod 0640 "$config_path"; fi
-done
 
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"

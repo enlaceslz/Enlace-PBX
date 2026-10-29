@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {AnchoredDirectory,readBounded} from './anchored-files.mjs';
 import {ariInputs} from '../server/infrastructure/asterisk/ariPolicy.mjs';
 
 export function updateIni(text,section,fields){
@@ -24,14 +26,17 @@ export function updateIni(text,section,fields){
 
 export function includeManaged(text,managed){
   if(!/^\/var\/lib\/enlace-pbx\/asterisk\/(pjsip|extensions|queues)\.conf$/.test(managed))throw new Error('Include gerenciado inválido.');
+  const parse=line=>{const match=line.match(/^[ \t]*#(tryinclude|include)[ \t]+(?:"([^"]+)"|<([^>]+)>|([^;\s"<>]+))[ \t]*(?:;.*)?$/);return match?{kind:match[1],target:match[2]??match[3]??match[4]}:undefined;};
   let count=0;
-  for(const line of text.split('\n')){
-    const match=line.match(/^[ \t]*#include[ \t]+["<]?([^">;\s]+)[">]?[ \t]*(?:;.*)?$/);
-    if(match?.[1]===managed)count++;
-    else if(line.trim().startsWith('#include')&&line.includes(managed))throw new Error('Include ambíguo exige revisão manual.');
+  const lines=text.split('\n');
+  for(const line of lines){
+    const match=parse(line);
+    if(match?.target===managed)count++;
+    else if(/^#(?:try)?include/.test(line.trim())&&line.includes(managed))throw new Error('Include ambíguo exige revisão manual.');
   }
   if(count>1)throw new Error('Include gerenciado duplicado exige revisão manual.');
-  return count?text:text+'\n; Arquivo gerenciado pelo Enlace-PBX\n#include '+managed+'\n';
+  if(count)return lines.map(line=>parse(line)?.target===managed?line.replace('#include','#tryinclude'):line).join('\n');
+  return text+'\n; Arquivo gerenciado pelo Enlace-PBX\n#tryinclude '+managed+'\n';
 }
 
 export function asteriskSettings(settings) {
@@ -53,37 +58,49 @@ export function asteriskSettings(settings) {
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
   if (!process.env.PBX_CONFIG_FILE) throw new Error('PBX_CONFIG_FILE obrigatório.');
   const configuration = asteriskSettings(JSON.parse(fs.readFileSync(process.env.PBX_CONFIG_FILE, 'utf8')));
-  const directory = '/etc/asterisk';
-  const directoryState=fs.lstatSync(directory);
-  if(!directoryState.isDirectory()||directoryState.uid!==0||(directoryState.mode&0o022)!==0)throw new Error('Diretório Asterisk deve pertencer ao root e recusar escrita de grupo/outros.');
-  const plan=Object.entries(configuration).map(([file,sections])=>{
-    const target=path.join(directory,file);
-    if(fs.existsSync(target)&&!fs.lstatSync(target).isFile())throw new Error('Arquivo Asterisk não regular exige revisão manual.');
-    let text=fs.existsSync(target)?fs.readFileSync(target,'utf8'):'';
-    for(const [section,fields] of Object.entries(sections))text=updateIni(text,section,fields);
-    return {target,text};
-  });
-  for(const file of ['pjsip.conf','extensions.conf','queues.conf']){
-    const managed='/var/lib/enlace-pbx/asterisk/'+file;
-    if(!fs.existsSync(managed))continue;
-    if(!fs.lstatSync(managed).isFile())throw new Error('Configuração gerenciada não regular exige revisão manual.');
-    const target=path.join(directory,file);
-    if(fs.existsSync(target)&&!fs.lstatSync(target).isFile())throw new Error('Arquivo Asterisk não regular exige revisão manual.');
-    let text=fs.existsSync(target)?fs.readFileSync(target,'utf8'):'';
-    text=includeManaged(text,managed);
-    plan.push({target,text});
-  }
-  // A preparação integral evita escrita parcial por erro de sintaxe detectável.
-  // Falhas de E/S ou interrupção ainda exigem recuperação no host antes da recarga.
-  for(const {target,text} of plan){
-    const nonce=crypto.randomUUID();
-    if(fs.existsSync(target)){
-      const backup=target+'.antes-enlace-'+nonce;
-      fs.copyFileSync(target,backup,fs.constants.COPYFILE_EXCL);fs.chmodSync(backup,0o600);
+  const group=Number(execFileSync('getent',['group','asterisk'],{encoding:'utf8'}).trim().split(':')[2]);
+  const asteriskUid=Number(execFileSync('id',['-u','asterisk'],{encoding:'utf8'}).trim());
+  if(!Number.isSafeInteger(group)||group<1||!Number.isSafeInteger(asteriskUid)||asteriskUid<1)throw new Error('Identidade Asterisk inválida.');
+  const directory=new AnchoredDirectory('/etc/asterisk');
+  const plan=[];const staged=[];let locked=false;
+  try{
+    const state=directory.state();
+    if(![0,asteriskUid].includes(state.uid))throw new Error('Proprietário do diretório Asterisk inesperado.');
+    fs.fchownSync(directory.fd,0,group);fs.fchmodSync(directory.fd,0o750);
+    directory.create('.enlace-settings.lock',String(process.pid),{uid:0,gid:0,mode:0o600});locked=true;
+    // A posse do diretório é fixada antes de abrir seus arquivos.
+    const readFile=file=>{
+      let fd;
+      try{
+        fd=fs.openSync(directory.location(file),fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|fs.constants.O_NONBLOCK);
+        const stat=fs.fstatSync(fd);
+        if(!stat.isFile()||stat.nlink!==1||![0,asteriskUid].includes(stat.uid))throw new Error('Configuração Asterisk inválida ou vinculada.');
+        fs.fchownSync(fd,0,group);fs.fchmodSync(fd,0o640);
+        return readBounded(fd);
+      }catch(error){if(error.code==='ENOENT')return undefined;throw error;}
+      finally{if(fd!==undefined)fs.closeSync(fd);}
+    };
+    for(const [file,sections] of Object.entries(configuration)){
+      const previous=readFile(file);let text=previous?.toString('utf8')??'';
+      for(const [section,fields] of Object.entries(sections))text=updateIni(text,section,fields);
+      plan.push({file,text,previous});
     }
-    const temporary=target+'.enlace-'+nonce+'.tmp';
-    try{fs.writeFileSync(temporary,text,{mode:0o640,flag:'wx'});fs.renameSync(temporary,target);fs.chmodSync(target,0o640);}
-    finally{fs.rmSync(temporary,{force:true});}
+    // Includes são declarados sem abrir caminhos controlados pelo processo web como root.
+    for(const file of ['pjsip.conf','extensions.conf','queues.conf']){
+      const previous=readFile(file);
+      const text=includeManaged(previous?.toString('utf8')??'','/var/lib/enlace-pbx/asterisk/'+file);
+      plan.push({file,text,previous});
+    }
+    // Backups usam os bytes já lidos; não reabrem o nome original.
+    for(const item of plan){
+      if(item.previous!==undefined)directory.create(item.file+'.antes-enlace-'+crypto.randomUUID(),item.previous,{uid:0,gid:0,mode:0o600});
+      const temporary=directory.stage(item.file,item.text,{uid:0,gid:group,mode:0o640});staged.push({temporary,file:item.file});
+    }
+    fs.fsyncSync(directory.fd);
+    for(const item of staged)directory.activate(item.temporary,item.file);
+  }finally{
+    try{for(const item of staged)directory.remove(item.temporary);if(locked)directory.remove('.enlace-settings.lock');}
+    finally{directory.close();}
   }
   console.log('Configuração Asterisk atualizada preservando seções não gerenciadas.');
 }

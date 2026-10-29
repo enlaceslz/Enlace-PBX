@@ -152,6 +152,6 @@ test('edição INI remove chaves antigas sem diferenciar maiúsculas e recusa se
 test('include gerenciado de queues.conf é idempotente e recusa duplicidade',async()=>{
  const {includeManaged}=await import('./asterisk-settings.mjs');const target='/var/lib/enlace-pbx/asterisk/queues.conf';
  const once=includeManaged('[general]\n',target);assert.equal(includeManaged(once,target),once);
- const quoted='#include "'+target+'" ; mantido\n';assert.equal(includeManaged(quoted,target),quoted);
+ const quoted='#include "'+target+'" ; mantido\n';assert.equal(includeManaged(quoted,target),quoted.replace('#include','#tryinclude'));
  assert.throws(()=>includeManaged(once+quoted,target));assert.throws(()=>includeManaged('',target+'\n#exec comando'));
 });

@@ -19,13 +19,17 @@ id enlace-pbx >/dev/null 2>&1 || useradd --system --gid enlace-pbx --home-dir /v
 install -d -m 0755 -o root -g root /opt/enlace-pbx /opt/enlace-pbx/releases
 install -d -m 0750 -o root -g enlace-pbx /etc/enlace-pbx
 install -d -m 2750 -o root -g enlace-pbx /var/backups/enlace-pbx
-install -d -m 0750 -o enlace-pbx -g enlace-pbx /var/lib/enlace-pbx /var/log/enlace-pbx /var/lib/enlace-pbx/asterisk
+for data_path in /var/lib/enlace-pbx /var/log/enlace-pbx; do
+  if [[ -L "$data_path" || ( -e "$data_path" && ! -d "$data_path" ) ]]; then echo "Diretório de dados inválido." >&2; exit 1; fi
+done
+install -d -m 0750 -o enlace-pbx -g enlace-pbx /var/lib/enlace-pbx /var/log/enlace-pbx
+"$NODE_BIN" "$SOURCE_DIR/scripts/prepare-managed-asterisk.mjs"
 
 # O Asterisk lê somente o diretório gerenciado, sem acesso à configuração secreta do serviço.
 if getent group asterisk >/dev/null; then
   usermod -aG asterisk enlace-pbx
   chmod 0751 /var/lib/enlace-pbx
-  chgrp asterisk /var/lib/enlace-pbx/asterisk
+
 fi
 
 # A instalação anterior continua atendendo enquanto a nova versão é compilada.
@@ -61,27 +65,8 @@ fi
 if getent passwd asterisk >/dev/null && [[ -d /etc/asterisk ]]; then
   usermod -aG asterisk enlace-pbx
   chmod 0751 /var/lib/enlace-pbx
-  chown enlace-pbx:asterisk /var/lib/enlace-pbx/asterisk
-  chmod 2750 /var/lib/enlace-pbx/asterisk
-  if [[ ! -f /var/lib/enlace-pbx/asterisk/pjsip.conf ]]; then
-    install -m 0640 -o enlace-pbx -g asterisk /dev/null /var/lib/enlace-pbx/asterisk/pjsip.conf
-  fi
-  if [[ ! -f /var/lib/enlace-pbx/asterisk/extensions.conf ]]; then
-    install -m 0640 -o enlace-pbx -g asterisk /dev/null /var/lib/enlace-pbx/asterisk/extensions.conf
-  fi
-  if [[ -L /etc/asterisk || ! -d /etc/asterisk ]]; then echo "Diretório Asterisk inválido; revise manualmente." >&2; exit 1; fi
-  chown root:asterisk /etc/asterisk
-  chmod 0750 /etc/asterisk
-  for config_name in manager ari http asterisk pjsip extensions queues; do
-    config_path="/etc/asterisk/${config_name}.conf"
-    if [[ -L "$config_path" || ( -e "$config_path" && ! -f "$config_path" ) ]]; then echo "Configuração Asterisk não regular; revise manualmente." >&2; exit 1; fi
-    if [[ -f "$config_path" ]]; then chown root:asterisk "$config_path"; chmod 0640 "$config_path"; fi
-  done
-  if [[ ! -f /var/lib/enlace-pbx/asterisk/queues.conf ]]; then
-    install -m 0640 -o enlace-pbx -g asterisk /dev/null /var/lib/enlace-pbx/asterisk/queues.conf
-  fi
+  "$NODE_BIN" scripts/prepare-managed-asterisk.mjs
   PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" scripts/asterisk-settings.mjs
-  chown root:asterisk /etc/asterisk/{manager,ari,http,asterisk,pjsip,extensions,queues}.conf
   asterisk -rx "manager reload"
 fi
 # TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.
