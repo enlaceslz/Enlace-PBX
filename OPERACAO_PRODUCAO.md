@@ -289,3 +289,11 @@ Admin de empresa não modifica contas superadmin, inclusive senha e e-mail. Apen
 A revisão está no banco e o vínculo JWT usa JWT_SECRET. Ao restaurar backup antigo e preparar o corte, substitua JWT_SECRET por novo segredo forte para invalidar tokens do estado anterior; não altere ENCRYPTION_KEY sem o procedimento de recifragem, pois ela protege credenciais. Dados de backup podem representar revisão de sessão anterior. Nenhum reset global de senhas ou corte de produção foi executado pela auditoria.
 
 O ticket SSE mantém a empresa autorizada na emissão. Query ou cabeçalhos da conexão não alteram esse escopo; para mudar a empresa, emita novo ticket no contexto autorizado correspondente.
+
+### Encerramento local de sessão e telemetria no navegador
+
+O painel verifica /auth/me antes de abrir a área privada. Não há simulação de perfil pela barra superior. Rejeição de autenticação/revogação da API local remove o token e o alias antigo, limpa estados carregados e retorna ao login. Permissão negada comum e falha de rede não significam, por si, que a sessão foi revogada. Logout local não invalida uma cópia externa de JWT ainda válida no servidor; alterações de segurança/revisão de conta e rotação de JWT_SECRET mantêm o comportamento documentado.
+
+Login/logout em outra aba propagam a troca de contexto pelo armazenamento. A seleção de empresa é local à instância do painel, em memória, e as requisições autenticadas recebem esse alvo quando não trazem alvo explícito. Troca de empresa limpa dados carregados e fecha o webphone local; confirmar comportamento de chamada/SIP no host antes do uso operacional. Cancelar uma requisição no navegador não desfaz uma mutação que já chegou ao servidor.
+
+Telemetria para após cinco falhas consecutivas sem frame válido. Cada tentativa usa ticket novo, com timeout de seis segundos; ausência de frame por quinze segundos provoca reconexão controlada. Frame de empresa divergente não é aplicado. Após indisponibilidade persistente, recarregue o painel para tentar novamente. Frontend e backend precisam ser da mesma revisão de contrato SSE; validar reconexão, múltiplas abas e revogação no navegador de produção.
