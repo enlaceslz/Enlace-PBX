@@ -176,6 +176,10 @@ try {
   ] });
   assert.equal((await EntitySchemaRepository.list(tenantB)).length, 0);
   recordingsRoot=await mkdtemp(path.join(os.tmpdir(),'pbx-recordings-ci-'));
+  const backupName='enlace-123456-abcdef01.epbx';
+  const backupBytes=Buffer.concat([Buffer.from('EPBXBK01'),Buffer.alloc(64,3)]);
+  await writeFile(path.join(recordingsRoot,backupName),backupBytes);
+  await writeFile(path.join(recordingsRoot,backupName+'.json'),JSON.stringify({format:1,name:backupName,bytes:backupBytes.length,createdAt:new Date().toISOString(),secret:'manifesto-privado'}));
   const recordingBytes=Buffer.from('RIFF0000WAVEarquivo-original-ci');await writeFile(path.join(recordingsRoot,'original.wav'),recordingBytes);
   const cdrA='cdr-a-'+id;const cdrB='cdr-b-'+id;
   await admin.query(`INSERT INTO cdr(id,uniqueid,tenant_id,caller,callee,direction,start_time,end_time,disposition,recording_file,transcription,summary)
@@ -184,7 +188,7 @@ try {
   const child = spawn(process.execPath, ['dist/server.cjs'], {
     env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
       OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
-      RECORDINGS_ROOT:recordingsRoot,CDR_ANALYSIS_ENABLED_TENANTS:tenantA,CDR_ANALYSIS_MODEL:'modelo-cdr-test',
+      PBX_BACKUP_DIRECTORY:recordingsRoot,RECORDINGS_ROOT:recordingsRoot,CDR_ANALYSIS_ENABLED_TENANTS:tenantA,CDR_ANALYSIS_MODEL:'modelo-cdr-test',
       NINEROUTER_URL: origin + '/v1', NINEROUTER_API_KEY: 'segredo-extracao-ci', ENTITY_EXTRACTION_MODEL: 'modelo-extracao-test', ENTITY_EXTRACTION_ENABLED_TENANTS: tenantA,
       QUALITY_REVIEW_MODEL: 'modelo-quality-test',QUALITY_REVIEW_ENABLED_TENANTS: tenantA,
       COPILOT_MODEL:'modelo-copilot-test',COPILOT_ENABLED_TENANTS:tenantA,
@@ -642,6 +646,17 @@ try {
       }
     }
     await setCompanyBRole('operator');
+    const backupList=await fetch(base+'/api/v1/system/backups',{headers:rootHeaders});assert.equal(backupList.status,200);
+    const backupInventory=await backupList.json();assert.equal(backupInventory.length,1);assert.equal(backupInventory[0].integrity,'not_verified');assert.equal(JSON.stringify(backupInventory).includes('manifesto-privado'),false);
+    const backupUrl=base+'/api/v1/system/backups/'+backupName+'/download';
+    assert.equal((await fetch(backupUrl,{headers:testHeaders})).status,403);
+    assert.equal((await fetch(backupUrl)).status,401);
+    const backupDownload=await fetch(backupUrl,{headers:rootHeaders});assert.equal(backupDownload.status,200);
+    assert.equal(backupDownload.headers.get('content-type'),'application/octet-stream');assert.equal(backupDownload.headers.get('cache-control'),'no-store');assert.equal(backupDownload.headers.get('content-length'),String(backupBytes.length));
+    assert.deepEqual(Buffer.from(await backupDownload.arrayBuffer()),backupBytes);
+    assert.equal((await admin.query("SELECT count(*)::int AS total FROM audit_logs WHERE user_id=$1 AND action='BACKUP_DOWNLOAD'",[session.user.id])).rows[0].total,1);
+    const headBackup=await fetch(backupUrl,{method:'HEAD',headers:rootHeaders});assert.equal(headBackup.status,200);assert.equal((await headBackup.arrayBuffer()).byteLength,0);
+    assert.equal((await fetch(base+'/api/v1/system/backups/enlace-999999-abcdef01.epbx/download',{headers:rootHeaders})).status,404);
     const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
     for(const route of ['backup','restore']){
       const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});

@@ -1,3 +1,4 @@
+import {pipeline} from 'node:stream/promises';
 import { retiredJsonBackup } from './server/infrastructure/security/RetiredJsonBackup.js';
 import {DashboardRepository} from './server/infrastructure/postgres/repositories/DashboardRepository.js';
 import {metricAccess,visibleChannels,channelDto,assertOwnCaller,ownChannelOnly,metricsDto} from './server/infrastructure/auth/TelemetryPolicy.js';
@@ -22,7 +23,7 @@ import { executeAiToolHttp, validateToolDefinition } from './server/maia/integra
 import { OutboundHttpError } from './server/infrastructure/security/OutboundHttp.js';
 import { assertSingleLineConfig, safeTrunkPayload } from './server/infrastructure/asterisk/configValidation.js';
 import { TicketRepository } from './server/infrastructure/postgres/repositories/TicketRepository.js';
-import { listBackups, backupPath } from './server/infrastructure/security/BackupInventory.js';
+import { listBackups, openBackup } from './server/infrastructure/security/BackupInventory.js';
 import './server/config/loadEnvironment.js';
 import 'express-async-errors';
 import express from 'express';
@@ -1592,14 +1593,25 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json(await listBackups());
   });
   app.get('/api/v1/system/backups/:name/download', requireRole('super_admin'), async (req, res) => {
-    const inventory = await listBackups();
-    if (!inventory.some(backup => backup.name === req.params.name)) return res.status(404).json({ error: 'Backup não encontrado.' });
-    const actor = (req as any).user;
-    await AuditLogRepository.logStrict({ tenantId: actor.tenantId, userId: actor.id, userName: actor.name,
-      action: 'BACKUP_DOWNLOAD', category: 'LGPD_ACCESS', resource: `backups/${req.params.name}`,
-      ip: req.ip || '127.0.0.1', details: 'Download administrativo de cópia integral criptografada.' });
-    res.setHeader('Cache-Control', 'no-store');
-    res.download(backupPath(req.params.name), req.params.name);
+    let file:Awaited<ReturnType<typeof openBackup>>|undefined;
+    try{
+      file=await openBackup(req.params.name);
+      const actor=(req as any).user;
+      await AuditLogRepository.logStrict({tenantId:actor.tenantId,userId:actor.id,userName:actor.name,
+        action:'BACKUP_DOWNLOAD',category:'LGPD_ACCESS',resource:`backups/${file.name}`,
+        ip:req.ip||'127.0.0.1',details:'Tentativa de download de cópia criptografada; não comprova conclusão ou integridade da recuperação.'});
+      if(res.destroyed)return;
+      res.setHeader('Cache-Control','no-store');
+      res.setHeader('Content-Type','application/octet-stream');
+      res.setHeader('Content-Disposition',`attachment; filename="${file.name}"`);
+      res.setHeader('Content-Length',file.size);
+      if(req.method==='HEAD')return res.end();
+      await pipeline(file.handle.createReadStream({autoClose:false,start:0,end:file.size-1}),res);
+    }catch(error){
+      if(res.headersSent||res.destroyed){res.destroy();return;}
+      if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});
+      throw error;
+    }finally{await file?.handle.close();}
   });
 
   app.get('/api/v1/dashboard/metrics', requireAuth, requireTenant,requireRole('super_admin','admin','supervisor','readonly'), async (req, res) => {

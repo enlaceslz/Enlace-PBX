@@ -89,9 +89,10 @@ test('inventário só anuncia arquivos completos e não segue links', async () =
   process.env.PBX_BACKUP_DIRECTORY = directory;
   try {
     const name = 'enlace-123456-abcdef01.epbx';
-    await fs.writeFile(path.join(directory, name), 'encrypted-fixture');
+    const bytes=Buffer.concat([Buffer.from('EPBXBK01'),Buffer.alloc(40)]);
+    await fs.writeFile(path.join(directory, name), bytes);
     assert.deepEqual(await listBackups(), []);
-    await fs.writeFile(path.join(directory, name + '.json'), JSON.stringify({ format: 1, createdAt: new Date().toISOString(), password: 'nunca-retornar' }));
+    await fs.writeFile(path.join(directory, name + '.json'), JSON.stringify({ format: 1, name, bytes:bytes.length, createdAt: new Date().toISOString(), password: 'nunca-retornar' }));
     const list = await listBackups();
     assert.equal(list.length, 1);
     assert.equal('password' in list[0], false);

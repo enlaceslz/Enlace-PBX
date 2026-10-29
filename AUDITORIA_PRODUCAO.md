@@ -246,3 +246,7 @@ Métricas são agregadas no PostgreSQL por empresa e dia em America/Fortaleza, c
 ### Retirada definitiva das rotas JSON legadas
 
 As rotas system/backup e system/restore retornam 501/LEGACY_BACKUP_RETIRED em todos os ambientes após autenticação e autorização de plataforma. O código de exportação global de usuários/configurações e de restauração parcial que ignorava erros foi removido. Nenhum corpo JSON é aplicado às contas ou demais entidades. O inventário/download administrativo criptografado e a recuperação operacional em banco e diretório novos permanecem como fluxo suportado. Testes HTTP cobrem métodos e variações de rota; integração PostgreSQL verifica recusa administrativa, ausência de exportação e preservação das contas.
+
+### Leitura segura de cópias pelo painel
+
+Inventário e download abrem arquivo e manifesto por descritor Linux, recusam links, diretórios, referências fora do formato e manifesto acima de 1 MB. O cabeçalho EPBXBK01, nome, tamanho e data precisam ser coerentes. A resposta usa o mesmo descritor validado e limita os bytes ao tamanho observado, sem reabrir o caminho. Auditoria estrita precede a resposta; cancelamento/falha encerra a transferência e fecha o descritor. O inventário identifica o formato, mas não autentica AES-GCM nem certifica recuperação: integrity=not_verified. A validação criptográfica continua exclusiva do procedimento com chave separada.

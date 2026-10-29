@@ -42,7 +42,7 @@ export const BackupRestoreView: React.FC = () => {
         <p className="text-sm text-amber-900 mt-3">A chave de backup deve ser guardada separadamente. A recuperação autentica o arquivo, cria um banco novo e compara a quantidade de registros. O administrador valida o ambiente recuperado antes de substituir a central em operação.</p></div>
     </div>
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-      <h2 className="px-5 py-4 font-bold text-slate-900 border-b border-slate-200">Arquivos disponíveis</h2>
+      <h2 className="px-5 py-4 font-bold text-slate-900 border-b border-slate-200">Arquivos disponíveis</h2><p className="px-5 py-3 text-sm text-slate-600">Formato criptografado identificado. A listagem e o download não verificam a autenticação AES-GCM; a integridade é validada durante a recuperação com a chave separada.</p>
       {loading ? <p className="p-6 text-sm text-slate-500">Consultando o servidor…</p> : backups.length === 0 ? <p className="p-6 text-sm text-slate-500">Nenhuma cópia disponível. Configure a rotina de backup e verifique a primeira recuperação.</p> :
         <ul className="divide-y divide-slate-100">{backups.map(backup => <li key={backup.name} className="p-5 flex flex-wrap justify-between items-center gap-4">
           <div><p className="font-mono text-sm text-slate-900 break-all">{backup.name}</p><p className="text-xs text-slate-500 mt-2">{new Date(backup.createdAt).toLocaleString('pt-BR')} · {(backup.bytes / (1024 * 1024)).toFixed(2)} MB · Criptografado</p></div>
