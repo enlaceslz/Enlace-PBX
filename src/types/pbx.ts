@@ -20,8 +20,9 @@ export interface Tenant {
   antiFraud?: TenantAntiFraud;
 }
 
-export type UserRole = 'super_admin' | 'admin' | 'supervisor' | 'operador' | 'usuario' | 'auditor';
+export type UserRole = 'super_admin' | 'admin' | 'supervisor' | 'operador' | 'usuario' | 'auditor' | 'operator' | 'agent' | 'readonly';
 export interface User {
+  authVersion?: number;
   role: UserRole;
   id: string;
   tenantId: string;
@@ -30,7 +31,7 @@ export interface User {
   passwordHash?: string;
   extension?: string;
   isActive: boolean;
-  lastLogin: string;
+  lastLogin?: string;
 }
 
 export interface Extension {

@@ -33,6 +33,7 @@ export class UserRepository {
             email: row.email,
             role: row.role,
             passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: parseIsoDate(row.last_login),
@@ -71,6 +72,7 @@ export class UserRepository {
             email: row.email,
             role: row.role,
             passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: parseIsoDate(row.last_login),
@@ -97,6 +99,7 @@ export class UserRepository {
             email: row.email,
             role: row.role,
             passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: parseIsoDate(row.last_login),
@@ -241,6 +244,8 @@ export class UserRepository {
           );
           if (fnRes.rows.length > 0) {
             const row = fnRes.rows[0];
+            const version=await client.query('SELECT auth_version FROM users WHERE id=$1 AND tenant_id=$2',[row.id,row.tenant_id]);
+            row.auth_version=version.rows[0]?.auth_version || 0;
             return {
               id: row.id,
               tenantId: row.tenant_id,
@@ -248,6 +253,7 @@ export class UserRepository {
               email: row.email,
               role: row.role,
               passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
               extension: row.extension || undefined,
               isActive: row.is_active,
               lastLogin: undefined,
@@ -267,6 +273,7 @@ export class UserRepository {
             email: row.email,
             role: row.role,
             passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: parseIsoDate(row.last_login),

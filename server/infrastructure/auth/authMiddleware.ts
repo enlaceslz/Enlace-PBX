@@ -1,3 +1,4 @@
+import { validCredentialStamp } from './CredentialStamp.js';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -119,6 +120,8 @@ export interface AuthenticatedRequest extends Request {
     name: string;
     extension?: string;
     permissions?: string[];
+    authStamp?: string;
+    identityTenantId?: string;
   };
   tenantId?: string;
   tenantContext?: TenantContext;
@@ -140,6 +143,8 @@ export interface SseTicketData {
   role: UserRole;
   name: string;
   extension?: string;
+  authStamp?: string;
+  identityTenantId?: string;
   scope: 'sse';
   createdAt: number;
   expiresAt: number;
@@ -158,6 +163,7 @@ export class SseTicketManager {
       role: UserRole;
       name: string;
       extension?: string;
+      authStamp?: string;
     },
     tenantId?: string
   ): { ticket: string; expiresInSeconds: number } {
@@ -174,6 +180,8 @@ export class SseTicketManager {
       role: user.role,
       name: user.name,
       extension: user.extension,
+      authStamp:user.authStamp,
+      identityTenantId:user.tenantId,
       scope: 'sse',
       createdAt: now,
       expiresAt: now + this.TTL_MS,
@@ -243,6 +251,8 @@ export class SseTicketManager {
         role: ticketData.role,
         name: ticketData.name,
         extension: ticketData.extension,
+        authStamp:ticketData.authStamp,
+        identityTenantId:ticketData.identityTenantId,
       },
       tenantId: ticketData.tenantId,
     };
@@ -309,6 +319,7 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
       });
     }
 
+    if(!validCredentialStamp(decoded.authStamp,user,secret))return res.status(401).json({error:'Sessão revogada. Entre novamente.',code:'AUTH_SESSION_REVOKED'});
     const normalizedRole = normalizeRole(user.role);
 
     req.user = {
@@ -319,6 +330,8 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
       name: user.name,
       extension: user.extension,
       permissions: ROLE_PERMISSIONS[normalizedRole] || [],
+      authStamp:decoded.authStamp,
+      identityTenantId:user.tenantId,
     };
 
     // Define o tenant inicial baseado na sessão autenticada (nunca no input do cliente)
@@ -365,6 +378,7 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
         return res.status(403).json({ error: 'Conta de usuário desativada.', code: 'AUTH_USER_INACTIVE' });
       }
 
+      if(!validCredentialStamp(decoded.authStamp,user,secret))return res.status(401).json({error:'Sessão revogada. Entre novamente.',code:'AUTH_SESSION_REVOKED'});
       req.user = {
         id: user.id,
         tenantId: user.tenantId,
@@ -373,6 +387,8 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
         name: user.name,
         extension: user.extension,
         permissions: ROLE_PERMISSIONS[normalizeRole(user.role)] || [],
+        authStamp:decoded.authStamp,
+        identityTenantId:user.tenantId,
       };
       req.tenantId = user.tenantId;
       return next();
@@ -395,6 +411,8 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
   // 3. Validação estrita do ticket efêmero
   try {
     const session = SseTicketManager.consumeTicket(queryTicket);
+    const current=await UserRepository.findById(session.user.id,session.user.identityTenantId||session.user.tenantId);
+    if(!current || !current.isActive || !validCredentialStamp(session.user.authStamp,current,getJwtSecret()))return res.status(401).json({error:'Ticket SSE revogado. Entre novamente.',code:'AUTH_SESSION_REVOKED'});
     req.user = session.user;
     req.tenantId = session.tenantId;
     return next();

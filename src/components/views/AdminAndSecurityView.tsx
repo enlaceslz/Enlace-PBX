@@ -1,3 +1,4 @@
+import {getAuthHeaders} from '../../utils/api';
 import {csvDocument,downloadCsv} from '../../utils/reportData';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
@@ -63,11 +64,14 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
 
   // User management modals
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [userPassword,setUserPassword]=useState('');
+  const [userError,setUserError]=useState('');
+  const [userBusy,setUserBusy]=useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userFormData, setUserFormData] = useState({
     name: '',
     email: '',
-    role: 'operador' as User['role'],
+    role: 'operator' as User['role'],
     extension: '',
     tenantId: tenants[0]?.id || '',
   });
@@ -110,12 +114,14 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
 
   // Open modal to create or edit user
   const handleOpenUserModal = (user?: User) => {
+    if(userBusy)return;
+    setUserPassword('');setUserError('');
     if (user) {
       setEditingUser(user);
       setUserFormData({
         name: user.name,
         email: user.email,
-        role: user.role,
+        role: (user.role==='operador'?'operator':user.role==='auditor'?'readonly':user.role==='usuario'?'agent':user.role) as any,
         extension: user.extension || '',
         tenantId: user.tenantId,
       });
@@ -124,7 +130,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
       setUserFormData({
         name: '',
         email: '',
-        role: 'operador',
+        role: 'operator' as any,
         extension: '',
         tenantId: tenants[0]?.id || '',
       });
@@ -132,39 +138,27 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
     setIsUserModalOpen(true);
   };
 
-  const handleSaveUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      if (editingUser) {
-        await fetch(`/api/v1/users/${editingUser.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(userFormData),
-        });
-      } else {
-        await fetch('/api/v1/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(userFormData),
-        });
-      }
-      setIsUserModalOpen(false);
-      onRefresh?.();
-    } catch (err) {
-      console.error('Error saving user:', err);
-    }
+  const handleSaveUser=async(event:React.FormEvent)=>{
+    event.preventDefault();if(userBusy)return;setUserBusy(true);setUserError('');
+    try{
+      const {tenantId,...fields}=userFormData;
+      const response=await fetch(editingUser?`/api/v1/users/${encodeURIComponent(editingUser.id)}`:'/api/v1/users',{
+        method:editingUser?'PUT':'POST',headers:getAuthHeaders(tenantId?{'x-tenant-id':tenantId}:{}),
+        body:JSON.stringify({...fields,...(userPassword?{password:userPassword}:{})})});
+      const result=await response.json();if(!response.ok)throw new Error(result.error||'Alteração de usuário recusada.');
+      setUserPassword('');setIsUserModalOpen(false);onRefresh?.();
+    }catch(error){setUserError(error instanceof Error?error.message:'Não foi possível salvar o usuário.');}
+    finally{setUserBusy(false);}
   };
-
-  const handleDeleteUser = async (id: string, name: string) => {
-    if (!confirm(`Confirma a exclusão do usuário ${name}? Esta ação é irreversível e ficará registrada no log da LGPD.`)) {
-      return;
-    }
-    try {
-      await fetch(`/api/v1/users/${id}`, { method: 'DELETE' });
-      onRefresh?.();
-    } catch (err) {
-      console.error('Error deleting user:', err);
-    }
+  const handleDeleteUser=async(id:string,name:string)=>{
+    if(userBusy||!confirm(`Excluir a conta ${name}?`))return;
+    setUserBusy(true);setUserError('');
+    try{
+      const selected=users.find(user=>user.id===id);
+      const response=await fetch(`/api/v1/users/${encodeURIComponent(id)}`,{method:'DELETE',headers:getAuthHeaders(selected?.tenantId?{'x-tenant-id':selected.tenantId}:{})});
+      const result=await response.json();if(!response.ok)throw new Error(result.error||'Exclusão recusada.');onRefresh?.();
+    }catch(error){setUserError(error instanceof Error?error.message:'Não foi possível excluir o usuário.');}
+    finally{setUserBusy(false);}
   };
 
   const handleSaveTenant = async (e: React.FormEvent) => {
@@ -266,6 +260,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      {userError&&!isUserModalOpen&&<p role="alert" className="text-rose-700 bg-rose-50 rounded-xl p-3">{userError}</p>}
       {/* Premium Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
@@ -414,7 +409,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                               : 'bg-slate-100 text-slate-700 border border-slate-200'
                           }`}
                         >
-                          {u.role.replace('_', ' ')}
+                          {{super_admin:'Superadministrador',admin:'Administrador',supervisor:'Supervisor',operador:'Operador',operator:'Operador',usuario:'Atendente',agent:'Atendente',auditor:'Leitura e auditoria',readonly:'Leitura e auditoria'}[u.role] || 'Perfil não reconhecido'}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 font-mono text-slate-700">
@@ -427,7 +422,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 text-[11px] font-mono">
-                        {new Date(u.lastLogin).toLocaleString('pt-BR')}
+                        {u.lastLogin?new Date(u.lastLogin).toLocaleString('pt-BR'):'Sem login registrado'}
                       </td>
                       <td className="py-3.5 px-4">
                         {u.isActive ? (
@@ -1128,7 +1123,7 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                 <p className="text-xs text-slate-500">Defina credenciais e controle de acesso RBAC</p>
               </div>
               <button
-                onClick={() => setIsUserModalOpen(false)}
+                onClick={() => {if(userBusy)return;setUserPassword('');setIsUserModalOpen(false);}}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
               >
                 <X className="w-5 h-5" />
@@ -1160,6 +1155,11 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                 />
               </div>
 
+              <div><label className="block font-semibold mb-1">{editingUser?'Nova senha (opcional)':'Senha inicial obrigatória'}</label>
+                <input type="password" autoComplete="new-password" required={!editingUser} minLength={12} maxLength={72} value={userPassword} onChange={event=>setUserPassword(event.target.value)} className="w-full border rounded-xl px-3 py-2" />
+                <p className="text-xs text-slate-500">Mínimo de 12 caracteres, até 72 bytes. Espaços são preservados. Alterações de senha ou perfil exigem novo login.</p>
+              </div>
+              {userError&&<p role="alert" className="text-rose-700 text-sm">{userError}</p>}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">Perfil (RBAC) *</label>
@@ -1171,8 +1171,9 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                     <option value="super_admin">Super Administrador</option>
                     <option value="admin">Administrador VoIP</option>
                     <option value="supervisor">Supervisor de Atendimento</option>
-                    <option value="operador">Operador de Telefonia</option>
-                    <option value="auditor">Auditor LGPD</option>
+                    <option value="operator">Operador de Telefonia</option>
+                    <option value="readonly">Leitura e auditoria</option>
+                    <option value="agent">Atendente</option>
                   </select>
                 </div>
 
@@ -1196,16 +1197,16 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsUserModalOpen(false)}
+                  onClick={() => {if(userBusy)return;setUserPassword('');setIsUserModalOpen(false);}}
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition"
                 >
                   Cancelar
                 </button>
                 <button
-                  type="submit"
+                  type="submit" disabled={userBusy}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition"
                 >
-                  {editingUser ? 'Salvar Alterações' : 'Criar Usuário'}
+                  {userBusy?'Salvando...':editingUser ? 'Salvar Alterações' : 'Criar Usuário'}
                 </button>
               </div>
             </form>

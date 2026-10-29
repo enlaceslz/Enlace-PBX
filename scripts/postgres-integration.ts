@@ -1,3 +1,6 @@
+import { UserManagementRepository } from '../server/infrastructure/postgres/repositories/UserManagementRepository.js';
+import { credentialStamp } from '../server/infrastructure/auth/CredentialStamp.js';
+import { UserRepository } from '../server/infrastructure/postgres/repositories/UserRepository.js';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -36,6 +39,10 @@ const tenantA = `test-a-${id}`;
 const tenantB = `test-b-${id}`;
 const context = (tenantId: string) => ({ tenantId, actorRole: 'admin' as const, actorUserId: 'integration', accessMode: 'TENANT' as const });
 let recordingsRoot:string|undefined;
+const fixtureToken=async(userId:string,tenantId:string,role?:string)=>{
+  const user=await UserRepository.findById(userId,tenantId);assert.ok(user);
+  return jwt.sign({id:userId,tenantId,role,authStamp:credentialStamp(user,process.env.JWT_SECRET!)},process.env.JWT_SECRET!,{expiresIn:'1m'});
+};
 try {
   await admin.connect();
   assert.equal((await postgresClient.checkHealth()).productionSafe, true);
@@ -236,7 +243,7 @@ try {
       assert.equal((await fetch(base + '/api/v1/security/fail2ban/' + operation, { method, headers: rootHeaders, body: '{}' })).status, 501);
     }
     // O papel no token não pode elevar o papel atual registrado no banco.
-    const operatorToken = jwt.sign({ id: `user-b-${id}`, tenantId: tenantB, role: 'super_admin' }, process.env.JWT_SECRET!, { expiresIn: '1m' });
+    const operatorToken = await fixtureToken(`user-b-${id}`,tenantB,'super_admin');
     const headers = { Authorization: `Bearer ${operatorToken}` };
     for (const path of ['/api/v1/billing', '/api/v1/cdr', '/api/v1/system/health', '/api/v1/security/fail2ban']) {
       assert.equal((await fetch(base + path, { headers })).status, 403, path);
@@ -250,7 +257,7 @@ try {
     const readiness = await fetch(base + '/health/ready');
     assert.equal(readiness.status, 503, 'Sem Asterisk o PBX não declara prontidão de produção.');
     assert.equal((await readiness.json()).dependencies.postgresql, 'UP');
-    const adminAToken = jwt.sign({ id: `user-a-${id}`, tenantId: tenantA }, process.env.JWT_SECRET!, { expiresIn: '1m' });
+    const adminAToken = await fixtureToken(`user-a-${id}`,tenantA);
     const testHeaders = { Authorization: `Bearer ${adminAToken}`, 'Content-Type': 'application/json' };
     const previewRequest=async(body:any)=>fetch(base+'/api/v1/ai/voice-turn',{method:'POST',headers:testHeaders,body:JSON.stringify(body)});
     for(const key of ['channelId','asteriskChannelId','asteriskUniqueId','linkedId','callerNumber'])
@@ -314,6 +321,47 @@ try {
     assert.equal((await admin.query('SELECT balance::text FROM billing WHERE tenant_id=$1',[tenantA])).rows[0].balance,'12.34');
     assert.equal((await admin.query('SELECT status FROM billing_invoices WHERE id=$1',[invoiceId])).rows[0].status,'pending');
     assert.equal(Number((await admin.query('SELECT count(*) AS count FROM billing_transactions WHERE tenant_id=$1',[tenantA])).rows[0].count),previousTransactions);
+    const userRequest=async(method:string,userId:string|undefined,body:any,headers:Record<string,string>=testHeaders)=>fetch(base+'/api/v1/users'+(userId?'/'+userId:''),{method,headers,body:JSON.stringify(body)});
+    const rootOwnHeaders={...rootHeaders,'x-tenant-id':session.user.tenantId};
+    assert.equal((await userRequest('PUT',session.user.id,{isActive:false},rootOwnHeaders)).status,409);
+    assert.equal((await userRequest('PUT',session.user.id,{role:'admin'},rootOwnHeaders)).status,409);
+    assert.equal((await userRequest('DELETE',session.user.id,{},rootOwnHeaders)).status,409);
+    const managedPassword='  senha-inicial-preservada  ';
+    assert.equal((await userRequest('POST',undefined,{name:'Sem senha',email:`missing-${id}@example.invalid`})).status,400);
+    assert.equal((await userRequest('POST',undefined,{name:'Perfil inválido',email:`bad-${id}@example.invalid`,password:managedPassword,role:'inventado'})).status,400);
+    const managedCreated=await userRequest('POST',undefined,{name:'Conta gerenciada',email:`managed-${id}@example.invalid`,password:managedPassword,role:'operator'});
+    assert.equal(managedCreated.status,201);const managed=await managedCreated.json();assert.equal('passwordHash' in managed,false);assert.equal('password' in managed,false);assert.equal('lastLogin' in managed,false);
+    assert.equal((await userRequest('POST',undefined,{name:'Duplicado',email:managed.email,password:managedPassword})).status,409);
+    const loginManaged=async(password:string)=>fetch(base+'/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:managed.email,password})});
+    const managedLogin=await loginManaged(managedPassword);assert.equal(managedLogin.status,200);const oldManagedToken=(await managedLogin.json()).token;
+    const oldManagedHeaders={Authorization:`Bearer ${oldManagedToken}`,'Content-Type':'application/json'};
+    const oldTicketResponse=await fetch(base+'/api/v1/auth/sse-ticket',{method:'POST',headers:oldManagedHeaders,body:'{}'});assert.equal(oldTicketResponse.status,200);const oldTicket=(await oldTicketResponse.json()).ticket;
+    assert.equal((await userRequest('PUT',managed.id,{password:'nova-senha-preservada-2026'})).status,200);
+    assert.equal((await fetch(base+'/api/v1/auth/me',{headers:oldManagedHeaders})).status,401);
+    assert.equal((await fetch(base+'/api/v1/events/asterisk?ticket='+oldTicket)).status,401,'Ticket emitido antes da alteração não reabre sessão.');
+    const newLogin=await loginManaged('nova-senha-preservada-2026');assert.equal(newLogin.status,200);const newManagedHeaders={Authorization:`Bearer ${(await newLogin.json()).token}`};
+    assert.equal((await fetch(base+'/api/v1/auth/me',{headers:newManagedHeaders})).status,200);
+    for(const patch of [{role:'readonly'},{role:'operator'},{isActive:false},{isActive:true}])assert.equal((await userRequest('PUT',managed.id,patch)).status,200);
+    assert.equal((await fetch(base+'/api/v1/auth/me',{headers:newManagedHeaders})).status,401,'Restaurar perfil ou reativar não revalida token antigo.');
+    assert.equal((await userRequest('DELETE',managed.id,{})).status,200);
+    const elevated=[] as any[];
+    for(const suffix of ['a','b']){const response=await userRequest('POST',undefined,{name:'Super de teste',email:`super-${suffix}-${id}@example.invalid`,password:managedPassword,role:'super_admin'},{...rootHeaders,'x-tenant-id':tenantA});assert.equal(response.status,201);elevated.push(await response.json());}
+    assert.equal((await userRequest('PUT',elevated[0].id,{password:'senha-de-tentativa-2026'})).status,403,'Admin não redefine senha de superadmin sem enviar role.');
+    assert.equal((await userRequest('PUT',elevated[0].id,{name:'Tentativa'})).status,403);
+    assert.equal((await userRequest('PUT',elevated[0].id,{name:'Outra empresa'},{...rootHeaders,'x-tenant-id':tenantB})).status,404);
+    assert.equal((await userRequest('PUT',`user-b-${id}`,{name:'Outra empresa'})).status,404);
+    // Exercita concorrência com dois superadmins ativos, sem deixar o bootstrap alterado.
+    try{
+      await admin.query('UPDATE users SET is_active=false WHERE id=$1',[session.user.id]);
+      const demotions=await Promise.allSettled(elevated.map(user=>UserManagementRepository.mutate(elevated[0].id,tenantA,'update',user.id,{role:'admin'})));
+      assert.equal(demotions.filter(result=>result.status==='fulfilled').length,1);
+      assert.equal(Number((await admin.query("SELECT count(*) AS count FROM users WHERE role='super_admin' AND is_active=true")).rows[0].count),1);
+    }finally{
+      await admin.query('UPDATE users SET is_active=true WHERE id=$1',[session.user.id]);
+      await admin.query('DELETE FROM users WHERE id=ANY($1::text[])',[elevated.map(user=>user.id)]);
+    }
+    const renewedRoot=await fetch(base+'/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:process.env.ADMIN_INITIAL_EMAIL,password:process.env.ADMIN_INITIAL_PASSWORD})});
+    assert.equal(renewedRoot.status,200);rootHeaders.Authorization=`Bearer ${(await renewedRoot.json()).token}`;
     const callHeaders=testHeaders;
     const callApi=async(path:string,body:any)=>fetch(base+'/api/v1/asterisk/channels'+path,{method:'POST',headers:callHeaders,body:JSON.stringify(body)});
     assert.equal((await callApi('',{})).status,400,'Sem ramais padrão que originem chamada por engano.');
@@ -477,7 +525,7 @@ try {
     assert.equal(workflow.assignedUserId,`user-a-${id}`);assert.equal(JSON.stringify(workflow.messages),JSON.stringify(workflowBefore.messages));
     const extraUser=`user-c-${id}`;
     await admin.query("INSERT INTO users(id,tenant_id,name,email,password_hash,role) VALUES($1,$2,'Operador C',$3,'hash-descartavel','operator')",[extraUser,tenantA,`c-${id}@example.invalid`]);
-    const operatorHeaders={...testHeaders,Authorization:`Bearer ${jwt.sign({id:extraUser,tenantId:tenantA},process.env.JWT_SECRET!,{expiresIn:'1m'})}`};
+    const operatorHeaders={...testHeaders,Authorization:`Bearer ${await fixtureToken(extraUser,tenantA)}`};
     assert.equal((await change({status:'closed',workflowVersion:workflow.workflowVersion},operatorHeaders)).status,403);
     assert.equal((await fetch(base+`/api/v1/whatsapp/conversations/${copilotConversation.id}/reply`,{method:'POST',headers:operatorHeaders,body:JSON.stringify({text:'Tentativa sem atribuição'})})).status,403);
     const queued=await change({status:'queued',workflowVersion:workflow.workflowVersion});assert.equal(queued.status,200);workflow=await queued.json();

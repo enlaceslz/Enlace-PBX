@@ -1,3 +1,5 @@
+import { credentialStamp, validCredentialStamp } from './server/infrastructure/auth/CredentialStamp.js';
+import { UserManagementRepository } from './server/infrastructure/postgres/repositories/UserManagementRepository.js';
 import { openRecording } from './server/infrastructure/security/RecordingAccess.js';
 import { cdrEvidence } from './server/maia/integrations/CdrEvidence.js';
 import { callExtension, channelReference } from './server/infrastructure/asterisk/CallControl.js';
@@ -226,7 +228,7 @@ async function startServer() {
       const rawEmail = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
       const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
-      if (!rawEmail || !password) {
+      if (!rawEmail || rawEmail.length>254 || !password || Buffer.byteLength(password)>72) {
         return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
       }
 
@@ -249,11 +251,11 @@ async function startServer() {
 
       if (isPasswordValid) {
         user.lastLogin = new Date().toISOString();
-        await UserRepository.save(user);
+        await postgresClient.executeTenantScoped(user.tenantId,client=>client.query('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=$1 AND tenant_id=$2',[user.id,user.tenantId]));
 
         const secret = getJwtSecret();
         const token = jwt.sign(
-          { id: user.id, role: user.role, email: user.email, tenantId: user.tenantId, name: user.name },
+          { id: user.id, role: user.role, email: user.email, tenantId: user.tenantId, name: user.name,authStamp:credentialStamp(user,secret) },
           secret,
           { expiresIn: '8h' }
         );
@@ -1803,22 +1805,31 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
     const authorizedTenant = getAuthorizedTenantId(req);
 
+    let sending=false;
+    let intervalId:ReturnType<typeof setInterval>;
     const sendUpdate = async () => {
+      if(sending||res.writableEnded)return;
+      sending=true;
       try {
+        const actor=(req as any).user;
+        const current=await UserRepository.findById(actor.id,actor.identityTenantId||actor.tenantId);
+        if(!current || !current.isActive || !validCredentialStamp(actor.authStamp,current,getJwtSecret())){clearInterval(intervalId);res.end();return;}
         const metrics = await getDashboardMetrics(authorizedTenant);
         const data = JSON.stringify({
-          channels: asteriskService.getActiveChannels(authorizedTenant),
+          channels: await asteriskService.getActiveChannels(authorizedTenant),
           metrics,
         });
+        const latest=await UserRepository.findById(actor.id,actor.identityTenantId||actor.tenantId);
+        if(!latest || !latest.isActive || !validCredentialStamp(actor.authStamp,latest,getJwtSecret())){clearInterval(intervalId);res.end();return;}
         res.write(`data: ${data}\n\n`);
       } catch (err) {
-        // conexão fechada ou erro momentâneo
-      }
+        clearInterval(intervalId);res.end();
+      } finally {sending=false;}
     };
 
     sendUpdate(); // initial state
 
-    const intervalId = setInterval(sendUpdate, 2000); // 2 second interval
+    intervalId = setInterval(sendUpdate, 2000); // 2 second interval
 
     req.on('close', () => {
       clearInterval(intervalId);
@@ -4370,186 +4381,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/users', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const authUser = (req as any).user;
-    const { name, email, role, extension, password } = req.body;
-
-    // Tenant obtido estritamente da autoridade canônica autorizada
-    const tenantId = getAuthorizedTenantId(req);
-
-    if (!name || !email) {
-      return res.status(400).json({ error: 'Nome e e-mail são campos obrigatórios.' });
-    }
-
-    // Prevenção de escalada de privilégios: apenas super_admin pode criar super_admin
-    const targetRole = role || 'operador';
-    if (targetRole === 'super_admin' && authUser.role !== 'super_admin') {
-      return res.status(403).json({
-        error: 'Acesso proibido. Administradores de tenant não possuem permissão para criar usuários super_admin.',
-        code: 'PRIVILEGE_ESCALATION_BLOCKED',
-      });
-    }
-
-    // Validação de e-mail existente
-    const existing = await UserRepository.findByEmail(email.trim().toLowerCase());
-    if (existing) {
-      return res.status(409).json({ error: 'Já existe um usuário cadastrado com este e-mail.' });
-    }
-
-    // Hash de senha estritamente via bcrypt (custo 10)
-    let passwordHash = '';
-    if (password && typeof password === 'string' && password.trim().length > 0) {
-      if (password.trim().length < 6) {
-        return res.status(400).json({ error: 'A senha do usuário deve ter no mínimo 6 caracteres.' });
-      }
-      passwordHash = await bcrypt.hash(password.trim(), 10);
-    } else {
-      // Gera senha temporária criptográfica segura caso não fornecida
-      const tempPass = crypto.randomBytes(8).toString('hex');
-      passwordHash = await bcrypt.hash(tempPass, 10);
-    }
-
-    const newUser: User = {
-      id: `user-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-      tenantId,
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      role: targetRole,
-      extension: extension || undefined,
-      passwordHash,
-      isActive: req.body.isActive !== false,
-      lastLogin: new Date().toISOString(),
-    };
-
-    await UserRepository.save(newUser);
-
-    recordAuditLog({
-      tenantId: newUser.tenantId,
-      userId: authUser.id,
-      userName: authUser.name,
-      action: 'CREATE_USER',
-      category: 'USER_MGMT',
-      resource: `users/${newUser.id}`,
-      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-      details: `Criação do usuário ${newUser.name} (${newUser.email}) com papel '${newUser.role}' no tenant '${newUser.tenantId}'.`,
-    });
-
-    // NUNCA retornar passwordHash para o frontend
-    res.status(201).json(UserRepository.toSafeUser(newUser));
-  });
-
-  app.put('/api/v1/users/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const authUser = (req as any).user;
-    const tenantCtx = resolveTenantContext(req);
-    const targetUser = await UserRepository.findAnyByIdForSuperAdmin(req.params.id);
-    if (!targetUser) {
-      return res.status(404).json({ error: 'Usuário não encontrado.' });
-    }
-
-    // Isolamento de Tenant BOLA/IDOR estrito
-    if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && targetUser.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. O usuário pertence ao tenant '${targetUser.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN',
-      });
-    }
-
-    // Prevenção de escalada de privilégios: não-super_admin não pode alterar para super_admin nem alterar papel de super_admin
-    if (req.body.role) {
-      if (req.body.role === 'super_admin' && authUser.role !== 'super_admin') {
-        return res.status(403).json({
-          error: 'Operação proibida. Somente super_admin pode atribuir o perfil de super_admin.',
-          code: 'PRIVILEGE_ESCALATION_BLOCKED',
-        });
-      }
-      if (targetUser.role === 'super_admin' && authUser.role !== 'super_admin') {
-        return res.status(403).json({
-          error: 'Operação proibida. Administrador de tenant não pode modificar uma conta super_admin.',
-          code: 'PRIVILEGE_ESCALATION_BLOCKED',
-        });
-      }
-    }
-
-    // Se senha foi informada: hash com bcrypt
-    let passwordHash = targetUser.passwordHash;
-    if (req.body.password && typeof req.body.password === 'string' && req.body.password.trim().length > 0) {
-      if (req.body.password.trim().length < 6) {
-        return res.status(400).json({ error: 'A senha do usuário deve possuir no mínimo 6 caracteres.' });
-      }
-      passwordHash = await bcrypt.hash(req.body.password.trim(), 10);
-    }
-
-    const updatedUser: User = {
-      ...targetUser,
-      name: req.body.name !== undefined ? req.body.name.trim() : targetUser.name,
-      email: req.body.email !== undefined ? req.body.email.trim().toLowerCase() : targetUser.email,
-      role: req.body.role || targetUser.role,
-      extension: req.body.extension !== undefined ? req.body.extension : targetUser.extension,
-      isActive: req.body.isActive !== undefined ? req.body.isActive : targetUser.isActive,
-      tenantId: targetUser.tenantId, // Imutável: nunca transferir usuário de tenant via payload
-      passwordHash,
-    };
-
-    await UserRepository.save(updatedUser);
-
-    recordAuditLog({
-      tenantId: updatedUser.tenantId,
-      userId: authUser.id,
-      userName: authUser.name,
-      action: 'UPDATE_USER',
-      category: 'USER_MGMT',
-      resource: `users/${req.params.id}`,
-      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-      details: `Atualização dos parâmetros do usuário ${updatedUser.name} (${updatedUser.email}).`,
-    });
-
-    res.json(UserRepository.toSafeUser(updatedUser));
-  });
-
-  app.delete('/api/v1/users/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const authUser = (req as any).user;
-    const tenantCtx = resolveTenantContext(req);
-    const targetUser = await UserRepository.findAnyByIdForSuperAdmin(req.params.id);
-    if (!targetUser) {
-      return res.status(404).json({ error: 'Usuário não encontrado.' });
-    }
-
-    // Não permite auto-exclusão
-    if (authUser.id === targetUser.id) {
-      return res.status(400).json({ error: 'Operação proibida. Você não pode excluir seu próprio usuário.' });
-    }
-
-    // Isolamento de Tenant BOLA/IDOR estrito
-    if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && targetUser.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. O usuário pertence ao tenant '${targetUser.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN',
-      });
-    }
-
-    // Impedir exclusão de super_admin por administrador comum
-    if (targetUser.role === 'super_admin' && authUser.role !== 'super_admin') {
-      return res.status(403).json({
-        error: 'Operação proibida. Administrador comum não pode excluir um super_admin.',
-        code: 'PRIVILEGE_ESCALATION_BLOCKED',
-      });
-    }
-
-    await UserRepository.delete(req.params.id, targetUser.tenantId);
-
-    recordAuditLog({
-      tenantId: targetUser.tenantId,
-      userId: authUser.id,
-      userName: authUser.name,
-      action: 'DELETE_USER',
-      category: 'USER_MGMT',
-      resource: `users/${req.params.id}`,
-      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-      details: `Exclusão do usuário ${targetUser.name} (${targetUser.email}).`,
-    });
-
-    res.json({ success: true, message: 'Usuário removido com sucesso.' });
-  });
+  const userMutationLimiter=rateLimit({windowMs:60000,limit:20,standardHeaders:true,legacyHeaders:false,message:{error:'Limite de alterações de usuários excedido.'}});
+  const mutateUser=(operation:'create'|'update'|'delete')=>async(req:any,res:any)=>{
+    try{
+      const context=resolveTenantContext(req);const scope=context.accessMode==='GLOBAL'?undefined:context.tenantId;
+      await recordAuditLog({tenantId:scope||'SYSTEM',userId:req.user.id,userName:req.user.name,ip:req.ip,action:'USER_'+operation.toUpperCase()+'_ATTEMPT',resource:req.params.id?`users/${req.params.id}`:'users',category:'USER_MGMT',strict:true,details:'Tentativa administrativa de alteração de conta; conteúdo de senha omitido.'});
+      const result=await UserManagementRepository.mutate(req.user.id,scope,operation,req.params.id,req.body);
+      res.status(operation==='create'?201:200).json(result);
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
+  };
+  app.post('/api/v1/users',requireRole('super_admin','admin'),userMutationLimiter,mutateUser('create'));
+  app.put('/api/v1/users/:id',requireRole('super_admin','admin'),userMutationLimiter,mutateUser('update'));
+  app.delete('/api/v1/users/:id',requireRole('super_admin','admin'),userMutationLimiter,mutateUser('delete'));
 
   app.get('/api/v1/tenants', async (req, res) => {
     const user = (req as any).user;

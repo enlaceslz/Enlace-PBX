@@ -1,3 +1,4 @@
+import {credentialStamp} from '../server/infrastructure/auth/CredentialStamp.js';
 import crypto from 'crypto';
 import { AsteriskCommandService } from '../server/infrastructure/asterisk/AsteriskCommandService.js';
 import { MaiaPolicyEngine } from '../server/maia/policy/MaiaPolicyEngine.js';
@@ -29,7 +30,7 @@ import { AsteriskTransferExecutor } from '../server/maia/executors/AsteriskExecu
 import { asteriskService } from '../server/asteriskService.js';
 import { asteriskAdapter, AsteriskAdapter } from '../server/infrastructure/asterisk/AsteriskAdapter.js';
 import { geminiService } from '../server/geminiService.js';
-import { requireTenant, resolveTenantContext, requireSseAuth, SseTicketManager, requireAuth, hasCapability, TenantContext } from '../server/infrastructure/auth/authMiddleware.js';
+import { getJwtSecret, requireTenant, resolveTenantContext, requireSseAuth, SseTicketManager, requireAuth, hasCapability, TenantContext } from '../server/infrastructure/auth/authMiddleware.js';
 
 export interface TestResultItem {
   test: string;
@@ -1706,7 +1707,10 @@ export async function runAllTests(): Promise<{
       role: 'operator' as const,
       name: 'Operador Alpha',
     };
-    const ticketInfo = SseTicketManager.generateTicket(mockUserForTicket);
+    await UserRepository.save({...mockUserForTicket,passwordHash:'hash-de-fixture-sse',isActive:true});
+    const storedTicketUser=await UserRepository.findById(mockUserForTicket.id,TENANT_A);
+    if(!storedTicketUser)throw new Error('Fixture de usuário SSE não encontrada.');
+    const ticketInfo = SseTicketManager.generateTicket({...mockUserForTicket,authStamp:credentialStamp(storedTicketUser,getJwtSecret())});
     validTicketId = ticketInfo.ticket;
 
     const mockReqSseTicket: any = {

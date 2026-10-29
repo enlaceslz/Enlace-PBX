@@ -279,3 +279,11 @@ CSV de CDR/auditoria exporta apenas a amostra carregada, com proteção de célu
 Os PDFs de cobrança são extratos gerenciais de registros existentes. Não emitem nota fiscal, PIX, boleto ou prova independente de pagamento. Não há emissão de cobrança por DID sem fatura persistente. O histórico pode ser limitado pela API; exportação não garante cobertura integral de período. Fonte básica dos PDFs atende texto latino; demais caracteres são representados por [U+...] e o CSV mantém Unicode original.
 
 Recarga e quitação via painel/API estão indisponíveis (501), pois não há confirmação de provedor nem conciliação implementadas. Não habilite pelo retorno de botão ou por payload enviado pelo navegador. Antes de reativar, implementar provedor real, confirmação autenticada no backend, processamento idempotente, conciliação, trilha de auditoria e testes de duplicidade/falha/estorno. Dados financeiros anteriores devem ser revisados; o bloqueio não certifica lançamentos históricos.
+
+### Gestão de contas e atualização das sessões
+
+Após instalar esta revisão, usuários precisam fazer novo login: tokens antigos sem o vínculo de revisão são recusados. Senha, perfil, atividade, e-mail ou ramal alterados invalidam sessões anteriores; reativação/restauração de perfil não recupera o token. Tickets SSE são revalidados no handshake e conexões abertas verificam a revisão antes dos envios, com polling de dois segundos sem sobreposição. Falha ao verificar encerra a conexão.
+
+Admin de empresa não modifica contas superadmin, inclusive senha e e-mail. Apenas superadmin pode atribuir esse papel. A aplicação protege o último superadmin ativo e recusa autoexclusão; administração direta do banco exige o procedimento operacional próprio. Criação requer senha explícita, com no mínimo 12 caracteres e até 72 bytes UTF-8; não há senha temporária escondida ou senha padrão. Espaços fazem parte da senha.
+
+A revisão está no banco e o vínculo JWT usa JWT_SECRET. Ao restaurar backup antigo e preparar o corte, substitua JWT_SECRET por novo segredo forte para invalidar tokens do estado anterior; não altere ENCRYPTION_KEY sem o procedimento de recifragem, pois ela protege credenciais. Dados de backup podem representar revisão de sessão anterior. Nenhum reset global de senhas ou corte de produção foi executado pela auditoria.
