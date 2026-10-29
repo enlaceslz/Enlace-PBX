@@ -4,11 +4,14 @@
 
 O processo HTTP usa o usuário `enlace-pbx`, serviço systemd e código somente para leitura. O instalador precisa de root para provisionar arquivos e serviços; instalação de dependências, testes e build são executados sem root.
 
-Pré-requisitos: Debian/Ubuntu com systemd, Node.js 22 ou 24, PostgreSQL compatível, domínio e certificado TLS já provisionado em `/etc/letsencrypt/live/DOMINIO/`. Planeje janela de manutenção para alterar configuração de telefonia ou migrar uma instância PM2.
+Pré-requisitos: Debian/Ubuntu com systemd, Node.js 22 ou 24 e Python 3 já instalados, PostgreSQL compatível, domínio e certificado TLS já provisionado em `/etc/letsencrypt/live/DOMINIO/`. Planeje janela de manutenção para alterar configuração de telefonia ou migrar uma instância PM2.
+
+O checkout revisado e seus ancestrais precisam pertencer ao root e recusar escrita por grupo/outros. A posse não autentica autoria nem substitui a revisão do commit.
 
 ```bash
-git clone https://github.com/enlaceslz/Enlace-PBX.git
-cd Enlace-PBX
+sudo git clone https://github.com/enlaceslz/Enlace-PBX.git /opt/enlace-pbx-source
+cd /opt/enlace-pbx-source
+# Confira o commit aprovado e o lockfile antes de executar.
 sudo bash deploy.sh
 ```
 
@@ -430,3 +433,5 @@ Preservação do runtime em atualização: deploy.sh invoca configure-production
 Recuperação após falha de ativação: exige parada confirmada da candidata antes de tocar nos arquivos. Falhas de desabilitação, restauração de um destino ou daemon-reload não interrompem as tentativas nos demais destinos; qualquer uma mantém resultado ROLLBACK_NOT_CONFIRMED e a trava. Serviço e proxy só são retomados depois que todas essas etapas terminam sem erro. Se a parada falhar ou não for confirmada, os arquivos não são trocados; exige intervenção. Testes injetam falhas em parada, estado, desabilitação, cada um dos quatro destinos, recarga, habilitação, início e proxy. Estes testes validam a orquestração; a CLI systemd/NGINX no host ainda requer homologação.
 
 Atualização de código preserva a configuração da telefonia: presença de current (inclusive vínculo pendurado, que continua exigindo revisão) seleciona conferência, sem regravar /etc/asterisk ou executar manager reload. Arquivos principais são lidos por descritores ancorados, limitados e sem seguir symlinks; exigem posse root, arquivo regular único e ausência de escrita por grupo/outros. A conferência exige campos AMI/ARI/HTTP/usuário de execução equivalentes, sem chaves gerenciadas duplicadas, templates ou includes/exec indiretos nesses quatro arquivos. Exige os três #tryinclude gerenciados já presentes; não converte diretivas nem cria arquivos. Diretório e arquivos gerenciados também são apenas conferidos, por metadados, sem ler seus conteúdos como root ou corrigir permissões automaticamente. Divergências exigem manutenção separada antes da migração do banco. INSTALL_ASTERISK=1 é recusado na atualização; primeira instalação mantém o provisionamento explícito. A conferência é de arquivos, não prova estado carregado, disponibilidade SIP/áudio ou compatibilidade com todas as configurações externas. Não houve execução no host real.
+
+Pré-checagem de instalação antes de pacotes/provisionamento: depois de verificar o checkout e sob flock, trusted-source.py --installation classifica INITIAL/UPDATE sem criar arquivos nem ler o conteúdo de segredos. Recusa pares current/unidade incompletos, current que não seja vínculo root-owned para release protegida no padrão esperado, backend dist/server.cjs ausente/vinculado/vazio, trava .activation.lock pendente e destinos privilegiados com ancestrais, posse, tipo ou permissões inseguros. Atualização exige runtime.json e backup.key anteriores regulares, únicos, não vazios e protegidos: ausência não autoriza gerar novas chaves. backup.key exige modo privado 0400 ou 0600, sem leitura por grupo/outros. Proxy sem instalação rastreada ou vínculo para destino externo também é recusado. Não remove trava nem corrige posse/permissões automaticamente; recuperar a configuração/chave original a partir de fonte confiável antes de repetir. Python 3 é pré-requisito já instalado; apt-get só começa após essas guardas e a checagem PM2. A trava de deploy em /run ainda é aberta no início; a pré-checagem não promete ausência de todos os efeitos do shell ou de ferramentas do host. Estado systemd carregado, compatibilidade do schema, saúde real e recuperação integral continuam exigindo validação própria.

@@ -18,11 +18,6 @@ if [[ -e "$DEPLOY_LOCK" || -L "$DEPLOY_LOCK" ]]; then
 fi
 exec 9>>"$DEPLOY_LOCK"
 flock -n 9 || { echo 'Outro deploy está em andamento.' >&2; exit 1; }
-if [[ -e /opt/enlace-pbx/current || -L /opt/enlace-pbx/current ]]; then
-  ASTERISK_UPDATE=1
-  MANAGED_OPTIONS=(--verify)
-  [[ "${INSTALL_ASTERISK:-0}" != 1 ]] || { echo 'Atualização de Asterisk exige manutenção separada; INSTALL_ASTERISK=1 não pode acompanhar uma atualização de código.' >&2; exit 1; }
-fi
 SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 NODE_BIN=$(command -v node) || { echo 'Instale Node.js 22 ou 24 antes de continuar.' >&2; exit 1; }
 [[ "$NODE_BIN" =~ ^/[a-zA-Z0-9_./-]+$ ]] || { echo 'Caminho do Node inválido.' >&2; exit 1; }
@@ -41,9 +36,7 @@ NODE_MAJOR=$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')
 [[ "$NODE_MAJOR" == 22 || "$NODE_MAJOR" == 24 ]] || { echo 'Este instalador exige Node.js 22 ou 24.' >&2; exit 1; }
 command -v systemctl >/dev/null || { echo 'Host com systemd obrigatório.' >&2; exit 1; }
 
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -y --no-install-recommends nginx curl ca-certificates rsync build-essential postgresql-client postgresql openssl python3
+command -v python3 >/dev/null || { echo 'Instale python3 antes de iniciar o deploy; a pré-checagem não instala pacotes.' >&2; exit 1; }
 # O checkout revisado é a raiz de confiança, não a árvore gravável do build.
 python3 -I - "$SOURCE_DIR" <<'PYTRUST'
 import os,stat,sys
@@ -65,11 +58,21 @@ for target in ['/opt','/opt/enlace-pbx','/opt/enlace-pbx/releases','/opt/enlace-
     if os.path.lexists(target): check(target)
 PYTRUST
 python3 -I "$SOURCE_DIR/scripts/trusted-source.py" "$SOURCE_DIR"
+DEPLOY_MODE=$(python3 -I "$SOURCE_DIR/scripts/trusted-source.py" --installation)
+[[ "$DEPLOY_MODE" == INITIAL || "$DEPLOY_MODE" == UPDATE ]] || { echo 'Modo de deploy não reconhecido.' >&2; exit 1; }
+if [[ "$DEPLOY_MODE" == UPDATE ]]; then
+  ASTERISK_UPDATE=1
+  MANAGED_OPTIONS=(--verify)
+  [[ "${INSTALL_ASTERISK:-0}" != 1 ]] || { echo 'Atualização de Asterisk exige manutenção separada; INSTALL_ASTERISK=1 não pode acompanhar uma atualização de código.' >&2; exit 1; }
+fi
 
 # Migração PM2 exige procedimento próprio; o deploy não apaga o estado legado.
 if command -v pm2 >/dev/null && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '[1-9][0-9]*'; then
   echo 'Instância PM2 ativa: migre em procedimento separado antes de usar este deploy.' >&2; exit 1
 fi
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q
+apt-get install -y --no-install-recommends nginx curl ca-certificates rsync build-essential postgresql-client postgresql openssl
 getent group enlace-pbx >/dev/null || groupadd --system enlace-pbx
 id enlace-pbx >/dev/null 2>&1 || useradd --system --gid enlace-pbx --home-dir /var/lib/enlace-pbx --shell /usr/sbin/nologin enlace-pbx
 install -d -m 0755 -o root -g root /opt/enlace-pbx /opt/enlace-pbx/releases
