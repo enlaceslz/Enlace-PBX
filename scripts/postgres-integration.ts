@@ -259,6 +259,11 @@ try {
     assert.equal((await readiness.json()).dependencies.postgresql, 'UP');
     const adminAToken = await fixtureToken(`user-a-${id}`,tenantA);
     const testHeaders = { Authorization: `Bearer ${adminAToken}`, 'Content-Type': 'application/json' };
+    const otherHeaders={...testHeaders,Authorization:`Bearer ${operatorToken}`};
+    const setCompanyBRole=async(role:'admin'|'operator')=>{
+      await admin.query('UPDATE users SET role=$1 WHERE id=$2',[role,`user-b-${id}`]);
+      otherHeaders.Authorization=`Bearer ${await fixtureToken(`user-b-${id}`,tenantB)}`;
+    };
     const previewRequest=async(body:any)=>fetch(base+'/api/v1/ai/voice-turn',{method:'POST',headers:testHeaders,body:JSON.stringify(body)});
     for(const key of ['channelId','asteriskChannelId','asteriskUniqueId','linkedId','callerNumber'])
       assert.equal((await previewRequest({userMessage:'Olá',[key]:'identidade-forjada'})).status,400);
@@ -406,9 +411,10 @@ try {
     assert.deepEqual(execution.result, { protocoloExterno: 'teste-integracao' });
     assert.equal(JSON.stringify(execution).includes('segredo-da-integracao'), false);
     assert.equal(externalHits, 1); assert.deepEqual(externalErrors, []);
-    await admin.query("UPDATE users SET role='admin' WHERE id=$1", [`user-b-${id}`]);
-    assert.equal((await execute({ params: { documento: '123' }, confirmed: true }, { ...testHeaders, Authorization: `Bearer ${operatorToken}` })).status, 404);
-    await admin.query("UPDATE users SET role='operator' WHERE id=$1", [`user-b-${id}`]);
+    await setCompanyBRole('admin');
+    assert.equal((await execute({ params: { documento: '123' }, confirmed: true }, { ...testHeaders, Authorization: `Bearer ${operatorToken}` })).status, 401,'Mudança de perfil revoga token anterior.');
+    assert.equal((await execute({ params: { documento: '123' }, confirmed: true }, otherHeaders)).status,404);
+    await setCompanyBRole('operator');
     await admin.query('UPDATE ai_tools SET endpoint=$1 WHERE id=$2', [origin + '/alterado', toolId]);
     assert.equal((await execute({ params: { documento: '123' }, confirmed: true })).status, 403);
     assert.equal(externalHits, 1);
@@ -424,12 +430,11 @@ try {
     const listedHooks = await (await fetch(webhookPath, { headers: testHeaders })).json();
     assert.equal(JSON.stringify(listedHooks).includes(webhookSecret), false);
     assert.equal(listedHooks[0].id, hook.id);
-    await admin.query("UPDATE users SET role='admin' WHERE id=$1", [`user-b-${id}`]);
-    const otherHeaders = { ...testHeaders, Authorization: `Bearer ${operatorToken}` };
+    await setCompanyBRole('admin');
     assert.equal((await sendHook(otherHeaders)).status, 404);
     assert.equal((await fetch(webhookPath + `/${hook.id}/deliveries`, { headers: otherHeaders })).status, 404);
     assert.equal((await WebhookRepository.deliveries(tenantB, hook.id)).length, 0);
-    await admin.query("UPDATE users SET role='operator' WHERE id=$1", [`user-b-${id}`]);
+    await setCompanyBRole('operator');
     webhookReject = true;
     const failedResponse = await sendHook(); assert.equal(failedResponse.status, 502);
     const failed = await failedResponse.json(); assert.equal(failed.outcome, 'UNKNOWN');
@@ -447,14 +452,14 @@ try {
     assert.deepEqual(extracted.rejectedFields,['orcamento']); assert.equal(extracted.reviewRequired,true);
     assert.equal(extracted.modelUsed,'modelo-extracao-test'); assert.equal(extractionHits,1);
     assert.deepEqual(externalErrors,[]);
-    await admin.query("UPDATE users SET role='admin' WHERE id=$1", [`user-b-${id}`]);
+    await setCompanyBRole('admin');
     assert.equal((await fetch(extractPath,{method:'POST',headers:otherHeaders,body:JSON.stringify(extractBody)})).status,404);
     const otherSchemas = await (await fetch(base+'/api/v1/ai/entity-extraction/schemas',{headers:otherHeaders})).json();
     assert.deepEqual(otherSchemas,[]);
     const ownOtherSchema = await EntitySchemaRepository.save(tenantB,{name:'Esquema B',description:'',isActive:true,fields:[{key:'ramal',label:'Ramal',type:'string',required:true,description:''}]});
     assert.equal((await fetch(extractPath,{method:'POST',headers:otherHeaders,body:JSON.stringify({...extractBody,schemaId:ownOtherSchema.id})})).status,403);
     assert.equal(extractionHits,1);
-    await admin.query("UPDATE users SET role='operator' WHERE id=$1", [`user-b-${id}`]);
+    await setCompanyBRole('operator');
     const invalidInput = await fetch(extractPath,{method:'POST',headers:testHeaders,body:JSON.stringify({...extractBody,text:123})});
     assert.equal(invalidInput.status,400); assert.equal(extractionHits,1);
     const extractionAudit = JSON.stringify((await admin.query("SELECT payload,details FROM audit_logs WHERE tenant_id=$1 AND action='ENTITY_EXTRACTION_ATTEMPT'",[tenantA])).rows);
@@ -467,11 +472,11 @@ try {
     assert.deepEqual(quality.rejected_fields,['solutionStatement']);assert.equal(qualityHits,1);assert.deepEqual(externalErrors,[]);
     for(const field of ['score','complianceScore','resolutionStatus','sentiment','transcript'])assert.equal(Object.hasOwn(quality,field),false);
     assert.equal((await QualityReviewRepository.list(tenantB)).length,0);
-    await admin.query("UPDATE users SET role='admin' WHERE id=$1",[`user-b-${id}`]);
+    await setCompanyBRole('admin');
     assert.equal((await fetch(qualityPath+`/reviews/${quality.id}`,{headers:otherHeaders})).status,404);
     assert.equal((await fetch(qualityPath+`/reviews/${quality.id}/review`,{method:'POST',headers:otherHeaders,body:JSON.stringify({note:'Não autorizado'})})).status,404);
     assert.equal((await fetch(qualityPath+'/evaluate',{method:'POST',headers:otherHeaders,body:JSON.stringify(qualityBody)})).status,403);
-    await admin.query("UPDATE users SET role='operator' WHERE id=$1",[`user-b-${id}`]);
+    await setCompanyBRole('operator');
     const reviewed=await fetch(qualityPath+`/reviews/${quality.id}/review`,{method:'POST',headers:testHeaders,body:JSON.stringify({note:'Conferi os trechos na fonte. Sem comprovação de solução.',reviewedBy:'usuario-falso'})});
     assert.equal(reviewed.status,200);const human=await reviewed.json();assert.equal(human.status,'REVIEWED');assert.equal(human.reviewed_by,`user-a-${id}`);
     assert.equal((await fetch(qualityPath+`/reviews/${quality.id}/review`,{method:'POST',headers:testHeaders,body:JSON.stringify({note:'Sobrescrever'})})).status,409);
@@ -489,12 +494,12 @@ try {
     assert.equal(draft.suggestion,'Pode explicar melhor a sua solicitação para que possamos entender o que você precisa?');
     assert.equal(copilotHits,1);assert.deepEqual(externalErrors,[]);
     assert.equal(JSON.stringify((await OmnichannelRepository.findById(copilotConversation.id,tenantA))?.messages),beforeCopilot);
-    await admin.query("UPDATE users SET role='admin' WHERE id=$1",[`user-b-${id}`]);
+    await setCompanyBRole('admin');
     assert.equal((await fetch(copilotPath,{method:'POST',headers:otherHeaders,body:JSON.stringify(copilotBody)})).status,404);
     await OmnichannelRepository.receiveWhatsappMessage(tenantB,{id:`wamid-b-${id}`,from:'5598999990001',content:'Entrada B',timestamp:new Date().toISOString()});
     const otherConversation=(await OmnichannelRepository.listConversations(tenantB))[0];
     assert.equal((await fetch(copilotPath,{method:'POST',headers:otherHeaders,body:JSON.stringify({conversationId:otherConversation.id})})).status,403);
-    await admin.query("UPDATE users SET role='operator' WHERE id=$1",[`user-b-${id}`]);
+    await setCompanyBRole('operator');
     await admin.query("UPDATE omnichannel_conversations SET status='closed' WHERE id=$1",[copilotConversation.id]);
     assert.equal((await fetch(copilotPath,{method:'POST',headers:testHeaders,body:JSON.stringify(copilotBody)})).status,409);
     assert.equal((await fetch(base+`/api/v1/whatsapp/conversations/${copilotConversation.id}/reply`,{method:'POST',headers:testHeaders,body:JSON.stringify({text:'Resposta'})})).status,409);
@@ -544,10 +549,10 @@ try {
     assert.equal(workflow.messages.length,workflowBefore.messages.length+1);
     assert.equal((await addNote({...noteBody,text:'Alterar conteúdo'})).status,409);
     assert.equal((await addNote(noteBody,operatorHeaders)).status,409);
-    await admin.query("UPDATE users SET role='admin' WHERE id=$1",[`user-b-${id}`]);
+    await setCompanyBRole('admin');
     assert.equal((await change({status:'closed',workflowVersion:workflow.workflowVersion},otherHeaders)).status,404);
     assert.equal((await addNote({...noteBody,requestId:crypto.randomUUID()},otherHeaders)).status,404);
-    await admin.query("UPDATE users SET role='operator' WHERE id=$1",[`user-b-${id}`]);
+    await setCompanyBRole('operator');
     const closed=await change({status:'closed',workflowVersion:workflow.workflowVersion});assert.equal(closed.status,200);const closedState=await closed.json();
     assert.equal(closedState.status,'closed');assert.equal(closedState.assignedUserId,null);
     const reopenMessage={id:`reopen-${id}`,from:copilotConversation.contactId,content:'Nova entrada após fechamento',timestamp:new Date().toISOString()};
@@ -586,13 +591,13 @@ try {
     const edits=await Promise.all([
       campaignRequest(`/${planId}`,'PUT',{name:'Nome A',planVersion:plan.planVersion}),campaignRequest(`/${planId}`,'PUT',{name:'Nome B',planVersion:plan.planVersion}),
     ]);assert.deepEqual(edits.map(response=>response.status).sort(),[200,409]);
-    await admin.query("UPDATE users SET role='admin' WHERE id=$1",[`user-b-${id}`]);
+    await setCompanyBRole('admin');
     assert.equal((await campaignRequest(`/${planId}/leads`,'GET',undefined,otherHeaders)).status,404);
     assert.equal((await campaignRequest(`/${planId}/leads`,'POST',{phones:['11999990000']},otherHeaders)).status,404);
     assert.equal((await campaignRequest(`/${planId}`,'PUT',{name:'Outra empresa',planVersion:2},otherHeaders)).status,404);
     assert.equal((await campaignRequest(`/${planId}`,'DELETE',{planVersion:2},otherHeaders)).status,404);
     assert.equal((await CampaignPlanningRepository.leads(tenantB,planId,'')).length,0);
-    await admin.query("UPDATE users SET role='operator' WHERE id=$1",[`user-b-${id}`]);
+    await setCompanyBRole('operator');
     await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query('INSERT INTO campaign_leads(campaign_id,tenant_id,phone) VALUES($1,$2,$3)',[planId,tenantB,'5511999990000'])));
     await assert.rejects(postgresClient.executeTenantScoped(tenantA,client=>client.query("INSERT INTO campaigns(id,tenant_id,name,type,status,ai_agent_id) VALUES($1,$2,'Proibida','ai_voicebot','draft',$3)",[crypto.randomUUID(),tenantA,agentB])));
     plan=(await (await campaignRequest('')).json()).find((entry:any)=>entry.id===planId);
