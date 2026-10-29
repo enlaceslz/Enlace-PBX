@@ -70,3 +70,18 @@ export function prepareManagedDirectory(basePath,uid,gid){
     }
   }finally{directory?.close();base.close();}
 }
+
+export function verifyManagedDirectory(basePath,uid,gid){
+  const base=new AnchoredDirectory(basePath);let directory;
+  try{
+    if(base.state().uid!==uid||(base.state().mode&0o022)!==0)throw new Error('Diretório de dados inesperado.');
+    const fd=fs.openSync(base.location('asterisk'),C.O_RDONLY|C.O_DIRECTORY|C.O_NOFOLLOW);
+    directory=Object.create(AnchoredDirectory.prototype);directory.fd=fd;
+    const state=directory.state();
+    if(state.uid!==uid||state.gid!==gid||(state.mode&0o7777)!==0o2750)throw new Error('Diretório gerenciado exige manutenção de permissões.');
+    for(const file of ['pjsip.conf','extensions.conf','queues.conf']){
+      const stat=directory.read(file,{uid,metadataOnly:true,protectedMode:true});
+      if(!stat||stat.gid!==gid||(stat.mode&0o7777)!==0o640)throw new Error('Arquivo gerenciado ausente ou com permissões divergentes.');
+    }
+  }finally{directory?.close();base.close();}
+}

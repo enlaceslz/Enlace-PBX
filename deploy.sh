@@ -6,6 +6,8 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 unset NODE_OPTIONS NODE_PATH BASH_ENV ENV PYTHONPATH PYTHONHOME PYTHONSTARTUP
 
 [[ $EUID -eq 0 ]] || { echo 'Execute como root para provisionar o serviço.' >&2; exit 1; }
+ASTERISK_UPDATE=0
+MANAGED_OPTIONS=()
 command -v flock >/dev/null || { echo 'flock obrigatório para serializar deploys.' >&2; exit 1; }
 [[ ! -L /run && $(stat -c %u /run) == 0 ]] || { echo 'Diretório de trava inválido.' >&2; exit 1; }
 run_mode=$(stat -c %a /run)
@@ -16,6 +18,11 @@ if [[ -e "$DEPLOY_LOCK" || -L "$DEPLOY_LOCK" ]]; then
 fi
 exec 9>>"$DEPLOY_LOCK"
 flock -n 9 || { echo 'Outro deploy está em andamento.' >&2; exit 1; }
+if [[ -e /opt/enlace-pbx/current || -L /opt/enlace-pbx/current ]]; then
+  ASTERISK_UPDATE=1
+  MANAGED_OPTIONS=(--verify)
+  [[ "${INSTALL_ASTERISK:-0}" != 1 ]] || { echo 'Atualização de Asterisk exige manutenção separada; INSTALL_ASTERISK=1 não pode acompanhar uma atualização de código.' >&2; exit 1; }
+fi
 SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 NODE_BIN=$(command -v node) || { echo 'Instale Node.js 22 ou 24 antes de continuar.' >&2; exit 1; }
 [[ "$NODE_BIN" =~ ^/[a-zA-Z0-9_./-]+$ ]] || { echo 'Caminho do Node inválido.' >&2; exit 1; }
@@ -90,7 +97,7 @@ chmod 0750 "$PROVISIONING"
 python3 -I "$SOURCE_DIR/scripts/trusted-source.py" "$PROVISIONING"
 # Dependências administrativas vêm do lockfile revisado; nenhum lifecycle de pacote roda como root.
 (cd "$PROVISIONING" && env -i PATH="$PATH" HOME=/root NODE_ENV=production "$NODE_BIN" "$NPM_BIN" ci --ignore-scripts --include=dev --no-audit --no-fund)
-"$NODE_BIN" "$PROVISIONING/scripts/prepare-managed-asterisk.mjs"
+"$NODE_BIN" "$PROVISIONING/scripts/prepare-managed-asterisk.mjs" "${MANAGED_OPTIONS[@]}"
 
 # A instalação anterior continua atendendo enquanto a nova versão é compilada.
 RELEASE="/opt/enlace-pbx/releases/$(date -u +%Y%m%dT%H%M%S)-$(openssl rand -hex 4)"
@@ -129,9 +136,13 @@ fi
 if getent passwd asterisk >/dev/null && [[ -d /etc/asterisk ]]; then
   usermod -aG asterisk enlace-pbx
   chmod 0751 /var/lib/enlace-pbx
-  "$NODE_BIN" "$PROVISIONING/scripts/prepare-managed-asterisk.mjs"
-  PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" "$PROVISIONING/scripts/asterisk-settings.mjs"
-  asterisk -rx "manager reload"
+  "$NODE_BIN" "$PROVISIONING/scripts/prepare-managed-asterisk.mjs" "${MANAGED_OPTIONS[@]}"
+  if [[ "$ASTERISK_UPDATE" == 1 ]]; then
+    PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" "$PROVISIONING/scripts/asterisk-settings.mjs" --verify
+  else
+    PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" "$PROVISIONING/scripts/asterisk-settings.mjs"
+    asterisk -rx "manager reload"
+  fi
 fi
 LOCAL_DATABASE=$("$NODE_BIN" -p "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); const u=new URL(c.DATABASE_URL); ['127.0.0.1','localhost'].includes(u.hostname) && !process.env.DATABASE_MIGRATION_URL" "$BOOTSTRAP")
 if [[ "$LOCAL_DATABASE" == true ]]; then

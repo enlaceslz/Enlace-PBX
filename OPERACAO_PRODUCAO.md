@@ -18,7 +18,7 @@ Não coloque URL administrativa ou senha inicial do administrador no serviço HT
 
 Versões compiladas ficam em `/opt/enlace-pbx/releases/`; `/opt/enlace-pbx/current` aponta a versão ativa. O instalador testa `/health/ready` e falha se PostgreSQL, Asterisk ou AMI não estiverem prontos. Uma falha não autoriza considerar o deploy homologado. A troca de versão de aplicação não desfaz migrações de banco; avaliar compatibilidade antes de usar uma versão anterior.
 
-Para migrar a instância legada PM2, use `MIGRATE_FROM_PM2=1` na janela de manutenção. O instalador interrompe apenas o processo denominado `enlace-pbx`, sem desligar outros serviços PM2. Não é configurado nenhum firewall automaticamente.
+Instância PM2 ativa é recusada pelo deploy. A migração exige procedimento separado em janela de manutenção; `MIGRATE_FROM_PM2=1` não interrompe nem migra o processo automaticamente. Não é configurado nenhum firewall automaticamente.
 
 ```bash
 systemctl status enlace-pbx
@@ -31,7 +31,7 @@ O NGINX termina TLS e encaminha `/ws` ao WebSocket do Asterisk em loopback `8088
 
 ## Asterisk
 
-O instalador não sobrescreve configurações existentes com `make samples`. A configuração gerenciada preserva seções de outras contas e usa as mesmas credenciais AMI/ARI do runtime. Essas credenciais exigem pelo menos 32 caracteres de `A-Z`, `a-z`, números, `_` e `-`, para impedir interpretação como diretivas INI. Credencial incompatível é recusada, não truncada ou alterada silenciosamente.
+O instalador não sobrescreve configurações existentes com `make samples`. A configuração gerenciada preserva seções de outras contas e usa as mesmas credenciais AMI/ARI do runtime. AMI exige de 32 a 128 caracteres de `A-Z`, `a-z`, números, `_` e `-`. ARI segue o contrato compartilhado de 12 a 128 caracteres, sem controles, ponto e vírgula, barra invertida ou espaços nas extremidades; origens explícitas e válidas são obrigatórias. Credencial incompatível é recusada, não truncada ou alterada silenciosamente.
 
 Para compilar, forneça explicitamente versão 20.x e SHA-256 verificado na distribuição oficial. Nenhum hash não verificado é anunciado como homologado.
 
@@ -41,7 +41,7 @@ sudo env PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json \
   bash install-enlace-pbx.sh
 ```
 
-Alternativamente, `INSTALL_ASTERISK=1` aciona esse instalador durante o deploy, com os mesmos pré-requisitos de versão e hash. A compilação e a configuração real ainda precisam de homologação no host de destino.
+Na primeira instalação, `INSTALL_ASTERISK=1` pode acionar esse instalador durante o deploy, com os mesmos pré-requisitos de versão e hash. Quando há uma release em `/opt/enlace-pbx/current`, essa opção é recusada antes do provisionamento. Atualização de Asterisk exige manutenção separada. A compilação e a configuração real ainda precisam de homologação no host de destino.
 
 PJSIP gerado pela aplicação usa `/var/lib/enlace-pbx/asterisk/pjsip.conf`, incluído pelo arquivo principal. Aplicação sem root não escreve em `/etc/asterisk`. PJSIP e plano de discagem são gravados com substituição atômica por arquivo, sob fila única de aplicação. Se uma recarga falhar, ambos retornam às versões anteriores. Mudanças de transportes podem exigir reinício do Asterisk em janela de manutenção; reload não substitui teste de registro e chamada. Provisionamento de arquivos em PBX remoto exige solução específica; não é confirmado como aplicado após apenas escrever um arquivo local.
 
@@ -428,3 +428,5 @@ Pré-checagem recusa serviço não rastreado na primeira instalação e estados 
 Preservação do runtime em atualização: deploy.sh invoca configure-production com --preserve-existing. Se runtime.json já existe, compara todas as chaves com a configuração candidata antes de escrever bootstrap; qualquer alteração, inclusão ou remoção recusa a atualização sem revelar valores. Quando equivalente, mantém bytes e inode do arquivo original. Domínio, banco e credenciais AMI/ARI não podem ser trocados incidentalmente pelo deploy de código. Configurações legadas que exigem normalização devem ser revisadas em procedimento separado, com backup e compatibilidade. Primeira instalação ainda pode criar runtime; esta guarda não desfaz migrações nem mudanças de Asterisk.
 
 Recuperação após falha de ativação: exige parada confirmada da candidata antes de tocar nos arquivos. Falhas de desabilitação, restauração de um destino ou daemon-reload não interrompem as tentativas nos demais destinos; qualquer uma mantém resultado ROLLBACK_NOT_CONFIRMED e a trava. Serviço e proxy só são retomados depois que todas essas etapas terminam sem erro. Se a parada falhar ou não for confirmada, os arquivos não são trocados; exige intervenção. Testes injetam falhas em parada, estado, desabilitação, cada um dos quatro destinos, recarga, habilitação, início e proxy. Estes testes validam a orquestração; a CLI systemd/NGINX no host ainda requer homologação.
+
+Atualização de código preserva a configuração da telefonia: presença de current (inclusive vínculo pendurado, que continua exigindo revisão) seleciona conferência, sem regravar /etc/asterisk ou executar manager reload. Arquivos principais são lidos por descritores ancorados, limitados e sem seguir symlinks; exigem posse root, arquivo regular único e ausência de escrita por grupo/outros. A conferência exige campos AMI/ARI/HTTP/usuário de execução equivalentes, sem chaves gerenciadas duplicadas, templates ou includes/exec indiretos nesses quatro arquivos. Exige os três #tryinclude gerenciados já presentes; não converte diretivas nem cria arquivos. Diretório e arquivos gerenciados também são apenas conferidos, por metadados, sem ler seus conteúdos como root ou corrigir permissões automaticamente. Divergências exigem manutenção separada antes da migração do banco. INSTALL_ASTERISK=1 é recusado na atualização; primeira instalação mantém o provisionamento explícito. A conferência é de arquivos, não prova estado carregado, disponibilidade SIP/áudio ou compatibilidade com todas as configurações externas. Não houve execução no host real.

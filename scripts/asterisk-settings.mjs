@@ -55,9 +55,53 @@ export function asteriskSettings(settings) {
   };
 }
 
+export function verifyAsteriskSettings(files,settings){
+  const configuration=asteriskSettings(settings);
+  const refuse=()=>{throw new Error('Configuração Asterisk divergente ou ambígua. Planeje a manutenção da telefonia antes de atualizar o código.');};
+  for(const [file,sections] of Object.entries(configuration)){
+    const text=files[file];if(typeof text!=='string')refuse();
+    // Includes podem redefinir os campos; não são resolvidos nem executados pela verificação.
+    if(/^[ \t]*#(?:include|tryinclude|exec)/im.test(text))refuse();
+    for(const [section,fields] of Object.entries(sections)){
+      // Reutiliza a recusa de seções gerenciadas duplicadas ou com templates.
+      updateIni(text,section,fields);
+      let active=false;let found=false;const values=new Map();
+      for(const line of text.replace(/\r\n/g,'\n').split('\n')){
+        const header=line.match(/^[ \t]*\[([^\]]+)\](.*)$/);
+        if(header){active=header[1].trim().toLowerCase()===section.toLowerCase();if(active)found=true;continue;}
+        if(!active)continue;
+        const field=line.match(/^[ \t]*([a-z][a-z0-9_]*)[ \t]*=>?[ \t]*(.*)$/i);
+        if(!field)continue;
+        const key=field[1].toLowerCase();if(!Object.hasOwn(fields,key))continue;
+        if(values.has(key))refuse();
+        values.set(key,field[2].split(';')[0].trim());
+      }
+      if(!found||Object.entries(fields).some(([key,value])=>values.get(key)!==value))refuse();
+    }
+  }
+  for(const file of ['pjsip.conf','extensions.conf','queues.conf']){
+    const text=files[file];if(typeof text!=='string'||includeManaged(text,'/var/lib/enlace-pbx/asterisk/'+file)!==text)refuse();
+  }
+}
+
+export function verifyAsteriskDirectory(directory,settings,uid=0){
+  const files={};
+  for(const file of [...Object.keys(asteriskSettings(settings)),'pjsip.conf','extensions.conf','queues.conf'])files[file]=directory.read(file,{uid,protectedMode:true})?.toString('utf8');
+  verifyAsteriskSettings(files,settings);
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
   if (!process.env.PBX_CONFIG_FILE) throw new Error('PBX_CONFIG_FILE obrigatório.');
-  const configuration = asteriskSettings(JSON.parse(fs.readFileSync(process.env.PBX_CONFIG_FILE, 'utf8')));
+  if(process.argv.slice(2).some(value=>value!=='--verify'))throw new Error('Modo de configuração inválido.');
+  const settings=JSON.parse(fs.readFileSync(process.env.PBX_CONFIG_FILE, 'utf8'));
+  const configuration = asteriskSettings(settings);
+  if(process.argv.includes('--verify')){
+    const directory=new AnchoredDirectory('/etc/asterisk',{trustedUid:0});
+    try{
+      verifyAsteriskDirectory(directory,settings);
+    }finally{directory.close();}
+    console.log('Configuração Asterisk conferida sem escrita ou recarga; o estado em execução exige homologação própria.');
+  }else{
   const group=Number(execFileSync('getent',['group','asterisk'],{encoding:'utf8'}).trim().split(':')[2]);
   const asteriskUid=Number(execFileSync('id',['-u','asterisk'],{encoding:'utf8'}).trim());
   if(!Number.isSafeInteger(group)||group<1||!Number.isSafeInteger(asteriskUid)||asteriskUid<1)throw new Error('Identidade Asterisk inválida.');
@@ -103,4 +147,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
     finally{directory.close();}
   }
   console.log('Configuração Asterisk atualizada preservando seções não gerenciadas.');
+  }
 }
