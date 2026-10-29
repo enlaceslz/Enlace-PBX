@@ -328,7 +328,7 @@ try {
       assert.equal((await aiRequest('knowledge','POST','',{title:'REJEITAR_DOCUMENTO_CI',content:'Texto que deve reverter',targetAgentIds:[configuredAgent.id]})).status,500);
       assert.deepEqual((await admin.query('SELECT knowledge_sources FROM ai_agents WHERE id=$1',[configuredAgent.id])).rows[0].knowledge_sources,linksBeforeFailure,'Falha de documento reverte vínculos já preparados na transação.');
     }finally{await admin.query('DROP TRIGGER IF EXISTS ci_reject_ai_document ON ai_knowledge');await admin.query('DROP FUNCTION ci_reject_ai_document()');}
-    await admin.query("INSERT INTO extensions(id,tenant_id,number,name,sip_secret) VALUES($1,$2,'989001','Destino A','sem-uso'),($3,$4,'989002','Destino B','sem-uso')",['ai-fallback-a-'+id,tenantA,'ai-fallback-b-'+id,tenantB]);
+    await admin.query("INSERT INTO extensions(id,tenant_id,number,name,caller_id,sip_secret) VALUES($1,$2,'989001','Destino A','989001','sem-uso'),($3,$4,'989002','Destino B','989002','sem-uso')",['ai-fallback-a-'+id,tenantA,'ai-fallback-b-'+id,tenantB]);
     assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{fallbackAction:'hangup',transferExtension:'989002'})).status,400);
     assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{fallbackAction:'transfer_human',transferExtension:'989002'})).status,400);
     assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{fallbackAction:'transfer_human',transferExtension:'989001'})).status,200);
