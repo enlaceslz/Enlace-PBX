@@ -1,3 +1,5 @@
+import {extensionPatch} from './server/infrastructure/asterisk/ExtensionMutation.js';
+import {ExtensionManagementRepository} from './server/infrastructure/postgres/repositories/ExtensionManagementRepository.js';
 import {ivrPatch,managedIvr,renderIvr} from './server/infrastructure/asterisk/IvrMutation.js';
 import {IvrManagementRepository} from './server/infrastructure/postgres/repositories/IvrManagementRepository.js';
 import {collectionPatch,queueDto,CollectionKind} from './server/infrastructure/asterisk/CollectionMutation.js';
@@ -1544,185 +1546,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/extensions', requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      tenantId = tenantCtx.tenantId;
-    } catch {
-      return res.status(401).json({ error: 'Sessão não autenticada.' });
-    }
-
-    const number = String(req.body.number || '').trim();
-    const name = String(req.body.name || '').trim();
-
-    if (!number || !/^[0-9]{2,6}$/.test(number)) {
-      return res.status(400).json({ error: 'Número de ramal inválido. Deve conter entre 2 e 6 dígitos numéricos.' });
-    }
-    if (!name || name.length < 2) {
-      return res.status(400).json({ error: 'Nome do ramal é obrigatório (mínimo 2 caracteres).' });
-    }
-
-    try {
-      const existing = await ExtensionRepository.listByTenant(tenantId);
-      const exists = existing.some((e) => e.number === number);
-      if (exists) {
-        return res.status(409).json({ error: `O ramal ${number} já está cadastrado para este tenant.` });
-      }
-
-      // Senha SIP criptograficamente segura: NUNCA previsível ou baseada no número
-      const safeSipSecret = req.body.sipSecret && typeof req.body.sipSecret === 'string' && req.body.sipSecret.trim().length >= 8
-        ? req.body.sipSecret.trim()
-        : crypto.randomBytes(32).toString('base64url');
-
-      const ext: Extension = {
-        id: `ext-${number}`,
-        tenantId,
-        number,
-        name,
-        sipSecret: safeSipSecret,
-        context: req.body.context || 'from-internal',
-        callerId: req.body.callerId || `"${name}" <${number}>`,
-        cliCallerId: req.body.cliCallerId ? String(req.body.cliCallerId).trim() : undefined,
-        codecs: req.body.codecs || ['opus', 'pcma', 'pcmu', 'g722'],
-        nat: req.body.nat !== false,
-        webrtc: req.body.webrtc !== false,
-        recording: req.body.recording || 'always',
-        voicemail: req.body.voicemail !== false,
-        dnd: false,
-        status: 'online',
-        allowAiTransfer: req.body.allowAiTransfer !== false,
-      };
-
-      await ExtensionRepository.save(ext);
-
-      recordAuditLog({
-        tenantId: ext.tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'CREATE_EXTENSION',
-        resource: `extensions/${ext.number}`,
-        details: `Ramal ${ext.number} (${ext.name}) cadastrado com validação PJSIP e credencial criptográfica gerada.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { extension: ext.number, name: ext.name },
-      });
-
-      // Retorna SafeExtension (sem expor o segredo)
-      res.status(201).json(ExtensionRepository.toSafeExtension(ext));
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao criar ramal no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/extensions/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const currentExt = tenantCtx.accessMode === 'GLOBAL'
-        ? await ExtensionRepository.findAnyByIdForSuperAdmin(req.params.id)
-        : await ExtensionRepository.findById(req.params.id, tenantCtx.tenantId);
-
-      if (!currentExt) {
-        return res.status(404).json({ error: 'Ramal não encontrado para o seu tenant.' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && currentExt.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O ramal pertence ao tenant '${currentExt.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const newNumber = req.body.number ? String(req.body.number).trim() : currentExt.number;
-
-      if (newNumber !== currentExt.number) {
-        if (!/^[0-9]{2,6}$/.test(newNumber)) {
-          return res.status(400).json({ error: 'Número de ramal deve ter entre 2 e 6 dígitos numéricos.' });
-        }
-        const existing = await ExtensionRepository.listByTenant(currentExt.tenantId);
-        const collision = existing.some((e) => e.id !== req.params.id && e.number === newNumber);
-        if (collision) {
-          return res.status(409).json({ error: `O ramal ${newNumber} já está em uso por outro usuário.` });
-        }
-      }
-
-      // Preserva a senha anterior se não fornecida nova com complexidade
-      const safeSipSecret = req.body.sipSecret && typeof req.body.sipSecret === 'string' && req.body.sipSecret.trim().length >= 8
-        ? req.body.sipSecret.trim()
-        : currentExt.sipSecret;
-
-      const updated = {
-        ...currentExt,
-        ...req.body,
-        id: currentExt.id,
-        tenantId: currentExt.tenantId,
-        sipSecret: safeSipSecret,
-        number: newNumber
-      };
-
-      await ExtensionRepository.save(updated);
-
-      recordAuditLog({
-        tenantId: updated.tenantId,
-        userId: tenantCtx.actorUserId,
-        action: 'UPDATE_EXTENSION',
-        resource: `extensions/${updated.number}`,
-        details: `Ramal ${updated.number} (${updated.name}) atualizado.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { extensionId: req.params.id, changes: req.body },
-      });
-
-      res.json(ExtensionRepository.toSafeExtension(updated));
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar ramal no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/extensions/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const ext = tenantCtx.accessMode === 'GLOBAL'
-        ? await ExtensionRepository.findAnyByIdForSuperAdmin(req.params.id)
-        : await ExtensionRepository.findById(req.params.id, tenantCtx.tenantId);
-
-      if (!ext) {
-        return res.status(404).json({ error: 'Ramal não encontrado para o seu tenant.' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && ext.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O ramal pertence ao tenant '${ext.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await ExtensionRepository.delete(req.params.id, ext.tenantId);
-
-      recordAuditLog({
-        tenantId: ext.tenantId,
-        userId: tenantCtx.actorUserId,
-        action: 'DELETE_EXTENSION',
-        resource: `extensions/${ext.number}`,
-        details: `Ramal ${ext.number} (${ext.name}) excluído do sistema.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-        ip: req.ip || '127.0.0.1',
-        payload: { extension: ext.number },
-      });
-
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir ramal no PostgreSQL' });
-    }
-  });
+  const findExtension=async(req:any)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?ExtensionRepository.findAnyByIdForSuperAdmin(req.params.id):ExtensionRepository.findById(req.params.id,context.tenantId);};
+  const extensionAudit=async(req:any,tenantId:string,action:string,id='new')=>AuditLogRepository.logStrict({tenantId,userId:req.user.id,userName:req.user.name,action,resource:'extensions/'+id,category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Operação administrativa de ramal; sem corpo recebido ou credencial na auditoria.'});
+  const extensionFailure=(error:any,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});logOperational('SERVER_OPERATION_FAILURE',{requestId:res.locals.requestId});return res.status(500).json({error:'Não foi possível concluir a operação de ramal.'});};
+  app.post('/api/v1/extensions',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});const patch=extensionPatch(req.body,true);
+    await extensionAudit(req,context.tenantId,'CREATE_EXTENSION_ATTEMPT');const id=await ExtensionManagementRepository.mutate(context.tenantId,undefined,patch);return res.status(201).json(ExtensionRepository.toSafeExtension((await ExtensionRepository.findById(id,context.tenantId))!));
+  }catch(error){return extensionFailure(error,res);}});
+  app.put('/api/v1/extensions/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findExtension(req);if(!previous)return res.status(404).json({error:'Ramal não encontrado nesta empresa.'});const patch=extensionPatch(req.body);
+    await extensionAudit(req,previous.tenantId,'UPDATE_EXTENSION_ATTEMPT',previous.id);await ExtensionManagementRepository.mutate(previous.tenantId,previous.id,patch);return res.json(ExtensionRepository.toSafeExtension((await ExtensionRepository.findById(previous.id,previous.tenantId))!));
+  }catch(error){return extensionFailure(error,res);}});
+  app.delete('/api/v1/extensions/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findExtension(req);if(!previous)return res.status(404).json({error:'Ramal não encontrado nesta empresa.'});await extensionAudit(req,previous.tenantId,'DELETE_EXTENSION_ATTEMPT',previous.id);await ExtensionManagementRepository.remove(previous.tenantId,previous.id);return res.json({deleted:true});
+  }catch(error){return extensionFailure(error,res);}});
 
   // Consulta sob demanda de credencial de provisionamento físico/softphone (Apenas Administrador com Auditoria)
   app.get('/api/v1/extensions/:id/provision-credential', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
@@ -1744,16 +1581,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         });
       }
 
-      recordAuditLog({
-        tenantId: ext.tenantId,
-        userId: tenantCtx.actorUserId,
-        action: 'VIEW_EXTENSION_PROVISIONING_CREDENTIAL',
-        resource: `extensions/${ext.number}`,
-        details: `Credencial de provisionamento do ramal ${ext.number} consultada pelo administrador.`,
-        category: 'LGPD_ACCESS',
-        severity: 'WARNING',
-        ip: req.ip || '127.0.0.1',
-      });
+      await extensionAudit(req,ext.tenantId,'VIEW_EXTENSION_PROVISIONING_CREDENTIAL',ext.id);
 
       res.json({
         extension: ext.number,

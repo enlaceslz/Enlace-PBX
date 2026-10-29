@@ -20,6 +20,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import { Extension } from '../../types/pbx';
+import {getAuthHeaders} from '../../utils/api';
 
 interface ExtensionsViewProps {
   extensions: Extension[];
@@ -46,11 +47,11 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
     cliCallerId: '',
     sipSecret: '',
     context: 'from-internal',
-    codecs: 'opus, pcma, pcmu, g722',
+    codecs: 'opus, alaw, ulaw, g722',
     nat: true,
     webrtc: true,
     recording: 'always' as const,
-    voicemail: true,
+    voicemail: false,
     allowAiTransfer: true,
     videoEnabled: true,
   });
@@ -62,7 +63,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
     if (selectedExtForCreds) {
       setLoadingProvisionSecret(true);
       setLoadedProvisionSecret(null);
-      fetch(`/api/v1/extensions/${selectedExtForCreds.id}/provision-credential`)
+      fetch(`/api/v1/extensions/${selectedExtForCreds.id}/provision-credential`,{headers:getAuthHeaders()})
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data?.sipSecret) {
@@ -85,13 +86,13 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
     try {
       const res = await fetch('/api/v1/extensions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           number: formData.number,
           name: formData.name,
           callerId: formData.callerId || `"${formData.name}" <${formData.number}>`,
           cliCallerId: formData.cliCallerId ? formData.cliCallerId.trim() : undefined,
-          sipSecret: formData.sipSecret && formData.sipSecret.trim().length >= 8 ? formData.sipSecret.trim() : undefined,
+          sipSecret: formData.sipSecret || undefined,
           context: formData.context,
           codecs: formData.codecs.split(',').map((c) => c.trim()),
           nat: formData.nat,
@@ -99,7 +100,6 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
           recording: formData.recording,
           voicemail: formData.voicemail,
           allowAiTransfer: formData.allowAiTransfer,
-          videoEnabled: formData.videoEnabled,
         }),
       });
 
@@ -118,11 +118,11 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
         cliCallerId: '',
         sipSecret: '',
         context: 'from-internal',
-        codecs: 'opus, pcma, pcmu, g722',
+        codecs: 'opus, alaw, ulaw, g722',
         nat: true,
         webrtc: true,
         recording: 'always',
-        voicemail: true,
+        voicemail: false,
         allowAiTransfer: true,
         videoEnabled: true,
       });
@@ -144,7 +144,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
     try {
       const res = await fetch(`/api/v1/extensions/${editingExt.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: editingExt.name,
           callerId: editingExt.callerId,
@@ -176,7 +176,8 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
   const handleDelete = async (id: string, number: string) => {
     if (!confirm(`Deseja realmente remover o ramal ${number}?`)) return;
     try {
-      await fetch(`/api/v1/extensions/${id}`, { method: 'DELETE' });
+      const response=await fetch(`/api/v1/extensions/${id}`, { method: 'DELETE',headers:getAuthHeaders() });
+      if(!response.ok){const result=await response.json();setFormError(result.error||'Falha ao excluir ramal.');return;}
       onRefresh();
     } catch (err) {
       console.error('Delete error:', err);
@@ -198,6 +199,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      <p className="p-3 mb-3 rounded-xl bg-amber-50 text-sm text-amber-950">Cadastro não comprova registro SIP. Codecs: opus, alaw, ulaw e g722. Senha SIP explícita: 12 a 128 caracteres; vazia na criação gera senha aleatória. CLI individual, correio de voz e gravação sob demanda não estão disponíveis. Revise e remova opções legadas antes de editar; aplicar e homologar no host.</p>
       {/* Premium Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
@@ -320,22 +322,8 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-1.5">
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            ext.status === 'online'
-                              ? 'bg-emerald-500'
-                              : ext.status === 'busy'
-                              ? 'bg-amber-500'
-                              : 'bg-slate-400'
-                          }`}
-                        />
-                        <span className="capitalize text-slate-700 text-[11px] font-medium">
-                          {ext.status === 'online'
-                            ? 'Online'
-                            : ext.status === 'busy'
-                            ? 'Ocupado'
-                            : 'Offline'}
-                        </span>
+                        <span className="w-2 h-2 rounded-full bg-slate-400" />
+                        <span className="text-slate-700 text-[11px]">Registro não verificado</span>
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
@@ -459,6 +447,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                   </label>
                   <input
                     type="text"
+                    readOnly
                     value={formData.context}
                     onChange={(e) => setFormData({ ...formData, context: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono focus:border-sky-500 focus:outline-none"
@@ -516,7 +505,7 @@ export const ExtensionsView: React.FC<ExtensionsViewProps> = ({
                     onChange={(e) => setFormData({ ...formData, allowAiTransfer: e.target.checked })}
                     className="rounded bg-slate-50 border-slate-200 text-sky-500 focus:ring-sky-500"
                   />
-                  <span>Permitir Transbordo do Agente IA</span>
+                  <span>Permitir transferência pela IA (depende de telefonia homologada)</span>
                 </label>
               </div>
 
@@ -784,7 +773,7 @@ qualify_frequency=30`}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none"
                   >
                     <option value="always">Sempre Gravar (100%)</option>
-                    <option value="on_demand">Gravação sob Demanda</option>
+                    <option value="on_demand" disabled>Legado: sob demanda não implementado</option>
                     <option value="never">Não Gravar</option>
                   </select>
                 </div>
@@ -811,12 +800,13 @@ qualify_frequency=30`}
                     }
                     className="rounded bg-slate-50 border-slate-200 text-blue-600 focus:ring-blue-500"
                   />
-                  <span>Permitir Transbordo do Agente IA</span>
+                  <span>Permitir transferência pela IA (depende de telefonia homologada)</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer text-slate-700">
                   <input
                     type="checkbox"
+                    disabled={!editingExt.voicemail}
                     checked={editingExt.voicemail}
                     onChange={(e) => setEditingExt({ ...editingExt, voicemail: e.target.checked })}
                     className="rounded bg-slate-50 border-slate-200 text-blue-600 focus:ring-blue-500"

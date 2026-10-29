@@ -437,7 +437,7 @@ include => outbound-routes
 [internal-extensions]
 ${extensions
   .map(
-    (ext) => `exten => ${ext.number},1,NoOp(Enlace-PBX: Chamada Interna para Ramal ${ext.number} - ${ext.name})
+    (ext) => `exten => ${ext.number},1,NoOp(Chamada interna para ramal gerenciado)
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CALLFILENAME=rec-\${EPOCH}-\${CALLERID(num)}-\${EXTEN})
  ${ext.recording === 'always' ? `same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)` : ''}
