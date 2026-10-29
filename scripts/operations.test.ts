@@ -60,7 +60,7 @@ test('configuração do Asterisk preserva outras contas e rejeita injeção INI'
   assert.match(changed, /enabled = yes/);
   assert.doesNotMatch(changed, /enabled = no/);
   assert.match(changed, /\[outra_conta\]\nsecret = preservar/);
-  const values = { ASTERISK_AMI_PASSWORD: 'a'.repeat(48), ASTERISK_ARI_PASSWORD: 'b'.repeat(48), CORS_ALLOWED_ORIGINS: 'https://pbx.example.invalid' };
+  const values = { ASTERISK_AMI_USERNAME:'enlace_ami',ASTERISK_ARI_USERNAME:'enlace_ari', ASTERISK_AMI_PASSWORD: 'a'.repeat(48), ASTERISK_ARI_PASSWORD: 'b'.repeat(48), CORS_ALLOWED_ORIGINS: 'https://pbx.example.invalid' };
   const result = asteriskSettings(values);
   assert.equal(result['manager.conf'].enlace_ami.secret, values.ASTERISK_AMI_PASSWORD);
   assert.equal(result['http.conf'].general.bindaddr, '127.0.0.1');
@@ -136,4 +136,22 @@ test('aplicação com filas só aceita resultado após a recarga das três confi
   const order:string[]=[];const adapter=new AsteriskAdapter();adapter.reloadPjsip=async()=>{order.push('pjsip');return {success:true,message:'teste'};};adapter.reloadDialplan=async()=>{order.push('dialplan');return {success:true,message:'teste'};};adapter.reloadQueues=async()=>{order.push('queues');return {success:true,message:'teste'};};
   const result=await adapter.applyPjsipConfig('pjsip novo','plano novo','filas novas');assert.equal(result.success,true);assert.deepEqual(order,['pjsip','dialplan','queues']);assert.equal(await fs.readFile(path.join(directory,'queues.conf'),'utf8'),'filas novas');
  }finally{if(previous===undefined)delete process.env.ASTERISK_CONFIG_DIR;else process.env.ASTERISK_CONFIG_DIR=previous;await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('instalador e prévia ARI usam o mesmo contrato e priorizam origem ARI explícita', async()=>{
+ const {ariConfiguration}=await import('../server/infrastructure/asterisk/AuxiliaryConfig.js');
+ const settings={NODE_ENV:'production',ASTERISK_AMI_USERNAME:'enlace_ami',ASTERISK_ARI_USERNAME:'enlace_ari',ASTERISK_AMI_PASSWORD:'a'.repeat(48),ASTERISK_ARI_PASSWORD:'credencial-ari-com-caracteres#[]',CORS_ALLOWED_ORIGINS:'https://painel.example.invalid',ASTERISK_ARI_ALLOWED_ORIGINS:'https://ari.example.invalid'};
+ const files=asteriskSettings(settings);assert.equal(files['ari.conf'].general.allowed_origins,'https://ari.example.invalid');assert.equal(files['ari.conf'].enlace_ari.password,settings.ASTERISK_ARI_PASSWORD);assert.match(ariConfiguration(settings,true),/allowed_origins=https:\/\/ari.example.invalid/);
+ for(const override of [{ASTERISK_ARI_ALLOWED_ORIGINS:'https://ari.example.invalid/caminho'},{ASTERISK_ARI_ALLOWED_ORIGINS:'https://*.example.invalid'},{ASTERISK_ARI_USERNAME:'general'},{ASTERISK_AMI_USERNAME:'general'}])assert.throws(()=>asteriskSettings({...settings,...override}));
+});
+test('edição INI remove chaves antigas sem diferenciar maiúsculas e recusa seções ambíguas',()=>{
+ const changed=updateIni(' [general] ; opções\nENABLED => no\nbindaddr=0.0.0.0\n[externo]\nsecret=preservar\n','general',{enabled:'yes',bindaddr:'127.0.0.1'});assert.doesNotMatch(changed,/ENABLED => no|bindaddr=0.0.0.0/);assert.match(changed,/secret=preservar/);
+ for(const source of ['[general]\n[GENERAL]\n','[general](!)\n','[general](+)\n'])assert.throws(()=>updateIni(source,'general',{enabled:'yes'}));
+ assert.throws(()=>updateIni('','general',{enabled:'yes\n#include segredo'}));
+});
+test('include gerenciado de queues.conf é idempotente e recusa duplicidade',async()=>{
+ const {includeManaged}=await import('./asterisk-settings.mjs');const target='/var/lib/enlace-pbx/asterisk/queues.conf';
+ const once=includeManaged('[general]\n',target);assert.equal(includeManaged(once,target),once);
+ const quoted='#include "'+target+'" ; mantido\n';assert.equal(includeManaged(quoted,target),quoted);
+ assert.throws(()=>includeManaged(once+quoted,target));assert.throws(()=>includeManaged('',target+'\n#exec comando'));
 });

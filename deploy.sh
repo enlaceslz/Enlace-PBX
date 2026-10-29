@@ -69,8 +69,19 @@ if getent passwd asterisk >/dev/null && [[ -d /etc/asterisk ]]; then
   if [[ ! -f /var/lib/enlace-pbx/asterisk/extensions.conf ]]; then
     install -m 0640 -o enlace-pbx -g asterisk /dev/null /var/lib/enlace-pbx/asterisk/extensions.conf
   fi
+  if [[ -L /etc/asterisk || ! -d /etc/asterisk ]]; then echo "Diretório Asterisk inválido; revise manualmente." >&2; exit 1; fi
+  chown root:asterisk /etc/asterisk
+  chmod 0750 /etc/asterisk
+  for config_name in manager ari http asterisk pjsip extensions queues; do
+    config_path="/etc/asterisk/${config_name}.conf"
+    if [[ -L "$config_path" || ( -e "$config_path" && ! -f "$config_path" ) ]]; then echo "Configuração Asterisk não regular; revise manualmente." >&2; exit 1; fi
+    if [[ -f "$config_path" ]]; then chown root:asterisk "$config_path"; chmod 0640 "$config_path"; fi
+  done
+  if [[ ! -f /var/lib/enlace-pbx/asterisk/queues.conf ]]; then
+    install -m 0640 -o enlace-pbx -g asterisk /dev/null /var/lib/enlace-pbx/asterisk/queues.conf
+  fi
   PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" scripts/asterisk-settings.mjs
-  chown root:asterisk /etc/asterisk/{manager,ari,http,asterisk,pjsip,extensions}.conf
+  chown root:asterisk /etc/asterisk/{manager,ari,http,asterisk,pjsip,extensions,queues}.conf
   asterisk -rx "manager reload"
 fi
 # TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.
