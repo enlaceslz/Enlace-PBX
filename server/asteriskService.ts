@@ -1,3 +1,4 @@
+import {managedExtension} from './infrastructure/asterisk/ExtensionMutation.js';
 import {managedIvr,renderIvr} from './infrastructure/asterisk/IvrMutation.js';
 import {managedCollection,assertInternalNumbers} from './infrastructure/asterisk/CollectionMutation.js';
 import {managedRoutePlan} from './infrastructure/asterisk/RouteMutation.js';
@@ -224,7 +225,7 @@ export class AsteriskService {
   }
 
   async generatePjsipConf(tenantId: string, maskSecrets: boolean = false): Promise<string> {
-    const extensions = await ExtensionRepository.listByTenant(tenantId);
+    const extensions = (await ExtensionRepository.listByTenant(tenantId)).map(extension=>managedExtension(extension,true));
     const trunks = await TrunkRepository.listByTenant(tenantId);
     const infraStored = await SystemRepository.getInfraConfig();
     const infra = infraStored || defaultInfraConfig;
@@ -393,7 +394,7 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
    * Gerador oficial de Dialplan (extensions.conf) baseado em PostgreSQL.
    */
   async generateExtensionsConf(tenantId: string): Promise<string> {
-    const extensions = await ExtensionRepository.listByTenant(tenantId);
+    const extensions = (await ExtensionRepository.listByTenant(tenantId)).map(extension=>managedExtension(extension));
     const routes = (await RouteRepository.listByTenant(tenantId)).filter(route=>route.isActive!==false);
     const groups = await RingGroupRepository.listByTenant(tenantId);
     const queues = await QueueRepository.listByTenant(tenantId);
@@ -439,31 +440,16 @@ ${extensions
   .map(
     (ext) => `exten => ${ext.number},1,NoOp(Chamada interna para ramal gerenciado)
  same => n,Set(CDR(tenant_id)=${tenantId})
- same => n,Set(CALLFILENAME=rec-\${EPOCH}-\${CALLERID(num)}-\${EXTEN})
+ same => n,Set(CALLFILENAME=rec-\${FILTER(0-9A-Za-z,\${UNIQUEID})})
  ${ext.recording === 'always' ? `same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)` : ''}
  same => n,Dial(PJSIP/\${EXTEN},30,tT)
  same => n,GotoIf($["\${DIALSTATUS}" = "BUSY"]?busy:unavail)
- ${
-   ext.voicemail
-     ? `same => n(busy),VoiceMail(\${EXTEN}@default,b)
- same => n,Hangup()
- same => n(unavail),VoiceMail(\${EXTEN}@default,u)
- same => n,Hangup()`
-     : `same => n(busy),Busy(10)
+ same => n(busy),Busy(10)
  same => n,Hangup()
  same => n(unavail),Congestion(10)
  same => n,Hangup()`
- }`
   )
   .join('\n\n')}
-
-; Padrão fallback para ramais de 3 a 5 dígitos
-exten => _[1-9]XX,1,Dial(PJSIP/\${EXTEN},30,tT)
- same => n,Hangup()
-exten => _[1-9]XXX,1,Dial(PJSIP/\${EXTEN},30,tT)
- same => n,Hangup()
-exten => _[1-9]XXXX,1,Dial(PJSIP/\${EXTEN},30,tT)
- same => n,Hangup()
 
 ; Grupos de Toque
 [ring-groups]

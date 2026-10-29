@@ -1,3 +1,4 @@
+import {EncryptionService} from '../server/infrastructure/security/EncryptionService.js';
 import {DidRepository} from '../server/infrastructure/postgres/repositories/DidRepository.js';
 import { UserManagementRepository } from '../server/infrastructure/postgres/repositories/UserManagementRepository.js';
 import { credentialStamp } from '../server/infrastructure/auth/CredentialStamp.js';
@@ -788,6 +789,18 @@ try {
     const queueStored=(await admin.query('SELECT name,timeout_seconds,wrap_up_time_seconds FROM queues WHERE id=$1',[apiQueue.id])).rows[0];assert.equal(queueStored.name,'Fila atualizada '+id);assert.equal(queueStored.timeout_seconds,45);assert.equal(queueStored.wrap_up_time_seconds,0);
     const namespaceRace=await Promise.all([collectionRequest('queues','POST','',{...queueBody,name:'Concorrente fila '+id,number:'8001'}),collectionRequest('ring-groups','POST','',{...groupBody,name:'Concorrente grupo '+id,number:'8001'})]);assert.deepEqual(namespaceRace.map(response=>response.status).sort(),[201,409]);const namespaceWinner=namespaceRace.findIndex(response=>response.status===201);const namespaceRecord=await namespaceRace[namespaceWinner].json();assert.equal((await collectionRequest(namespaceWinner===0?'queues':'ring-groups','DELETE','/'+namespaceRecord.id)).status,200);
     const queuesConfig=await new AsteriskService().generateQueuesConf(tenantA);assert.ok(queuesConfig.includes('['+apiQueue.id+']'));assert.match(queuesConfig,/wrapuptime = 0/);assert.match(queuesConfig,/strategy = rrmemory/);assert.match(queuesConfig,/member => PJSIP\/980001/);assert.doesNotMatch(queuesConfig,/member => PJSIP\/980002/);
+    const generatorService=new AsteriskService();
+    await assert.rejects(generatorService.generatePjsipConf(tenantA,true));
+    const fixtureSecret=' credencial#[]de-teste-forte ';
+    await admin.query('UPDATE extensions SET sip_secret=$1 WHERE tenant_id=$2',[EncryptionService.encrypt(fixtureSecret),tenantA]);
+    const pjsipPreview=await generatorService.generatePjsipConf(tenantA,true);assert.match(pjsipPreview,/\[980001\]/);assert.equal(pjsipPreview.includes(fixtureSecret),false);assert.match(pjsipPreview,/password=••••••••/);
+    for(const [column,value] of [['context','from-trunk'],['codecs',JSON.stringify(['opus','pcma'])],['caller_id','\u0024{SHELL(id)}'],['voicemail',true],['dnd',true],['nat',false],['recording','on_demand'],['cli_caller_id','5511999999999']] as const){
+      const before=(await admin.query('SELECT '+column+' FROM extensions WHERE id=$1',['collection-ext-a-'+id])).rows[0][column];
+      try{
+        await admin.query('UPDATE extensions SET '+column+'=$1 WHERE id=$2',[value,'collection-ext-a-'+id]);
+        await assert.rejects(generatorService.generateExtensionsConf(tenantA));await assert.rejects(generatorService.generatePjsipConf(tenantA,true));
+      }finally{await admin.query('UPDATE extensions SET '+column+'=$1 WHERE id=$2',[column==='codecs'?JSON.stringify(before):before,'collection-ext-a-'+id]);}
+    }
     const collectionPlan=await new AsteriskService().generateExtensionsConf(tenantA);assert.ok(collectionPlan.includes('Queue('+apiQueue.id+',t,,,45)'));assert.ok(collectionPlan.includes('Dial(PJSIP/980001&PJSIP/980003,25,tT)'));
     // Mudança confirmada entre geradores não pode misturar versões do mesmo cadastro.
     const snapshotService=new AsteriskService();
@@ -806,6 +819,7 @@ try {
     assert.equal((await admin.query('SELECT timeout_seconds FROM queues WHERE id=$1',[apiQueue.id])).rows[0].timeout_seconds,46);
     await assert.rejects(postgresClient.withReadSnapshot(async()=>{throw new Error('interrupção de teste');}),/interrupção de teste/);
     const afterSnapshot=await new AsteriskService().generateQueuesConf(tenantA);assert.match(afterSnapshot,/timeout = 46/);
+    const safeRecordingPlan=await generatorService.generateExtensionsConf(tenantA);assert.ok(safeRecordingPlan.includes('CALLFILENAME=rec-${FILTER(0-9A-Za-z,${UNIQUEID})}'));assert.doesNotMatch(safeRecordingPlan,/CALLFILENAME=.*CALLERID/);assert.doesNotMatch(safeRecordingPlan,/exten => _\[1-9\]X{2,4},1,Dial\(PJSIP/);assert.doesNotMatch(safeRecordingPlan,/VoiceMail\(/);
     await admin.query('UPDATE queues SET calls_waiting=99,answered_today=500 WHERE id=$1',[apiQueue.id]);const queueRead=(await (await collectionRequest('queues','GET','')).json()).find((record:any)=>record.id===apiQueue.id);assert.equal(queueRead.callsWaiting,null);assert.equal(queueRead.answeredToday,null);
     const collectionDid='collection-did-'+id;await admin.query("INSERT INTO dids(id,tenant_id,did,normalized_number,presented_number,operator_name,trunk_id,destination_type,destination_id,status) VALUES($1,$2,'1132222000','+551132222000','1132222000','CI',$3,'queue',$4,'inactive')",[collectionDid,tenantA,trunk.id,apiQueue.id]);
     assert.equal((await collectionRequest('queues','DELETE','/'+apiQueue.id)).status,409);assert.equal((await collectionRequest('queues','PUT','/'+apiQueue.id,{number:'6002'})).status,409);await admin.query('DELETE FROM dids WHERE id=$1',[collectionDid]);
