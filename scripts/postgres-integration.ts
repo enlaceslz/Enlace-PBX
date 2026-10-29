@@ -1,3 +1,6 @@
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
 import { MaiaAIGateway } from '../server/maia/gateway/MaiaAIGateway.js';
 import { MaiaSessionRepository } from '../server/maia/repositories/MaiaSessionRepository.js';
 import { MaiaSessionEntity } from '../server/maia/core/MaiaSession.js';
@@ -32,6 +35,7 @@ const id = crypto.randomUUID();
 const tenantA = `test-a-${id}`;
 const tenantB = `test-b-${id}`;
 const context = (tenantId: string) => ({ tenantId, actorRole: 'admin' as const, actorUserId: 'integration', accessMode: 'TENANT' as const });
+let recordingsRoot:string|undefined;
 try {
   await admin.connect();
   assert.equal((await postgresClient.checkHealth()).productionSafe, true);
@@ -110,6 +114,11 @@ try {
           const input=JSON.parse(body.messages[1].content);assert.equal(input.message,'Entrada');assert.equal(Object.hasOwn(input,'history'),false);
           res.end(JSON.stringify({model:body.model,choices:[{message:{content:JSON.stringify({templateId:'CLARIFY_REQUEST',evidence:'Entrada'})}}],usage:{prompt_tokens:45,completion_tokens:12}}));return;
         }
+        if(body.model==='modelo-cdr-test'){
+          const audit=await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='CDR_EVIDENCE_ATTEMPT' AND payload->>'executionId'=$2",[tenantA,req.headers['x-enlace-request-id']]);assert.equal(audit.rows.length,1);
+          assert.equal(JSON.parse(body.messages[1].content).text,'Preciso de suporte. Vou verificar.');
+          res.end(JSON.stringify({model:body.model,choices:[{message:{content:JSON.stringify({fields:{request:'Preciso de suporte.',proposal:'Problema resolvido',nextStep:'Vou verificar.'}})}}],usage:{prompt_tokens:15,completion_tokens:8}}));return;
+        }
         if(body.model==='modelo-quality-test'){
           qualityHits++;
           const audit=await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='QUALITY_REVIEW_ATTEMPT' AND payload->>'executionId'=$2",[tenantA,req.headers['x-enlace-request-id']]);assert.equal(audit.rows.length,1);
@@ -159,9 +168,16 @@ try {
     {key:'documento',label:'Documento',type:'cpf_cnpj',required:true,description:''},
   ] });
   assert.equal((await EntitySchemaRepository.list(tenantB)).length, 0);
+  recordingsRoot=await mkdtemp(path.join(os.tmpdir(),'pbx-recordings-ci-'));
+  const recordingBytes=Buffer.from('RIFF0000WAVEarquivo-original-ci');await writeFile(path.join(recordingsRoot,'original.wav'),recordingBytes);
+  const cdrA='cdr-a-'+id;const cdrB='cdr-b-'+id;
+  await admin.query(`INSERT INTO cdr(id,uniqueid,tenant_id,caller,callee,direction,start_time,end_time,disposition,recording_file,transcription,summary)
+    VALUES($1,$1,$2,'871001','871002','internal',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'ANSWERED','original.wav','Preciso de suporte. Vou verificar.','Legado preservado'),
+    ($3,$3,$4,'871003','871004','internal',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'ANSWERED','original.wav','Texto de outra empresa',NULL)`,[cdrA,tenantA,cdrB,tenantB]);
   const child = spawn(process.execPath, ['dist/server.cjs'], {
     env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
       OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
+      RECORDINGS_ROOT:recordingsRoot,CDR_ANALYSIS_ENABLED_TENANTS:tenantA,CDR_ANALYSIS_MODEL:'modelo-cdr-test',
       NINEROUTER_URL: origin + '/v1', NINEROUTER_API_KEY: 'segredo-extracao-ci', ENTITY_EXTRACTION_MODEL: 'modelo-extracao-test', ENTITY_EXTRACTION_ENABLED_TENANTS: tenantA,
       QUALITY_REVIEW_MODEL: 'modelo-quality-test',QUALITY_REVIEW_ENABLED_TENANTS: tenantA,
       COPILOT_MODEL:'modelo-copilot-test',COPILOT_ENABLED_TENANTS:tenantA,
@@ -544,6 +560,19 @@ try {
     console.log('Webhooks de produção: assinatura dos bytes, auditoria anterior, histórico real e isolamento aprovados.');
     console.log('Ferramenta HTTP em produção: execução real, auditoria anterior, confirmação, schema, vínculo e isolamento aprovados.');
     console.log('HTTP de produção: login bcrypt, perfil, RBAC, isolamento, arquivos públicos e readiness aprovados.');
+    const recording=await fetch(base+`/api/v1/cdr/${cdrA}/recording`,{headers:testHeaders});assert.equal(recording.status,200);
+    assert.equal(recording.headers.get('content-type'),'audio/wav');assert.equal(recording.headers.get('cache-control'),'no-store');
+    assert.deepEqual(Buffer.from(await recording.arrayBuffer()),recordingBytes);
+    assert.equal((await fetch(base+`/api/v1/cdr/${cdrB}/recording`,{headers:testHeaders})).status,404);
+    assert.equal((await fetch(base+`/api/v1/cdr/${cdrA}/recording`)).status,401);
+    const accessAudits=await admin.query("SELECT id FROM audit_logs WHERE tenant_id=$1 AND action='CDR_RECORDING_ACCESS'",[tenantA]);assert.equal(accessAudits.rows.length,1);
+    const cdrAnalysis=await fetch(base+`/api/v1/cdr/${cdrA}/summarize`,{method:'POST',headers:testHeaders});assert.equal(cdrAnalysis.status,200);
+    const evidence=await cdrAnalysis.json();assert.equal(evidence.analysis.evidence.request,'Preciso de suporte.');assert.equal(evidence.analysis.evidence.proposal,null);assert.equal(evidence.analysis.reviewRequired,true);
+    assert.equal((await fetch(base+`/api/v1/cdr/${cdrB}/summarize`,{method:'POST',headers:testHeaders})).status,404);
+    assert.equal((await fetch(base+`/api/v1/cdr/${cdrA}/summarize`,{method:'POST',headers:{...rootHeaders,'x-tenant-id':tenantB}})).status,404,'Superadmin direcionado não analisa CDR de outra empresa.');
+    const forgedSummary=await fetch(base+'/api/v1/ai/summarize-call',{method:'POST',headers:testHeaders,body:JSON.stringify({cdrId:cdrB,transcript:'Texto forjado'})});assert.equal(forgedSummary.status,400);
+    assert.equal((await admin.query('SELECT summary,transcription FROM cdr WHERE id=$1',[cdrA])).rows[0].summary,'Legado preservado');
+    assert.deepEqual(externalErrors,[]);
   } finally {
     external.closeAllConnections(); await new Promise<void>(resolve => external.close(() => resolve()));
     if (child.exitCode === null && child.signalCode === null) {
@@ -570,4 +599,5 @@ try {
   await admin.query('DELETE FROM tenants WHERE id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.end();
   await postgresClient.close();
+  if(recordingsRoot)await rm(recordingsRoot,{recursive:true,force:true});
 }

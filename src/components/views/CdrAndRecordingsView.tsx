@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   FileText,
   Mic,
@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { CdrRecord, Tenant } from '../../types/pbx';
-import { speakHumanized, stopSpeaking, detectVoiceGender } from '../../utils/speechVoiceHelper';
+import { getAuthHeaders } from '../../utils/api';
 import { exportCdrReportPdf, exportCallDossierPdf } from '../../utils/pdfExportHelper';
 
 interface CdrAndRecordingsProps {
@@ -77,73 +77,25 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
   // Audio Playback state
   const [activeAudioCdr, setActiveAudioCdr] = useState<CdrRecord | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [audioProgress, setAudioProgress] = useState(0);
-
-  const handlePlayRecording = (cdr: CdrRecord) => {
-    if (activeAudioCdr?.id === cdr.id && isPlayingAudio) {
-      stopSpeaking();
-      setIsPlayingAudio(false);
-      return;
-    }
-
-    setActiveAudioCdr(cdr);
-    setIsPlayingAudio(true);
-    setAudioProgress(0);
-
-    stopSpeaking();
-    const textToRead =
-      cdr.transcription ||
-      cdr.summary ||
-      `Gravação da chamada de ${cdr.caller} para ${cdr.callee}. Duração de ${cdr.duration} segundos com status ${cdr.disposition}.`;
-
-    const isRoberto =
-      cdr.callee === '4102' ||
-      cdr.caller === '4102' ||
-      cdr.transferredTo?.includes('4102') ||
-      cdr.transferredTo?.toLowerCase().includes('roberto') ||
-      textToRead.toLowerCase().includes('roberto');
-
-    const isCarlos =
-      cdr.callee === '4101' ||
-      cdr.caller === '4101' ||
-      textToRead.toLowerCase().includes('carlos');
-
-    const gender = isRoberto || isCarlos ? 'male' : detectVoiceGender(textToRead, undefined, 'female');
-    const persona = isRoberto ? 'roberto' : isCarlos ? 'carlos' : 'maia';
-
-    const totalSec = Math.max(6, Math.min(20, cdr.duration || 10));
-    let elapsed = 0;
-
-    const interval = setInterval(() => {
-      elapsed += 0.5;
-      const pct = Math.min(100, Math.round((elapsed / totalSec) * 100));
-      setAudioProgress(pct);
-      if (pct >= 100) {
-        clearInterval(interval);
-      }
-    }, 500);
-
-    speakHumanized(textToRead, {
-      gender,
-      persona,
-      onStart: () => setIsPlayingAudio(true),
-      onEnd: () => {
-        setIsPlayingAudio(false);
-        setAudioProgress(100);
-        clearInterval(interval);
-      },
-      onError: () => {
-        setIsPlayingAudio(false);
-        clearInterval(interval);
-      },
-    });
+  const [audioUrl,setAudioUrl]=useState<string|null>(null);
+  const [requestError,setRequestError]=useState('');
+  const [evidencePreview,setEvidencePreview]=useState<any>(null);
+  const audioRequest=useRef<AbortController|null>(null);
+  const audioObject=useRef<string|null>(null);
+  const disposeAudio=()=>{audioRequest.current?.abort();if(audioObject.current)URL.revokeObjectURL(audioObject.current);audioObject.current=null;};
+  useEffect(()=>()=>disposeAudio(),[]);
+  const handlePlayRecording=async(cdr:CdrRecord)=>{
+    disposeAudio();setAudioUrl(null);setIsPlayingAudio(false);setActiveAudioCdr(cdr);setRequestError('');
+    const controller=new AbortController();audioRequest.current=controller;
+    try{
+      const response=await fetch(`/api/v1/cdr/${encodeURIComponent(cdr.id)}/recording`,{headers:getAuthHeaders(),signal:controller.signal});
+      if(!response.ok){const error=await response.json();throw new Error(error.error || 'Gravação indisponível.');}
+      const blob=await response.blob();if(controller.signal.aborted)return;
+      if(!blob.size || blob.size>50*1024*1024)throw new Error('Arquivo inválido ou acima de 50 MB.');
+      const url=URL.createObjectURL(blob);audioObject.current=url;setAudioUrl(url);
+    }catch(error){if(!controller.signal.aborted){setRequestError(error instanceof Error ? error.message : 'Falha ao abrir a gravação.');setActiveAudioCdr(null);}}
   };
-
-  const handleStopAudio = () => {
-    stopSpeaking();
-    setIsPlayingAudio(false);
-    setAudioProgress(0);
-  };
+  const handleStopAudio=()=>{disposeAudio();setAudioUrl(null);setActiveAudioCdr(null);setIsPlayingAudio(false);};
 
   // Filtered CDRs calculation
   const filteredCdrs = useMemo(() => {
@@ -185,7 +137,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
     const aiHandled = cdrs.filter((c) => c.isAiHandled || c.aiAgentId).length;
     const transferred = cdrs.filter((c) => c.isTransferred || c.transferredTo).length;
     const answered = cdrs.filter((c) => c.disposition === 'ANSWERED').length;
-    const answerRate = total > 0 ? Math.round((answered / total) * 100) : 100;
+    const answerRate = total > 0 ? Math.round((answered / total) * 100) : null;
     const totalCost = cdrs.reduce((acc, c) => acc + (c.costBrl || 0), 0);
     const aiContained = cdrs.filter(
       (c) => (c.isAiHandled || c.aiAgentId) && !c.isTransferred && !c.transferredTo
@@ -195,28 +147,14 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
     return { total, aiHandled, transferred, answerRate, totalCost, aiContainmentRate };
   }, [cdrs]);
 
-  const handleSummarizeWithGemini = async (cdr: CdrRecord) => {
-    setIsSummarizingId(cdr.id);
-    try {
-      const res = await fetch(`/api/v1/cdr/${cdr.id}/summarize`, { method: 'POST' });
-      const data = await res.json();
-      if (data.analysis) {
-        cdr.summary = data.analysis.summary;
-        cdr.sentiment = data.analysis.sentiment || 'positive';
-        if (selectedCdrForModal?.id === cdr.id) {
-          setSelectedCdrForModal({
-            ...cdr,
-            summary: data.analysis.summary,
-            sentiment: data.analysis.sentiment || 'positive',
-          });
-        }
-      }
-      onRefresh();
-    } catch (err) {
-      console.error('Summarize error:', err);
-    } finally {
-      setIsSummarizingId(null);
-    }
+  const handleSummarizeWithGemini = async(cdr:CdrRecord)=>{
+    setIsSummarizingId(cdr.id);setRequestError('');setEvidencePreview(null);
+    try{
+      const response=await fetch(`/api/v1/cdr/${encodeURIComponent(cdr.id)}/summarize`,{method:'POST',headers:getAuthHeaders()});
+      const data=await response.json();if(!response.ok)throw new Error(data.error || 'Análise não concluída.');
+      setEvidencePreview({cdrId:cdr.id,...data.analysis});
+    }catch(error){setRequestError(error instanceof Error ? error.message : 'Análise indisponível.');}
+    finally{setIsSummarizingId(null);}
   };
 
   const handleExportCsv = () => {
@@ -331,9 +269,9 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
             {activeTab === 'cdr'
               ? 'Bilhetagem completa do Asterisk 20, tarifas, duração e status de todas as chamadas.'
               : activeTab === 'recordings'
-              ? 'Armazenamento de áudio em alta definição (Opus/WAV), reprodução web e download.'
+              ? 'Arquivos originais vinculados ao CDR, com acesso autenticado e auditado.'
               : activeTab === 'transcriptions'
-              ? 'Transcrição semântica de chamadas, análise de sentimento e sumarização via Google Gemini.'
+              ? 'Transcrições registradas e seleção assistida de trechos literais para revisão humana.'
               : 'Indicadores de qualidade, tempo de espera na fila, nível de serviço e relatórios oficiais em PDF.'}
           </p>
         </div>
@@ -585,7 +523,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
             <div className="mt-4 flex flex-col">
               <span className="text-4xl font-black text-slate-800">{stats.total}</span>
               <span className="text-xs text-emerald-600 font-bold mt-1 bg-emerald-50 self-start px-2 py-0.5 rounded">
-                {stats.answerRate}% taxa de atendimento
+                {stats.answerRate === null ? 'Sem chamadas na amostra' : `${stats.answerRate}% de atendimento na amostra`}
               </span>
             </div>
           </div>
@@ -597,7 +535,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                 <PieChartIcon className="w-4 h-4 text-purple-500" /> Análise Semântica
               </div>
               <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-xs mb-4">
-                Distribuição de sentimentos analisados pelo Gemini em tempo real durante as conversas (Voz e WABA).
+                Classificações legadas de sentimento, sem verificação de origem ou revisão neste painel.
               </p>
               <div className="grid grid-cols-3 gap-2">
                  {sentimentData.map((s, i) => (
@@ -996,7 +934,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                           className="px-2.5 py-1 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition disabled:opacity-50"
                         >
                           <Sparkles className="w-3 h-3" />
-                          {isSummarizingId === cdr.id ? 'Analisando...' : 'Resumir IA'}
+                          {isSummarizingId === cdr.id ? 'Analisando...' : 'Selecionar trechos'}
                         </button>
                       )}
                     </td>
@@ -1150,7 +1088,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-slate-500 uppercase text-[10px] font-bold tracking-wider font-mono">
-                    Resumo e Análise de Conteúdo (Gemini 3.8):
+                    Resumo legado — conteúdo não verificado:
                   </label>
                   {selectedCdrForModal.sentiment && (
                     <span className="text-[10px] font-semibold text-slate-600">
@@ -1159,8 +1097,9 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                   )}
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-slate-700 leading-relaxed">
-                  {selectedCdrForModal.summary || 'Nenhum resumo gerado ainda. Clique em "Resumir com IA" na tabela para processar via Gemini.'}
+                  {selectedCdrForModal.summary || 'Sem resumo legado registrado.'}
                 </div>
+                <button onClick={()=>handleSummarizeWithGemini(selectedCdrForModal)} disabled={isSummarizingId===selectedCdrForModal.id} className="mt-2 text-blue-700 text-sm">Selecionar trechos da transcrição para revisão</button>
               </div>
 
               {/* Full Transcription */}
@@ -1242,75 +1181,17 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
         </div>
       )}
 
-      {/* Floating Audio Player Toolbar */}
-      {activeAudioCdr && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-2xl bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl shadow-2xl p-4 flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => handlePlayRecording(activeAudioCdr)}
-                className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition shadow-md"
-              >
-                {isPlayingAudio ? (
-                  <Pause className="w-5 h-5 fill-current" />
-                ) : (
-                  <Play className="w-5 h-5 fill-current ml-0.5" />
-                )}
-              </button>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-900">
-                    {activeAudioCdr.caller} &rarr; {activeAudioCdr.callee}
-                  </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
-                    {activeAudioCdr.duration}s
-                  </span>
-                  <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                    <Radio className="w-3 h-3 animate-pulse" />
-                    Opus 24kHz / Asterisk MixMonitor
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 truncate max-w-md">
-                  {activeAudioCdr.summary || activeAudioCdr.transcription || 'Reproduzindo stream de voz da gravação...'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {activeAudioCdr.summary && (
-                <button
-                  onClick={() => setSelectedCdrForModal(activeAudioCdr)}
-                  className="px-2.5 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded-lg transition font-semibold flex items-center gap-1"
-                >
-                  <Sparkles className="w-3 h-3" />
-                  Ver Resumo
-                </button>
-              )}
-              <button
-                onClick={handleStopAudio}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition"
-                title="Fechar reprodutor"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Progress bar and waveform */}
-          <div className="space-y-1">
-            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-              <div
-                className="bg-blue-600 h-full transition-all duration-300 rounded-full"
-                style={{ width: `${audioProgress}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-              <span>{Math.round((audioProgress / 100) * (activeAudioCdr.duration || 10))}s</span>
-              <span>{activeAudioCdr.duration}s</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {requestError && <div role="alert" className="fixed bottom-6 left-6 z-50 bg-rose-50 border border-rose-300 rounded-xl p-4 text-rose-800 max-w-md">{requestError}<button className="ml-3 underline" onClick={()=>setRequestError('')}>Fechar</button></div>}
+      {evidencePreview && <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4"><section className="bg-white rounded-xl p-5 max-w-2xl max-h-[85vh] overflow-auto space-y-3">
+        <h3 className="font-bold">Trechos selecionados da transcrição</h3><p className="text-sm">Revisão humana obrigatória. Não confirma satisfação, resolução ou ações executadas. O CDR não foi alterado.</p>
+        <p className="text-xs text-slate-500">CDR: {evidencePreview.cdrId} · Provedor: {evidencePreview.provider} · Modelo: {evidencePreview.model}</p>
+        {Object.entries(evidencePreview.evidence || {}).map(([key,quote])=><div key={key} className="border rounded-lg p-3"><strong>{{request:'Solicitação relatada',proposal:'Proposta mencionada',nextStep:'Próximo passo mencionado'}[key] || key}</strong><p className="whitespace-pre-wrap text-sm">{quote ? String(quote) : 'Sem trecho validado.'}</p></div>)}
+        <button onClick={()=>setEvidencePreview(null)} className="text-blue-700">Fechar revisão</button>
+      </section></div>}
+      {activeAudioCdr && <section className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-white border rounded-xl p-4 shadow-lg w-11/12 max-w-2xl space-y-2">
+        <div className="flex justify-between"><p className="font-bold text-sm">Gravação original · {activeAudioCdr.caller} → {activeAudioCdr.callee}</p><button onClick={handleStopAudio}>Fechar</button></div>
+        {audioUrl ? <><audio src={audioUrl} controls autoPlay className="w-full" onPlay={()=>setIsPlayingAudio(true)} onPause={()=>setIsPlayingAudio(false)} onEnded={()=>setIsPlayingAudio(false)} onError={()=>setRequestError('O navegador não conseguiu decodificar a gravação. Nenhuma voz sintetizada será usada como gravação.')} /><a href={audioUrl} download="gravacao" className="text-sm text-blue-700">Baixar arquivo carregado</a></> : <p>Carregando arquivo autenticado…</p>}
+      </section>}
     </div>
   );
 };

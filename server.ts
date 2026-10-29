@@ -1,3 +1,5 @@
+import { openRecording } from './server/infrastructure/security/RecordingAccess.js';
+import { cdrEvidence } from './server/maia/integrations/CdrEvidence.js';
 import { callExtension, channelReference } from './server/infrastructure/asterisk/CallControl.js';
 import { privateApiResponse, unexpectedHttpError, telephonyFailure } from './server/infrastructure/security/ApiResponsePolicy.js';
 import { fail2banMonitor } from './server/infrastructure/security/Fail2banMonitor.js';
@@ -4071,27 +4073,15 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  // Call summarization with Gemini
-  app.post('/api/v1/ai/summarize-call', async (req, res) => {
-    try {
-      const { transcript, caller, callee, cdrId } = req.body;
-      const result = await geminiService.summarizeAndAnalyzeCall(transcript, caller, callee);
-
-      if (cdrId) {
-        try {
-          await CdrRepository.updateAnalysis(cdrId, {
-            summary: result.summary,
-            transcription: transcript,
-          });
-        } catch (err: any) {
-          console.error('[CDR] Erro ao atualizar resumo do CDR:', err?.message || err);
-        }
-      }
-
-      res.json(result);
-    } catch (e: unknown) {
-      res.status(500).json({ error: 'Erro ao gerar resumo da chamada' });
-    }
+  const cdrAnalysisLimiter=rateLimit({windowMs:60000,limit:10,standardHeaders:true,legacyHeaders:false,message:{error:'Limite de análises excedido. Aguarde.'}});
+  const evidenceAudit=async(req:any,tenantId:string,id:string)=>{await recordAuditLog({tenantId,userId:req.user.id,userName:req.user.name,ip:req.ip,
+    action:'CDR_EVIDENCE_ATTEMPT',resource:req.params.id ? `cdr/${req.params.id}/analysis` : 'cdr/analysis',category:'AI_GATEWAY',strict:true,details:'Tentativa de seleção de trechos literais; sem gravação automática no CDR.',payload:{executionId:id}});};
+  app.post('/api/v1/ai/summarize-call',cdrAnalysisLimiter,async(req,res)=>{
+    try{
+      if(req.body.cdrId!==undefined)return res.status(400).json({error:'Use a análise do CDR para consultar sua transcrição registrada. Este endpoint não altera bilhetagem.'});
+      const tenantId=getAuthorizedTenantId(req);
+      res.json(await cdrEvidence(tenantId,req.body.transcript,id=>evidenceAudit(req,tenantId,id)));
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // -------------------------------------------------------------------------
@@ -4110,49 +4100,30 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/cdr/:id/summarize', requireAuth, requireTenant, async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const record = await CdrRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!record) {
-        return res.status(404).json({ error: 'Registro CDR não encontrado.' });
-      }
-
-      // Isolamento BOLA/IDOR: operador/admin não analisa chamadas de outro tenant
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && record.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({ error: 'Acesso não autorizado a esta chamada.', code: 'TENANT_CROSS_OPERATION_FORBIDDEN' });
-      }
-
-      if (!record.transcription && !record.recordingUrl) {
-        return res.status(400).json({
-          error: 'Esta chamada não possui transcrição fonética nem gravação de áudio anexada para análise (NO_DATA).'
-        });
-      }
-
-      const transcript = record.transcription;
-      if (!transcript || transcript.trim() === '') {
-        return res.status(400).json({
-          error: 'Transcrição fonética vazia ou não disponível para processamento por IA (NO_DATA).'
-        });
-      }
-
-      const analysis = await geminiService.summarizeAndAnalyzeCall(
-        transcript,
-        record.caller,
-        record.callee
-      );
-
-      record.summary = analysis.summary;
-      await CdrRepository.updateAnalysis(record.id, {
-        summary: analysis.summary,
-        transcription: transcript,
-      });
-
-      res.json({ success: true, analysis, cdr: record });
-    } catch (e) {
-      console.error('Error summarizing CDR:', e);
-      res.status(500).json({ error: 'Erro ao processar análise da chamada com Gemini.' });
-    }
+  const authorizedCdr=async(req:any)=>{
+    const context=resolveTenantContext(req);
+    return context.accessMode==='GLOBAL' ? CdrRepository.findAnyByIdForSuperAdmin(req.params.id) : CdrRepository.findById(req.params.id,context.tenantId);
+  };
+  app.post('/api/v1/cdr/:id/summarize',requireRole('super_admin','admin','supervisor'),cdrAnalysisLimiter,async(req,res)=>{
+    try{
+      const record=await authorizedCdr(req);if(!record)return res.status(404).json({error:'Registro CDR não encontrado nesta empresa.'});
+      res.json({cdrId:record.id,analysis:await cdrEvidence(record.tenantId,record.transcription,id=>evidenceAudit(req,record.tenantId,id))});
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
+  });
+  app.get('/api/v1/cdr/:id/recording',async(req,res)=>{
+    try{
+      const record=await authorizedCdr(req);if(!record)return res.status(404).json({error:'Registro CDR não encontrado nesta empresa.'});
+      if(!record.recordingUrl)return res.status(404).json({error:'CDR sem gravação vinculada.'});
+      const file=await openRecording(record.recordingUrl);
+      try{
+        await recordAuditLog({tenantId:record.tenantId,userId:(req as any).user.id,userName:(req as any).user.name,ip:req.ip,
+          action:'CDR_RECORDING_ACCESS',resource:`cdr/${record.id}`,category:'LGPD_ACCESS',strict:true,details:'Acesso autenticado ao arquivo original de gravação.'});
+      }catch(error){await file.handle.close();throw error;}
+      res.setHeader('Content-Type',file.type);res.setHeader('Content-Length',file.size);
+      res.setHeader('Content-Disposition',`attachment; filename="${file.filename}"`);
+      const stream=file.handle.createReadStream({autoClose:true,end:file.size-1});
+      res.on('close',()=>stream.destroy());stream.on('error',()=>res.destroy());stream.pipe(res);
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // -------------------------------------------------------------------------

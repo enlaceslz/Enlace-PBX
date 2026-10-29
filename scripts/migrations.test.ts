@@ -21,7 +21,7 @@ test('migrações usam uma conexão, registram checksum na transação e liberam
   try {
     const success = await DatabaseMigrator.runMigrations({ apply: true });
     assert.equal(success.success, true);
-    assert.equal(success.applied, 19);
+    assert.equal(success.applied, 20);
     assert.equal(connections.size, 1);
     const firstInsert = statements.findIndex(sql => sql.startsWith('INSERT INTO schema_migrations'));
     assert.ok(statements.slice(0, firstInsert).includes('BEGIN'));

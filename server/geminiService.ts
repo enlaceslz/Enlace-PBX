@@ -308,56 +308,6 @@ ${historyContext}
     };
   }
 
-  async summarizeAndAnalyzeCall(transcript: string, caller: string, callee: string): Promise<{ summary: string; sentiment: string; category: string; actionItems: string[] }> {
-    const ai = getAiClient();
-    if (!ai) {
-      return {
-        summary: `Atendimento entre ${caller} e ${callee}. O cliente solicitou informações e o atendimento foi concluído satisfatoriamente.`,
-        sentiment: 'Positivo',
-        category: 'Atendimento Geral / Triagem',
-        actionItems: ['Verificar satisfação do cliente no pós-atendimento', 'Atualizar dados de contato no CRM'],
-      };
-    }
-
-    try {
-      const prompt = `Analise a seguinte transcrição de chamada telefônica do Enlace-PBX (Asterisk puro + IA) entre o chamador "${caller}" e o destino "${callee}":
-
-"${transcript}"
-
-Retorne uma análise em português no seguinte formato JSON:
-{
-  "summary": "Resumo executivo de 2 a 3 frases destacando objetivo e resolução",
-  "sentiment": "Positivo | Neutro | Frustrado",
-  "category": "Comercial | Suporte Técnico | Financeiro | Dúvida Geral",
-  "actionItems": ["Item de ação 1", "Item de ação 2"]
-}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        },
-      });
-
-      const parsed = JSON.parse(response.text || '{}');
-      return {
-        summary: parsed.summary || 'Atendimento telefônico registrado.',
-        sentiment: parsed.sentiment || 'Neutro',
-        category: parsed.category || 'Atendimento Geral',
-        actionItems: parsed.actionItems || ['Acompanhar histórico no CRM'],
-      };
-    } catch (e) {
-      console.warn('Fallback summarization:', e);
-      return {
-        summary: `Chamada realizada com sucesso entre ${caller} e ${callee}. Transcrição arquivada de acordo com as normas da LGPD.`,
-        sentiment: 'Neutro',
-        category: 'Telefonia Geral',
-        actionItems: ['Nenhuma pendência crítica identificada'],
-      };
-    }
-  }
-
   private handleFallbackTurn(
     agent: { name: string; transferExtension?: string; voiceGender?: 'male' | 'female'; voice?: string; avatarType?: string },
     req: VoiceTurnRequest,
