@@ -681,6 +681,18 @@ try {
     const clearedLogData=await (await fetch(base+'/api/v1/system/logs',{headers:rootHeaders})).json();assert.equal(clearedLogData.stats.total,0);assert.equal(clearedLogData.stats.lastTimestamp,null);
     assert.ok(Number((await admin.query('SELECT count(*) AS total FROM audit_logs')).rows[0].total)>beforeClearAudit);
     assert.equal((await admin.query("SELECT count(*)::int AS total FROM audit_logs WHERE user_id=$1 AND action='APPLICATION_LOG_BUFFER_DOWNLOAD_ATTEMPT'",[session.user.id])).rows[0].total,1);
+    const checklistResponse=await fetch(base+'/api/v1/trunks/homologation-checklist',{headers:testHeaders});assert.equal(checklistResponse.status,200);const checklist=await checklistResponse.json();
+    assert.equal(checklist.passed,0);assert.equal(checklist.total,11);assert.equal(checklist.items.every((item:any)=>item.status==='pending'&&!item.executedAt),true);
+    for(const operation of ['ping','test-ip','diagnostics']){
+      const url=base+`/api/v1/trunks/${trunk.id}/${operation}`;
+      const allowed=await fetch(url,{method:'POST',headers:testHeaders,body:JSON.stringify({ip:'127.0.0.1',port:8088})});assert.equal(allowed.status,501);assert.equal((await allowed.json()).code,'TRUNK_DIAGNOSTIC_NOT_IMPLEMENTED');
+      assert.equal((await fetch(url,{method:'POST',headers:{...rootHeaders,'x-tenant-id':tenantB},body:'{}'})).status,404);
+    }
+    assert.equal((await fetch(base+`/api/v1/trunks/${trunk.id}/pjsip-preview`,{headers:{...rootHeaders,'x-tenant-id':tenantB}})).status,404);
+    for(const method of ['PUT','DELETE'])assert.equal((await fetch(base+`/api/v1/trunks/${trunk.id}`,{method,headers:{...rootHeaders,'x-tenant-id':tenantB},body:'{}'})).status,404);
+    assert.equal((await fetch(base+'/api/v1/trunks/apply-pjsip',{method:'POST',headers:testHeaders,body:'{}'})).status,403);
+    const previewResponse=await fetch(base+`/api/v1/trunks/${trunk.id}/pjsip-preview`,{headers:testHeaders});assert.equal(previewResponse.status,200);const previewConfig=await previewResponse.json();assert.equal(typeof previewConfig.extensionsConf,'string');assert.equal(JSON.stringify(previewConfig).includes(trunk.secret),false);
+    assert.equal((await admin.query('SELECT status FROM trunks WHERE id=$1',[trunk.id])).rows[0].status,'unregistered');
     const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
     for(const route of ['backup','restore']){
       const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});

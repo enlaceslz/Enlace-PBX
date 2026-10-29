@@ -1,3 +1,4 @@
+import {getAuthHeaders} from '../../utils/api';
 import React, { useState, useEffect } from 'react';
 import {
   Radio,
@@ -28,6 +29,8 @@ import {
   Hash,
 } from 'lucide-react';
 import { Trunk, AuthorizedIpItem } from '../../types/pbx';
+
+const trunkRequest=(url:string,options:RequestInit={})=>fetch(url,{...options,headers:{...getAuthHeaders(),...options.headers}});
 
 interface TrunksViewProps {
   trunks: Trunk[];
@@ -220,7 +223,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
     setPingingId(trunkId);
     setPingResult(null);
     try {
-      const res = await fetch(`/api/v1/trunks/${trunkId}/ping`, { method: 'POST' });
+      const res = await trunkRequest(`/api/v1/trunks/${trunkId}/ping`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         setPingResult({
@@ -240,7 +243,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
 
   const handleTestSbcIp = async (trunkId: string, ip: string) => {
     try {
-      const res = await fetch(`/api/v1/trunks/${trunkId}/test-ip`, {
+      const res = await trunkRequest(`/api/v1/trunks/${trunkId}/test-ip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ip }),
@@ -259,7 +262,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
     setIsLoadingDiagnostics(true);
     setDiagnosticsReport(null);
     try {
-      const res = await fetch(`/api/v1/trunks/${trunk.id}/diagnostics`, { method: 'POST' });
+      const res = await trunkRequest(`/api/v1/trunks/${trunk.id}/diagnostics`, { method: 'POST' });
       const data = await res.json();
       setDiagnosticsReport(data);
     } catch (err) {
@@ -275,8 +278,9 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
     setPreviewContent(null);
     setApplyResult(null);
     try {
-      const res = await fetch(`/api/v1/trunks/${trunk.id}/pjsip-preview`);
+      const res = await trunkRequest(`/api/v1/trunks/${trunk.id}/pjsip-preview`);
       const data = await res.json();
+      if(!res.ok||typeof data.pjsipConf!=='string'||typeof data.extensionsConf!=='string')throw new Error('Prévia indisponível.');
       setPreviewContent(data);
     } catch (err) {
       console.error('Preview error:', err);
@@ -289,13 +293,13 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
     setIsApplyingPjsip(true);
     setApplyResult(null);
     try {
-      const res = await fetch('/api/v1/trunks/apply-pjsip', { method: 'POST' });
+      const res = await trunkRequest('/api/v1/trunks/apply-pjsip', { method: 'POST' });
       const data = await res.json();
-      if (res.ok) {
-        setApplyResult(`Configuração aplicada com sucesso! Snapshot: ${data.snapshotId}`);
+      if (res.ok && data.success===true) {
+        setApplyResult(data.message);
         onRefresh();
       } else {
-        alert(data.error || 'Erro ao aplicar PJSIP');
+        setApplyResult(data.message || data.error || 'Aplicação não confirmada.');
       }
     } catch (err) {
       console.error('Apply PJSIP error:', err);
@@ -308,7 +312,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
     if (!confirm('Deseja realmente executar o rollback da última configuração do Asterisk?')) return;
     setIsRollingBack(true);
     try {
-      const res = await fetch('/api/v1/trunks/rollback', { method: 'POST' });
+      const res = await trunkRequest('/api/v1/trunks/rollback', { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         alert(data.message);
@@ -326,7 +330,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
   const handleOpenChecklist = async () => {
     setIsChecklistOpen(true);
     try {
-      const res = await fetch('/api/v1/trunks/homologation-checklist');
+      const res = await trunkRequest('/api/v1/trunks/homologation-checklist');
       const data = await res.json();
       setChecklistItems(data.items || []);
     } catch (err) {
@@ -360,7 +364,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
       const url = editingTrunk ? `/api/v1/trunks/${editingTrunk.id}` : '/api/v1/trunks';
       const method = editingTrunk ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await trunkRequest(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -383,7 +387,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Deseja realmente remover o tronco ${name}?`)) return;
     try {
-      await fetch(`/api/v1/trunks/${id}`, { method: 'DELETE' });
+      await trunkRequest(`/api/v1/trunks/${id}`, { method: 'DELETE' });
       onRefresh();
     } catch (err) {
       console.error('Delete error:', err);
@@ -420,7 +424,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
 
           <button
             onClick={handleRollback}
-            disabled={isRollingBack}
+            disabled={true}
             className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold rounded-xl text-xs flex items-center gap-1.5 transition active:scale-95 border border-amber-200"
             title="Rollback de emergência para último snapshot PJSIP"
           >
@@ -438,7 +442,8 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
         </div>
       </div>
 
-      {/* Ping notification alert */}
+      <p className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-900">Sondas de SIP e diagnóstico NOC indisponíveis. Estado cadastral não comprova registro. Checklist é apenas roteiro pendente; recarga não homologa chamadas ou mídia.</p>
+      {/* Resultado da consulta */}
       {pingResult && (
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center justify-between gap-3 shadow-sm animate-fade-in">
           <div className="flex items-center gap-2">
@@ -488,15 +493,15 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
                     <div className="flex items-center gap-1.5 text-xs">
                       <span
                         className={`w-2 h-2 rounded-full ${
-                          trunk.status === 'registered' ? 'bg-emerald-500' : 'bg-rose-500'
+                          'bg-slate-400'
                         }`}
                       />
                       <span
                         className={`font-semibold ${
-                          trunk.status === 'registered' ? 'text-emerald-700' : 'text-rose-600'
+                          'text-slate-600'
                         }`}
                       >
-                        {trunk.status === 'registered' ? 'Operacional' : 'Desconectado'}
+                        Registro não verificado
                       </span>
                     </div>
 
@@ -548,7 +553,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
                           </div>
                           <button
                             type="button"
-                            onClick={() => handleTestSbcIp(trunk.id, sbcIp)}
+                            disabled title="Sonda ainda não implementada"
                             className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5"
                           >
                             <Zap className="w-2.5 h-2.5" /> Testar
@@ -601,7 +606,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
               <div className="mt-5 pt-3 border-t border-slate-200 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <button
-                    onClick={() => handleOpenDiagnostics(trunk)}
+                    disabled title="Diagnóstico ainda não implementado"
                     className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold rounded-xl text-[11px] flex items-center justify-center gap-1.5 transition"
                   >
                     <Activity className="w-3 h-3 text-blue-600" />
@@ -628,7 +633,7 @@ export const TrunksView: React.FC<TrunksViewProps> = ({ trunks, onRefresh, onNav
 
                   <button
                     onClick={() => handlePingTrunk(trunk.id)}
-                    disabled={pingingId === trunk.id}
+                    disabled={true}
                     className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg flex items-center gap-1 transition active:scale-95 disabled:opacity-50"
                     title="Disparar keepalive SIP OPTIONS"
                   >

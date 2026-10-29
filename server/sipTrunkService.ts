@@ -1,3 +1,4 @@
+import {OutboundHttpError} from './infrastructure/security/OutboundHttp.js';
 import { assertSingleLineConfig } from './infrastructure/asterisk/configValidation.js';
 import crypto from 'crypto';
 import net from 'net';
@@ -850,167 +851,7 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
    * Executa bateria completa de diagnósticos em um tronco SIP
    */
   async runTrunkDiagnostics(trunkId: string): Promise<TrunkDiagnosticReport> {
-    const trunk = await TrunkRepository.findById(trunkId);
-    if (!trunk) {
-      throw new Error(`Tronco SIP [${trunkId}] não encontrado`);
-    }
-
-    const checks: TrunkDiagnosticCheck[] = [];
-    const ipChecks: TrunkDiagnosticReport['ipChecks'] = [];
-    const isIpAuth = trunk.authMode === 'ip';
-
-    // 1. Verificação de Sintaxe PJSIP
-    const pjsipConf = this.generatePjsipForTrunk(trunk);
-    const hasEndpoint = pjsipConf.includes(`[${trunk.id}]`);
-    const hasAor = pjsipConf.includes(`[${trunk.id}-aor]`);
-    const hasIdentify = isIpAuth ? pjsipConf.includes(`[${trunk.id}-identify]`) : true;
-    const syntaxOk = hasEndpoint && hasAor && hasIdentify;
-
-    checks.push({
-      id: 'chk-pjsip-syntax',
-      name: 'Validação de Estrutura e Sintaxe PJSIP Asterisk 20',
-      category: 'PJSIP_SYNTAX',
-      status: syntaxOk ? 'passed' : 'failed',
-      details: syntaxOk
-        ? `Seções [endpoint], [aor] e ${isIpAuth ? '[identify por IP]' : '[auth/reg]'} geradas em estrita conformidade com Asterisk 20 LTS.`
-        : 'Erro na geração dos blocos de configuração PJSIP.',
-    });
-
-    // 2. Verificação de IPs Autorizados
-    const authorizedIps = (trunk.authorizedIps && trunk.authorizedIps.length > 0)
-      ? trunk.authorizedIps
-      : [trunk.host];
-
-    for (const ip of authorizedIps) {
-      // Bloqueio de segurança estrito: 0.0.0.0/0 proibido
-      if (ip === '0.0.0.0' || ip === '0.0.0.0/0') {
-        ipChecks.push({
-          ip,
-          label: 'IP Inseguro Detectado',
-          status: 'unreachable',
-          latencyMs: 0,
-          sipResponse: 'REJEITADO: 0.0.0.0/0 viola a política de segurança de troncos IP',
-        });
-        continue;
-      }
-
-      // Teste de socket real para cada SBC da operadora
-      const result = await this.testSipHostSocket(
-        ip,
-        trunk.port || trunk.sipPort || 5060,
-        2500,
-        trunk.transport || 'UDP'
-      );
-      ipChecks.push({
-        ip,
-        label: trunk.ipStatusList?.find((i) => i.ip === ip)?.label || `SBC Gateway (${ip})`,
-        status: result.status,
-        latencyMs: result.latencyMs,
-        sipResponse: result.sipResponse,
-      });
-    }
-
-    const allIpsOk = ipChecks.every((i) => i.status === 'active');
-    const avgLatency = ipChecks.length > 0
-      ? Math.round(ipChecks.reduce((acc, i) => acc + i.latencyMs, 0) / ipChecks.length)
-      : 0;
-
-    checks.push({
-      id: 'chk-sbc-ips',
-      name: `Conectividade com SBCs da Operadora (${authorizedIps.length} IPs configurados)`,
-      category: 'SBC_CONNECTIVITY',
-      status: allIpsOk ? 'passed' : 'warning',
-      latencyMs: avgLatency,
-      details: allIpsOk
-        ? `Todos os ${authorizedIps.length} SBCs responderam ao keepalive SIP OPTIONS (média ${avgLatency}ms).`
-        : 'Algum dos IPs autorizados apresentou instabilidade, timeout ou porta SIP fechada.',
-      target: authorizedIps.join(', '),
-    });
-
-    // 3. Verificação de IP Público e NAT Traversal
-    const infraStored = await SystemRepository.getInfraConfig();
-    const fallbackPublicIp = process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP || 'NOT_CONFIGURED';
-    const infra = infraStored || { publicIp: fallbackPublicIp, lanSubnet: '192.168.10.0/24' };
-    const hasPublicIp = !!infra.publicIp && infra.publicIp !== 'NOT_CONFIGURED' && infra.publicIp.length > 6;
-    const hasSipPort = (trunk.sipPort || trunk.port || 5060) === 5060;
-
-    checks.push({
-      id: 'chk-nat-public-ip',
-      name: 'Topologia de Rede, IP Público e NAT Traversal',
-      category: 'NAT_CONFIG',
-      status: hasPublicIp ? 'passed' : 'warning',
-      details: hasPublicIp
-        ? `IP Público configurado: ${infra.publicIp}. Parâmetros rewrite_contact=yes, force_rport=yes e rtp_symmetric=yes ativados para evitar áudio unidirecional.`
-        : 'Atenção: IP Público não detectado automaticamente. Configure o IP público do Enlace-PBX nas configurações de Infraestrutura.',
-      target: infra.publicIp || 'Não configurado',
-      recommendation: !hasPublicIp ? 'Acesse o menu Infraestrutura e defina o IP Público do servidor.' : undefined,
-    });
-
-    // 4. Verificação de Range de Portas RTP
-    const rtpRange = trunk.rtpRange || '10000-20000';
-    checks.push({
-      id: 'chk-rtp-range',
-      name: `Range de Portas RTP de Mídia (${rtpRange}/UDP)`,
-      category: 'RTP_CODEC',
-      status: 'passed',
-      details: `Range de mídia ${rtpRange}/UDP reservado para streams bidirecionais de áudio com as operadoras.`,
-      target: rtpRange,
-    });
-
-    // 5. Verificação de Codecs Prioritários
-    const hasG729orOpus = trunk.codecs.includes('pcma') && (trunk.codecs.includes('g729') || trunk.codecs.includes('opus') || trunk.codecs.includes('pcmu'));
-    checks.push({
-      id: 'chk-codecs',
-      name: 'Matriz de Negociação de Codecs de Voz',
-      category: 'RTP_CODEC',
-      status: hasG729orOpus ? 'passed' : 'warning',
-      details: `Codecs habilitados: ${trunk.codecs.join(', ')}. Suporte a G.711 A-law (padrão brasileiro Telebrás) e Codecs HD.`,
-      target: trunk.codecs.join(','),
-    });
-
-    // 6. Verificação de Segurança e Whitelist no Firewall/Fail2ban
-    const fail2banWhitelist: string[] = (await SystemRepository.getSetting<string[]>('fail2ban_whitelist', [])) || [];
-    const ipsInWhitelist = authorizedIps.every((ip) => fail2banWhitelist.includes(ip));
-
-    checks.push({
-      id: 'chk-security-firewall',
-      name: 'Proteção Anti-DDoS e Whitelist no Fail2ban',
-      category: 'SECURITY',
-      status: ipsInWhitelist ? 'passed' : 'warning',
-      details: ipsInWhitelist
-        ? 'Todos os IPs da operadora estão incluídos na Whitelist do Fail2ban, prevenindo bloqueios acidentais durante picos de tráfego.'
-        : 'Recomendação: Adicione os IPs da operadora à Whitelist de segurança para prevenir falsos positivos no Fail2ban.',
-      recommendation: !ipsInWhitelist ? 'Clique em Sincronizar Whitelist do Firewall.' : undefined,
-    });
-
-    const passedCount = checks.filter((c) => c.status === 'passed').length;
-    const score = Math.round((passedCount / checks.length) * 100);
-    const overallStatus = score >= 80 ? 'passed' : score >= 50 ? 'warning' : 'failed';
-
-    const report: TrunkDiagnosticReport = {
-      trunkId: trunk.id,
-      trunkName: trunk.name,
-      provider: trunk.providerName,
-      authMode: isIpAuth ? 'ip' : 'credentials',
-      testedAt: new Date().toISOString(),
-      overallStatus,
-      score,
-      checks,
-      ipChecks,
-      natDetails: {
-        publicIp: infra.publicIp || 'UNAVAILABLE',
-        sipPort: trunk.sipPort || trunk.port || 5060,
-        rtpRange,
-        externalSignalingAddress: infra.publicIp ? `${infra.publicIp}:5060` : 'UNAVAILABLE',
-        externalMediaAddress: infra.publicIp || 'UNAVAILABLE',
-        localNet: infra.lanSubnet || 'UNKNOWN',
-      },
-      summary: overallStatus === 'passed'
-        ? `O tronco SIP [${trunk.name}] está em perfeitas condições operacionais (Score: ${score}%). Pronto para originar e receber chamadas em produção.`
-        : `O tronco SIP [${trunk.name}] possui apontamentos de atenção (Score: ${score}%). Revise as recomendações de firewall e NAT.`,
-    };
-
-    return report;
+    throw new OutboundHttpError('Diagnóstico SIP indisponível até coleta autenticada e política de destinos autorizados.',501);
   }
 
   /**
@@ -1238,123 +1079,20 @@ exten => handle-unknown-did,1,NoOp(ALERTA DE SEGURANCA: Chamada recebida para DI
    * Retorna os 11 casos de teste de homologação oficial para certificação do tronco
    */
   getHomologationChecklist(): HomologationTestItem[] {
-    return [
-      {
-        id: 'tc-01',
-        code: 'TC-HOM-01',
-        title: 'Autenticação por IP sem REGISTER SIP',
-        description: 'Verificar se o Asterisk 20 NÃO emite pacotes SIP REGISTER para a operadora TIP Brasil, operando estritamente em modo entroncamento IP estático.',
-        category: 'AUTENTICACAO_IP',
-        expectedResult: 'Nenhuma tentativa de REGISTER no CLI "pjsip show registrations" e endpoint operacional no "pjsip show endpoints".',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-        notes: 'Validado via template pjsip.conf omitindo bloco type=registration e type=auth.',
-      },
-      {
-        id: 'tc-02',
-        code: 'TC-HOM-02',
-        title: 'Múltiplos SBCs de Origem (PJSIP Identify)',
-        description: 'Testar recepção de chamadas a partir dos 3 endereços IP autorizados da TIP Brasil (200.80.127.10, 200.80.127.11, 200.80.127.12).',
-        category: 'AUTENTICACAO_IP',
-        expectedResult: 'Chamadas originadas de qualquer um dos 3 IPs são identificadas e associadas ao endpoint trunk-tip-brasil sem autenticação com senha.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-        notes: 'Seção [trunk-tip-brasil-identify] com match=200.80.127.10,200.80.127.11,200.80.127.12 validada.',
-      },
-      {
-        id: 'tc-03',
-        code: 'TC-HOM-03',
-        title: 'Bloqueio de IP de Origem Não Autorizado',
-        description: 'Simular envio de INVITE SIP a partir de IP fora da lista autorizada (ex: 198.51.100.45).',
-        category: 'SEGURANCA',
-        expectedResult: 'Rejeição imediata com SIP 403 Forbidden / Drop e registro de evento no log de auditoria forense.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-        notes: 'Proteção garantida por identificação rigorosa no PJSIP e Fail2ban.',
-      },
-      {
-        id: 'tc-04',
-        code: 'TC-HOM-04',
-        title: 'Normalização E.164 e Nacional de DIDs',
-        description: 'Receber chamada enviando formato +551135008000, 551135008000 ou 1135008000.',
-        category: 'ROTEAMENTO_DID',
-        expectedResult: 'Ambos os formatos são resolvidos para o mesmo DID cadastrado e direcionados corretamente.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-        notes: 'Parser de normalização E.164 cobre variações nacionais e internacionais.',
-      },
-      {
-        id: 'tc-05',
-        code: 'TC-HOM-05',
-        title: 'Roteamento para Agente Inteligente MaIA (Gemini Live)',
-        description: 'Ligar para o DID principal de atendimento e validar abertura da ponte Stasis ARI AudioSocket.',
-        category: 'ROTEAMENTO_DID',
-        expectedResult: 'Chamada atendida em menos de 500ms, áudio PCM 24kHz bidirecional iniciado com a IA.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-        notes: 'Destino ai_agent com Stasis(enlace_ai_bridge, agent-maia-247) testado.',
-      },
-      {
-        id: 'tc-06',
-        code: 'TC-HOM-06',
-        title: 'Roteamento para Fila de Atendimento (ACD)',
-        description: 'Ligar para o DID de suporte e verificar enfileiramento com música de espera e toque nos agentes.',
-        category: 'ROTEAMENTO_DID',
-        expectedResult: 'Chamada ingressa na fila queue-suporte-n1 e toca simultaneamente nos membros logados.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-      },
-      {
-        id: 'tc-07',
-        code: 'TC-HOM-07',
-        title: 'Roteamento para URA com Horário Comercial',
-        description: 'Testar chamada dentro do horário comercial (08:00 - 18:00) vs fora do horário (afterhours).',
-        category: 'ROTEAMENTO_DID',
-        expectedResult: 'Dentro do horário vai para a URA; fora do horário redireciona automaticamente para o fallback.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-      },
-      {
-        id: 'tc-08',
-        code: 'TC-HOM-08',
-        title: 'Tratamento de DID Desconhecido (Unknown DID)',
-        description: 'Simular chamada para número pertencente à faixa da operadora mas não cadastrado no PBX.',
-        category: 'ROTEAMENTO_DID',
-        expectedResult: 'Asterisk encerra a chamada com Congestion / SIP 404 e registra log de segurança.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-      },
-      {
-        id: 'tc-09',
-        code: 'TC-HOM-09',
-        title: 'NAT Traversal e Áudio Bidirecional',
-        description: 'Verificar se o SDP gerado pelo Asterisk contém o IP público correto nas mensagens 200 OK e INVITE.',
-        category: 'MIDIA_CODECS',
-        expectedResult: 'external_media_address e external_signaling_address refletem o IP público sem áudio mudo.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-      },
-      {
-        id: 'tc-10',
-        code: 'TC-HOM-10',
-        title: 'Envio de Caller ID via P-Asserted-Identity (PAI)',
-        description: 'Realizar chamada de saída e inspecionar presença do cabeçalho P-Asserted-Identity com o número do DID contratado.',
-        category: 'MIDIA_CODECS',
-        expectedResult: 'Cabeçalho P-Asserted-Identity: <sip:1135008000@200.80.127.10> presente em todas as saídas.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-      },
-      {
-        id: 'tc-11',
-        code: 'TC-HOM-11',
-        title: 'Hot Reload com Rollback e Zero Downtime',
-        description: 'Aplicar nova configuração de DIDs e troncos sem derrubar chamadas ativas em andamento.',
-        category: 'ALTA_DISPONIBILIDADE',
-        expectedResult: 'Comando "pjsip reload" executa sem erros; canais existentes mantêm áudio estável.',
-        status: 'passed',
-        executedAt: new Date().toISOString(),
-      },
+    const cases:[string,HomologationTestItem['category'],string][]=[
+      ['Autenticação do tronco','AUTENTICACAO_IP','Confirmar autenticação e registro, ou entroncamento por IP, conforme contrato.'],
+      ['SBCs autorizados','AUTENTICACAO_IP','Validar recepção de cada SBC contratado sem admitir origens adicionais.'],
+      ['Origem não autorizada','SEGURANCA','Recusar tráfego de origem não autorizada com evidência no host.'],
+      ['Normalização de DIDs','ROTEAMENTO_DID','Conferir formatos contratados e destino do DID.'],
+      ['Chamada de entrada','ROTEAMENTO_DID','Completar chamada recebida no destino autorizado.'],
+      ['Chamada de saída','ROTEAMENTO_DID','Completar chamada permitida e recusar prefixos bloqueados.'],
+      ['Áudio bidirecional','MIDIA_CODECS','Validar áudio, codecs e NAT com chamadas reais.'],
+      ['DTMF','MIDIA_CODECS','Validar navegação de URA com DTMF real.'],
+      ['Contingência','ALTA_DISPONIBILIDADE','Ensaiar falha controlada e observar recuperação.'],
+      ['Identificação de origem','MIDIA_CODECS','Conferir Caller ID e cabeçalhos exigidos pela operadora.'],
+      ['Recarga e recuperação','ALTA_DISPONIBILIDADE','Ensaiar recarga, chamadas em andamento e recuperação dos arquivos.'],
     ];
+    return cases.map(([title,category,expectedResult],index)=>({id:`tc-${index+1}`,code:`TC-HOM-${String(index+1).padStart(2,'0')}`,title,category,description:'Roteiro para execução no host; nenhum resultado foi coletado por esta tela.',expectedResult,status:'pending',notes:'Execução e evidência pendentes.'}));
   }
 }
 

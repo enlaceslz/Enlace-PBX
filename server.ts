@@ -1,3 +1,4 @@
+import {applyConfiguration} from './server/infrastructure/asterisk/ApplyConfiguration.js';
 import {logOperational} from './server/infrastructure/security/OperationalLog.js';
 import {healthEvidence,diagnosticEvidence} from './server/infrastructure/security/HealthEvidence.js';
 import {pipeline} from 'node:stream/promises';
@@ -1940,6 +1941,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     return recordAuditLog({ ...data, strict: true });
   };
 
+  const findAuthorizedTrunk=(req:any,id:string)=>{
+    const context=resolveTenantContext(req);
+    return context.accessMode==='GLOBAL'?TrunkRepository.findAnyByIdForSuperAdmin(id):TrunkRepository.findById(id,context.tenantId);
+  };
   app.get('/api/v1/trunks', requireAuth, requireTenant, async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
@@ -2012,7 +2017,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.put('/api/v1/trunks/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const prev = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
+      const prev = await findAuthorizedTrunk(req,req.params.id);
       if (!prev) return res.status(404).json({ error: 'Tronco não encontrado' });
 
       // Verificação BOLA/IDOR estrita
@@ -2049,7 +2054,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.delete('/api/v1/trunks/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
+      const trunk = await findAuthorizedTrunk(req,req.params.id);
       if (!trunk) {
         return res.status(404).json({ error: 'Tronco não encontrado' });
       }
@@ -2084,166 +2089,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  // Teste de Latência Real e Conectividade SIP (SIP OPTIONS Handshake)
-  app.post('/api/v1/trunks/:id/ping', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      // Teste real de handshake SIP OPTIONS (DNS -> TCP -> SIP OPTIONS -> classificação)
-      const port = trunk.port || 5060;
-      const sipTestResult = await sipTrunkService.testSipHostSocket(
-        trunk.host,
-        port,
-        2500,
-        (trunk.transport as any) || 'UDP'
-      );
-      const latency = sipTestResult.latencyMs;
-      const isOnline = sipTestResult.status === 'active';
-      const timestamp = new Date().toISOString();
-
-      trunk.lastPingLatencyMs = latency;
-      trunk.lastPingStatus = sipTestResult.classification as any;
-      trunk.lastPingAt = timestamp;
-      trunk.status = isOnline ? 'registered' : 'unregistered';
-
-      try {
-        await TrunkRepository.save(trunk);
-      } catch (e: any) {
-        logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      }
-
-      recordAuditLog({
-        tenantId: trunk.tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'SIP_OPTIONS_PING',
-        resource: `trunks/${trunk.id}`,
-        details: `Keepalive SIP OPTIONS executado em ${trunk.host}:${port}. RTT: ${latency}ms, Classificação: ${trunk.lastPingStatus}. Resposta: ${sipTestResult.sipResponse}`,
-        category: 'TELECOM_SIP',
-        severity: isOnline ? 'INFO' : 'WARNING',
-        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: {
-          trunkId: trunk.id,
-          host: trunk.host,
-          port,
-          transport: sipTestResult.transport,
-          sentAt: sipTestResult.sentAt,
-          receivedAt: sipTestResult.receivedAt,
-          responseCode: sipTestResult.responseCode,
-          responseReason: sipTestResult.responseReason,
-          classification: sipTestResult.classification,
-          latencyMs: latency,
-          status: sipTestResult.status,
-        },
-      });
-
-      res.json({
-        success: isOnline,
-        trunkId: trunk.id,
-        host: trunk.host,
-        port,
-        latencyMs: latency,
-        status: trunk.lastPingStatus,
-        classification: sipTestResult.classification,
-        responseCode: sipTestResult.responseCode,
-        sipResponse: sipTestResult.sipResponse,
-        timestamp,
-        message: isOnline
-          ? `Endpoint PJSIP ${trunk.host}:${port} respondeu ao handshake SIP OPTIONS em ${latency}ms (${sipTestResult.sipResponse}).`
-          : `Endpoint PJSIP ${trunk.host}:${port} falhou no teste SIP OPTIONS (${sipTestResult.classification}): ${sipTestResult.sipResponse}`,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Erro ao executar ping SIP' });
-    }
-  });
-
-  // Diagnóstico Profundo do Tronco SIP (Conectividade SBCs, NAT, PJSIP, Firewall)
-  app.post('/api/v1/trunks/:id/diagnostics', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const report = await sipTrunkService.runTrunkDiagnostics(req.params.id);
-      
-      recordAuditLog({
-        tenantId: trunk.tenantId,
-        action: 'TRUNK_DIAGNOSTICS_RUN',
-        resource: `trunks/${req.params.id}/diagnostics`,
-        details: `Diagnóstico executado no tronco ${report.trunkName}. Score: ${report.score}%, Status: ${report.overallStatus.toUpperCase()}.`,
-        category: 'TELECOM_SIP',
-        severity: report.overallStatus === 'failed' ? 'WARNING' : 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { score: report.score, checksCount: report.checks.length },
-      });
-
-      res.json(report);
-    } catch (err: any) {
-      res.status(500).json({ error: 'Erro ao executar diagnósticos no tronco SIP' });
-    }
-  });
-
-  // Testar Conectividade com IP Específico da Operadora com Medição Real
-  app.post('/api/v1/trunks/:id/test-ip', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const { ip, port = 5060 } = req.body;
-      if (!ip) return res.status(400).json({ error: 'Endereço IP é obrigatório' });
-
-      const socketResult = await measureSocketLatency(ip, Number(port));
-      const latency = socketResult.latencyMs;
-      const timestamp = new Date().toISOString();
-
-      res.json({
-        success: socketResult.reachable,
-        ip,
-        status: socketResult.reachable ? 'active' : 'inactive',
-        latencyMs: latency,
-        sipResponse: socketResult.reachable ? 'SIP/2.0 200 OK (OPTIONS Handshake)' : 'SIP/2.0 408 Request Timeout',
-        timestamp,
-        message: socketResult.reachable
-          ? `SBC da operadora (${ip}:${port}) respondeu ao handshake em ${latency}ms.`
-          : `SBC da operadora (${ip}:${port}) não respondeu no tempo limite (${latency}ms).`,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Erro ao testar IP' });
-    }
+  // Sondas antigas não possuem política administrativa de destino nem evidência suficiente de registro SIP.
+  app.post(['/api/v1/trunks/:id/ping','/api/v1/trunks/:id/test-ip','/api/v1/trunks/:id/diagnostics'],requireRole('super_admin','admin'),async(req,res)=>{
+    if(!await findAuthorizedTrunk(req,req.params.id))return res.status(404).json({error:'Tronco não encontrado nesta empresa.'});
+    res.status(501).json({code:'TRUNK_DIAGNOSTIC_NOT_IMPLEMENTED',error:'Sonda SIP indisponível até implementação de destinos autorizados e coleta autenticada. TCP não comprova SIP, registro, chamadas ou mídia.'});
   });
 
   // Visualizar PJSIP e Dialplan Gerados para o Tronco
   app.get('/api/v1/trunks/:id/pjsip-preview', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
+      const trunk = await findAuthorizedTrunk(req,req.params.id);
       if (!trunk) return res.status(404).json({ error: 'Tronco não encontrado' });
 
       // Verificação BOLA/IDOR estrita
@@ -2255,7 +2111,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       const pjsipBlock = sipTrunkService.generatePjsipForTrunk(trunk);
-      const dialplanBlock = sipTrunkService.generateDialplanForDids(trunk.tenantId);
+      const dialplanBlock = await sipTrunkService.generateDialplanForDids(trunk.tenantId);
 
       res.json({
         trunkId: trunk.id,
@@ -2280,41 +2136,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Aplicar Configuração PJSIP com Backup Automático e Hot Reload Real
-  app.post('/api/v1/trunks/apply-pjsip', requireAuth, requireTenant, requireRole('super_admin'), async (req, res) => {
+  const configurationLimiter=rateLimit({windowMs:60000,limit:5,standardHeaders:true,legacyHeaders:false,message:{error:'Limite de aplicações de configuração excedido.'}});
+  app.post('/api/v1/trunks/apply-pjsip', requireAuth, requireTenant, requireRole('super_admin'),configurationLimiter, async (req, res) => {
     try {
       const tenantId = getAuthorizedTenantId(req);
       if (!tenantId) {
         return res.status(400).json({ error: 'Tenant ID é obrigatório para aplicar configuração PJSIP.' });
       }
-      const snapshotName = `Pre-PJSIP-Apply-${new Date().toISOString().slice(0, 19)}`;
-      const snapshot = await SystemRepository.takeSnapshot(tenantId, snapshotName);
-
-      // Gerar novas configurações
-      const pjsipContent = await asteriskService.generatePjsipConf(tenantId);
-      const extensionsContent = await asteriskService.generateExtensionsConf(tenantId);
-
-      // Executar gravação em disco, backup com timestamp e reload real no Asterisk
-      const applyResult = await asteriskAdapter.applyPjsipConfig(pjsipContent, extensionsContent);
-
-      await AuditLogRepository.create({
-        tenantId,
-        userId: (req as any).user?.id || 'admin',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'APPLY_PJSIP_CONFIG',
-        resource: 'asterisk/pjsip.conf',
-        details: `Configuração PJSIP aplicada. Reload Asterisk: ${applyResult.message}. Backup: ${applyResult.backupPath || 'N/A'}. Snapshot: [${snapshot.id}].`,
-        ip: req.ip || '127.0.0.1',
+      const actor=(req as any).user;
+      const result=await applyConfiguration({
+        audit:()=>AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action:'APPLY_PJSIP_CONFIG_ATTEMPT',resource:'asterisk/configuration',category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Tentativa de gravação e recarga; não certifica registro SIP, chamadas ou mídia.'}),
+        generate:async()=>({pjsip:await asteriskService.generatePjsipConf(tenantId),dialplan:await asteriskService.generateExtensionsConf(tenantId)}),
+        apply:(pjsip,dialplan)=>asteriskAdapter.applyPjsipConfig(pjsip,dialplan),
       });
-
-      return res.json({
-        success: applyResult.success,
-        snapshotId: snapshot.id,
-        appliedAt: new Date().toISOString(),
-        backupPath: applyResult.backupPath,
-        pjsipLines: pjsipContent.split('\n').length,
-        extensionsLines: extensionsContent.split('\n').length,
-        message: applyResult.message,
-      });
+      return res.status(result.success?200:502).json(result);
     } catch (err: any) {
       logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       return res.status(500).json({
@@ -2575,7 +2410,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
 
     try {
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(trunkId);
+      const trunk = await findAuthorizedTrunk(req,trunkId);
       if (!trunk) {
         return res.status(404).json({ error: 'Tronco SIP informado não foi encontrado.' });
       }
@@ -2657,7 +2492,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       if (trunkId) {
-        const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(trunkId);
+        const trunk = await findAuthorizedTrunk(req,trunkId);
         if (trunk && tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
           return res.status(403).json({
             error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
