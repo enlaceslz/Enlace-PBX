@@ -49,6 +49,8 @@ O cliente AMI correlaciona respostas por `ActionID`, espera o término de listas
 
 ## Backup integral criptografado
 
+As antigas rotas `/api/v1/system/backup` e `/api/v1/system/restore` foram retiradas em todos os ambientes (501, `LEGACY_BACKUP_RETIRED`). Não importam JSON nem restauram sobre o banco em uso. Utilize o procedimento abaixo; uma cópia antiga em JSON não é uma cópia integral recuperável.
+
 O backup usa um snapshot consistente do PostgreSQL e inclui runtime JSON, configuração Asterisk e gravações. O arquivo `.epbx` é autenticado e criptografado com AES-256-GCM. A chave independente fica em `/etc/enlace-pbx/backup.key` e deve ser guardada também fora do servidor; perdê-la impede recuperar as cópias.
 
 `DATABASE_BACKUP_URL` é uma credencial operacional separada com leitura de todos os dados, inclusive linhas protegidas por RLS. Nunca usar a URL limitada do serviço HTTP para gerar uma cópia integral. As ferramentas `pg_dump` e `pg_restore` devem corresponder à versão principal do PostgreSQL de origem. O programa seleciona `/usr/lib/postgresql/VERSAO/bin` ou `PBX_POSTGRES_BIN` e recusa uma versão incompatível.

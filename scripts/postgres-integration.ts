@@ -642,6 +642,13 @@ try {
       }
     }
     await setCompanyBRole('operator');
+    const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
+    for(const route of ['backup','restore']){
+      const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});
+      assert.equal(response.status,501);const body=await response.json();assert.equal(body.code,'LEGACY_BACKUP_RETIRED');assert.equal('data' in body,false);
+      assert.equal((await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:testHeaders,...(route==='restore'?{body:'{}'}:{})})).status,403);
+    }
+    assert.deepEqual((await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows,beforeLegacyRestore);
     const directedTicketResponse=await fetch(base+'/api/v1/auth/sse-ticket',{method:'POST',headers:{...rootHeaders,'x-tenant-id':tenantA},body:'{}'});
     assert.equal(directedTicketResponse.status,200);const directedTicket=(await directedTicketResponse.json()).ticket;
     const sseAbort=new AbortController();const sseTimeout=setTimeout(()=>sseAbort.abort(),10000);

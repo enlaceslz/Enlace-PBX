@@ -1,3 +1,4 @@
+import { retiredJsonBackup } from './server/infrastructure/security/RetiredJsonBackup.js';
 import {DashboardRepository} from './server/infrastructure/postgres/repositories/DashboardRepository.js';
 import {metricAccess,visibleChannels,channelDto,assertOwnCaller,ownChannelOnly,metricsDto} from './server/infrastructure/auth/TelemetryPolicy.js';
 import { credentialStamp, validCredentialStamp } from './server/infrastructure/auth/CredentialStamp.js';
@@ -296,6 +297,9 @@ async function startServer() {
     if (req.path.toLowerCase().replace(/\/$/, '') === '/whatsapp' && ['GET', 'HEAD', 'POST'].includes(req.method)) return next();
     return requireRole('super_admin')(req as any, res, next);
   });
+
+  // Cópias JSON parciais e restauração destrutiva foram retiradas em todos os ambientes.
+  app.all(['/api/v1/system/backup','/api/v1/system/restore'],retiredJsonBackup);
 
   // Operações ainda sem adaptador real não podem confirmar sucesso em produção.
   app.use('/api/v1', (req, res, next) => {
@@ -1596,135 +1600,6 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       ip: req.ip || '127.0.0.1', details: 'Download administrativo de cópia integral criptografada.' });
     res.setHeader('Cache-Control', 'no-store');
     res.download(backupPath(req.params.name), req.params.name);
-  });
-
-  app.get('/api/v1/system/backup', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      let tenantId: string;
-      try {
-        tenantId = resolveTenantContext(req).tenantId;
-      } catch {
-        return res.status(400).json({ error: 'Nenhum tenant determinado para efetuar backup.' });
-      }
-      const [
-        tenants,
-        users,
-        extensions,
-        trunks,
-        routes,
-        ringGroups,
-        queues,
-        ivrs,
-        cdrs,
-        aiAgents,
-        aiKnowledge,
-        aiTools,
-        whatsappConfig,
-        crmProviders,
-        omnichannelConversations,
-      ] = await Promise.all([
-        TenantRepository.listAll().catch(() => []),
-        UserRepository.listAll().catch(() => []),
-        ExtensionRepository.listByTenant(tenantId).catch(() => []),
-        TrunkRepository.listByTenant(tenantId).catch(() => []),
-        RouteRepository.listByTenant(tenantId).catch(() => []),
-        RingGroupRepository.listByTenant(tenantId).catch(() => []),
-        QueueRepository.listByTenant(tenantId).catch(() => []),
-        IvrRepository.listByTenant(tenantId).catch(() => []),
-        CdrRepository.listByTenant(tenantId).catch(() => []),
-        AiAgentRepository.listByTenant(tenantId).catch(() => []),
-        AiKnowledgeRepository.listByTenant(tenantId).catch(() => []),
-        AiToolRepository.listByTenant(tenantId).catch(() => []),
-        SystemRepository.getWhatsappConfig().catch(() => null),
-        SystemRepository.getCrmProviders().catch(() => []),
-        OmnichannelRepository.listConversations(tenantId).catch(() => []),
-      ]);
-
-      const snapshot = {
-        timestamp: new Date().toISOString(),
-        version: '20.17.0-LTS',
-        system: 'Enlace-PBX Enterprise Asterisk 20 Stack',
-        data: {
-          tenants,
-          users,
-          extensions,
-          trunks,
-          routes,
-          ringGroups,
-          queues,
-          ivrs,
-          cdrs,
-          aiAgents,
-          aiKnowledge,
-          aiTools,
-          whatsappConfigs: whatsappConfig ? [whatsappConfig] : [],
-          crmProviders,
-          omnichannelConversations,
-        },
-      };
-
-      res.setHeader('Content-Disposition', `attachment; filename=enlace-pbx-backup-${Date.now()}.json`);
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.json(snapshot);
-    } catch (e: any) {
-      console.error('[Backup] Erro ao gerar backup do sistema:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao gerar backup completo' });
-    }
-  });
-
-  app.post('/api/v1/system/restore', requireRole('super_admin', 'admin'), async (req, res) => {
-    const backup = req.body;
-    if (!backup || !backup.data || typeof backup.data !== 'object') {
-      return res.status(400).json({ error: 'Arquivo de backup corrompido ou em formato inválido.' });
-    }
-
-    const d = backup.data;
-    try {
-      if (Array.isArray(d.tenants)) {
-        for (const t of d.tenants) await TenantRepository.save(t).catch(() => {});
-      }
-      if (Array.isArray(d.users)) {
-        for (const u of d.users) await UserRepository.save(u).catch(() => {});
-      }
-      if (Array.isArray(d.extensions)) {
-        for (const ext of d.extensions) await ExtensionRepository.save(ext).catch(() => {});
-      }
-      if (Array.isArray(d.trunks)) {
-        for (const trk of d.trunks) await TrunkRepository.save(trk).catch(() => {});
-      }
-      if (Array.isArray(d.routes)) {
-        for (const r of d.routes) await RouteRepository.save(r).catch(() => {});
-      }
-      if (Array.isArray(d.ringGroups)) {
-        for (const rg of d.ringGroups) await RingGroupRepository.save(rg).catch(() => {});
-      }
-      if (Array.isArray(d.queues)) {
-        for (const q of d.queues) await QueueRepository.save(q).catch(() => {});
-      }
-      if (Array.isArray(d.ivrs)) {
-        for (const ivr of d.ivrs) await IvrRepository.save(ivr).catch(() => {});
-      }
-      if (Array.isArray(d.aiAgents)) {
-        for (const agent of d.aiAgents) await AiAgentRepository.save(agent).catch(() => {});
-      }
-
-      await recordAuditLog({
-        tenantId: (req as any).user?.tenantId || 'SYSTEM',
-        userId: (req as any).user?.id || 'SYSTEM',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'SYSTEM_RESTORE',
-        resource: 'system/restore',
-        ip: req.ip || '127.0.0.1',
-        details: 'Restauração completa do sistema aplicada com sucesso a partir de snapshot JSON.',
-        category: 'SYSTEM',
-        severity: 'WARNING',
-      });
-
-      res.json({ success: true, message: 'Restauração concluída com sucesso!' });
-    } catch (e: any) {
-      console.error('[Restore] Erro ao restaurar sistema:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao restaurar dados do backup' });
-    }
   });
 
   app.get('/api/v1/dashboard/metrics', requireAuth, requireTenant,requireRole('super_admin','admin','supervisor','readonly'), async (req, res) => {
