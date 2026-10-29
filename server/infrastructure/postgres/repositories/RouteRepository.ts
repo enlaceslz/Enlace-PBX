@@ -17,6 +17,8 @@ export class RouteRepository {
         return res.rows.map(row => ({
           id: row.id,
           tenantId: row.tenant_id,
+          isActive:row.is_active,
+          stripDigits:row.strip_digits,
           name: row.name,
           type: (row.type || 'outbound') as 'outbound' | 'inbound',
           pattern: row.pattern,
@@ -24,7 +26,7 @@ export class RouteRepository {
           prepend: row.prepend_digits || undefined,
           trunkId: row.trunk_id,
           failoverTrunkId: row.failover_trunk_id || undefined,
-          priority: row.priority || 1,
+          priority: row.priority ?? 1,
           isCliItx: row.is_cli_itx || false,
           callerIdOverride: row.caller_id_override || undefined,
           extensionOverrides: typeof row.extension_overrides === 'string'
@@ -50,6 +52,8 @@ export class RouteRepository {
         return res.rows.map(row => ({
           id: row.id,
           tenantId: row.tenant_id,
+          isActive:row.is_active,
+          stripDigits:row.strip_digits,
           name: row.name,
           type: (row.type || 'outbound') as 'outbound' | 'inbound',
           pattern: row.pattern,
@@ -57,7 +61,7 @@ export class RouteRepository {
           prepend: row.prepend_digits || undefined,
           trunkId: row.trunk_id,
           failoverTrunkId: row.failover_trunk_id || undefined,
-          priority: row.priority || 1,
+          priority: row.priority ?? 1,
           isCliItx: row.is_cli_itx || false,
           callerIdOverride: row.caller_id_override || undefined,
           extensionOverrides: typeof row.extension_overrides === 'string'
@@ -89,6 +93,8 @@ export class RouteRepository {
           return {
             id: row.id,
             tenantId: row.tenant_id,
+          isActive:row.is_active,
+          stripDigits:row.strip_digits,
             name: row.name,
             type: (row.type || 'outbound') as any,
             pattern: row.pattern,
@@ -96,7 +102,7 @@ export class RouteRepository {
             prepend: row.prepend_digits || undefined,
             trunkId: row.trunk_id,
             failoverTrunkId: row.failover_trunk_id || undefined,
-            priority: row.priority || 1,
+            priority: row.priority ?? 1,
             isCliItx: row.is_cli_itx || false,
             callerIdOverride: row.caller_id_override || undefined,
             extensionOverrides: typeof row.extension_overrides === 'string'
@@ -123,6 +129,8 @@ export class RouteRepository {
           return {
             id: row.id,
             tenantId: row.tenant_id,
+          isActive:row.is_active,
+          stripDigits:row.strip_digits,
             name: row.name,
             type: (row.type || 'outbound') as any,
             pattern: row.pattern,
@@ -130,7 +138,7 @@ export class RouteRepository {
             prepend: row.prepend_digits || undefined,
             trunkId: row.trunk_id,
             failoverTrunkId: row.failover_trunk_id || undefined,
-            priority: row.priority || 1,
+            priority: row.priority ?? 1,
             isCliItx: row.is_cli_itx || false,
             callerIdOverride: row.caller_id_override || undefined,
             extensionOverrides: typeof row.extension_overrides === 'string'

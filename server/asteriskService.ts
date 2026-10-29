@@ -1,3 +1,4 @@
+import {managedRoutePlan} from './infrastructure/asterisk/RouteMutation.js';
 import {managedDidDestination} from './infrastructure/asterisk/DidDialplan.js';
 import { callExtension, callDestination, channelReference, endpointFromChannel } from './infrastructure/asterisk/CallControl.js';
 import { OutboundHttpError } from './infrastructure/security/OutboundHttp.js';
@@ -383,17 +384,14 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
    */
   async generateExtensionsConf(tenantId: string): Promise<string> {
     const extensions = await ExtensionRepository.listByTenant(tenantId);
-    const routes = await RouteRepository.listByTenant(tenantId);
+    const routes = (await RouteRepository.listByTenant(tenantId)).filter(route=>route.isActive!==false);
     const groups = await RingGroupRepository.listByTenant(tenantId);
     const queues = await QueueRepository.listByTenant(tenantId);
     const ivrs = await IvrRepository.listByTenant(tenantId);
     const dids = (await DidRepository.listByTenant(tenantId)).filter((d) => d.status === 'active');
     const trunks = await TrunkRepository.listByTenant(tenantId);
     assertSingleLineConfig({ extensions, routes, groups, queues, ivrs, dids, trunks });
-    const trunkIds = new Set(trunks.map(trunk => trunk.id));
-    for (const route of routes.filter(item => item.type === 'outbound')) {
-      if (!route.trunkId || !trunkIds.has(route.trunkId) || (route.failoverTrunkId && !trunkIds.has(route.failoverTrunkId))) throw new Error('Rota de saída sem tronco válido da empresa.');
-    }
+    for(const route of routes)managedRoutePlan(route,trunks);
 
     return `; ====================================================================
 ; Enlace-PBX — Dialplan Oficial Asterisk 20 LTS (extensions.conf)
@@ -527,51 +525,18 @@ ${outboundGuardDialplan()}
 ${routes
   .filter((r) => r.type === 'outbound')
   .map((r) => {
-    const pat = r.pattern.startsWith('_') ? r.pattern : `_${r.pattern}`;
-    const stripDigits = r.prefixRemove ? r.prefixRemove.length : 0;
-    const prependStr = r.prepend || '';
+    const validated=managedRoutePlan(r,trunks);
+    const pat=validated.pattern;
+    const stripDigits=validated.stripDigits;
+    const prependStr=validated.prepend;
     const dialedExten = prependStr ? `${prependStr}\${EXTEN:${stripDigits}}` : `\${EXTEN:${stripDigits}}`;
     const targetTrunk = `PJSIP/trunk-${r.trunkId}`;
     const safeRouteTag = r.id.replace(/[^a-zA-Z0-9_]/g, '_');
 
-    let lines = `exten => ${pat},1,NoOp(Rota de Saida: ${r.name}${r.isCliItx ? ' [MODO CLI/ITX - BINA DINAMICA]' : ''})
+    let lines = `exten => ${pat},1,NoOp(Rota de saida gerenciada)
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CALLFILENAME=rec-out-\${EPOCH}-\${EXTEN})
  same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)`;
-
-    if (r.isCliItx) {
-      lines += `\n ; --- Tratamento Especial CLI/ITX: Identificacao de Ramal para BINA Aberta ---
- same => n,Set(CALLING_EXT=\${CALLERID(num)})
- same => n,Set(TARGET_CLI=)`;
-
-      if (r.extensionOverrides && r.extensionOverrides.length > 0) {
-        for (const ov of r.extensionOverrides) {
-          if (ov.extensionNumber && ov.callerId) {
-            lines += `\n same => n,ExecIf($["\${CALLING_EXT}" = "${ov.extensionNumber}"]?Set(TARGET_CLI=${ov.callerId}))`;
-          }
-        }
-      }
-
-      for (const ext of extensions) {
-        if (ext.cliCallerId) {
-          lines += `\n same => n,ExecIf($["\${CALLING_EXT}" = "${ext.number}" & $[${'${LEN(${TARGET_CLI})}'} = 0]]?Set(TARGET_CLI=${ext.cliCallerId}))`;
-        }
-      }
-
-      if (r.callerIdOverride) {
-        lines += `\n same => n,ExecIf($[$[${'${LEN(${TARGET_CLI})}'} = 0]]?Set(TARGET_CLI=${r.callerIdOverride}))`;
-      }
-
-      lines += `\n same => n,GotoIf($[$[${'${LEN(${TARGET_CLI})}'} > 0]?apply_cli_${safeRouteTag}:continue_dial_${safeRouteTag})
- same => n(apply_cli_${safeRouteTag}),NoOp(=== Enlace-PBX CLI/ITX: Ramal \${CALLING_EXT} binando com sucesso \${TARGET_CLI} ===)
- same => n,Set(CALLERID(num)=\${TARGET_CLI})
- same => n,Set(CALLERID(name)=\${TARGET_CLI})
- same => n,Set(PJSIP_HEADER(add,P-Asserted-Identity)=<sip:\${TARGET_CLI}@\${CHANNEL(pjsip,remote_addr)}>)
- same => n(continue_dial_${safeRouteTag}),NoOp(Prosseguindo discagem via tronco)`;
-    } else if (r.callerIdOverride) {
-      lines += `\n same => n,Set(CALLERID(num)=${r.callerIdOverride})
- same => n,Set(CALLERID(name)=${r.callerIdOverride})`;
-    }
 
     lines += `\n same => n,Gosub(enlace-outbound-guard,s,1(${dialedExten}))\n same => n,Dial(${targetTrunk}/\${ENLACE_DEST},60,tT)`;
 
@@ -614,54 +579,9 @@ exten => ${cleanE164},1,Goto(${cleanNational},1)`;
   })
   .join('\n\n')}
 
-${routes
-  .filter((r) => r.type === 'inbound')
-  .map((r) => {
-    const pat = r.pattern.startsWith('_')
-      ? r.pattern
-      : (r.pattern.includes('X') || r.pattern.includes('N') || r.pattern.includes('.') ? `_${r.pattern}` : r.pattern);
-    const safeRouteTag = r.id.replace(/[^a-zA-Z0-9_]/g, '_');
-
-    let dest = 'Goto(from-internal,4101,1)';
-    if (r.destinationType === 'extension') dest = `Goto(from-internal,${r.destinationId},1)`;
-    else if (r.destinationType === 'queue') dest = `Goto(call-queues,${r.destinationId},1)`;
-    else if (r.destinationType === 'ivr') dest = `Goto(ivr-menus,${r.destinationId},1)`;
-    else if (r.destinationType === 'ai_agent') dest = `Goto(from-gemini,s,1)`;
-    else if (r.destinationType === 'ring_group') dest = `Goto(ring-groups,${r.destinationId},1)`;
-
-    let lines = `exten => ${pat},1,NoOp(Rota de Entrada: ${r.name})
- same => n,Set(CDR(tenant_id)=${tenantId})
- same => n,Set(CALLFILENAME=rec-in-\${EPOCH}-\${CALLERID(num)}-\${EXTEN})
- same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)`;
-
-    if (r.timeConditionEnabled) {
-      let timeStr = '08:00-18:00,mon-fri,*,*';
-      if (r.timeSchedule && typeof r.timeSchedule === 'object') {
-        const weekdays = r.timeSchedule.weekdays?.length ? r.timeSchedule.weekdays.join('-') : 'mon-fri';
-        timeStr = `${r.timeSchedule.startHour || '08:00'}-${r.timeSchedule.endHour || '18:00'},${weekdays},*,*`;
-      }
-
-      let afterHoursDest = 'Goto(from-gemini,s,1)';
-      if (r.afterHoursDestType === 'ivr') afterHoursDest = `Goto(ivr-menus,${r.afterHoursDestId || 'ivr-principal'},1)`;
-      else if (r.afterHoursDestType === 'queue') afterHoursDest = `Goto(call-queues,${r.afterHoursDestId || 'queue-suporte-n1'},1)`;
-      else if (r.afterHoursDestType === 'extension') afterHoursDest = `Goto(from-internal,${r.afterHoursDestId || '4101'},1)`;
-      else if (r.afterHoursDestType === 'voicemail') afterHoursDest = `VoiceMail(${r.afterHoursDestId || '4101'}@default,u)`;
-
-      lines += `\n same => n,GotoIfTime(${timeStr}?open_${safeRouteTag}:closed_${safeRouteTag})
- same => n(closed_${safeRouteTag}),NoOp(=== FORA DO EXPEDIENTE (${timeStr}): Direcionando para destino alternativo ===)
- same => n,${afterHoursDest}
- same => n(open_${safeRouteTag}),NoOp(=== EXPEDIENTE NORMAL: Direcionando para destino principal ===)
- same => n,${dest}`;
-    } else {
-      lines += `\n same => n,${dest}`;
-    }
-
-    return lines;
-  })
-  .join('\n\n')}
-
 exten => _X.,1,NoOp(Chamada de tronco sem rota definida: \${EXTEN})
- same => n,Goto(from-internal,4101,1)
+ same => n,Hangup(1)
+exten => i,1,Hangup(1)
 `;
   }
 

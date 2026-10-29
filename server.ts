@@ -1,3 +1,5 @@
+import {routePatch} from './server/infrastructure/asterisk/RouteMutation.js';
+import {RouteManagementRepository} from './server/infrastructure/postgres/repositories/RouteManagementRepository.js';
 import {didPatch} from './server/infrastructure/asterisk/DidMutation.js';
 import {DidManagementRepository} from './server/infrastructure/postgres/repositories/DidManagementRepository.js';
 import {trunkPatch} from './server/infrastructure/asterisk/TrunkMutation.js';
@@ -2147,161 +2149,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/routes', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar rota.' });
-    }
-    const name = String(req.body.name || '').trim();
-    const pattern = String(req.body.pattern || '').trim();
-    const type = req.body.type || 'outbound';
-
-    if (!name || !pattern) {
-      return res.status(400).json({ error: 'Nome da rota e padrão de discagem (pattern) são obrigatórios.' });
-    }
-
-    const route = {
-      id: `route-${Date.now()}`,
-      tenantId,
-      priority: req.body.priority || 1,
-      timeConditionEnabled: req.body.timeConditionEnabled === true,
-      timeSchedule: req.body.timeSchedule || {
-        startHour: '08:00',
-        endHour: '18:00',
-        weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
-      },
-      ...req.body,
-      name,
-      pattern,
-      type,
-    };
-
-    try {
-      await RouteRepository.save(route);
-
-      recordAuditLog({
-        tenantId,
-        action: 'CREATE_ROUTE',
-        resource: `routes/${route.id}`,
-        details: `Nova rota de ${route.type === 'outbound' ? 'Saída' : 'Entrada'} [${route.name}] criada com padrão [${route.pattern}].`,
-        category: 'ROUTING',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { routeId: route.id, pattern: route.pattern, type: route.type, trunkId: route.trunkId, failoverTrunkId: route.failoverTrunkId },
-      });
-
-      res.status(201).json(route);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao criar rota no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/routes/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await findAuthorizedRoute(req,req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Rota não encontrada' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A rota pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-      
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await RouteRepository.save(updated);
-
-      recordAuditLog({
-        tenantId: updated.tenantId,
-        action: 'UPDATE_ROUTE',
-        resource: `routes/${req.params.id}`,
-        details: `Rota [${updated.name}] atualizada. LCR Contingência: ${updated.failoverTrunkId || 'Desativado'}, Horário: ${updated.timeConditionEnabled ? 'Ativo' : 'Livre'}.`,
-        category: 'ROUTING',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { routeId: req.params.id, changes: req.body },
-      });
-
-      res.json(updated);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar rota no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/routes/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const route = await findAuthorizedRoute(req,req.params.id);
-      if (!route) {
-        return res.status(404).json({ error: 'Rota não encontrada' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && route.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A rota pertence ao tenant '${route.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await RouteRepository.delete(req.params.id, route.tenantId);
-
-      recordAuditLog({
-        tenantId: route.tenantId,
-        action: 'DELETE_ROUTE',
-        resource: `routes/${req.params.id}`,
-        details: `Rota [${route.name}] (${route.pattern}) removida do plano de discagem.`,
-        category: 'ROUTING',
-        severity: 'WARNING',
-        ip: req.ip || '127.0.0.1',
-        payload: { routeId: req.params.id, name: route.name, pattern: route.pattern },
-      });
-
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir rota no PostgreSQL' });
-    }
-  });
-
-  // Simulação de Resolução de CallerID para Rotas CLI/ITX e Convencionais
-  app.post('/api/v1/routes/simulate-callerid', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const tenantId = tenantCtx.tenantId;
-      const { extensionNumber, routeId } = req.body;
-      if (!extensionNumber || !routeId) {
-        return res.status(400).json({ error: 'extensionNumber e routeId são obrigatórios para a simulação.' });
-      }
-
-      // Verificação BOLA/IDOR de ownership da rota
-      const route = await findAuthorizedRoute(req,String(routeId));
-      if (!route) {
-        return res.status(404).json({ error: 'Rota não encontrada.' });
-      }
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && route.tenantId !== tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A rota pertence ao tenant '${route.tenantId}', incompatível com o contexto '${tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const result = await asteriskService.resolveCallerIdForOutboundCall(tenantId, String(extensionNumber), String(routeId));
-      if (!result) {
-        return res.status(404).json({ error: 'Ramal ou Rota não encontrados para o tenant informado.' });
-      }
-
-      res.json(result);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao simular CallerID' });
-    }
-  });
+  const routeAudit=async(req:any,tenantId:string,action:string,id?:string)=>{const actor=req.user;await AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action,resource:id?'routes/'+id:'routes/new',ip:req.ip||'127.0.0.1',category:'ROUTING',details:'Tentativa de alteração cadastral; não aplica arquivos nem executa chamada.',payload:{requestId:req.res.locals.requestId}});};
+  const routeError=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+  app.post('/api/v1/routes',requireRole('super_admin','admin'),async(req,res)=>{try{const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});const patch=routePatch(req.body,true);await routeAudit(req,context.tenantId,'CREATE_ROUTE_ATTEMPT');const id=await RouteManagementRepository.mutate(context.tenantId,undefined,patch);res.status(201).json(await RouteRepository.findById(id,context.tenantId));}catch(error){routeError(error,res);}});
+  app.put('/api/v1/routes/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const previous=await findAuthorizedRoute(req,req.params.id);if(!previous)return res.status(404).json({error:'Rota não encontrada nesta empresa.'});const patch=routePatch(req.body);await routeAudit(req,previous.tenantId,'UPDATE_ROUTE_ATTEMPT',previous.id);await RouteManagementRepository.mutate(previous.tenantId,previous.id,patch);res.json(await RouteRepository.findById(previous.id,previous.tenantId));}catch(error){routeError(error,res);}});
+  app.delete('/api/v1/routes/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const previous=await findAuthorizedRoute(req,req.params.id);if(!previous)return res.status(404).json({error:'Rota não encontrada nesta empresa.'});await routeAudit(req,previous.tenantId,'DELETE_ROUTE_ATTEMPT',previous.id);await RouteManagementRepository.remove(previous.tenantId,previous.id);res.json({deleted:true});}catch(error){routeError(error,res);}});
+  app.post('/api/v1/routes/simulate-callerid',requireRole('super_admin','admin'),(_req,res)=>res.status(501).json({error:'Simulação CLI/ITX indisponível até implementação e homologação. Não comprova Caller ID recebido pela operadora.'}));
 
   // -------------------------------------------------------------------------
   // Ring Groups & Queues

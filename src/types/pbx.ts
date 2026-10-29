@@ -183,6 +183,8 @@ export interface RouteExtensionOverride {
 }
 
 export interface Route {
+  isActive?:boolean;
+  stripDigits?:number;
   id: string;
   tenantId: string;
   name: string;

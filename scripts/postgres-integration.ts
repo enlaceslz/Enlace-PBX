@@ -747,6 +747,27 @@ try {
     assert.doesNotMatch(await new AsteriskService().generateExtensionsConf(tenantA),/exten => 5532221000,1/);
     for(const item of [managedDid,...importedDids.added])assert.equal((await didRequest('DELETE','/'+item.id)).status,200);
     await admin.query('DELETE FROM extensions WHERE id=ANY($1::text[])',[['did-extension-a-'+id,'did-extension-b-'+id]]);
+    const routeRequest=async(method:string,suffix:string,body?:any,headers:Record<string,string>=testHeaders)=>fetch(base+'/api/v1/routes'+suffix,{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const routeBody={name:'Rota de transformação CI '+id,type:'outbound',pattern:'_XXXXXXXXXXXXXXXXXXXXXXX',trunkId:trunk.id,failoverTrunkId:apiTrunk.id,stripDigits:12,prepend:'55',priority:12,isActive:true};
+    const createdRouteResponse=await routeRequest('POST','',routeBody);assert.equal(createdRouteResponse.status,201);const apiRoute=await createdRouteResponse.json();assert.equal(apiRoute.stripDigits,12);assert.equal(apiRoute.isActive,true);
+    const initialRoutePlan=await new AsteriskService().generateExtensionsConf(tenantA);assert.ok(initialRoutePlan.includes('55${EXTEN:12}'));assert.match(initialRoutePlan,/Gosub\(enlace-outbound-guard/);assert.match(initialRoutePlan,/Chamada de tronco sem rota definida:[^]*?Hangup\(1\)/);assert.doesNotMatch(initialRoutePlan,/Chamada de tronco sem rota definida:[^]*?Goto\(from-internal,4101/);
+    assert.equal((await routeRequest('POST','',{...routeBody,name:'Tronco externo',pattern:'_7XXXXXXXX',trunkId:foreignTrunk.id})).status,400);
+    assert.equal((await routeRequest('PUT','/'+apiRoute.id,{failoverTrunkId:trunk.id})).status,400);
+    for(const patch of [{prefixRemove:'12'},{isCliItx:true},{callerIdOverride:'1132223333'},{pattern:'_X,1,System(id)'},{stripDigits:'12'}])assert.equal((await routeRequest('PUT','/'+apiRoute.id,patch)).status,400);
+    for(const method of ['PUT','DELETE'])assert.equal((await routeRequest(method,'/'+apiRoute.id,method==='PUT'?{isActive:false}:undefined,{...rootHeaders,'x-tenant-id':tenantB})).status,404);
+    const routeParallel=await Promise.all([routeRequest('PUT','/'+apiRoute.id,{name:'Nome atualizado '+id}),routeRequest('PUT','/'+apiRoute.id,{priority:7,stripDigits:0})]);assert.equal(routeParallel.every(response=>response.status===200),true);
+    const routeState=(await admin.query('SELECT name,priority,strip_digits FROM routes WHERE id=$1',[apiRoute.id])).rows[0];assert.equal(routeState.name,'Nome atualizado '+id);assert.equal(routeState.priority,7);assert.equal(routeState.strip_digits,0);
+    assert.equal((await routeRequest('PUT','/'+apiRoute.id,{isActive:false})).status,200);assert.doesNotMatch(await new AsteriskService().generateExtensionsConf(tenantA),/exten => _XXXXXXXXXXXXXXXXXXXXXXX,1/);
+    assert.equal((await routeRequest('PUT','/'+apiRoute.id,{isActive:true})).status,200);
+    const routeDuplicates=await Promise.all([routeRequest('POST','',{...routeBody,name:'Padrão A '+id,pattern:'_8XXXXXXXX'}),routeRequest('POST','',{...routeBody,name:'Padrão B '+id,pattern:'_8XXXXXXXX'})]);assert.deepEqual(routeDuplicates.map(response=>response.status).sort(),[201,409]);const duplicateRoute=await routeDuplicates.find(response=>response.status===201)!.json();
+    await admin.query("UPDATE routes SET is_cli_itx=true,caller_id_override='1132223333' WHERE id=$1",[apiRoute.id]);
+    await assert.rejects(new AsteriskService().generateExtensionsConf(tenantA),(error:any)=>error.statusCode===501);
+    assert.equal((await routeRequest('PUT','/'+apiRoute.id,{name:'Não apagar legado'})).status,501);
+    assert.equal((await routeRequest('PUT','/'+apiRoute.id,{isActive:false})).status,200);
+    const preservedRoute=(await admin.query('SELECT is_cli_itx,caller_id_override FROM routes WHERE id=$1',[apiRoute.id])).rows[0];assert.equal(preservedRoute.is_cli_itx,true);assert.equal(preservedRoute.caller_id_override,'1132223333');
+    await new AsteriskService().generateExtensionsConf(tenantA);
+    assert.equal((await routeRequest('POST','/simulate-callerid',{routeId:apiRoute.id,extensionNumber:'4101'})).status,501);
+    for(const row of [apiRoute,duplicateRoute])assert.equal((await routeRequest('DELETE','/'+row.id)).status,200);
     const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
     for(const route of ['backup','restore']){
       const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});
