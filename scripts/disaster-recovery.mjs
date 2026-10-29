@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import pg from 'pg';
+import {parseEnvironmentJson} from '../server/config/environmentPolicy.mjs';
 
 const execute = promisify(execFile);
 const magic = Buffer.from('EPBXBK01');
@@ -76,7 +77,7 @@ export async function createBackup({ url, keyFile, directory, configuration, ast
       const contains = candidate => candidate === root || candidate.startsWith(root + path.sep);
       if (root === path.parse(root).root || contains(path.resolve(directory)) || contains(stage)) throw new Error('Origem de backup contém o destino ou o diretório temporário.');
     }
-    const config = JSON.parse(await fs.readFile(configuration, 'utf8'));
+    const config = parseEnvironmentJson(await fs.readFile(configuration, 'utf8'));
     if (!config.ENCRYPTION_KEY || !config.JWT_SECRET) throw new Error('Configuração sem chaves necessárias para recuperação.');
     await fs.mkdir(path.join(stage, 'configuration'));
     await fs.copyFile(configuration, path.join(stage, 'configuration/runtime.json'));

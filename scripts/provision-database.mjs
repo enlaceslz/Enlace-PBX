@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import pg from 'pg';
+import {parseEnvironmentJson,applicationDatabaseUrl,administrativeDatabaseUrl} from '../server/config/environmentPolicy.mjs';
 
-const settings = JSON.parse(fs.readFileSync(process.env.PBX_CONFIG_FILE, 'utf8'));
-const application = new URL(settings.DATABASE_URL);
-const maintenance = new URL(settings.DATABASE_MIGRATION_URL);
+const settings = parseEnvironmentJson(fs.readFileSync(process.env.PBX_CONFIG_FILE, 'utf8'));
+const application = applicationDatabaseUrl(settings.DATABASE_URL);
+const maintenance = administrativeDatabaseUrl(settings.DATABASE_MIGRATION_URL);
 maintenance.pathname = '/postgres';
 const client = new pg.Client({ connectionString: maintenance.toString(), connectionTimeoutMillis: 5000 });
 try {

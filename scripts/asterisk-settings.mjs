@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {AnchoredDirectory,readBounded} from './anchored-files.mjs';
 import {ariInputs} from '../server/infrastructure/asterisk/ariPolicy.mjs';
+import {parseEnvironmentJson} from '../server/config/environmentPolicy.mjs';
 
 export function updateIni(text,section,fields){
   if(typeof text!=='string'||!/^[-a-zA-Z0-9_]{1,64}$/.test(section)||!fields||typeof fields!=='object'||Array.isArray(fields))throw new Error('Seção INI inválida.');
@@ -93,7 +94,7 @@ export function verifyAsteriskDirectory(directory,settings,uid=0){
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
   if (!process.env.PBX_CONFIG_FILE) throw new Error('PBX_CONFIG_FILE obrigatório.');
   if(process.argv.slice(2).some(value=>value!=='--verify'))throw new Error('Modo de configuração inválido.');
-  const settings=JSON.parse(fs.readFileSync(process.env.PBX_CONFIG_FILE, 'utf8'));
+  const settings=parseEnvironmentJson(fs.readFileSync(process.env.PBX_CONFIG_FILE, 'utf8'));
   const configuration = asteriskSettings(settings);
   if(process.argv.includes('--verify')){
     const directory=new AnchoredDirectory('/etc/asterisk',{trustedUid:0});

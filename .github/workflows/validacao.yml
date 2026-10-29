@@ -26,7 +26,7 @@ jobs:
       CORS_ALLOWED_ORIGINS: https://pbx.example.invalid
       DATABASE_MIGRATION_URL: postgresql://postgres:senha-descartavel-do-ci@127.0.0.1:5432/enlace_pbx
       ADMIN_INITIAL_EMAIL: admin@example.invalid
-      ADMIN_INITIAL_PASSWORD: senha-bootstrap-descartavel-2026
+      ADMIN_INITIAL_PASSWORD: "  senha-bootstrap-descartavel-2026  "
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

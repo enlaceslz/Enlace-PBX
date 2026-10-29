@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { postgresClient } from '../client.js';
 import { AuditLogRepository } from '../repositories/AuditLogRepository.js';
+import {bootstrapCredentials} from '../../../config/environmentPolicy.mjs';
 
 export class DatabaseMigrator {
   private static readonly MIGRATION_LOCK_ID = 7429184;
@@ -116,25 +117,7 @@ export class DatabaseMigrator {
       }
 
       // 2. Nenhum super_admin existe: Validação obrigatória de ambiente (Fail-Fast)
-      const adminEmail = process.env.ADMIN_INITIAL_EMAIL?.trim();
-      const adminPassword = process.env.ADMIN_INITIAL_PASSWORD?.trim();
-
-      if (!adminEmail || !adminPassword) {
-        const errorMsg =
-          'FATAL BOOTSTRAP: Nenhum super_admin foi localizado no banco de dados PostgreSQL ' +
-          'e as variáveis de ambiente obrigatórias ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD não foram fornecidas. ' +
-          'Para inicializar a central Enlace-PBX com segurança, defina ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD.';
-        logOperational('DB_OPERATION_FAILURE');
-        throw new Error(errorMsg);
-      }
-
-      const forbiddenPasswords = ['admin', 'admin123', 'enlace123', '123456', 'root', 'asterisk', 'password', 'enlace'];
-      if (forbiddenPasswords.includes(adminPassword.toLowerCase()) || adminPassword.length < 8) {
-        throw new Error(
-          'FATAL BOOTSTRAP: A senha fornecida em ADMIN_INITIAL_PASSWORD é fraca ou proibida. ' +
-          'O Enlace-PBX exige no mínimo 8 caracteres e proíbe senhas previsíveis como "admin", "admin123", "enlace123" ou "root".'
-        );
-      }
+      const {email:adminEmail,password:adminPassword}=bootstrapCredentials(process.env.ADMIN_INITIAL_EMAIL,process.env.ADMIN_INITIAL_PASSWORD,true);
 
       // 3. Checagem de colisão com usuário existente: ABORTA se o e-mail já existir
       const existingUser = await db.query(

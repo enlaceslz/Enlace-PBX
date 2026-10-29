@@ -2,23 +2,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
+import {environmentValues,parseEnvironmentJson,assertProductionSecrets,applicationDatabaseUrl,administrativeDatabaseUrl,bootstrapCredentials} from '../server/config/environmentPolicy.mjs';
+import {asteriskSettings} from './asterisk-settings.mjs';
 
 /** @returns {Record<string, string>} */
 export function productionSettings(existing = {}, legacy = {}, inputs = {}) {
-  const values = { ...legacy, ...existing };
-  for (const [key, value] of Object.entries(inputs)) if (typeof value === 'string' && value !== '') values[key] = value;
+  const values = { ...environmentValues(legacy), ...environmentValues(existing) };
+  for (const [key, value] of Object.entries(environmentValues(inputs))) if (value !== '') values[key] = value;
   const domain = values.PBX_DOMAIN;
-  if (!domain || domain.length > 253 || !/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*$/i.test(domain)) throw new Error('PBX_DOMAIN deve ser um domínio válido.');
+  if (!domain || domain.length > 253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(domain)) throw new Error('PBX_DOMAIN deve ser um domínio válido.');
   for (const key of ['JWT_SECRET', 'ENCRYPTION_KEY']) {
-    if (values[key] && values[key].length < 32) throw new Error(`${key} existente é fraca; recuse a atualização para não perder dados.`);
     values[key] ||= crypto.randomBytes(32).toString('hex');
   }
+  assertProductionSecrets(values);
   values.WHATSAPP_VERIFY_TOKEN ||= crypto.randomBytes(24).toString('hex');
   values.ASTERISK_AMI_PASSWORD ||= crypto.randomBytes(24).toString('hex');
   values.ASTERISK_ARI_PASSWORD ||= crypto.randomBytes(24).toString('hex');
   values.DATABASE_URL ||= `postgresql://enlace_app:${crypto.randomBytes(24).toString('hex')}@127.0.0.1:5432/enlace_pbx`;
-  const db = new URL(values.DATABASE_URL);
-  if (decodeURIComponent(db.username) !== 'enlace_app' || db.pathname !== '/enlace_pbx') throw new Error('DATABASE_URL deve usar enlace_app no banco enlace_pbx.');
+  applicationDatabaseUrl(values.DATABASE_URL);
   Object.assign(values, { NODE_ENV: 'production', PORT: '3000', HOST: '127.0.0.1', TRUSTED_PROXIES: 'loopback',
     ASTERISK_CONFIG_DIR: '/var/lib/enlace-pbx/asterisk', CORS_ALLOWED_ORIGINS: `https://${domain}` });
   values.ASTERISK_HOST ||= '127.0.0.1';
@@ -29,6 +30,8 @@ export function productionSettings(existing = {}, legacy = {}, inputs = {}) {
   values.ASTERISK_ARI_URL ||= 'http://127.0.0.1:8088';
   values.ASTERISK_ARI_USER ||= values.ASTERISK_ARI_USERNAME || 'enlace_ari';
   values.ASTERISK_ARI_USERNAME = values.ASTERISK_ARI_USER;
+  // Valida o contrato de telefonia antes de gravar runtime ou bootstrap.
+  asteriskSettings(values);
   delete values.DATABASE_MIGRATION_URL;
   delete values.ADMIN_INITIAL_EMAIL;
   delete values.ADMIN_INITIAL_PASSWORD;
@@ -58,19 +61,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   const destination = process.argv[2];
   const bootstrap = process.argv[3];
   if (!destination || !bootstrap) throw new Error('Informe os caminhos de configuração e bootstrap temporário.');
-  const existing = fs.existsSync(destination) ? JSON.parse(fs.readFileSync(destination, 'utf8')) : {};
+  const existing = fs.existsSync(destination) ? parseEnvironmentJson(fs.readFileSync(destination, 'utf8')) : {};
   const legacyPath = process.env.PBX_LEGACY_ENV;
   const legacy = legacyPath && fs.existsSync(legacyPath) ? dotenv.parse(fs.readFileSync(legacyPath)) : {};
   const names = ['PBX_DOMAIN', 'PBX_PUBLIC_IP', 'PBX_LAN_SUBNET', 'DATABASE_URL', 'ASTERISK_HOST', 'ASTERISK_AMI_PASSWORD', 'ASTERISK_ARI_PASSWORD'];
-  const settings = productionSettings(existing, legacy, Object.fromEntries(names.map(name => [name, process.env[name]])));
+  const settings = productionSettings(existing, legacy, Object.fromEntries(names.filter(name=>process.env[name]!==undefined).map(name => [name, process.env[name]])));
   const preserve = process.argv[4] === '--preserve-existing' && fs.existsSync(destination);
   // Valida antes de criar bootstrap ou substituir qualquer configuração existente.
   if (preserve) assertPreservedRuntime(existing, settings);
-  const initialEmail = process.env.ADMIN_INITIAL_EMAIL || legacy.ADMIN_INITIAL_EMAIL || '';
-  const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || legacy.ADMIN_INITIAL_PASSWORD || '';
-  if (initialPassword && (initialPassword.length < 12 || Buffer.byteLength(initialPassword, 'utf8') > 72)) throw new Error('Senha inicial deve ter no mínimo 12 caracteres e até 72 bytes.');
+  const {email:initialEmail,password:initialPassword}=bootstrapCredentials(process.env.ADMIN_INITIAL_EMAIL || legacy.ADMIN_INITIAL_EMAIL || '',process.env.ADMIN_INITIAL_PASSWORD || legacy.ADMIN_INITIAL_PASSWORD || '');
+  const migrationUrl=process.env.DATABASE_MIGRATION_URL || 'postgresql:///enlace_pbx?host=/var/run/postgresql';
+  administrativeDatabaseUrl(migrationUrl);
   writeSettings(bootstrap, { ...settings, ADMIN_INITIAL_EMAIL: initialEmail, ADMIN_INITIAL_PASSWORD: initialPassword,
-    DATABASE_MIGRATION_URL: process.env.DATABASE_MIGRATION_URL || 'postgresql:///enlace_pbx?host=/var/run/postgresql' });
+    DATABASE_MIGRATION_URL: migrationUrl });
   if (!preserve) writeSettings(destination, settings, 0o640);
   console.log('Configuração preservada e gravada; credenciais administrativas separadas do serviço.');
 }

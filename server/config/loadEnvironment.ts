@@ -1,16 +1,10 @@
 import fs from 'node:fs';
 import dotenv from 'dotenv';
+import {parseEnvironmentJson} from './environmentPolicy.mjs';
 
 /** O JSON preserva senhas literalmente; nenhum arquivo de configuração é executado como shell. */
 export function readEnvironmentFile(file: string): Record<string, string> {
-  const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Configuração de ambiente inválida.');
-  for (const [name, content] of Object.entries(value)) {
-    if (!/^[A-Z][A-Z0-9_]*$/.test(name) || typeof content !== 'string' || content.includes('\0')) {
-      throw new Error(`Configuração inválida: ${name}.`);
-    }
-  }
-  return value;
+  return parseEnvironmentJson(fs.readFileSync(file, 'utf8'));
 }
 
 if (process.env.PBX_CONFIG_FILE) {

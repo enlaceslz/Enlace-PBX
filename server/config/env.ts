@@ -2,6 +2,7 @@ import {logOperational} from '../infrastructure/security/OperationalLog.js';
 import './loadEnvironment.js';
 import crypto from 'crypto';
 import fs from 'fs';
+import {assertProductionSecrets} from './environmentPolicy.mjs';
 
 /**
  * Validação Central de Ambiente e Segredos — Enlace-PBX Enterprise
@@ -68,12 +69,7 @@ export function loadEnvConfig(): AppEnvConfig {
   }
 
   if (!['development', 'production', 'test'].includes(nodeEnv)) throw new Error('NODE_ENV inválido.');
-  if (isProd && (jwtSecret.trim().length < 32 || /^(change|example|secret|password|enlace)/i.test(jwtSecret))) {
-    throw new Error('JWT_SECRET deve conter pelo menos 32 caracteres e não pode ser um segredo de exemplo.');
-  }
-  if (isProd && (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.trim().length < 32)) {
-    throw new Error('ENCRYPTION_KEY forte é obrigatória em produção.');
-  }
+  if (isProd) assertProductionSecrets({JWT_SECRET:jwtSecret,ENCRYPTION_KEY:process.env.ENCRYPTION_KEY,WHATSAPP_VERIFY_TOKEN:process.env.WHATSAPP_VERIFY_TOKEN});
   const parsePort = (value: string, name: string): number => {
     if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535) throw new Error(`${name} deve ser uma porta válida.`);
     return Number(value);
@@ -106,12 +102,6 @@ export function loadEnvConfig(): AppEnvConfig {
 
   // Validação de Token do WhatsApp
   let whatsappToken = process.env.WHATSAPP_VERIFY_TOKEN;
-  if (isProd && whatsappToken === 'enlace_meta_webhook_token_2026') {
-    throw new Error(
-      'FATAL DE PRODUÇÃO: O token WHATSAPP_VERIFY_TOKEN está utilizando um valor fraco/previsível de exemplo. ' +
-      'Gere um segredo criptograficamente seguro com: openssl rand -hex 24'
-    );
-  }
 
   if (isProd && (!amiPassword || amiPassword.trim() === '')) {
     logOperational('SERVER_WARNING');
