@@ -37,5 +37,6 @@ async function assertUnreferenced(client:any,tenantId:string,id:string,number:st
  const didRefs=await client.query('SELECT id FROM dids WHERE tenant_id=$1 AND ((destination_type=$2 AND destination_id=ANY($3::text[])) OR (after_hours_dest_type=$2 AND after_hours_dest_id=ANY($3::text[])) OR (fallback_type=$2 AND fallback_target=ANY($3::text[]))) LIMIT 1',[tenantId,type,[id,number]]);
  const ivrRefs=await client.query('SELECT id FROM ivrs WHERE tenant_id=$1 AND (options::text LIKE $2 OR options::text LIKE $3 OR flow::text LIKE $2 OR flow::text LIKE $3) LIMIT 1',[tenantId,'%'+id+'%','%'+number+'%']);
  const groupRefs=await client.query('SELECT id FROM ring_groups WHERE tenant_id=$1 AND id<>$2 AND fallback_target=ANY($3::text[]) LIMIT 1',[tenantId,id,[id,number]]);
- if(didRefs.rows.length||ivrRefs.rows.length||groupRefs.rows.length)throw new OutboundHttpError('Vínculo cadastral ou possível referência em URA exige revisão antes de renumerar ou excluir.',409);
+ const agentRefs=kind==='queue'?await client.query("SELECT id FROM ai_agents WHERE tenant_id=$1 AND fallback_action='transfer_queue' AND transfer_extension=$2 LIMIT 1",[tenantId,number]):{rows:[]};
+ if(agentRefs.rows.length||didRefs.rows.length||ivrRefs.rows.length||groupRefs.rows.length)throw new OutboundHttpError('Vínculo cadastral, agente de IA ou possível referência em URA exige revisão antes de renumerar ou excluir.',409);
 }

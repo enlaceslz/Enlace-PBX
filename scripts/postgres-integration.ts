@@ -284,6 +284,86 @@ try {
     await MaiaSessionRepository.createSession(previewSession);
     assert.equal((await MaiaSessionRepository.findById(previewSession.id,tenantA))?.asteriskChannelId,undefined);
     await assert.rejects(MaiaSessionRepository.createSession({...previewSession,id:'foreign-agent-session-'+id,agentId:sessionAgentB}));
+    const aiRequest=async(kind:string,method:string,suffix:string,body?:any,selected:Record<string,string>=testHeaders)=>fetch(base+'/api/v1/ai/'+kind+suffix,{method,headers:selected,...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const aiAgentBody={name:'Configuração IA '+id,model:'modelo-ci',voice:'Zephyr',systemInstruction:'PROMPT_PRIVADO_CI_'+id,temperature:0,isActive:false,allowBargeIn:false};
+    const agentCreated=await aiRequest('agents','POST','',aiAgentBody);assert.equal(agentCreated.status,201);const configuredAgent=await agentCreated.json();
+    assert.match(configuredAgent.id,/^agent-[a-f0-9-]{36}$/);assert.equal(configuredAgent.temperature,0);assert.equal(configuredAgent.isActive,false);assert.equal(configuredAgent.allowBargeIn,false);assert.equal(configuredAgent.providerId,'9router');assert.equal(configuredAgent.transferExtension,'');assert.deepEqual(configuredAgent.tools,[]);
+    assert.equal((await aiRequest('agents','POST','',{...aiAgentBody,tenantId:tenantB})).status,400);
+    assert.equal((await aiRequest('agents','POST','',aiAgentBody,rootHeaders)).status,400);
+    assert.equal((await aiRequest('agents','POST','',aiAgentBody,otherHeaders)).status,403);
+    const selectedB={...rootHeaders,'x-tenant-id':tenantB};
+    const agentBResponse=await aiRequest('agents','POST','',{...aiAgentBody,name:'Configuração B '+id},selectedB);assert.equal(agentBResponse.status,201);const configuredAgentB=await agentBResponse.json();
+    const docBody={title:'Texto revisado '+id,content:'CONTEXTO_REVISADO_'+id};
+    const docResponse=await aiRequest('knowledge','POST','',docBody);assert.equal(docResponse.status,201);const reviewedDoc=await docResponse.json();assert.equal(reviewedDoc.contentStatus,'REVIEWED_TEXT');assert.equal(reviewedDoc.fileSizeBytes,Buffer.byteLength(docBody.content));
+    assert.deepEqual((await admin.query('SELECT knowledge_sources FROM ai_agents WHERE id=$1',[configuredAgent.id])).rows[0].knowledge_sources,[],'Omissão de alvos não vincula todos os agentes.');
+    const docBResponse=await aiRequest('knowledge','POST','',{...docBody,title:'Texto B '+id},selectedB);assert.equal(docBResponse.status,201);const reviewedDocB=await docBResponse.json();
+    for(const [kind,record,patch] of [['agents',configuredAgent,{name:'Não alterar'}],['knowledge',reviewedDoc,{title:'Não alterar'}]] as const){
+      for(const method of ['PUT','DELETE'])assert.equal((await aiRequest(kind,method,'/'+record.id,method==='PUT'?patch:undefined,selectedB)).status,404);
+    }
+    assert.equal((await aiRequest('knowledge','PUT','/'+reviewedDocB.id,{title:'Não alterar'})).status,404);
+    assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{knowledgeSources:[reviewedDocB.id]})).status,400);
+    assert.equal((await aiRequest('knowledge','PUT','/'+reviewedDoc.id,{targetAgentIds:[configuredAgentB.id]})).status,400);
+    assert.equal((await aiRequest('knowledge','POST','',{...docBody,classification:'REVIEWED_TEXT'})).status,400);
+    assert.equal((await aiRequest('knowledge','PUT','/'+reviewedDoc.id,{fileSizeBytes:1})).status,400);
+    const beforeBinary=(await admin.query('SELECT count(*)::int AS n FROM ai_knowledge WHERE tenant_id=$1',[tenantA])).rows[0].n;
+    assert.equal((await aiRequest('knowledge','POST','/upload',{title:'Não extrair',fileName:'manual.pdf',fileType:'application/pdf',base64Data:'JVBERi0='})).status,501);
+    assert.equal((await admin.query('SELECT count(*)::int AS n FROM ai_knowledge WHERE tenant_id=$1',[tenantA])).rows[0].n,beforeBinary);
+    const sourceLinks=await aiRequest('knowledge','PUT','/'+reviewedDoc.id,{targetAgentIds:[configuredAgent.id]});assert.equal(sourceLinks.status,200);
+    const independent=await Promise.all([aiRequest('agents','PUT','/'+configuredAgent.id,{name:'Nome preservado '+id}),aiRequest('knowledge','PUT','/'+reviewedDoc.id,{title:'Título preservado '+id}),aiRequest('knowledge','PUT','/'+reviewedDoc.id,{content:docBody.content+' — acentuação'})]);assert.equal(independent.every(response=>response.status===200),true);
+    const keptAgent=(await admin.query('SELECT name,knowledge_sources FROM ai_agents WHERE id=$1',[configuredAgent.id])).rows[0];assert.equal(keptAgent.name,'Nome preservado '+id);assert.deepEqual(keptAgent.knowledge_sources,[reviewedDoc.id]);
+    const keptDoc=(await admin.query('SELECT title,content,file_size_bytes FROM ai_knowledge WHERE id=$1',[reviewedDoc.id])).rows[0];assert.equal(keptDoc.title,'Título preservado '+id);assert.equal(Number(keptDoc.file_size_bytes),Buffer.byteLength(keptDoc.content));
+    const linkedParallel=await Promise.all([aiRequest('agents','PUT','/'+configuredAgent.id,{description:'Descrição preservada'}),aiRequest('knowledge','POST','',{title:'Vínculo paralelo '+id,content:'Texto independente',targetAgentIds:[configuredAgent.id]})]);assert.deepEqual(linkedParallel.map(response=>response.status),[200,201]);const parallelDoc=await linkedParallel[1].json();
+    const afterParallel=(await admin.query('SELECT description,knowledge_sources FROM ai_agents WHERE id=$1',[configuredAgent.id])).rows[0];assert.equal(afterParallel.description,'Descrição preservada');assert.ok(afterParallel.knowledge_sources.includes(parallelDoc.id));assert.ok(afterParallel.knowledge_sources.includes(reviewedDoc.id));
+    await admin.query("CREATE FUNCTION ci_reject_ai_config_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action IN ('CREATE_AI_KNOWLEDGE_ATTEMPT','UPDATE_AI_AGENT_ATTEMPT') THEN RAISE EXCEPTION 'auditoria indisponivel'; END IF; RETURN NEW; END $$");
+    try{
+      await admin.query('CREATE TRIGGER ci_reject_ai_config_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION ci_reject_ai_config_audit()');
+      assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{name:'Não persistir'})).status,500);
+      assert.equal((await aiRequest('knowledge','POST','',{title:'Não persistir '+id,content:'CONTEUDO_PRIVADO_CI_'+id,targetAgentIds:[configuredAgent.id]})).status,500);
+      assert.equal((await admin.query('SELECT name FROM ai_agents WHERE id=$1',[configuredAgent.id])).rows[0].name,keptAgent.name);
+    }finally{await admin.query('DROP TRIGGER IF EXISTS ci_reject_ai_config_audit ON audit_logs');await admin.query('DROP FUNCTION ci_reject_ai_config_audit()');}
+    const linksBeforeFailure=(await admin.query('SELECT knowledge_sources FROM ai_agents WHERE id=$1',[configuredAgent.id])).rows[0].knowledge_sources;
+    await admin.query("CREATE FUNCTION ci_reject_ai_document() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.title='REJEITAR_DOCUMENTO_CI' THEN RAISE EXCEPTION 'falha de insercao'; END IF; RETURN NEW; END $$");
+    try{
+      await admin.query('CREATE TRIGGER ci_reject_ai_document BEFORE INSERT ON ai_knowledge FOR EACH ROW EXECUTE FUNCTION ci_reject_ai_document()');
+      assert.equal((await aiRequest('knowledge','POST','',{title:'REJEITAR_DOCUMENTO_CI',content:'Texto que deve reverter',targetAgentIds:[configuredAgent.id]})).status,500);
+      assert.deepEqual((await admin.query('SELECT knowledge_sources FROM ai_agents WHERE id=$1',[configuredAgent.id])).rows[0].knowledge_sources,linksBeforeFailure,'Falha de documento reverte vínculos já preparados na transação.');
+    }finally{await admin.query('DROP TRIGGER IF EXISTS ci_reject_ai_document ON ai_knowledge');await admin.query('DROP FUNCTION ci_reject_ai_document()');}
+    await admin.query("INSERT INTO extensions(id,tenant_id,number,name,sip_secret) VALUES($1,$2,'989001','Destino A','sem-uso'),($3,$4,'989002','Destino B','sem-uso')",['ai-fallback-a-'+id,tenantA,'ai-fallback-b-'+id,tenantB]);
+    assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{fallbackAction:'hangup',transferExtension:'989002'})).status,400);
+    assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{fallbackAction:'transfer_human',transferExtension:'989002'})).status,400);
+    assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{fallbackAction:'transfer_human',transferExtension:'989001'})).status,200);
+    assert.equal((await fetch(base+'/api/v1/extensions/ai-fallback-a-'+id,{method:'DELETE',headers:testHeaders})).status,409);
+    const fallbackQueueResponse=await fetch(base+'/api/v1/queues',{method:'POST',headers:testHeaders,body:JSON.stringify({name:'Fila IA '+id,number:'989101',strategy:'rrmemory',timeoutSeconds:30,wrapUpTimeSeconds:0,mohSound:'default',members:['989001']})});assert.equal(fallbackQueueResponse.status,201);const fallbackQueue=await fallbackQueueResponse.json();
+    assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{fallbackAction:'transfer_queue',transferExtension:'989101'})).status,200);
+    assert.equal((await fetch(base+'/api/v1/queues/'+fallbackQueue.id,{method:'DELETE',headers:testHeaders})).status,409);
+    assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{fallbackAction:'hangup',transferExtension:''})).status,200);
+    assert.equal((await fetch(base+'/api/v1/queues/'+fallbackQueue.id,{method:'DELETE',headers:testHeaders})).status,200);
+    assert.equal((await fetch(base+'/api/v1/extensions/ai-fallback-a-'+id,{method:'DELETE',headers:testHeaders})).status,200);
+    assert.equal((await fetch(base+'/api/v1/extensions/ai-fallback-b-'+id,{method:'DELETE',headers:selectedB})).status,200);
+    assert.equal((await aiRequest('agents','DELETE','/'+sessionAgentA)).status,409,'Agente com sessões não pode apagar histórico por cascade.');
+    const auditRows=(await admin.query("SELECT details,payload FROM audit_logs WHERE tenant_id=$1 AND action LIKE '%AI_%_ATTEMPT'",[tenantA])).rows;assert.ok(auditRows.length);assert.equal(JSON.stringify(auditRows).includes('PROMPT_PRIVADO_CI_'),false);assert.equal(JSON.stringify(auditRows).includes('CONTEUDO_PRIVADO_CI_'),false);
+    assert.equal((await aiRequest('knowledge','DELETE','/'+parallelDoc.id)).status,200);assert.deepEqual((await admin.query('SELECT knowledge_sources FROM ai_agents WHERE id=$1',[configuredAgent.id])).rows[0].knowledge_sources,[reviewedDoc.id]);
+    const legacyHiddenSession='hidden-legacy-'+id;
+    await admin.query('BEGIN');
+    try{
+      // Fixture de legado: a FK composta volta exatamente ao contrato NOT VALID da migração.
+      await admin.query('ALTER TABLE ai_sessions DROP CONSTRAINT ai_sessions_agent_tenant_fk');
+      await admin.query("INSERT INTO ai_sessions(id,tenant_id,agent_id,caller_number) VALUES($1,$2,$3,'Desconhecido')",[legacyHiddenSession,tenantB,configuredAgent.id]);
+      await admin.query('ALTER TABLE ai_sessions ADD CONSTRAINT ai_sessions_agent_tenant_fk FOREIGN KEY(agent_id,tenant_id) REFERENCES ai_agents(id,tenant_id) ON DELETE RESTRICT NOT VALID');
+      await admin.query('COMMIT');
+    }catch(error){await admin.query('ROLLBACK');throw error;}
+    assert.equal((await aiRequest('agents','DELETE','/'+configuredAgent.id)).status,409,'FK protege histórico legado invisível pela RLS do proprietário do agente.');
+    assert.equal((await admin.query('SELECT id FROM ai_sessions WHERE id=$1',[legacyHiddenSession])).rowCount,1);
+    await admin.query('DELETE FROM ai_sessions WHERE id=$1',[legacyHiddenSession]);
+    await assert.rejects(admin.query('DELETE FROM ai_agents WHERE id=$1',[sessionAgentA]),(error:any)=>error.code==='23503');
+    await assert.rejects(admin.query('UPDATE cdr SET ai_agent_id=$1 WHERE id=$2',[configuredAgent.id,cdrB]),(error:any)=>error.code==='23503');
+    const historyConstraints=(await admin.query("SELECT confdeltype FROM pg_constraint WHERE contype='f' AND confrelid='ai_agents'::regclass AND conrelid IN ('ai_sessions'::regclass,'cdr'::regclass)")).rows;assert.equal(historyConstraints.length,4);assert.equal(historyConstraints.every(row=>row.confdeltype==='r'),true);
+    assert.equal((await aiRequest('agents','DELETE','/'+configuredAgent.id)).status,200);assert.equal((await aiRequest('agents','DELETE','/'+configuredAgentB.id,undefined,selectedB)).status,200);
+    assert.equal((await aiRequest('knowledge','DELETE','/'+reviewedDocB.id,undefined,selectedB)).status,200);
+    const legacyDocId='legacy-doc-'+id;await admin.query("INSERT INTO ai_knowledge(id,tenant_id,title,content,file_type) VALUES($1,$2,'Legado','LEGADO_NAO_REVISADO_CI','application/pdf')",[legacyDocId,tenantA]);
+    const listedKnowledge=await (await aiRequest('knowledge','GET','')).json();assert.equal(listedKnowledge.find(doc=>doc.id===legacyDocId).contentStatus,'LEGACY_NOT_REVIEWED');
+    assert.equal((await aiRequest('agents','PUT','/'+sessionAgentA,{knowledgeSources:[legacyDocId]})).status,400);
+    await admin.query('UPDATE ai_agents SET knowledge_sources=$1::jsonb WHERE id=$2',[JSON.stringify([reviewedDoc.id,legacyDocId]),sessionAgentA]);
     const voiceGateway=new MaiaAIGateway();const prompts:string[]=[];
     voiceGateway.getRouter().executeWithFallback=async(request:any)=>{prompts.push(request.prompt);return {text:'Resposta persistida',tokensUsed:{input:2,output:3},providerId:'provedor-de-teste',modelUsed:'modelo-de-teste'} as any;};
     (voiceGateway as any).voiceGateway.synthesize=async()=>null;
@@ -291,6 +371,8 @@ try {
     await voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Continuação real',history:[{role:'model',text:'OUTRA_INVENCAO'}]});
     assert.match(prompts[1],/Pergunta original/);assert.match(prompts[1],/Resposta persistida/);
     assert.doesNotMatch(prompts.join(''),/HISTORICO_FORJADO|OUTRA_INVENCAO/);
+    assert.ok(prompts.join('').includes('CONTEXTO_REVISADO_'));assert.doesNotMatch(prompts.join(''),/LEGADO_NAO_REVISADO_CI/);
+    const reviewedLegacy=await aiRequest('knowledge','PUT','/'+legacyDocId,{content:'Texto legado revisado manualmente.'});assert.equal(reviewedLegacy.status,200);assert.equal((await reviewedLegacy.json()).contentStatus,'REVIEWED_TEXT');
     const persistedTurns=await MaiaSessionRepository.listTurns(previewSession.id,tenantA);
     assert.deepEqual(persistedTurns.map(turn=>turn.role),['user','assistant','user','assistant']);
     assert.deepEqual(persistedTurns.map(turn=>turn.turnNumber),[1,2,3,4]);
@@ -955,6 +1037,8 @@ try {
   console.log('PostgreSQL real: migrações, RLS, identidade, privilégios mínimos e idempotência aprovados.');
 } finally {
   await admin.query('DELETE FROM campaigns WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
+  await admin.query('DELETE FROM cdr WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
+  await admin.query('DELETE FROM ai_sessions WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM ai_agents WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM quality_reviews WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});
   await admin.query('DELETE FROM entity_extraction_schemas WHERE tenant_id IN ($1,$2)', [tenantA, tenantB]).catch(() => {});

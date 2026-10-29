@@ -192,6 +192,8 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
       setCurrentTab(activeSubTab);
     }
   }, [activeSubTab]);
+  const [agentError,setAgentError]=useState<string|null>(null);
+  const [reviewDocumentId,setReviewDocumentId]=useState<string|null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AiAgent | null>(agents[0] || null);
   const [selectedTool, setSelectedTool] = useState<AiTool | null>(null);
   const [testToolArgs, setTestToolArgs] = useState('{}');
@@ -321,10 +323,10 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
 Fale em português brasileiro culto, objetivo e empático.
 Suas respostas devem ser curtas (1 a 2 frases) para manter o diálogo natural.
 Se o chamador solicitar um atendente humano, acione a ferramenta transferir_chamada.`,
-    transferExtension: '4101',
-    fallbackAction: 'transfer_human' as const,
-    tools: ['tool-consultar-cliente', 'tool-transferir-chamada', 'tool-encerrar-chamada'],
-    knowledgeSources: knowledge.map((k) => k.id),
+    transferExtension: '',
+    fallbackAction: 'hangup' as AiAgent['fallbackAction'],
+    tools: [] as string[],
+    knowledgeSources: [] as string[],
     allowBargeIn: true,
     temperature: 0.3,
   });
@@ -393,10 +395,9 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
   const handleSaveAgentChanges = async () => {
     if (!selectedAgent) return;
-    setIsSavingAgent(true);
+    setAgentError(null);setIsSavingAgent(true);
     try {
       const payload = {
-        ...selectedAgent,
         name: editName || selectedAgent.name,
         systemInstruction: editPrompt,
         initialGreeting: editGreeting,
@@ -404,13 +405,14 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
         voiceGender: editVoiceGender,
         avatarType: editAvatarType,
         model: editModel,
-        transferExtension: editTransferExt,
+        ...(editTransferExt===selectedAgent.transferExtension?{}:{transferExtension:editTransferExt,fallbackAction:editTransferExt?(selectedAgent.fallbackAction==='hangup'?'transfer_human':selectedAgent.fallbackAction):'hangup'}),
       };
       const res = await fetch(`/api/v1/ai/agents/${selectedAgent.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(payload),
       });
+      if (!res.ok) throw new Error((await res.json()).error||'Não foi possível salvar o agente.');
       if (res.ok) {
         const updated = await res.json();
         setSelectedAgent(updated);
@@ -422,7 +424,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
         onRefresh();
       }
     } catch (err) {
-      console.error('Erro ao salvar agente:', err);
+      setAgentError(err instanceof Error?err.message:'Não foi possível salvar o agente.');
     } finally {
       setIsSavingAgent(false);
     }
@@ -431,15 +433,15 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   const handleCreateAgentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createFormData.name) return;
-    setIsCreatingAgent(true);
+    setAgentError(null);setIsCreatingAgent(true);
     try {
       const res = await fetch('/api/v1/ai/agents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: createFormData.name,
           description: createFormData.description,
-          providerId: providers[0]?.id || 'provider-gemini-live',
+          providerId: '9router',
           model: createFormData.model,
           voice: createFormData.voice,
           language: 'pt-BR',
@@ -451,10 +453,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
           allowBargeIn: createFormData.allowBargeIn,
           silenceTimeoutSeconds: 5,
           maxSessionMinutes: 15,
-          transferExtension: createFormData.transferExtension,
+          transferExtension: createFormData.fallbackAction==='hangup'?'':createFormData.transferExtension,
           fallbackAction: createFormData.fallbackAction,
         }),
       });
+      if (!res.ok) throw new Error((await res.json()).error||'Não foi possível criar o agente.');
       if (res.ok) {
         const newAgent = await res.json();
         setIsCreateModalOpen(false);
@@ -462,7 +465,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
         setSelectedAgent(newAgent);
       }
     } catch (err) {
-      console.error('Erro ao criar agente:', err);
+      setAgentError(err instanceof Error?err.message:'Não foi possível criar o agente.');
     } finally {
       setIsCreatingAgent(false);
     }
@@ -530,7 +533,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     fileType: 'text/plain',
     fileSizeBytes: 0,
     base64Data: '',
-    targetAgentIds: agents.map((a) => a.id),
+    targetAgentIds: [] as string[],
   });
 
   const handleTriggerFileInput = () => {
@@ -541,6 +544,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   };
 
   const handleOpenManualEntry = () => {
+    setReviewDocumentId(null);
     setDocFormData({
       title: '',
       category: 'Suporte Técnico',
@@ -549,39 +553,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       fileType: 'text/plain',
       fileSizeBytes: 0,
       base64Data: '',
-      targetAgentIds: agents.map((a) => a.id),
-    });
-    setUploadError(null);
-    setUploadProgressMsg('');
-    setIsUploadModalOpen(true);
-  };
-
-  const handleLoadSampleManual = () => {
-    setDocFormData({
-      title: 'Manual de Resolução de Falhas de Conexão FTTH & Ramal SIP',
-      category: 'Suporte Técnico',
-      content: `# PROCEDIMENTO OPERACIONAL PADRÃO — SUPORTE N1/N2 ENLACE TELECOM
-
-## 1. Verificação de Ramais SIP / PJSIP
-- Se o telefone IP ou Webphone exibir status "Offline" ou código 408 Request Timeout:
-  a) Verifique se o cabo RJ45 está conectado na porta LAN ou se o WebRTC está autorizado no navegador.
-  b) Confirme se o IP do PABX (192.168.10.250:5060) está acessível via rede local.
-  c) No ramal do cliente, confira se o Realm está definido como "enlace-pbx" e transporte UDP/WSS.
-  d) Se o erro for 403 Forbidden, resete a senha SIP ou confira o contexto 'from-internal'.
-
-## 2. Diagnóstico de Conexão de Fibra Óptica (GPON / ONU)
-- Lâmpada PON piscando: Falha de sincronismo óptico na OLT (Atenuação > -27dBm).
-- Lâmpada LOS vermelha: Rompimento físico do cordão óptico ou cabo drop externo.
-- Orientação ao cliente: Solicite que desligue e ligue o equipamento aguardando 30 segundos. Caso o LOS permaneça aceso, abra chamado técnico com prioridade alta para a equipe externa de campo.
-
-## 3. Faturamento, Segunda Via e Desbloqueio
-- Segunda via de fatura: Enviada automaticamente por WhatsApp ou link PIX copia-e-cola.
-- Desbloqueio em confiança: Concedido via atendimento automático por até 48 horas para clientes sem pendências nos últimos 6 meses.`,
-      fileName: 'manual_procedimentos_suporte_tecnico_pjsip.txt',
-      fileType: 'text/plain',
-      fileSizeBytes: 1460,
-      base64Data: '',
-      targetAgentIds: agents.map((a) => a.id),
+      targetAgentIds: [] as string[],
     });
     setUploadError(null);
     setUploadProgressMsg('');
@@ -589,150 +561,20 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   };
 
   const processFile = async (file: File) => {
-    setUploadError(null);
-    setUploadProgressMsg(`Lendo ${file.name}...`);
-    setIsUploadingDoc(true);
-
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    const isText =
-      file.type.startsWith('text/') ||
-      file.name.toLowerCase().endsWith('.txt') ||
-      file.name.toLowerCase().endsWith('.md') ||
-      file.name.toLowerCase().endsWith('.json') ||
-      file.name.toLowerCase().endsWith('.csv') ||
-      file.name.toLowerCase().endsWith('.log');
-
-    const cleanTitle = file.name
-      .replace(/\.[^/.]+$/, '')
-      .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, (l) => l.toUpperCase());
-
-    let autoCategory = 'Suporte Técnico';
-    const lowerName = file.name.toLowerCase();
-    if (
-      lowerName.includes('rede') ||
-      lowerName.includes('noc') ||
-      lowerName.includes('sip') ||
-      lowerName.includes('onu') ||
-      lowerName.includes('fibra') ||
-      lowerName.includes('roberto')
-    ) {
-      autoCategory = 'Diagnóstico de Rede / NOC';
-    } else if (
-      lowerName.includes('comercial') ||
-      lowerName.includes('plano') ||
-      lowerName.includes('venda') ||
-      lowerName.includes('tabela')
-    ) {
-      autoCategory = 'Comercial & Planos';
-    } else if (
-      lowerName.includes('financeir') ||
-      lowerName.includes('fatura') ||
-      lowerName.includes('pix') ||
-      lowerName.includes('cobranca')
-    ) {
-      autoCategory = 'Financeiro & Faturamento';
-    } else if (
-      lowerName.includes('politica') ||
-      lowerName.includes('lgpd') ||
-      lowerName.includes('horario')
-    ) {
-      autoCategory = 'Políticas & Procedimentos';
-    }
-
+    setUploadError(null);setReviewDocumentId(null);setIsUploadingDoc(true);setUploadProgressMsg('Lendo texto local para revisão...');
     try {
-      if (isText) {
-        const text = await file.text();
-        setDocFormData({
-          title: cleanTitle,
-          category: autoCategory,
-          content: text,
-          fileName: file.name,
-          fileType: file.type || 'text/plain',
-          fileSizeBytes: file.size,
-          base64Data: '',
-          targetAgentIds: agents.map((a) => a.id),
-        });
-        setIsUploadingDoc(false);
-        setUploadProgressMsg('');
-        setIsUploadModalOpen(true);
-      } else if (isPdf) {
-        setUploadProgressMsg('Extraindo texto e procedimentos do PDF via Gemini / RAG Engine...');
-        const reader = new FileReader();
-        reader.onload = async () => {
-          const resultStr = reader.result as string;
-          const base64Data = resultStr.split(',')[1] || '';
-
-          try {
-            const res = await fetch('/api/v1/ai/knowledge/upload', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                fileName: file.name,
-                fileType: 'application/pdf',
-                base64Data,
-                title: cleanTitle,
-                category: autoCategory,
-                targetAgentIds: agents.map((a) => a.id),
-              }),
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              setDocFormData({
-                title: data.doc?.title || cleanTitle,
-                category: data.doc?.category || autoCategory,
-                content: data.doc?.content || '',
-                fileName: file.name,
-                fileType: 'application/pdf',
-                fileSizeBytes: file.size,
-                base64Data,
-                targetAgentIds: agents.map((a) => a.id),
-              });
-              setIsUploadingDoc(false);
-              setUploadProgressMsg('');
-              setIsUploadModalOpen(true);
-            } else {
-              throw new Error('Falha no processamento do PDF pelo backend');
-            }
-          } catch {
-            setDocFormData({
-              title: cleanTitle,
-              category: autoCategory,
-              content: `[Manual PDF: ${file.name}]\nDocumento importado para a base de conhecimento dos agentes de IA.`,
-              fileName: file.name,
-              fileType: 'application/pdf',
-              fileSizeBytes: file.size,
-              base64Data,
-              targetAgentIds: agents.map((a) => a.id),
-            });
-            setIsUploadingDoc(false);
-            setUploadProgressMsg('');
-            setIsUploadModalOpen(true);
-          }
-        };
-        reader.readAsDataURL(file);
-      } else {
-        const text = await file.text();
-        setDocFormData({
-          title: cleanTitle,
-          category: autoCategory,
-          content: text || `Documento ${file.name} carregado para base de conhecimento.`,
-          fileName: file.name,
-          fileType: file.type || 'text/plain',
-          fileSizeBytes: file.size,
-          base64Data: '',
-          targetAgentIds: agents.map((a) => a.id),
-        });
-        setIsUploadingDoc(false);
-        setUploadProgressMsg('');
-        setIsUploadModalOpen(true);
-      }
-    } catch (err: any) {
-      console.error('Erro ao processar arquivo:', err);
-      setIsUploadingDoc(false);
-      setUploadError(err.message || 'Erro ao carregar arquivo.');
-    }
+      if(!/\.(txt|md)$/i.test(file.name)||file.size>65536)throw new Error('Selecione TXT ou Markdown em UTF-8, com até 64 KiB. PDF está indisponível.');
+      const content=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());
+      if(!content.trim()||content.includes('\0'))throw new Error('O arquivo não contém texto válido para revisão.');
+      setDocFormData({title:file.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' '),category:'Geral',content,fileName:file.name,fileType:file.name.toLowerCase().endsWith('.md')?'text/markdown':'text/plain',fileSizeBytes:new TextEncoder().encode(content).length,base64Data:'',targetAgentIds:[]});
+      setIsUploadModalOpen(true);
+    }catch{setUploadError('Não foi possível ler o arquivo. Use TXT ou Markdown UTF-8 com até 64 KiB.');}
+    finally{setIsUploadingDoc(false);setUploadProgressMsg('');}
+  };
+  const reviewKnowledge=(document:AiKnowledgeSource)=>{
+    setReviewDocumentId(document.id);setUploadError(null);
+    setDocFormData({title:document.title,category:document.category,content:document.content,fileName:document.fileName||'',fileType:'text/plain',fileSizeBytes:0,base64Data:'',targetAgentIds:agents.filter(agent=>agent.knowledgeSources.includes(document.id)).map(agent=>agent.id)});
+    setIsUploadModalOpen(true);
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -770,23 +612,22 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     setIsUploadingDoc(true);
     setUploadError(null);
     try {
-      const res = await fetch('/api/v1/ai/knowledge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(reviewDocumentId?`/api/v1/ai/knowledge/${reviewDocumentId}`:'/api/v1/ai/knowledge', {
+        method: reviewDocumentId?'PUT':'POST',
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           title: docFormData.title,
           category: docFormData.category,
           content: docFormData.content,
-          fileName: docFormData.fileName,
+          ...(reviewDocumentId?{}:{fileName:docFormData.fileName}),
           fileType: docFormData.fileType,
-          fileSizeBytes: docFormData.fileSizeBytes,
           targetAgentIds: docFormData.targetAgentIds,
         }),
       });
 
       if (res.ok) {
         setIsUploadModalOpen(false);
-        setUploadSuccess(`Manual "${docFormData.title}" indexado com sucesso para os agentes!`);
+        setUploadSuccess(`Manual "${docFormData.title}" salvo como texto revisado; vínculos registrados.`);
         setTimeout(() => setUploadSuccess(null), 4500);
         onRefresh();
       } else {
@@ -804,12 +645,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     if (!confirm('Deseja realmente remover este documento da base de conhecimento?')) return;
     setDeletingDocId(id);
     try {
-      const res = await fetch(`/api/v1/ai/knowledge/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        onRefresh();
-      }
+      const res = await fetch(`/api/v1/ai/knowledge/${id}`, { method: 'DELETE',headers:getAuthHeaders() });
+      if (!res.ok) throw new Error((await res.json()).error||'Não foi possível excluir o documento.');
+      onRefresh();
     } catch (err) {
-      console.error('Erro ao deletar documento:', err);
+      setUploadError(err instanceof Error?err.message:'Não foi possível excluir o documento.');
     } finally {
       setDeletingDocId(null);
     }
@@ -863,6 +703,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      {agentError&&<div role="alert" className="p-3 border border-red-200 text-red-800 rounded-xl">{agentError}</div>}
       {/* Premium Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
@@ -1079,7 +920,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold">
-                      Ramal / DID: {agent.transferExtension ? `900${agent.id.slice(-1) || '1'}` : '9001'}
+                      Fallback: {agent.fallbackAction==='hangup'?'encerrar':agent.transferExtension||'não configurado'}
                     </span>
                     <span
                       className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
@@ -1745,12 +1586,13 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       {/* 4. KNOWLEDGE TAB */}
       {currentTab === 'knowledge' && (
         <div className="space-y-6">
+          {uploadError&&!isUploadModalOpen&&<div role="alert" className="p-3 border border-red-200 text-red-800 rounded-xl">{uploadError}</div>}
           {/* Hidden File Input for uploading */}
           <input
             ref={fileInputRef}
             type="file"
             onChange={handleFileInputChange}
-            accept=".txt,.pdf,.md,.csv,.json,.log,text/plain,application/pdf"
+            accept=".txt,.md,text/plain,text/markdown"
             className="hidden"
           />
 
@@ -1778,21 +1620,13 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   Base de Conhecimento RAG & Grounding dos Agentes
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Manuais de suporte, PDFs técnicos e procedimentos consumidos pelo Gemini para embasar o atendimento telefônico.
+                  Textos revisados e vinculados aos agentes. Documentos legados aguardam revisão antes de entrar no contexto da IA.
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2.5 flex-wrap">
-              <button
-                type="button"
-                onClick={handleLoadSampleManual}
-                className="px-3.5 py-2.5 rounded-xl border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-bold transition flex items-center gap-2"
-                title="Carregar exemplo de manual de suporte técnico de telecomunicações"
-              >
-                <FileText className="w-4 h-4 text-blue-600" />
-                <span>Carregar Manual Exemplo</span>
-              </button>
+
 
               <button
                 type="button"
@@ -1810,7 +1644,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition flex items-center gap-2 disabled:opacity-50"
               >
                 <Upload className="w-4 h-4" />
-                <span>Carregar Arquivo (TXT / PDF / MD)</span>
+                <span>Revisar arquivo TXT / MD</span>
               </button>
             </div>
           </div>
@@ -1831,7 +1665,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               <div className="flex flex-col items-center justify-center gap-2 py-4">
                 <RefreshCw className="w-8 h-8 text-blue-600 animate-spin" />
                 <p className="text-xs font-bold text-slate-800">{uploadProgressMsg || 'Processando arquivo...'}</p>
-                <p className="text-[11px] text-slate-500">Aguarde a extração e estruturação para os agentes de IA</p>
+                <p className="text-[11px] text-slate-500">O texto será exibido para revisão antes de salvar.</p>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center gap-2">
@@ -1842,11 +1676,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   Arraste e solte arquivos aqui, ou <span className="text-blue-600 underline">clique para selecionar</span>
                 </div>
                 <p className="text-xs text-slate-500 max-w-lg">
-                  Suporta arquivos de texto simples (como <strong>PDFs de manuais técnicos</strong>, <strong>TXT</strong> de scripts de suporte, Markdown, CSV ou JSON).
+                  Use TXT ou Markdown em UTF-8, até 64 KiB. Importação de PDF está indisponível.
                 </p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-mono text-[10px] font-bold border border-blue-200">
-                    PDF
+                    TEXTO
                   </span>
                   <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-bold">
                     TXT
@@ -1854,7 +1688,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-bold">
                     MARKDOWN
                   </span>
-                  <span className="text-[11px] text-slate-500">• Vinculação imediata com Roberto Mendes e MaIA</span>
+                  <span className="text-[11px] text-slate-500">• Selecione os agentes após revisar o texto</span>
                 </div>
               </div>
             )}
@@ -1958,7 +1792,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
                       {k.fileName && (
                         <div className="text-[10px] text-slate-400 font-mono truncate">
-                          Arquivo: {k.fileName} {k.fileSizeBytes ? `(${(k.fileSizeBytes / 1024).toFixed(1)} KB)` : ''}
+                          Referência: {k.fileName} {k.fileSizeBytes ? `· texto armazenado: ${(k.fileSizeBytes / 1024).toFixed(1)} KB` : ''}
                         </div>
                       )}
 
@@ -1969,7 +1803,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                       {/* Agents with access */}
                       <div className="pt-1">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
-                          Agentes com Acesso Grounding:
+                          Vínculos cadastrados:
                         </span>
                         <div className="flex flex-wrap gap-1">
                           {linkedAgents.length > 0 ? (
@@ -1984,7 +1818,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                             ))
                           ) : (
                             <span className="text-[10px] text-slate-400 italic">
-                              Todos os agentes de voz ativos
+                              Nenhum agente vinculado
                             </span>
                           )}
                         </div>
@@ -1993,8 +1827,8 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
                     <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5 text-blue-600 font-semibold text-[11px]">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span>Grounding Ativo</span>
+                        <div className="w-2 h-2 rounded-full bg-slate-400" />
+                        <span>{k.contentStatus==='REVIEWED_TEXT'?'Texto revisado; vínculos configurados':'Revisão pendente'}</span>
                       </div>
 
                       <div className="flex items-center gap-1">
@@ -2006,7 +1840,9 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button
+                        <button type="button" onClick={()=>reviewKnowledge(k)} className="p-2 text-blue-700" title="Revisar e salvar texto"><Edit3 className="w-4 h-4" /></button>
+                          <span className="text-[10px]">{k.contentStatus==='REVIEWED_TEXT'?'Texto revisado':'Revisão pendente'}</span>
+                          <button
                           type="button"
                           disabled={deletingDocId === k.id}
                           onClick={() => handleDeleteKnowledgeDoc(k.id)}
@@ -2172,10 +2008,10 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-slate-900">
-                    Cadastrar Novo Agente de Voz Gemini
+                    Configurar agente de IA
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Agente autônomo com suporte a Barge-in, Function Calling e transbordo Asterisk
+                    Parâmetros e vínculos do agente; telefonia e voz exigem homologação própria.
                   </p>
                 </div>
               </div>
@@ -2189,6 +2025,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
             {/* Modal Body */}
             <form onSubmit={handleCreateAgentSubmit} className="p-5 space-y-4 overflow-y-auto">
+              {agentError&&<div role="alert" className="p-3 text-red-800">{agentError}</div>}
               {/* Presets */}
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">
@@ -2233,7 +2070,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
                 <div>
                   <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Ramal de Transbordo (Humano)
+                    Destino de fallback (ramal ou fila da empresa)
                   </label>
                   <input
                     type="text"
@@ -2548,7 +2385,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-slate-900">
-                    {docFormData.fileName ? 'Indexar Arquivo na Base de Conhecimento' : 'Novo Documento de Conhecimento'}
+                    {reviewDocumentId?'Revisar documento':'Novo texto de conhecimento'}
                   </h3>
                   <p className="text-xs text-slate-500">
                     {docFormData.fileName
@@ -2674,7 +2511,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-1.5"
                 >
                   <FileCheck className="w-3.5 h-3.5" />
-                  {isUploadingDoc ? 'Indexando...' : 'Salvar na Base de Conhecimento'}
+                  {isUploadingDoc ? 'Salvando...' : 'Salvar texto revisado'}
                 </button>
               </div>
             </form>

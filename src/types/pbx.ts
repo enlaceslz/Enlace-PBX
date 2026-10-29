@@ -360,6 +360,7 @@ export interface AiKnowledgeSource {
   title: string;
   category: string;
   content: string;
+  contentStatus?: 'REVIEWED_TEXT' | 'LEGACY_NOT_REVIEWED';
   updatedAt: string;
   fileName?: string;
   fileType?: string;

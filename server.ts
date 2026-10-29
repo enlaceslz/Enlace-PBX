@@ -1,3 +1,5 @@
+import {agentPatch,knowledgePatch,knowledgeUpload} from './server/infrastructure/ai/AiConfiguration.js';
+import {AiConfigurationRepository} from './server/infrastructure/postgres/repositories/AiConfigurationRepository.js';
 import {infraPatch} from './server/infrastructure/asterisk/InfraMutation.js';
 import {InfraManagementRepository} from './server/infrastructure/postgres/repositories/InfraManagementRepository.js';
 import {extensionBatch} from './server/infrastructure/asterisk/ExtensionBatch.js';
@@ -1676,74 +1678,23 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/ai/agents', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar agente.' });
-    }
-    const agent = {
-      ...req.body,
-      id: `agent-${Date.now()}`,
-      tenantId,
-      isActive: true,
-    };
-    try {
-      await AiAgentRepository.save(agent);
-      res.status(201).json(agent);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao criar agente de IA' });
-    }
-  });
-
-  app.put('/api/v1/ai/agents/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiAgentRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Agente não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O agente pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await AiAgentRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar agente de IA' });
-    }
-  });
-
-  app.delete('/api/v1/ai/agents/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiAgentRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) {
-        return res.status(404).json({ error: 'Agente não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O agente pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await AiAgentRepository.delete(req.params.id, prev.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir agente de IA' });
-    }
-  });
+  const aiConfigurationFailure=(error:any,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});logOperational('SERVER_OPERATION_FAILURE',{requestId:res.locals.requestId});return res.status(500).json({error:'Não foi possível concluir a configuração de IA.'});};
+  const aiConfigurationAudit=async(req:any,tenantId:string,action:string,resource:string)=>AuditLogRepository.logStrict({tenantId,userId:req.user.id,userName:req.user.name,action,resource,category:'AI_GATEWAY',ip:req.ip||'127.0.0.1',details:'Tentativa de alteração cadastral; sem conteúdo de prompts ou documentos.'});
+  const findAiConfiguration=async(req:any,kind:'agent'|'knowledge')=>{const context=resolveTenantContext(req);const repository=kind==='agent'?AiAgentRepository:AiKnowledgeRepository;return context.accessMode==='GLOBAL'?repository.findAnyByIdForSuperAdmin(req.params.id):repository.findById(req.params.id,context.tenantId);};
+  app.post('/api/v1/ai/agents',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')throw new OutboundHttpError('Selecione uma empresa.',400);
+    const patch=agentPatch(req.body,true);await aiConfigurationAudit(req,context.tenantId,'CREATE_AI_AGENT_ATTEMPT','ai/agents/new');
+    const id=await AiConfigurationRepository.agent(context.tenantId,undefined,patch);return res.status(201).json(await AiAgentRepository.findById(id,context.tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.put('/api/v1/ai/agents/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findAiConfiguration(req,'agent');if(!previous)throw new OutboundHttpError('Agente não encontrado nesta empresa.',404);
+    const patch=agentPatch(req.body);await aiConfigurationAudit(req,previous.tenantId,'UPDATE_AI_AGENT_ATTEMPT','ai/agents/'+previous.id);
+    await AiConfigurationRepository.agent(previous.tenantId,previous.id,patch);return res.json(await AiAgentRepository.findById(previous.id,previous.tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.delete('/api/v1/ai/agents/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findAiConfiguration(req,'agent');if(!previous)throw new OutboundHttpError('Agente não encontrado nesta empresa.',404);
+    await aiConfigurationAudit(req,previous.tenantId,'DELETE_AI_AGENT_ATTEMPT','ai/agents/'+previous.id);await AiConfigurationRepository.removeAgent(previous.tenantId,previous.id);return res.json({deleted:true});
+  }catch(error){return aiConfigurationFailure(error,res);}});
 
   app.get('/api/v1/ai/tools', requireAuth, requireTenant, async (req, res) => {
     try {
@@ -1854,165 +1805,23 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/ai/knowledge', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar documento.' });
-    }
-    const newDoc = {
-      id: `kb-${Date.now()}`,
-      tenantId,
-      title: req.body.title || 'Documento de Suporte',
-      category: req.body.category || 'Geral',
-      content: req.body.content || '',
-      fileName: req.body.fileName,
-      fileType: req.body.fileType,
-      fileSizeBytes: req.body.fileSizeBytes,
-      updatedAt: new Date().toISOString(),
-    };
-
-    try {
-      await AiKnowledgeRepository.save(newDoc);
-
-      // Link to specified agents or default to all active agents
-      const allAgents = await AiAgentRepository.listByTenant(tenantId);
-      const targetAgents = Array.isArray(req.body.targetAgentIds) && req.body.targetAgentIds.length > 0
-        ? allAgents.filter((a) => req.body.targetAgentIds.includes(a.id))
-        : allAgents;
-
-      for (const agent of targetAgents) {
-        if (!agent.knowledgeSources.includes(newDoc.id)) {
-          agent.knowledgeSources.push(newDoc.id);
-          await AiAgentRepository.save(agent);
-        }
-      }
-
-      res.status(201).json(newDoc);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao salvar documento na base de conhecimento' });
-    }
-  });
-
-  // Dedicated file upload endpoint for Knowledge Base (TXT, PDF, MD, etc.)
-  app.post('/api/v1/ai/knowledge/upload', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const { fileName, fileType, base64Data, rawText, title, category, targetAgentIds } = req.body;
-      let tenantId: string;
-      try {
-        tenantId = resolveTenantContext(req).tenantId;
-      } catch {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para upload na base de conhecimento.' });
-      }
-
-      if (!fileName && !rawText) {
-        return res.status(400).json({ error: 'Nenhum arquivo ou texto fornecido.' });
-      }
-
-      // Extract and structure content using Gemini multimodal or stream parser
-      const extracted = await geminiService.extractKnowledgeFromDocument({
-        fileName: fileName || 'manual_suporte.txt',
-        fileType: fileType || 'text/plain',
-        base64Data,
-        rawText,
-      });
-
-      const newDoc = {
-        id: `kb-${Date.now()}`,
-        tenantId,
-        title: title || extracted.title,
-        category: category || extracted.category,
-        content: rawText || extracted.content,
-        fileName: fileName || 'manual.txt',
-        fileType: fileType || 'text/plain',
-        fileSizeBytes: base64Data ? Math.round((base64Data.length * 3) / 4) : (rawText?.length || 0),
-        updatedAt: new Date().toISOString(),
-      };
-
-      await AiKnowledgeRepository.save(newDoc);
-
-      // Link to designated agents or all active voice agents for instant grounding
-      const allAgents = await AiAgentRepository.listByTenant(tenantId);
-      const targetAgents = Array.isArray(targetAgentIds) && targetAgentIds.length > 0
-        ? allAgents.filter((a) => targetAgentIds.includes(a.id))
-        : allAgents;
-
-      for (const agent of targetAgents) {
-        if (!agent.knowledgeSources.includes(newDoc.id)) {
-          agent.knowledgeSources.push(newDoc.id);
-          await AiAgentRepository.save(agent);
-        }
-      }
-
-      res.status(201).json({
-        success: true,
-        doc: newDoc,
-        message: 'Arquivo carregado e integrado com sucesso à base de conhecimento dos agentes.',
-      });
-    } catch (err: unknown) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({
-        error: 'Erro ao processar e salvar arquivo na base de conhecimento.',
-      });
-    }
-  });
-
-  app.put('/api/v1/ai/knowledge/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiKnowledgeRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Documento RAG não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O documento pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId, updatedAt: new Date().toISOString() };
-      await AiKnowledgeRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar documento RAG' });
-    }
-  });
-
-  app.delete('/api/v1/ai/knowledge/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const id = req.params.id;
-      const prev = await AiKnowledgeRepository.findAnyByIdForSuperAdmin(id);
-      if (!prev) {
-        return res.status(404).json({ error: 'Documento RAG não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O documento pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await AiKnowledgeRepository.delete(id, prev.tenantId);
-      const agents = await AiAgentRepository.listByTenant(prev.tenantId);
-      for (const agent of agents) {
-        if (agent.knowledgeSources.includes(id)) {
-          agent.knowledgeSources = agent.knowledgeSources.filter((kId) => kId !== id);
-          await AiAgentRepository.save(agent);
-        }
-      }
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir documento RAG' });
-    }
-  });
+  const createKnowledge=async(req:any,res:any,upload=false)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')throw new OutboundHttpError('Selecione uma empresa.',400);
+    const patch=upload?knowledgeUpload(req.body):knowledgePatch(req.body,true);await aiConfigurationAudit(req,context.tenantId,'CREATE_AI_KNOWLEDGE_ATTEMPT','ai/knowledge/new');
+    const id=await AiConfigurationRepository.knowledge(context.tenantId,undefined,patch);const doc=await AiKnowledgeRepository.findById(id,context.tenantId);
+    return res.status(201).json(upload?{success:true,doc,message:'Texto revisado salvo e vínculos registrados.'}:doc);
+  }catch(error){return aiConfigurationFailure(error,res);}};
+  app.post('/api/v1/ai/knowledge',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>createKnowledge(req,res));
+  app.post('/api/v1/ai/knowledge/upload',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>createKnowledge(req,res,true));
+  app.put('/api/v1/ai/knowledge/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findAiConfiguration(req,'knowledge');if(!previous)throw new OutboundHttpError('Documento não encontrado nesta empresa.',404);
+    const patch=knowledgePatch(req.body);await aiConfigurationAudit(req,previous.tenantId,'UPDATE_AI_KNOWLEDGE_ATTEMPT','ai/knowledge/'+previous.id);
+    await AiConfigurationRepository.knowledge(previous.tenantId,previous.id,patch);return res.json(await AiKnowledgeRepository.findById(previous.id,previous.tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.delete('/api/v1/ai/knowledge/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findAiConfiguration(req,'knowledge');if(!previous)throw new OutboundHttpError('Documento não encontrado nesta empresa.',404);
+    await aiConfigurationAudit(req,previous.tenantId,'DELETE_AI_KNOWLEDGE_ATTEMPT','ai/knowledge/'+previous.id);await AiConfigurationRepository.removeKnowledge(previous.tenantId,previous.id);return res.json({deleted:true});
+  }catch(error){return aiConfigurationFailure(error,res);}});
 
   app.get('/api/v1/ai/sessions', requireAuth, requireTenant, async (req, res) => {
     try {

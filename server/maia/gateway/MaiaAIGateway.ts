@@ -1,3 +1,4 @@
+import {reviewedKnowledge} from '../../infrastructure/ai/AiConfiguration.js';
 import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { persistedDialogue, voiceMessage } from '../core/MaiaHistory.js';
 import { OutboundHttpError } from '../../infrastructure/security/OutboundHttp.js';
@@ -177,7 +178,7 @@ export class MaiaAIGateway {
     const voiceConfig = MaiaPersona.resolveVoice(agent);
 
     // 3. Monta Grounding de Conhecimento RAG oficial
-    const allKnowledge = await AiKnowledgeRepository.listByTenant(tenantId);
+    const allKnowledge = reviewedKnowledge(await AiKnowledgeRepository.listByTenant(tenantId));
     const knowledgeItems: KnowledgeItem[] = (agent.knowledgeSources || [])
       .map((kId) => allKnowledge.find((k) => k.id === kId))
       .filter(Boolean)

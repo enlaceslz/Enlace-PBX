@@ -25,7 +25,7 @@ export class AiAgentRepository {
           language: row.language || 'pt-BR',
           systemInstruction: row.system_instruction || '',
           initialGreeting: row.initial_greeting || '',
-          temperature: parseFloat(row.temperature || '0.7'),
+          temperature: parseFloat(row.temperature ?? '0.7'),
           tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
           knowledgeSources: typeof row.knowledge_sources === 'string'
             ? JSON.parse(row.knowledge_sources)
@@ -33,8 +33,8 @@ export class AiAgentRepository {
           allowBargeIn: row.allow_barge_in ?? true,
           silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
           maxSessionMinutes: row.max_session_minutes || 15,
-          transferExtension: row.transfer_extension || '4101',
-          fallbackAction: (row.fallback_action || 'transfer_human') as any,
+          transferExtension: row.transfer_extension ?? '',
+          fallbackAction: (row.fallback_action ?? 'hangup') as any,
           isActive: row.is_active ?? true,
         }));
       } catch (err: any) {
@@ -64,7 +64,7 @@ export class AiAgentRepository {
           language: row.language || 'pt-BR',
           systemInstruction: row.system_instruction || '',
           initialGreeting: row.initial_greeting || '',
-          temperature: parseFloat(row.temperature || '0.7'),
+          temperature: parseFloat(row.temperature ?? '0.7'),
           tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
           knowledgeSources: typeof row.knowledge_sources === 'string'
             ? JSON.parse(row.knowledge_sources)
@@ -72,8 +72,8 @@ export class AiAgentRepository {
           allowBargeIn: row.allow_barge_in ?? true,
           silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
           maxSessionMinutes: row.max_session_minutes || 15,
-          transferExtension: row.transfer_extension || '4101',
-          fallbackAction: (row.fallback_action || 'transfer_human') as any,
+          transferExtension: row.transfer_extension ?? '',
+          fallbackAction: (row.fallback_action ?? 'hangup') as any,
           isActive: row.is_active ?? true,
         }));
       } catch (err: any) {
@@ -109,7 +109,7 @@ export class AiAgentRepository {
             language: row.language || 'pt-BR',
             systemInstruction: row.system_instruction || '',
             initialGreeting: row.initial_greeting || '',
-            temperature: parseFloat(row.temperature || '0.7'),
+            temperature: parseFloat(row.temperature ?? '0.7'),
             tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
             knowledgeSources: typeof row.knowledge_sources === 'string'
               ? JSON.parse(row.knowledge_sources)
@@ -117,8 +117,8 @@ export class AiAgentRepository {
             allowBargeIn: row.allow_barge_in ?? true,
             silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
             maxSessionMinutes: row.max_session_minutes || 15,
-            transferExtension: row.transfer_extension || '4101',
-            fallbackAction: (row.fallback_action || 'transfer_human') as any,
+            transferExtension: row.transfer_extension ?? '',
+            fallbackAction: (row.fallback_action ?? 'hangup') as any,
             isActive: row.is_active ?? true,
           };
         }
@@ -149,7 +149,7 @@ export class AiAgentRepository {
             language: row.language || 'pt-BR',
             systemInstruction: row.system_instruction || '',
             initialGreeting: row.initial_greeting || '',
-            temperature: parseFloat(row.temperature || '0.7'),
+            temperature: parseFloat(row.temperature ?? '0.7'),
             tools: typeof row.tools === 'string' ? JSON.parse(row.tools) : (row.tools || []),
             knowledgeSources: typeof row.knowledge_sources === 'string'
               ? JSON.parse(row.knowledge_sources)
@@ -157,75 +157,12 @@ export class AiAgentRepository {
             allowBargeIn: row.allow_barge_in ?? true,
             silenceTimeoutSeconds: row.silence_timeout_seconds || 3,
             maxSessionMinutes: row.max_session_minutes || 15,
-            transferExtension: row.transfer_extension || '4101',
-            fallbackAction: (row.fallback_action || 'transfer_human') as any,
+            transferExtension: row.transfer_extension ?? '',
+            fallbackAction: (row.fallback_action ?? 'hangup') as any,
             isActive: row.is_active ?? true,
           };
         }
         return null;
-      } catch (err: any) {
-        logOperational('DB_OPERATION_FAILURE');
-        throw err;
-      }
-    });
-  }
-
-  public static async save(agent: AiAgent, contextOrTenant?: TenantContext | string): Promise<AiAgent> {
-    const target = contextOrTenant || agent.tenantId;
-    return postgresClient.executeTenantScoped(target, async (client, ctx) => {
-      try {
-        await client.query(
-          `INSERT INTO ai_agents (
-            id, tenant_id, name, description, model, voice, voice_gender,
-            avatar_type, language, system_instruction, initial_greeting,
-            temperature, tools, knowledge_sources, allow_barge_in,
-            silence_timeout_seconds, max_session_minutes, transfer_extension,
-            fallback_action, is_active
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-          ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            description = EXCLUDED.description,
-            model = EXCLUDED.model,
-            voice = EXCLUDED.voice,
-            voice_gender = EXCLUDED.voice_gender,
-            avatar_type = EXCLUDED.avatar_type,
-            language = EXCLUDED.language,
-            system_instruction = EXCLUDED.system_instruction,
-            initial_greeting = EXCLUDED.initial_greeting,
-            temperature = EXCLUDED.temperature,
-            tools = EXCLUDED.tools,
-            knowledge_sources = EXCLUDED.knowledge_sources,
-            allow_barge_in = EXCLUDED.allow_barge_in,
-            silence_timeout_seconds = EXCLUDED.silence_timeout_seconds,
-            max_session_minutes = EXCLUDED.max_session_minutes,
-            transfer_extension = EXCLUDED.transfer_extension,
-            fallback_action = EXCLUDED.fallback_action,
-            is_active = EXCLUDED.is_active,
-            updated_at = CURRENT_TIMESTAMP`,
-          [
-            agent.id,
-            ctx.tenantId,
-            agent.name,
-            agent.description || '',
-            agent.model || 'gemini-flash-latest',
-            agent.voice || 'pt-BR-Wavenet-A',
-            agent.voiceGender || 'female',
-            agent.avatarType || 'octopus_ai',
-            agent.language || 'pt-BR',
-            agent.systemInstruction || '',
-            agent.initialGreeting || '',
-            agent.temperature || 0.7,
-            JSON.stringify(agent.tools || []),
-            JSON.stringify(agent.knowledgeSources || []),
-            agent.allowBargeIn ?? true,
-            agent.silenceTimeoutSeconds || 3,
-            agent.maxSessionMinutes || 15,
-            agent.transferExtension || '4101',
-            agent.fallbackAction || 'transfer_human',
-            agent.isActive ?? true
-          ]
-        );
-        return agent;
       } catch (err: any) {
         logOperational('DB_OPERATION_FAILURE');
         throw err;
