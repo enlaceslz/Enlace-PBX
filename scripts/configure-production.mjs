@@ -47,6 +47,13 @@ export function writeSettings(file, values, mode = 0o600) {
   } finally { fs.rmSync(temporary, { force: true }); }
 }
 
+export function assertPreservedRuntime(existing, candidate) {
+  const keys = new Set([...Object.keys(existing), ...Object.keys(candidate)]);
+  if ([...keys].some(key => existing[key] !== candidate[key])) {
+    throw new Error('Atualização recusada: a configuração de serviço mudaria. Planeje a alteração de infraestrutura separadamente antes de atualizar o código.');
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
   const destination = process.argv[2];
   const bootstrap = process.argv[3];
@@ -56,11 +63,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   const legacy = legacyPath && fs.existsSync(legacyPath) ? dotenv.parse(fs.readFileSync(legacyPath)) : {};
   const names = ['PBX_DOMAIN', 'PBX_PUBLIC_IP', 'PBX_LAN_SUBNET', 'DATABASE_URL', 'ASTERISK_HOST', 'ASTERISK_AMI_PASSWORD', 'ASTERISK_ARI_PASSWORD'];
   const settings = productionSettings(existing, legacy, Object.fromEntries(names.map(name => [name, process.env[name]])));
+  const preserve = process.argv[4] === '--preserve-existing' && fs.existsSync(destination);
+  // Valida antes de criar bootstrap ou substituir qualquer configuração existente.
+  if (preserve) assertPreservedRuntime(existing, settings);
   const initialEmail = process.env.ADMIN_INITIAL_EMAIL || legacy.ADMIN_INITIAL_EMAIL || '';
   const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || legacy.ADMIN_INITIAL_PASSWORD || '';
   if (initialPassword && (initialPassword.length < 12 || Buffer.byteLength(initialPassword, 'utf8') > 72)) throw new Error('Senha inicial deve ter no mínimo 12 caracteres e até 72 bytes.');
   writeSettings(bootstrap, { ...settings, ADMIN_INITIAL_EMAIL: initialEmail, ADMIN_INITIAL_PASSWORD: initialPassword,
     DATABASE_MIGRATION_URL: process.env.DATABASE_MIGRATION_URL || 'postgresql:///enlace_pbx?host=/var/run/postgresql' });
-  writeSettings(destination, settings, 0o640);
+  if (!preserve) writeSettings(destination, settings, 0o640);
   console.log('Configuração preservada e gravada; credenciais administrativas separadas do serviço.');
 }

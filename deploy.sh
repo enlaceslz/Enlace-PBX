@@ -116,7 +116,7 @@ if [[ ! -f /etc/enlace-pbx/runtime.json && ! -f "$SOURCE_DIR/.env" ]]; then
   export PBX_DOMAIN ADMIN_INITIAL_EMAIL ADMIN_INITIAL_PASSWORD
 fi
 export PBX_LEGACY_ENV="$SOURCE_DIR/.env"
-"$NODE_BIN" "$PROVISIONING/scripts/configure-production.mjs" /etc/enlace-pbx/runtime.json "$BOOTSTRAP"
+"$NODE_BIN" "$PROVISIONING/scripts/configure-production.mjs" /etc/enlace-pbx/runtime.json "$BOOTSTRAP" --preserve-existing
 chown root:enlace-pbx /etc/enlace-pbx/runtime.json
 DOMAIN=$("$NODE_BIN" -p "JSON.parse(require('fs').readFileSync('/etc/enlace-pbx/runtime.json','utf8')).PBX_DOMAIN")
 # TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.
