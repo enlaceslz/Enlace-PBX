@@ -289,7 +289,7 @@ try {
     const agentCreated=await aiRequest('agents','POST','',aiAgentBody);assert.equal(agentCreated.status,201);const configuredAgent=await agentCreated.json();
     assert.match(configuredAgent.id,/^agent-[a-f0-9-]{36}$/);assert.equal(configuredAgent.temperature,0);assert.equal(configuredAgent.isActive,false);assert.equal(configuredAgent.allowBargeIn,false);assert.equal(configuredAgent.providerId,'9router');assert.equal(configuredAgent.transferExtension,'');assert.deepEqual(configuredAgent.tools,[]);
     assert.equal((await aiRequest('agents','POST','',{...aiAgentBody,tenantId:tenantB})).status,400);
-    assert.equal((await aiRequest('agents','POST','',aiAgentBody,rootHeaders)).status,400);
+    const rootOwnAgentResponse=await aiRequest('agents','POST','',aiAgentBody,rootHeaders);assert.equal(rootOwnAgentResponse.status,201);const rootOwnAgent=await rootOwnAgentResponse.json();assert.equal((await aiRequest('agents','DELETE','/'+rootOwnAgent.id,undefined,rootHeaders)).status,200);
     assert.equal((await aiRequest('agents','POST','',aiAgentBody,otherHeaders)).status,403);
     const selectedB={...rootHeaders,'x-tenant-id':tenantB};
     const agentBResponse=await aiRequest('agents','POST','',{...aiAgentBody,name:'Configuração B '+id},selectedB);assert.equal(agentBResponse.status,201);const configuredAgentB=await agentBResponse.json();
