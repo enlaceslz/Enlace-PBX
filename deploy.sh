@@ -2,18 +2,53 @@
 # Instalação e atualização do Enlace-PBX com processo sem privilégios de root.
 set -euo pipefail
 umask 077
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+unset NODE_OPTIONS NODE_PATH BASH_ENV ENV PYTHONPATH PYTHONHOME PYTHONSTARTUP
 
 [[ $EUID -eq 0 ]] || { echo 'Execute como root para provisionar o serviço.' >&2; exit 1; }
 SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 NODE_BIN=$(command -v node) || { echo 'Instale Node.js 22 ou 24 antes de continuar.' >&2; exit 1; }
 [[ "$NODE_BIN" =~ ^/[a-zA-Z0-9_./-]+$ ]] || { echo 'Caminho do Node inválido.' >&2; exit 1; }
-NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
+NODE_BIN=$(readlink -f -- "$NODE_BIN")
+NPM_BIN=$(command -v npm) || { echo 'npm obrigatório.' >&2; exit 1; }
+NPM_BIN=$(readlink -f -- "$NPM_BIN")
+for tool_path in "$NODE_BIN" "$NPM_BIN"; do
+  while [[ "$tool_path" != / ]]; do
+    tool_uid=$(stat -c %u -- "$tool_path")
+    tool_mode=$(stat -c %a -- "$tool_path")
+    [[ "$tool_uid" == 0 ]] && (( (8#$tool_mode & 8#022) == 0 )) || { echo 'Node/npm e ancestrais precisam de posse root e proteção contra escrita.' >&2; exit 1; }
+    tool_path=$(dirname -- "$tool_path")
+  done
+done
+NODE_MAJOR=$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')
 [[ "$NODE_MAJOR" == 22 || "$NODE_MAJOR" == 24 ]] || { echo 'Este instalador exige Node.js 22 ou 24.' >&2; exit 1; }
 command -v systemctl >/dev/null || { echo 'Host com systemd obrigatório.' >&2; exit 1; }
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y --no-install-recommends nginx curl ca-certificates rsync build-essential postgresql-client postgresql openssl python3
+# O checkout revisado é a raiz de confiança, não a árvore gravável do build.
+python3 -I - "$SOURCE_DIR" <<'PYTRUST'
+import os,stat,sys
+source=os.path.abspath(sys.argv[1])
+def check(name):
+    info=os.lstat(name)
+    if stat.S_ISLNK(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+        raise SystemExit('Bootstrap deve pertencer ao root e recusar links/escrita de grupo/outros.')
+    if stat.S_ISREG(info.st_mode) and info.st_nlink!=1:
+        raise SystemExit('Bootstrap vinculado exige revisão independente.')
+current=source
+while True:
+    check(current)
+    if current=='/': break
+    current=os.path.dirname(current)
+check(os.path.join(source,'scripts'))
+check(os.path.join(source,'scripts','trusted-source.py'))
+for target in ['/opt','/opt/enlace-pbx','/opt/enlace-pbx/releases','/opt/enlace-pbx/provisioning']:
+    if os.path.lexists(target): check(target)
+PYTRUST
+python3 -I "$SOURCE_DIR/scripts/trusted-source.py" "$SOURCE_DIR"
+
 getent group enlace-pbx >/dev/null || groupadd --system enlace-pbx
 id enlace-pbx >/dev/null 2>&1 || useradd --system --gid enlace-pbx --home-dir /var/lib/enlace-pbx --shell /usr/sbin/nologin enlace-pbx
 install -d -m 0755 -o root -g root /opt/enlace-pbx /opt/enlace-pbx/releases
@@ -23,7 +58,7 @@ for data_path in /var/lib/enlace-pbx /var/log/enlace-pbx; do
   if [[ -L "$data_path" || ( -e "$data_path" && ! -d "$data_path" ) ]]; then echo "Diretório de dados inválido." >&2; exit 1; fi
 done
 install -d -m 0750 -o enlace-pbx -g enlace-pbx /var/lib/enlace-pbx /var/log/enlace-pbx
-"$NODE_BIN" "$SOURCE_DIR/scripts/prepare-managed-asterisk.mjs"
+
 
 # O Asterisk lê somente o diretório gerenciado, sem acesso à configuração secreta do serviço.
 if getent group asterisk >/dev/null; then
@@ -31,6 +66,17 @@ if getent group asterisk >/dev/null; then
   chmod 0751 /var/lib/enlace-pbx
 
 fi
+
+# Cópia privilegiada independente, criada antes de executar qualquer build como serviço.
+PROVISIONING="/opt/enlace-pbx/provisioning/$(date -u +%Y%m%dT%H%M%S)-$(openssl rand -hex 4)"
+install -d -m 0750 -o root -g postgres /opt/enlace-pbx/provisioning "$PROVISIONING"
+rsync -a --exclude=.git --exclude=node_modules --exclude=dist --exclude='.env*' "$SOURCE_DIR/" "$PROVISIONING/"
+chown root:postgres "$PROVISIONING"
+chmod 0750 "$PROVISIONING"
+python3 -I "$SOURCE_DIR/scripts/trusted-source.py" "$PROVISIONING"
+# Dependências administrativas vêm do lockfile revisado; nenhum lifecycle de pacote roda como root.
+(cd "$PROVISIONING" && env -i PATH="$PATH" HOME=/root NODE_ENV=production "$NODE_BIN" "$NPM_BIN" ci --ignore-scripts --include=dev --no-audit --no-fund)
+"$NODE_BIN" "$PROVISIONING/scripts/prepare-managed-asterisk.mjs"
 
 # A instalação anterior continua atendendo enquanto a nova versão é compilada.
 RELEASE="/opt/enlace-pbx/releases/$(date -u +%Y%m%dT%H%M%S)-$(openssl rand -hex 4)"
@@ -56,17 +102,17 @@ if [[ ! -f /etc/enlace-pbx/runtime.json && ! -f "$SOURCE_DIR/.env" ]]; then
   export PBX_DOMAIN ADMIN_INITIAL_EMAIL ADMIN_INITIAL_PASSWORD
 fi
 export PBX_LEGACY_ENV="$SOURCE_DIR/.env"
-"$NODE_BIN" scripts/configure-production.mjs /etc/enlace-pbx/runtime.json "$BOOTSTRAP"
+"$NODE_BIN" "$PROVISIONING/scripts/configure-production.mjs" /etc/enlace-pbx/runtime.json "$BOOTSTRAP"
 chown root:enlace-pbx /etc/enlace-pbx/runtime.json
 DOMAIN=$("$NODE_BIN" -p "JSON.parse(require('fs').readFileSync('/etc/enlace-pbx/runtime.json','utf8')).PBX_DOMAIN")
 if [[ "${INSTALL_ASTERISK:-0}" == 1 ]]; then
-  PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json bash install-enlace-pbx.sh
+  PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json bash "$PROVISIONING/install-enlace-pbx.sh"
 fi
 if getent passwd asterisk >/dev/null && [[ -d /etc/asterisk ]]; then
   usermod -aG asterisk enlace-pbx
   chmod 0751 /var/lib/enlace-pbx
-  "$NODE_BIN" scripts/prepare-managed-asterisk.mjs
-  PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" scripts/asterisk-settings.mjs
+  "$NODE_BIN" "$PROVISIONING/scripts/prepare-managed-asterisk.mjs"
+  PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json "$NODE_BIN" "$PROVISIONING/scripts/asterisk-settings.mjs"
   asterisk -rx "manager reload"
 fi
 # TLS é pré-requisito; o instalador não aceita contratos ACME nem anuncia HTTPS sem certificado.
@@ -76,11 +122,11 @@ fi
 LOCAL_DATABASE=$("$NODE_BIN" -p "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); const u=new URL(c.DATABASE_URL); ['127.0.0.1','localhost'].includes(u.hostname) && !process.env.DATABASE_MIGRATION_URL" "$BOOTSTRAP")
 if [[ "$LOCAL_DATABASE" == true ]]; then
   chown postgres:postgres "$BOOTSTRAP"
-  runuser -u postgres -- env PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" scripts/provision-database.mjs
-  runuser -u postgres -- env PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" --import tsx scripts/migrate.ts
+  runuser -u postgres -- env -i PATH="$PATH" PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" "$PROVISIONING/scripts/provision-database.mjs"
+  (cd "$PROVISIONING" && runuser -u postgres -- env -i PATH="$PATH" PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" --import tsx scripts/migrate.ts)
 else
   [[ -n "${DATABASE_MIGRATION_URL:-}" ]] || { echo 'Defina DATABASE_MIGRATION_URL para migrar o PostgreSQL externo.' >&2; exit 1; }
-  PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" --import tsx scripts/migrate.ts
+  (cd "$PROVISIONING" && env -i PATH="$PATH" PBX_CONFIG_FILE="$BOOTSTRAP" "$NODE_BIN" --import tsx scripts/migrate.ts)
 fi
 rm -f -- "$BOOTSTRAP"
 unset DATABASE_MIGRATION_URL ADMIN_INITIAL_PASSWORD
@@ -139,7 +185,7 @@ if command -v pm2 >/dev/null && pm2 pid enlace-pbx 2>/dev/null | grep -Eq '[1-9]
 fi
 ln -sfn "$RELEASE" /opt/enlace-pbx/current.next
 mv -Tf /opt/enlace-pbx/current.next /opt/enlace-pbx/current
-sed "s|/usr/bin/node|$NODE_BIN|g" ops/enlace-pbx.service > /etc/systemd/system/enlace-pbx.service
+sed "s|/usr/bin/node|$NODE_BIN|g" "$PROVISIONING/ops/enlace-pbx.service" > /etc/systemd/system/enlace-pbx.service
 systemctl daemon-reload
 systemctl enable enlace-pbx.service
 systemctl restart enlace-pbx.service

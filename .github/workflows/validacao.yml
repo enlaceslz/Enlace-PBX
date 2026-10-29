@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts --include=dev
       - run: npm run lint
       - run: npm run test:security
       - run: npm test

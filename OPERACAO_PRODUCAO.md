@@ -403,4 +403,13 @@ O helper de /etc/asterisk assume posse por descritor, normaliza arquivos somente
 
 Includes dos três arquivos gerenciados passam a #tryinclude para permitir instalação inicial sem ler esses caminhos como root e sem impedir carga por arquivo ainda ausente. Esse comportamento não comprova existência nem ativação dos arquivos: verificar no host após aplicação. Testes locais simulam troca de diretório por link, links pendurados, hardlinks, preservação e backup por bytes capturados. As outras operações privilegiadas do deploy e a escrita do processo web ainda exigem revisão própria; homologação real continua bloqueada.
 
-A cadeia de confiança dos helpers privilegiados após build como usuário do serviço permanece pendência específica do deploy; a ancoragem de caminhos desta etapa não atesta a origem/integridade do código executado como root.
+A cadeia de confiança dos helpers após build passa a usar a cópia administrativa independente descrita abaixo; ancoragem e posse root não autenticam autoria nem substituem revisão de código.
+
+
+Separação de confiança do deploy: exige checkout revisado com arquivos/ancestrais root-owned, sem escrita de grupo/outros, links ou hardlinks nas fontes copiadas. Não converte automaticamente uma árvore gravável pelo serviço em fonte confiável. Node/npm e ancestrais também precisam de posse root e proteção contra escrita. Preparar uma cópia independente revisada e conferir commit/lockfile antes de executar; posse/permissão não autenticam autoria nem substituem revisão de código.
+
+Antes de qualquer build como enlace-pbx, cria cópia administrativa independente em /opt/enlace-pbx/provisioning, root-owned, sem .env, node_modules ou dist reaproveitados. Dependências dessa cópia usam npm ci --ignore-scripts --include=dev com ambiente limpo; lifecycles de pacotes não rodam como root. Helpers, instalador, migrações e unidade systemd vêm dessa cópia, inclusive resolução de tsx e imports. Artefatos da release gravável durante build não são executados como root/postgres nem usados como unidade systemd. A cópia administrativa não é servida pelo painel; pacotes do lockfile e toolchain continuam componentes confiados.
+
+CI passa a instalar dependências sem lifecycles para verificar compatibilidade de build, bcrypt, migrações e recuperação nessa política. O instalador falha se a plataforma exigir um lifecycle/native build ausente; não o executa como root automaticamente. Não houve execução de deploy: caminhos restantes, transição/rollback da release e homologação no host continuam pendentes.
+
+Diretório de provisionamento e sua raiz usam root:postgres 0750: o usuário de serviço não recebe acesso por esse caminho; postgres pode ler a cópia para migrações, sem permissão de alterar código. As permissões do diretório são reafirmadas após a cópia, antes de instalar dependências.
