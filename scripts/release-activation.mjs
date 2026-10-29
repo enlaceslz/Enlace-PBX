@@ -22,6 +22,23 @@ export async function activateWithRollback(operations){
 export function readinessEvidence(status,body,expectedId){return status===200&&body?.status==='ready'&&(!expectedId||body.releaseId===expectedId);}
 export function deploymentIdentity(value){return typeof value==='string'&&/^[-a-zA-Z0-9_]{1,80}$/.test(value)?value:undefined;}
 
+export async function restoreStoppedRelease(operations){
+  // Não troca arquivos enquanto a parada da candidata estiver incerta.
+  await operations.stop();
+  if(!await operations.stopped())throw new Error('Parada da candidata não confirmada.');
+  let incomplete=false;
+  const attempt=async operation=>{try{await operation();}catch{incomplete=true;}};
+  await attempt(operations.disable);
+  // Uma falha não pode impedir a tentativa de restaurar os outros destinos.
+  for(const restore of operations.files)await attempt(restore);
+  await attempt(operations.reload);
+  // Nunca reinicia com arquivos parcialmente recuperados ou controle incerto.
+  if(incomplete)throw new Error('Recuperação incompleta exige revisão manual.');
+  await operations.enablement();
+  await operations.resume();
+  await operations.publish();
+}
+
 async function main(){
  const [release,unitCandidate,proxyCandidate]=process.argv.slice(2);
  if(!release||!/^\/opt\/enlace-pbx\/releases\/[-a-zA-Z0-9_]{1,80}$/.test(release)||!unitCandidate||!proxyCandidate)throw new Error('Candidata de ativação inválida.');
@@ -68,6 +85,7 @@ async function main(){
   const replaceLink=(directory,name,target)=>{const temporary=name+'.activation-'+crypto.randomUUID();fs.symlinkSync(target,directory.location(temporary));try{directory.activate(temporary,name);}finally{directory.remove(temporary);}};
   const restore=(directory,name,value)=>{if(value.kind==='absent')directory.remove(name);else if(value.kind==='link')replaceLink(directory,name,value.target);else replaceFile(directory,name,Buffer.from(value.bytes,'base64'),value.mode,value.gid);};
   const command=(...args)=>execute('systemctl',args,{timeout:30000,maxBuffer:65536});
+  const stopped=async()=>{try{await command('is-active',service);return false;}catch(error){return ['inactive','unknown'].includes(error.stdout?.trim());}};
   const ready=async(expected,expectedId)=>{
    for(let attempt=0;attempt<20;attempt++){
     try{
@@ -88,13 +106,16 @@ async function main(){
    activate:async()=>{replaceFile(units,service,unitBytes);replaceLink(base,'current',release);await command('daemon-reload');await command('enable',service);await command('restart',service);},
    ready:()=>ready(release,releaseId),
    publish:async()=>{replaceFile(available,'enlace-pbx',proxyBytes);replaceLink(enabled,'enlace-pbx','/etc/nginx/sites-available/enlace-pbx');await execute('nginx',['-t'],{timeout:10000,maxBuffer:65536});await command('reload','nginx');},
-   rollback:async()=>{
-    await command('stop',service);await command('disable',service);
-    restore(base,'current',snapshot.current);restore(units,service,snapshot.unit);restore(available,'enlace-pbx',snapshot.proxy);restore(enabled,'enlace-pbx',snapshot.enabled);
-    await command('daemon-reload');if(wasEnabled)await command('enable',service);if(previous&&wasActive)await command('start',service);
-    await execute('nginx',['-t'],{timeout:10000,maxBuffer:65536});await command('reload','nginx');
-   },
-   previousReady:async()=>{if(previous&&wasActive)return ready(previous,undefined);try{await command('is-active',service);return false;}catch(error){return ['inactive','unknown'].includes(error.stdout?.trim());}},
+   rollback:()=>restoreStoppedRelease({
+    stop:()=>command('stop',service),stopped,
+    disable:()=>command('disable',service),
+    files:[()=>restore(base,'current',snapshot.current),()=>restore(units,service,snapshot.unit),()=>restore(available,'enlace-pbx',snapshot.proxy),()=>restore(enabled,'enlace-pbx',snapshot.enabled)],
+    reload:()=>command('daemon-reload'),
+    enablement:async()=>{if(wasEnabled)await command('enable',service);},
+    resume:async()=>{if(previous&&wasActive)await command('start',service);},
+    publish:async()=>{await execute('nginx',['-t'],{timeout:10000,maxBuffer:65536});await command('reload','nginx');},
+   }),
+   previousReady:async()=>previous&&wasActive?ready(previous,undefined):stopped(),
   });
   keepLock=result.status==='ROLLBACK_NOT_CONFIRMED';
   console.log(JSON.stringify({...result,backup,previousProcess:wasActive?'READY_REQUIRED':'INACTIVE_REQUIRED'}));process.exitCode=result.success?0:1;
