@@ -462,6 +462,9 @@ export interface AsteriskChannel {
 }
 
 export interface DashboardMetrics {
+  period?: {from:string;to:string;timeZone:string};
+  observedAt?:string;
+  sourceNote?:string;
   callsToday: number;
   callsActive: number;
   callsAnswered: number;

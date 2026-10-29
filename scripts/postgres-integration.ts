@@ -625,6 +625,23 @@ try {
     console.log('Webhooks de produção: assinatura dos bytes, auditoria anterior, histórico real e isolamento aprovados.');
     console.log('Ferramenta HTTP em produção: execução real, auditoria anterior, confirmação, schema, vínculo e isolamento aprovados.');
     console.log('HTTP de produção: login bcrypt, perfil, RBAC, isolamento, arquivos públicos e readiness aprovados.');
+    const dailyResponse=await fetch(base+'/api/v1/dashboard/metrics',{headers:testHeaders});
+    assert.equal(dailyResponse.status,200);const daily=await dailyResponse.json();
+    const expectedDaily=(await admin.query("SELECT count(*)::int AS total FROM cdr WHERE tenant_id=$1 AND start_time >= date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza') AT TIME ZONE 'America/Fortaleza' AND start_time < (date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza') AT TIME ZONE 'America/Fortaleza')+INTERVAL '1 day'",[tenantA])).rows[0].total;
+    assert.equal(daily.callsToday,expectedDaily);assert.equal(daily.callsActive,null);assert.equal(daily.hourlyCallDistribution.length,24);assert.equal(daily.period.timeZone,'America/Fortaleza');
+    assert.equal(daily.hourlyCallDistribution.reduce((sum:number,h:any)=>sum+h.total,0),expectedDaily);
+    for(const role of ['readonly','supervisor','operator']){
+      await admin.query('UPDATE users SET role=$1 WHERE id=$2',[role,`user-b-${id}`]);
+      const scopedHeaders={Authorization:`Bearer ${await fixtureToken(`user-b-${id}`,tenantB)}`,'Content-Type':'application/json'};
+      const response=await fetch(base+'/api/v1/dashboard/metrics',{headers:scopedHeaders});
+      assert.equal(response.status,role==='operator'?403:200);
+      if(response.ok){const body=await response.json();assert.equal('costEstimateTodayBrl' in body,false);assert.equal('aiTokensUsedToday' in body,false);}
+      if(role==='operator'){
+        const channelsResponse=await fetch(base+'/api/v1/asterisk/channels',{headers:scopedHeaders});assert.equal(channelsResponse.status,200);assert.deepEqual(await channelsResponse.json(),[]);
+        assert.equal((await fetch(base+'/api/v1/asterisk/channels',{method:'POST',headers:scopedHeaders,body:JSON.stringify({caller:'871003',callee:'871004'})})).status,403);
+      }
+    }
+    await setCompanyBRole('operator');
     const directedTicketResponse=await fetch(base+'/api/v1/auth/sse-ticket',{method:'POST',headers:{...rootHeaders,'x-tenant-id':tenantA},body:'{}'});
     assert.equal(directedTicketResponse.status,200);const directedTicket=(await directedTicketResponse.json()).ticket;
     const sseAbort=new AbortController();const sseTimeout=setTimeout(()=>sseAbort.abort(),10000);

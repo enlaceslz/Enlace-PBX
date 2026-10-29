@@ -1,3 +1,5 @@
+import {DashboardRepository} from './server/infrastructure/postgres/repositories/DashboardRepository.js';
+import {metricAccess,visibleChannels,channelDto,assertOwnCaller,ownChannelOnly,metricsDto} from './server/infrastructure/auth/TelemetryPolicy.js';
 import { credentialStamp, validCredentialStamp } from './server/infrastructure/auth/CredentialStamp.js';
 import { UserManagementRepository } from './server/infrastructure/postgres/repositories/UserManagementRepository.js';
 import { openRecording } from './server/infrastructure/security/RecordingAccess.js';
@@ -1544,83 +1546,21 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Dashboard Metrics (PRD Section 36) & Real-time SSE
   // -------------------------------------------------------------------------
-  const getDashboardMetrics = async (targetTenantId?: string) => {
-    if (!targetTenantId || targetTenantId.trim() === '') {
-      throw new Error('TENANT_REQUIRED: tenantId obrigatório para computar métricas do dashboard (Fail-Closed).');
-    }
-    const tenantId = targetTenantId.trim();
-    const [cdrs, extensions, trunks, aiAgents, aiSessions] = await Promise.all([
-      CdrRepository.listByTenant(tenantId).catch(() => []),
-      ExtensionRepository.listByTenant(tenantId).catch(() => []),
-      TrunkRepository.listByTenant(tenantId).catch(() => []),
-      AiAgentRepository.listByTenant(tenantId).catch(() => []),
-      SystemRepository.getAiSessions().catch(() => []),
-    ]);
-
-    const todayCdrs = cdrs;
-    const answered = todayCdrs.filter((c) => c.disposition === 'ANSWERED').length;
-    const missed = todayCdrs.filter((c) => c.disposition !== 'ANSWERED').length;
-    const transferred = aiSessions.filter((s: any) => s.status === 'transferred').length;
-    let totalDuration = 0;
-    let totalCost = 0;
-    for (const c of todayCdrs) {
-      totalDuration += (c.duration || 0);
-      totalCost += (c.costBrl || 0);
-    }
-    const avgDuration = Math.round(totalDuration / (todayCdrs.length || 1));
-    const activeChannels = await asteriskService.getActiveChannels(tenantId).catch(() => []);
-
-    const sessionLatencies = aiSessions
-      .map((s: any) => s.latencyMs)
-      .filter((l: any) => typeof l === 'number' && l > 0);
-    const aiLatencyAvgMs =
-      sessionLatencies.length > 0
-        ? Math.round(sessionLatencies.reduce((acc: number, val: number) => acc + val, 0) / sessionLatencies.length)
-        : null;
-
-    const hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
-    const hourlyCounts: Record<string, { total: number; ai: number }> = {};
-    for (const h of hours) {
-      hourlyCounts[h] = { total: 0, ai: 0 };
-    }
-    for (const c of todayCdrs) {
-      try {
-        const d = new Date(c.startTime);
-        const h = `${String(d.getHours()).padStart(2, '0')}:00`;
-        if (hourlyCounts[h]) {
-          hourlyCounts[h].total += 1;
-          if (c.isAiHandled || c.aiAgentId) {
-            hourlyCounts[h].ai += 1;
-          }
-        }
-      } catch {
-        // ignore invalid date
-      }
-    }
-    const hourlyCallDistribution = hours.map((h) => ({
-      hour: h,
-      total: hourlyCounts[h].total,
-      ai: hourlyCounts[h].ai,
-    }));
-
-    return {
-      callsToday: todayCdrs.length,
-      callsActive: activeChannels.length,
-      callsAnswered: answered,
-      callsMissed: missed,
-      avgCallDurationSeconds: todayCdrs.length > 0 ? avgDuration : 0,
-      extensionsOnline: extensions.filter((e) => e.status === 'online').length,
-      extensionsTotal: extensions.length,
-      trunksOnline: trunks.filter((t) => t.status === 'registered').length,
-      trunksTotal: trunks.length,
-      aiAgentsActive: aiAgents.filter((a) => a.isActive).length,
-      aiSessionsCount: aiSessions.length,
-      aiLatencyAvgMs,
-      humanTransferRatePercent: aiSessions.length > 0 ? Math.round((transferred / aiSessions.length) * 100) : null,
-      aiTokensUsedToday: aiSessions.reduce((acc: number, s: any) => acc + (s.tokensInput || 0) + (s.tokensOutput || 0), 0),
-      costEstimateTodayBrl: Number(totalCost.toFixed(2)),
-      hourlyCallDistribution,
-    };
+  const dashboardCache=new Map<string,{until:number;value:Promise<any>}>();
+  const getDashboardMetrics=async(tenantId:string)=>{
+    const cached=dashboardCache.get(tenantId);if(cached&&cached.until>Date.now())return cached.value;
+    const value=DashboardRepository.daily(tenantId);dashboardCache.set(tenantId,{until:Date.now()+1000,value});
+    try{return await value;}catch(error){dashboardCache.delete(tenantId);throw error;}
+  };
+  const actorChannels=async(req:any)=>{
+    const tenantId=getAuthorizedTenantId(req);const actor=req.user;
+    return visibleChannels(await asteriskService.getActiveChannels(tenantId),{...actor,tenantId});
+  };
+  const assertChannelActor=async(req:any,id:string)=>{
+    if(!ownChannelOnly(req.user.role))return;
+    await asteriskService.refreshChannelsReal();
+    const visible=await actorChannels(req);
+    if(!visible.some(channel=>channel.id===id||channel.name===id))throw new OutboundHttpError('Canal não autorizado para o ramal desta conta.',403);
   };
 
   // -------------------------------------------------------------------------
@@ -1787,10 +1727,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.get('/api/v1/dashboard/metrics', requireAuth, requireTenant, async (req, res) => {
+  app.get('/api/v1/dashboard/metrics', requireAuth, requireTenant,requireRole('super_admin','admin','supervisor','readonly'), async (req, res) => {
     try {
       const authorizedTenant = getAuthorizedTenantId(req);
-      res.json(await getDashboardMetrics(authorizedTenant));
+      res.json(metricsDto(await getDashboardMetrics(authorizedTenant),(req as any).user.role));
     } catch (e: any) {
       console.error('[Dashboard] Erro ao obter métricas:', e?.message || e);
       res.status(500).json({ error: 'Erro ao calcular métricas do dashboard' });
@@ -1814,10 +1754,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         const actor=(req as any).user;
         const current=await UserRepository.findById(actor.id,actor.identityTenantId||actor.tenantId);
         if(!current || !current.isActive || !validCredentialStamp(actor.authStamp,current,getJwtSecret())){clearInterval(intervalId);res.end();return;}
-        const metrics = await getDashboardMetrics(authorizedTenant);
+        const metrics=metricAccess(actor.role)?metricsDto(await getDashboardMetrics(authorizedTenant),actor.role):null;
         const data = JSON.stringify({
           tenantId:authorizedTenant,
-          channels: await asteriskService.getActiveChannels(authorizedTenant),
+          channels: (await actorChannels(req)).map(channelDto),
           metrics,
         });
         const latest=await UserRepository.findById(actor.id,actor.identityTenantId||actor.tenantId);
@@ -4077,13 +4017,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Asterisk Core & Config Generation
   // -------------------------------------------------------------------------
-  app.get('/api/v1/asterisk/channels', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
+  app.get('/api/v1/asterisk/channels', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator','agent'), async (req, res) => {
     try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const channels = await asteriskService.getActiveChannels(tenantId, isSuper);
-      res.json(channels);
+      res.json((await actorChannels(req)).map(channelDto));
     } catch (err: any) {
       res.status(500).json({ error: 'Falha ao consultar os canais de telefonia.' });
     }
@@ -4103,9 +4039,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});
     const failure=telephonyFailure(error);return res.status(failure.status).json({error:failure.error});
   };
-  app.post('/api/v1/asterisk/channels', requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+  app.post('/api/v1/asterisk/channels', requireRole('super_admin','admin','supervisor','operator','agent'),async(req,res)=>{
     try {
       const caller=callExtension(req.body.caller);const callee=callExtension(req.body.callee);
+      assertOwnCaller((req as any).user,caller);
       if(req.body.isAi !== undefined && req.body.isAi !== false)return res.status(501).json({error:'Ponte de IA não homologada para esta originação.'});
       const context=resolveTenantContext(req);
       await callAttempt(req,'ORIGINATE_CHANNEL_ATTEMPT');
@@ -4114,15 +4051,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
   const hangupCall = async(req:any,res:any)=>{
     try {channelReference(req.params.id);const context=resolveTenantContext(req);
+      await assertChannelActor(req,req.params.id);
       await callAttempt(req,'HANGUP_CHANNEL_ATTEMPT');
       const result=await asteriskService.hangupChannel(req.params.id,context.tenantId,context.actorRole==='super_admin');
       res.status(202).json(result);
     }catch(error){callFailure(error,res);}
   };
-  app.delete('/api/v1/asterisk/channels/:id',requireRole('super_admin','admin','supervisor','operator'),hangupCall);
-  app.post('/api/v1/asterisk/channels/:id/hangup',requireRole('super_admin','admin','supervisor','operator'),hangupCall);
+  app.delete('/api/v1/asterisk/channels/:id',requireRole('super_admin','admin','supervisor','operator','agent'),hangupCall);
+  app.post('/api/v1/asterisk/channels/:id/hangup',requireRole('super_admin','admin','supervisor','operator','agent'),hangupCall);
   app.post('/api/v1/asterisk/channels/:id/transfer',requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
     try {channelReference(req.params.id);const destination=callExtension(req.body.destination);const context=resolveTenantContext(req);
+      await assertChannelActor(req,req.params.id);
       await callAttempt(req,'TRANSFER_CHANNEL_ATTEMPT');
       res.status(202).json(await asteriskService.transferChannel(req.params.id,destination,context.tenantId,context.actorRole==='super_admin'));
     }catch(error){callFailure(error,res);}
