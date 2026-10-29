@@ -830,7 +830,7 @@ try {
     assert.equal((await collectionRequest('extensions','POST','',{name:'Colisão',number:'6001'})).status,409);
     assert.equal((await collectionRequest('extensions','DELETE','/collection-ext-a-'+id)).status,409);assert.equal((await collectionRequest('extensions','PUT','/collection-ext-a-'+id,{number:'980006'})).status,409);
     assert.equal((await collectionRequest('extensions','DELETE','/'+apiExt.id)).status,200);
-    const batchRequest=(route:string,body:any)=>fetch(base+'/api/v1/setup/'+route,{method:'POST',headers:rootHeaders,body:JSON.stringify(body)});
+    const batchRequest=(route:string,body:any)=>fetch(base+'/api/v1/setup/'+route,{method:'POST',headers:{...rootHeaders,'x-tenant-id':tenantA},body:JSON.stringify(body)});
     const batchPreview=await batchRequest('preview',{prefix:'97',quantity:2,startNumber:1});assert.equal(batchPreview.status,200);assert.deepEqual((await batchPreview.json()).extensions.map((item:any)=>item.number),['9701','9702']);
     assert.equal((await batchRequest('apply',{prefix:'97',quantity:101,startNumber:0})).status,400);assert.equal((await batchRequest('apply',{prefix:'97',quantity:1,startNumber:0,trunkName:'Inventado'})).status,400);
     assert.equal((await batchRequest('apply',{prefix:'97',quantity:1,startNumber:2})).status,201);
