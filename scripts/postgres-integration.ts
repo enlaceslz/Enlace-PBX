@@ -188,7 +188,7 @@ try {
     VALUES($1,$1,$2,'871001','871002','internal',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'ANSWERED','original.wav','Preciso de suporte. Vou verificar.','Legado preservado'),
     ($3,$3,$4,'871003','871004','internal',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'ANSWERED','original.wav','Texto de outra empresa',NULL)`,[cdrA,tenantA,cdrB,tenantB]);
   const child = spawn(process.execPath, ['dist/server.cjs'], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
+    env: { ...process.env, PUBLIC_IP:'192.0.2.45', PORT: String(port), HOST: '127.0.0.1', DATABASE_MIGRATION_URL: '',
       OUTBOUND_ALLOWED_ORIGINS: origin, OUTBOUND_PRIVATE_ORIGINS: origin,
       PBX_BACKUP_DIRECTORY:recordingsRoot,RECORDINGS_ROOT:recordingsRoot,CDR_ANALYSIS_ENABLED_TENANTS:tenantA,CDR_ANALYSIS_MODEL:'modelo-cdr-test',
       NINEROUTER_URL: origin + '/v1', NINEROUTER_API_KEY: 'segredo-extracao-ci', ENTITY_EXTRACTION_MODEL: 'modelo-extracao-test', ENTITY_EXTRACTION_ENABLED_TENANTS: tenantA,
@@ -799,6 +799,23 @@ try {
     assert.equal((await fetch(base+'/api/v1/infra/config',{headers:rootHeaders})).status,200);
     assert.equal((await admin.query("SELECT key FROM system_settings WHERE key='infra_config'")).rowCount,0);
     const saveTestInfra=async(value:any)=>admin.query("INSERT INTO system_settings(key,value) VALUES('infra_config',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",[JSON.stringify(value)]);
+    await saveTestInfra(testInfra);
+    const infraRequest=(body:any)=>fetch(base+'/api/v1/infra/config',{method:'PUT',headers:rootHeaders,body:JSON.stringify(body)});
+    for(const body of [{hostname:'pbx.example.invalid'},{expectedRevision:0,sslCertificate:{status:'valid'}},{expectedRevision:0,validationWhatsapp:{verifyToken:'nao-aceitar'}},{expectedRevision:0,ports:{sipUdp:'5060'}}])assert.equal((await infraRequest(body)).status,400);
+    const infraRace=await Promise.all([infraRequest({expectedRevision:0,hostname:'host-alterado.example.invalid'}),infraRequest({expectedRevision:0,domain:'dominio-alterado.example.invalid'})]);assert.deepEqual(infraRace.map(response=>response.status).sort(),[200,409]);
+    const infraAfter=await (await fetch(base+'/api/v1/infra/config',{headers:rootHeaders})).json();assert.equal(infraAfter.revision,1);assert.equal(infraAfter.validationStatus,'NOT_VERIFIED');assert.equal('status' in infraAfter.sslCertificate,false);
+    const infraRetry=await infraRequest({expectedRevision:1,ports:{sipUdp:5062}});assert.equal(infraRetry.status,200);const infraRetried=(await infraRetry.json()).config;assert.equal(infraRetried.revision,2);assert.equal(infraRetried.ports.sipTls,5061);assert.equal(infraRetried.ports.sipUdp,5062);
+    const beforeAuditFailure=(await admin.query("SELECT value FROM system_settings WHERE key='infra_config'")).rows[0].value;
+    const detectedIp=await fetch(base+'/api/v1/infra/auto-detect-ip',{method:'POST',headers:rootHeaders});assert.equal(detectedIp.status,200);const detectedBody=await detectedIp.json();assert.equal(detectedBody.detectedIp,'192.0.2.45');assert.equal(detectedBody.status,'DRAFT_NOT_SAVED');assert.deepEqual((await admin.query("SELECT value FROM system_settings WHERE key='infra_config'")).rows[0].value,beforeAuditFailure);
+
+    await admin.query("CREATE FUNCTION ci_reject_infra_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='UPDATE_INFRA_CONFIG_ATTEMPT' THEN RAISE EXCEPTION 'auditoria indisponivel no ensaio'; END IF; RETURN NEW; END $$");
+    try{
+      await admin.query('CREATE TRIGGER ci_reject_infra_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION ci_reject_infra_audit()');
+      assert.equal((await infraRequest({expectedRevision:2,hostname:'nao-persistir.example.invalid'})).status,500);
+      assert.deepEqual((await admin.query("SELECT value FROM system_settings WHERE key='infra_config'")).rows[0].value,beforeAuditFailure);
+    }finally{await admin.query('DROP TRIGGER IF EXISTS ci_reject_infra_audit ON audit_logs');await admin.query('DROP FUNCTION ci_reject_infra_audit()');}
+    const infraTls=await infraRequest({expectedRevision:2,sslCertificate:{provider:'custom',certPath:'/etc/pbx/cert.pem',keyPath:'/etc/pbx/key.pem'}});assert.equal(infraTls.status,200);assert.equal((await admin.query("SELECT value FROM system_settings WHERE key='infra_config'")).rows[0].value.sslCertificate.status,'pending');
+    for(const endpoint of ['validate-ssl','validate-webphone','validate-pwa','validate-whatsapp','vapid/generate','send-test-push'])assert.equal((await fetch(base+'/api/v1/infra/'+endpoint,{method:'POST',headers:rootHeaders})).status,501);
     await saveTestInfra(testInfra);
     const pjsipPreview=await generatorService.generatePjsipConf(tenantA,true);assert.match(pjsipPreview,/\[980001\]/);assert.equal(pjsipPreview.includes(fixtureSecret),false);assert.match(pjsipPreview,/password=••••••••/);
     assert.match(pjsipPreview,/local_net=192\.168\.3\.0\/24/);assert.doesNotMatch(pjsipPreview,/local_net=255\.255\.255\.0/);

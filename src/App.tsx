@@ -486,11 +486,7 @@ export default function App() {
         return <NetworkSecurityView key="network_security" />;
       case 'infra_settings':
         return (
-          <InfraSettingsView
-            key="infra_settings"
-            onOpenWebphone={() => handleOpenWebphone()}
-            onNavigate={(v) => setActiveView(v)}
-          />
+          <InfraSettingsView key="infra_settings" />
         );
       case 'system_logs':
         return <SystemLogsView key="system_logs" />;

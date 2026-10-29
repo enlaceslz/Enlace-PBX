@@ -1,3 +1,5 @@
+import {infraPatch} from './server/infrastructure/asterisk/InfraMutation.js';
+import {InfraManagementRepository} from './server/infrastructure/postgres/repositories/InfraManagementRepository.js';
 import {extensionBatch} from './server/infrastructure/asterisk/ExtensionBatch.js';
 import {extensionPatch} from './server/infrastructure/asterisk/ExtensionMutation.js';
 import {ExtensionManagementRepository} from './server/infrastructure/postgres/repositories/ExtensionManagementRepository.js';
@@ -940,66 +942,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Infraestrutura, Domínio, IPs (LAN/WAN) e Validação de Certificado SSL/TLS
   // (Webphone WebRTC, PWA com Notificação Push, WhatsApp Cloud API)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/infra/config', async (req, res) => {
-    const config = await SystemRepository.getInfraConfig();
-    res.json(config);
-  });
+  app.all(['/api/v1/infra/validate-ssl','/api/v1/infra/validate-webphone','/api/v1/infra/validate-pwa','/api/v1/infra/validate-whatsapp','/api/v1/infra/vapid/generate','/api/v1/infra/send-test-push'],(_req,res)=>res.status(501).json({code:'INFRA_VALIDATION_NOT_IMPLEMENTED',error:'Validação ou execução no host ainda não implementada; cadastro não comprova operação.'}));
+  app.get('/api/v1/infra/config',async(_req,res)=>{try{return res.json(await InfraManagementRepository.read());}catch(error){return administrativeFailure(error,res);}});
+  app.put('/api/v1/infra/config',requireAuth,requireTenant,requireRole('super_admin'),async(req,res)=>{try{
+    const {expectedRevision,patch}=infraPatch(req.body);const actor=(req as any).user;
+    await AuditLogRepository.logStrict({tenantId:actor.tenantId,userId:actor.id,userName:actor.name,action:'UPDATE_INFRA_CONFIG_ATTEMPT',resource:'infra/config',category:'SYSTEM',ip:req.ip||'127.0.0.1',details:'Tentativa de alteração global com revisão obrigatória; sem corpo ou segredos na auditoria.'});
+    return res.json({success:true,config:await InfraManagementRepository.mutate(expectedRevision,patch)});
+  }catch(error){return administrativeFailure(error,res);}});
 
-  app.put('/api/v1/infra/config', requireRole('super_admin', 'admin'), async (req, res) => {
-    const body = req.body;
-    if (!body) {
-      return res.status(400).json({ error: 'Dados de infraestrutura não fornecidos' });
-    }
-
-    const infraConfig = await SystemRepository.getInfraConfig();
-
-    // Validações básicas de formato
-    if (body.hostname !== undefined) infraConfig.hostname = String(body.hostname).trim();
-    if (body.domain !== undefined) infraConfig.domain = String(body.domain).trim().toLowerCase();
-    if (body.publicIp !== undefined) infraConfig.publicIp = String(body.publicIp).trim();
-    if (body.lanIp !== undefined) infraConfig.lanIp = String(body.lanIp).trim();
-    if (body.lanSubnet !== undefined) infraConfig.lanSubnet = String(body.lanSubnet).trim();
-    if (body.lanGateway !== undefined) infraConfig.lanGateway = String(body.lanGateway).trim();
-    if (body.lanInterface !== undefined) infraConfig.lanInterface = String(body.lanInterface).trim();
-    if (body.natMode !== undefined) infraConfig.natMode = body.natMode;
-    if (body.stunServer !== undefined) infraConfig.stunServer = String(body.stunServer).trim();
-
-    if (body.ports) {
-      infraConfig.ports = {
-        ...infraConfig.ports,
-        ...body.ports,
-      };
-    }
-
-    if (body.sslCertificate) {
-      infraConfig.sslCertificate = {
-        ...infraConfig.sslCertificate,
-        ...body.sslCertificate,
-      };
-    }
-
-    if (body.validationWhatsapp?.verifyToken) {
-      if (!infraConfig.validationWhatsapp) infraConfig.validationWhatsapp = {};
-      infraConfig.validationWhatsapp.verifyToken = body.validationWhatsapp.verifyToken;
-    }
-
-    infraConfig.updatedAt = new Date().toISOString();
-    await SystemRepository.setInfraConfig(infraConfig);
-
-    await AuditLogRepository.create({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      userId: (req as any).user?.id || 'SYSTEM',
-      userName: (req as any).user?.name || 'Administrador',
-      action: 'INFRA_CONFIG_UPDATE',
-      resource: 'infra/config',
-      ip: req.ip || '127.0.0.1',
-      details: `Configurações de infraestrutura atualizadas: Hostname=${infraConfig.hostname}, Domínio=${infraConfig.domain}, IP Público=${infraConfig.publicIp}, IP LAN=${infraConfig.lanIp}`,
-    });
-
-    res.json({ success: true, config: infraConfig });
-  });
-
-  // Auto-detectar IP público do servidor
   app.post('/api/v1/infra/auto-detect-ip', requireRole('super_admin', 'admin'), async (req, res) => {
     let detectedIp: string | null = process.env.PUBLIC_IP || process.env.WAN_IP || null;
     if (!detectedIp) {
@@ -1022,235 +972,8 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
     }
 
-    const infraConfig = await SystemRepository.getInfraConfig();
-    infraConfig.publicIp = detectedIp;
-    infraConfig.updatedAt = new Date().toISOString();
-    await SystemRepository.setInfraConfig(infraConfig);
-
-    res.json({
-      success: true,
-      detectedIp,
-      method: 'Egress Resolution (api.ipify.org)',
-      natType: 'UNKNOWN',
-    });
-  });
-
-  // Validação em tempo real do Certificado SSL/TLS
-  app.post('/api/v1/infra/validate-ssl', requireRole('super_admin', 'admin'), async (req, res) => {
-    const infraConfig = await SystemRepository.getInfraConfig();
-    const cert = infraConfig.sslCertificate;
-    const domain = infraConfig.domain;
-
-    const validToDate = new Date(cert.validTo);
-    const now = new Date();
-    const diffTime = validToDate.getTime() - now.getTime();
-    const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-
-    cert.daysRemaining = daysRemaining;
-
-    // Verificar se o domínio bate com os SANs ou com o issuedTo
-    const domainMatches =
-      cert.issuedTo.toLowerCase() === domain.toLowerCase() ||
-      cert.san.some((s: string) => s.toLowerCase() === domain.toLowerCase() || (s.startsWith('*.') && domain.endsWith(s.slice(1))));
-
-    if (!domainMatches) {
-      cert.status = 'invalid';
-    } else if (daysRemaining <= 0) {
-      cert.status = 'expired';
-    } else if (daysRemaining <= 30) {
-      cert.status = 'expiring_soon';
-    } else {
-      cert.status = 'valid';
-    }
-
-    infraConfig.updatedAt = new Date().toISOString();
-    await SystemRepository.setInfraConfig(infraConfig);
-
-    res.json({
-      success: true,
-      status: cert.status,
-      domain,
-      domainMatches,
-      issuer: cert.issuer,
-      keyType: cert.keyType,
-      fingerprintSha256: cert.fingerprintSha256,
-      validFrom: cert.validFrom,
-      validTo: cert.validTo,
-      daysRemaining,
-      san: cert.san,
-      autoRenew: cert.autoRenew,
-      message: cert.status === 'valid'
-        ? `Certificado SSL ativo e confiável para ${domain}. Expira em ${daysRemaining} dias.`
-        : `Atenção: Status do certificado é ${cert.status}. Recomenda-se renovação via Certbot.`,
-    });
-  });
-
-  // Validador 1: Webphone (WebRTC + WSS)
-  app.post('/api/v1/infra/validate-webphone', requireRole('super_admin', 'admin'), async (req, res) => {
-    const infra = await SystemRepository.getInfraConfig();
-    const isHttps = infra.sslCertificate.status === 'valid';
-    const isWssConfigured = infra.ports.webrtcWss === 8089;
-    const isStunConfigured = !!infra.stunServer;
-
-    const allPassed = isHttps && isWssConfigured && isStunConfigured;
-
-    infra.validationWebphone = {
-      status: allPassed ? 'passed' : 'warning',
-      httpsEnabled: isHttps,
-      wssPortAccessible: isWssConfigured,
-      webrtcDtlsSrtp: true,
-      mediaMicrophonePermission: 'granted',
-      stunConfigured: isStunConfigured,
-      lastTested: new Date().toISOString(),
-      details: allPassed
-        ? `Ambiente Webphone WebRTC 100% validado: HTTPS ativo, WSS (wss://${infra.domain}:${infra.ports.webrtcWss}/ws) pronto, DTLS-SRTP e STUN configurados.`
-        : 'Pendência no Webphone: Certificado SSL ou porta WSS requerem revisão para evitar falhas de áudio no browser.',
-    };
-
-    await SystemRepository.setInfraConfig(infra);
-
-    res.json({
-      success: true,
-      validation: infra.validationWebphone,
-      checks: [
-        { name: 'Contexto Seguro HTTPS (Exigência do Navegador para getUserMedia)', status: isHttps ? 'ok' : 'fail' },
-        { name: `Porta WSS WebRTC Asterisk (${infra.ports.webrtcWss}/TCP)`, status: isWssConfigured ? 'ok' : 'warn' },
-        { name: 'Criptografia DTLS-SRTP de Áudio (RFC 5764)', status: 'ok' },
-        { name: 'Servidor STUN para NAT Traversal', status: isStunConfigured ? 'ok' : 'fail', target: infra.stunServer },
-        { name: 'Codecs WebRTC Prioritários (Opus 48kHz, PCMU, PCMA)', status: 'ok' },
-      ],
-    });
-  });
-
-  // Validador 2: PWA com Notificação Push
-  app.post('/api/v1/infra/validate-pwa', requireRole('super_admin', 'admin'), async (req, res) => {
-    const infra = await SystemRepository.getInfraConfig();
-    const isHttps = infra.sslCertificate.status === 'valid';
-    const hasVapid = !!infra.validationPwa?.vapidPublicKey && infra.validationPwa.vapidPublicKey.length > 20;
-
-    const allPassed = isHttps && hasVapid;
-
-    infra.validationPwa = {
-      ...infra.validationPwa,
-      status: allPassed ? 'passed' : 'warning',
-      httpsSecured: isHttps,
-      serviceWorkerRegistered: true,
-      manifestValid: true,
-      pushVapidConfigured: hasVapid,
-      lastTested: new Date().toISOString(),
-      details: allPassed
-        ? 'PWA e Notificações Push VAPID validadas: Web App Manifest ativo, Service Worker operacional e suporte a notificações de chamadas em segundo plano.'
-        : 'Pendência no PWA: HTTPS é estritamente obrigatório para Service Workers e Web Push.',
-    };
-
-    await SystemRepository.setInfraConfig(infra);
-
-    res.json({
-      success: true,
-      validation: infra.validationPwa,
-      checks: [
-        { name: 'Origem Segura HTTPS (Obrigatório pela W3C para Service Worker)', status: isHttps ? 'ok' : 'fail' },
-        { name: 'Web App Manifest (/manifest.json válido com ícones 192/512)', status: 'ok' },
-        { name: 'Service Worker Background Sync (/sw.js)', status: 'ok' },
-        { name: 'Par de Chaves VAPID (Web Push RFC 8292)', status: hasVapid ? 'ok' : 'fail' },
-        { name: 'Notificações de Ramal em Segundo Plano (Action Buttons: Atender/Recusar)', status: 'ok' },
-      ],
-    });
-  });
-
-  // Gerar / Rotacionar novo par de chaves VAPID criptograficamente seguro para Web Push (NIST P-256)
-  app.post('/api/v1/infra/vapid/generate', requireRole('super_admin', 'admin'), async (req, res) => {
-    // Geração segura de chave pública VAPID uncompressed (65 bytes começando com 0x04)
-    const rawBytes = Buffer.concat([Buffer.from([0x04]), crypto.randomBytes(64)]);
-    const newPubKey = rawBytes.toString('base64url');
-
-    const infraConfig = await SystemRepository.getInfraConfig();
-    if (!infraConfig.validationPwa) infraConfig.validationPwa = {};
-    infraConfig.validationPwa.vapidPublicKey = newPubKey;
-    infraConfig.validationPwa.pushVapidConfigured = true;
-    infraConfig.updatedAt = new Date().toISOString();
-    await SystemRepository.setInfraConfig(infraConfig);
-
-    res.json({
-      success: true,
-      vapidPublicKey: newPubKey,
-      vapidSubject: infraConfig.validationPwa.vapidSubject,
-      message: 'Novo par de chaves VAPID NIST P-256 gerado criptograficamente para Web Push Notifications.',
-    });
-  });
-
-  // Disparar Push de Teste para o navegador
-  app.post('/api/v1/infra/send-test-push', requireRole('super_admin', 'admin'), (req, res) => {
-    const pushPayload = {
-      title: 'Enlace-PBX: Chamada Recebida (Ramal 4101)',
-      body: 'Chamada de Suporte NOC (11 98765-4321) tocando agora...',
-      icon: '/logo-icon.png',
-      badge: '/logo-icon.png',
-      vibrate: [200, 100, 200, 100, 200],
-      tag: 'incoming-call-test',
-      renotify: true,
-      data: {
-        callerNumber: '11987654321',
-        callerName: 'Suporte NOC Enlace',
-        extension: '4101',
-        callId: `call-${Date.now()}`,
-      },
-      actions: [
-        { action: 'answer', title: 'Atender' },
-        { action: 'reject', title: 'Recusar' },
-      ],
-    };
-
-    res.json({
-      success: true,
-      sentAt: new Date().toISOString(),
-      payload: pushPayload,
-      message: 'Notificação Push simulada enviada ao cliente com sucesso.',
-    });
-  });
-
-  // Validador 3: API Oficial do WhatsApp (Meta Cloud API / Graph API)
-  app.post('/api/v1/infra/validate-whatsapp', requireRole('super_admin', 'admin'), async (req, res) => {
-    const infra = await SystemRepository.getInfraConfig();
-    const isHttps = infra.sslCertificate.status === 'valid';
-    const hasPublicCert = infra.sslCertificate.provider !== 'custom' || infra.sslCertificate.issuer.includes("Let's Encrypt");
-    const isStandardPort = infra.ports.https === 443;
-    const webhookUrl = `https://${infra.domain}/api/v1/webhooks/whatsapp`;
-    const verifyToken = infra.validationWhatsapp?.verifyToken || process.env.WHATSAPP_VERIFY_TOKEN || '';
-    const hasValidToken = Boolean(verifyToken && verifyToken.trim() !== '' && verifyToken !== 'enlace_meta_webhook_token_2026');
-
-    const allPassed = isHttps && hasPublicCert && isStandardPort && hasValidToken;
-
-    infra.validationWhatsapp = {
-      ...infra.validationWhatsapp,
-      status: allPassed ? 'passed' : 'warning',
-      httpsVerified: isHttps,
-      publicCertTrusted: hasPublicCert,
-      webhookEndpoint: webhookUrl,
-      verifyToken: hasValidToken ? verifyToken : '',
-      port443Standard: isStandardPort,
-      lastTested: new Date().toISOString(),
-      details: allPassed
-        ? `Conformidade Meta WhatsApp 100%: Webhook HTTPS público na porta 443 (${webhookUrl}), certificado SSL de autoridade confiável e desafio hub.challenge respondendo com 200 OK.`
-        : (!hasValidToken
-            ? 'Alerta Meta: Token WHATSAPP_VERIFY_TOKEN não configurado no ambiente ou na central.'
-            : 'Alerta Meta: A API oficial do WhatsApp exige estritamente HTTPS válido na porta 443 com certificado público (não autoassinado).'),
-    };
-
-    await SystemRepository.setInfraConfig(infra);
-
-    res.json({
-      success: true,
-      validation: infra.validationWhatsapp,
-      checks: [
-        { name: 'Protocolo HTTPS Obrigatório pela Meta (HTTP é rejeitado pela Meta)', status: isHttps ? 'ok' : 'fail' },
-        { name: 'Certificado de Autoridade Pública Confiável (Let\'s Encrypt / DigiCert)', status: hasPublicCert ? 'ok' : 'fail' },
-        { name: 'Porta Padrão 443/TCP (Meta rejeita portas alternativas como 8443)', status: isStandardPort ? 'ok' : 'fail' },
-        { name: 'Webhook Endpoint FQDN Acessível', status: 'ok', url: webhookUrl },
-        { name: 'Meta Hub Challenge Token Handshake (GET verification)', status: 'ok', token: verifyToken },
-        { name: 'Ciphers TLS 1.2+ e Assinatura SHA256 (Meta Security Policy)', status: 'ok' },
-      ],
-    });
+    if(net.isIP(detectedIp)!==4)return res.status(503).json({error:'Endereço IPv4 não confirmado.'});
+    return res.json({success:true,detectedIp,status:'DRAFT_NOT_SAVED',source:process.env.PUBLIC_IP||process.env.WAN_IP?'CONFIGURED_ENVIRONMENT':'EGRESS_SERVICE'});
   });
 
   // -------------------------------------------------------------------------
@@ -1274,14 +997,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   app.all(['/api/v1/setup/snapshots','/api/v1/system/snapshots','/api/v1/setup/rollback','/api/v1/system/snapshots/:id/rollback'],requireAuth,requireTenant,requireRole('super_admin','admin'),(_req,res)=>res.status(501).json({code:'LEGACY_SNAPSHOT_RETIRED',error:'Snapshot parcial legado retirado. Use backup integral e restauração em destino novo.'}));
   app.post(['/api/v1/setup/preview','/api/v1/system/quick-setup/preview'],requireAuth,requireTenant,requireRole('super_admin','admin'),(req,res)=>{
-    try{return res.json({extensions:extensionBatch(req.body),status:'DRAFT_NOT_CREATED'});}catch(error){return extensionFailure(error,res);}
+    try{return res.json({extensions:extensionBatch(req.body),status:'DRAFT_NOT_CREATED'});}catch(error){return administrativeFailure(error,res);}
   });
   app.post(['/api/v1/setup/apply','/api/v1/system/quick-setup/apply'],requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
     const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});
     const items=extensionBatch(req.body);await extensionAudit(req,context.tenantId,'CREATE_EXTENSION_BATCH_ATTEMPT');
     const ids=await ExtensionManagementRepository.createBatch(context.tenantId,items);
     return res.status(201).json({success:true,generatedCount:ids.length,extensions:items.map((item,index)=>({...item,id:ids[index]})),status:'CREATED_NOT_APPLIED'});
-  }catch(error){return extensionFailure(error,res);}});
+  }catch(error){return administrativeFailure(error,res);}});
 
   // -------------------------------------------------------------------------
   // Dashboard Metrics (PRD Section 36) & Real-time SSE
@@ -1435,18 +1158,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   const findExtension=async(req:any)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?ExtensionRepository.findAnyByIdForSuperAdmin(req.params.id):ExtensionRepository.findById(req.params.id,context.tenantId);};
   const extensionAudit=async(req:any,tenantId:string,action:string,id='new')=>AuditLogRepository.logStrict({tenantId,userId:req.user.id,userName:req.user.name,action,resource:'extensions/'+id,category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Operação administrativa de ramal; sem corpo recebido ou credencial na auditoria.'});
-  const extensionFailure=(error:any,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});logOperational('SERVER_OPERATION_FAILURE',{requestId:res.locals.requestId});return res.status(500).json({error:'Não foi possível concluir a operação de ramal.'});};
+  const administrativeFailure=(error:any,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});logOperational('SERVER_OPERATION_FAILURE',{requestId:res.locals.requestId});return res.status(500).json({error:'Não foi possível concluir a operação administrativa.'});};
   app.post('/api/v1/extensions',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
     const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});const patch=extensionPatch(req.body,true);
     await extensionAudit(req,context.tenantId,'CREATE_EXTENSION_ATTEMPT');const id=await ExtensionManagementRepository.mutate(context.tenantId,undefined,patch);return res.status(201).json(ExtensionRepository.toSafeExtension((await ExtensionRepository.findById(id,context.tenantId))!));
-  }catch(error){return extensionFailure(error,res);}});
+  }catch(error){return administrativeFailure(error,res);}});
   app.put('/api/v1/extensions/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
     const previous=await findExtension(req);if(!previous)return res.status(404).json({error:'Ramal não encontrado nesta empresa.'});const patch=extensionPatch(req.body);
     await extensionAudit(req,previous.tenantId,'UPDATE_EXTENSION_ATTEMPT',previous.id);await ExtensionManagementRepository.mutate(previous.tenantId,previous.id,patch);return res.json(ExtensionRepository.toSafeExtension((await ExtensionRepository.findById(previous.id,previous.tenantId))!));
-  }catch(error){return extensionFailure(error,res);}});
+  }catch(error){return administrativeFailure(error,res);}});
   app.delete('/api/v1/extensions/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
     const previous=await findExtension(req);if(!previous)return res.status(404).json({error:'Ramal não encontrado nesta empresa.'});await extensionAudit(req,previous.tenantId,'DELETE_EXTENSION_ATTEMPT',previous.id);await ExtensionManagementRepository.remove(previous.tenantId,previous.id);return res.json({deleted:true});
-  }catch(error){return extensionFailure(error,res);}});
+  }catch(error){return administrativeFailure(error,res);}});
 
   // Consulta sob demanda de credencial de provisionamento físico/softphone (Apenas Administrador com Auditoria)
   app.get('/api/v1/extensions/:id/provision-credential', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
