@@ -657,6 +657,16 @@ try {
     assert.equal((await admin.query("SELECT count(*)::int AS total FROM audit_logs WHERE user_id=$1 AND action='BACKUP_DOWNLOAD'",[session.user.id])).rows[0].total,1);
     const headBackup=await fetch(backupUrl,{method:'HEAD',headers:rootHeaders});assert.equal(headBackup.status,200);assert.equal((await headBackup.arrayBuffer()).byteLength,0);
     assert.equal((await fetch(base+'/api/v1/system/backups/enlace-999999-abcdef01.epbx/download',{headers:rootHeaders})).status,404);
+    for(const path of ['/api/v1/health','/api/v1/health/summary']){const response=await fetch(base+path);assert.equal(response.status,200);assert.deepEqual(Object.keys(await response.json()).sort(),['status','timestamp']);}
+    assert.equal((await fetch(base+'/api/v1/system/health')).status,401);
+    assert.equal((await fetch(base+'/api/v1/system/health',{headers:testHeaders})).status,403);
+    assert.equal((await fetch(base+'/api/v1/health/run-diagnostic',{method:'POST',headers:testHeaders})).status,403);
+    const platformHealth=await fetch(base+'/api/v1/system/health',{headers:rootHeaders});assert.equal(platformHealth.status,200);const platformData=await platformHealth.json();
+    assert.equal(platformData.components.postgresql.status,'UP');assert.equal(platformData.components.ami.status,'DOWN');assert.equal(platformData.status,'DEGRADED');
+    for(const key of ['ari','pjsip','webrtc','audioSocket','redis','aiGateway','geminiApi','whatsapp'])assert.equal(platformData.components[key].status,'NOT_TESTED');
+    assert.equal(JSON.stringify(platformData).includes('error'),false);
+    const diagnostic=await fetch(base+'/api/v1/health/run-diagnostic',{method:'POST',headers:rootHeaders});assert.equal(diagnostic.status,200);const diagnosticData=await diagnostic.json();
+    assert.equal(diagnosticData.overallHealth,'DEGRADED');assert.equal(diagnosticData.diagnostics.find((d:any)=>d.name==='aiGateway').pingMs,null);
     const beforeLegacyRestore=(await admin.query('SELECT id,role,is_active,auth_version FROM users ORDER BY id')).rows;
     for(const route of ['backup','restore']){
       const response=await fetch(base+'/api/v1/system/'+route,{method:route==='backup'?'GET':'POST',headers:rootHeaders,...(route==='restore'?{body:JSON.stringify({data:{users:[{id:`user-a-${id}`,role:'super_admin',isActive:false}],tenants:[{id:tenantB,name:'Alterado indevidamente'}]}})}:{})});

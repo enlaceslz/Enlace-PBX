@@ -32,7 +32,7 @@ export interface AsteriskHealth {
   status: 'UP' | 'DOWN' | 'NOT_INSTALLED' | 'NOT_CONFIGURED';
   version?: string;
   uptime?: string;
-  channelsCount: number;
+  channelsCount: number | null;
   mode: 'LOCAL_CLI' | 'REMOTE_AMI' | 'REMOTE_ARI' | 'NONE';
   error?: string;
   amiConnected: boolean;
@@ -50,7 +50,7 @@ export class AsteriskAdapter {
   private hasBinary: boolean | null = null;
   private lastHealth: AsteriskHealth = {
     status: 'NOT_CONFIGURED',
-    channelsCount: 0,
+    channelsCount: null,
     mode: 'NONE',
     amiConnected: false,
     lastChecked: new Date().toISOString(),
@@ -424,23 +424,24 @@ export class AsteriskAdapter {
     if (hasAsterisk) {
       const version = await this.getVersion();
       const uptime = await this.getUptime();
-      const channels = await this.getChannels();
+      let amiConnected=false;
+      try{await this.executeAmiAction('CoreStatus');amiConnected=true;}catch{/* CLI disponível não comprova conexão AMI. */}
 
       if (version) {
         this.lastHealth = {
           status: 'UP',
           version,
           uptime: uptime || 'Ativo',
-          channelsCount: channels.length,
+          channelsCount: null,
           mode: 'LOCAL_CLI',
-          amiConnected: true,
+          amiConnected,
           lastChecked: new Date().toISOString(),
         };
         return this.lastHealth;
       } else {
         this.lastHealth = {
           status: 'DOWN',
-          channelsCount: 0,
+          channelsCount: null,
           mode: 'LOCAL_CLI',
           amiConnected: false,
           error: 'Binário "asterisk" instalado, mas o processo "asterisk" não está em execução no sistema.',
@@ -455,12 +456,11 @@ export class AsteriskAdapter {
       const amiRes = await this.executeAmiAction('CoreStatus');
       const versionMatch = amiRes.match(/CoreCurrentVersion:\s*([^\r\n]+)/i);
       const realVersion = versionMatch ? versionMatch[1].trim() : 'NO_DATA';
-      const channels = this.parseAmiChannels(amiRes);
       this.lastHealth = {
         status: 'UP',
         version: realVersion,
         uptime: 'Remoto',
-        channelsCount: channels.length,
+        channelsCount: null,
         mode: 'REMOTE_AMI',
         amiConnected: true,
         lastChecked: new Date().toISOString(),
@@ -469,7 +469,7 @@ export class AsteriskAdapter {
     } catch (amiErr: any) {
       this.lastHealth = {
         status: 'NOT_INSTALLED',
-        channelsCount: 0,
+        channelsCount: null,
         mode: 'NONE',
         amiConnected: false,
         error: 'Asterisk 20 LTS não está instalado localmente e o AMI remoto não está acessível em 127.0.0.1:5038.',

@@ -159,7 +159,7 @@ export default function App() {
         fetchWithAuth('/api/v1/ai/knowledge'),
         fetchWithAuth('/api/v1/ai/sessions'),
         fetchWithAuth('/api/v1/audit-logs'),
-        fetchWithAuth('/api/v1/health'),
+        fetchWithAuth(identity.role==='super_admin'?'/api/v1/system/health':'/api/v1/health'),
       ]);
 
       if(!current())return;

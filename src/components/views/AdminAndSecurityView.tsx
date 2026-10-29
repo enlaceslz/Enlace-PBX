@@ -1048,36 +1048,36 @@ export const AdminAndSecurityView: React.FC<AdminAndSecurityViewProps> = ({
                         <div>
                            <div className="text-sm font-bold text-slate-900 capitalize leading-tight">
                               {key === 'geminiApi'
-                                ? 'Google Gemini AI'
+                                ? 'Provedor de IA'
                                 : key === 'audioSocket'
-                                ? 'AudioSocket 24kHz'
+                                ? 'AudioSocket'
                                 : key}
                            </div>
                            <span className="text-[10px] font-mono text-slate-400 uppercase font-bold mt-0.5 block">
-                              Service Worker
+                              Sonda do serviço
                            </span>
                         </div>
                      </div>
-                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mt-1 shadow-sm shadow-emerald-500/50" />
+                     <span className={`w-2 h-2 rounded-full mt-1 ${val?.status==='UP'?'bg-emerald-500':'bg-slate-400'}`} />
                   </div>
                   
                   <div className="p-5 flex-1 flex flex-col justify-end bg-white">
                     <div className="space-y-2.5">
                       <div className="flex justify-between items-center text-xs">
                         <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Status</span>
-                        <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{val?.status || 'up'}</span>
+                        <span className="font-bold text-slate-700 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">{({UP:'Respondeu à consulta',DOWN:'Indisponível',UNAVAILABLE:'Indisponível',NOT_TESTED:'Não verificado',NOT_CONFIGURED:'Não configurado'} as Record<string,string>)[val?.status]||'Não apurado'}</span>
                       </div>
                       
                       {val.version && (
                         <div className="flex justify-between items-center text-xs">
-                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Version</span>
+                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Versão</span>
                           <span className="font-mono text-slate-700 font-bold">{val.version}</span>
                         </div>
                       )}
                       
                       {val.model && (
                         <div className="flex justify-between items-center text-xs">
-                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Model</span>
+                          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Modelo</span>
                           <span className="font-mono text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] border border-indigo-100">{val.model}</span>
                         </div>
                       )}

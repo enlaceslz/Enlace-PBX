@@ -36,6 +36,8 @@ test('servidor HTTP protege rotas, valida JSON e verifica o webhook original', {
       assert.equal(response.status, 401, path);
       assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     }
+    for(const path of ['/api/v1/health','/api/v1/health/summary']){const response=await fetch(base+path);assert.equal(response.status,200);const body=await response.json();assert.equal(body.status,'alive');assert.deepEqual(Object.keys(body).sort(),['status','timestamp']);}
+    assert.equal((await fetch(base+'/api/v1/system/health')).status,401);
     const malformed = await fetch(base + '/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' });
     assert.equal(malformed.status, 400);
     assert.equal('details' in await malformed.json(), false);

@@ -1,3 +1,4 @@
+import {healthEvidence,diagnosticEvidence} from './server/infrastructure/security/HealthEvidence.js';
 import {pipeline} from 'node:stream/promises';
 import { retiredJsonBackup } from './server/infrastructure/security/RetiredJsonBackup.js';
 import {DashboardRepository} from './server/infrastructure/postgres/repositories/DashboardRepository.js';
@@ -381,171 +382,18 @@ async function startServer() {
   app.get('/health/ready', readyHandler);
   app.get('/ready', readyHandler);
 
-  // 3. Diagnóstico do Sistema Protegido por RBAC (/api/v1/system/health)
-  app.get('/api/v1/system/health', requireRole('super_admin'), async (req, res) => {
-    const asteriskHealth = await asteriskAdapter.checkHealth();
-    const pgHealth = await postgresClient.checkHealth();
-    const wgHealth = await VpnAdapter.getWireguardStatus();
-    const ztHealth = await VpnAdapter.getZeroTierStatus();
-    const whatsappConfig = await SystemRepository.getWhatsappConfig();
-    const infraConfig = await SystemRepository.getInfraConfig();
-
-    const allExtensions = await ExtensionRepository.listAll().catch(() => []);
-    const allTrunks = await TrunkRepository.listAll().catch(() => []);
-
-    const components = {
-      postgresql: {
-        status: pgHealth.status === 'UP' ? 'UP' : (pgHealth.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'DOWN'),
-        latencyMs: pgHealth.latencyMs ?? null,
-        details: pgHealth.status === 'UP' ? 'Pool de conexões PostgreSQL conectado' : 'Banco de dados não operacional',
-      },
-      asterisk: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        version: asteriskHealth.version || 'UNKNOWN',
-        uptime: asteriskHealth.uptime || 'NO_DATA',
-        channelsCount: asteriskHealth.channelsCount ?? 0,
-      },
-      ami: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        host: process.env.ASTERISK_AMI_HOST || '127.0.0.1',
-        port: parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10),
-      },
-      ari: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        port: 8088,
-        application: 'enlace-gemini',
-      },
-      pjsip: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        endpointsOnline: allExtensions.filter((e) => e.status === 'online').length,
-        endpointsTotal: allExtensions.length,
-      },
-      sip: {
-        status: allTrunks.some(t => t.status === 'registered') ? 'UP' : (allTrunks.length === 0 ? 'NOT_CONFIGURED' : (allTrunks.some(t => t.lastPingStatus === 'SIP_OPTIONS_200') ? 'UP' : 'NOT_TESTED')),
-        trunksRegistered: allTrunks.filter((t) => t.status === 'registered').length,
-        trunksTotal: allTrunks.length,
-      },
-      webrtc: {
-        status: infraConfig?.ports?.webrtcWss === 8089 ? 'UP' : 'DEGRADED',
-        wssPort: infraConfig?.ports?.webrtcWss || 8089,
-        dtlsSrtp: true,
-      },
-      gemini: {
-        status: process.env.GEMINI_API_KEY ? 'UP' : 'NOT_CONFIGURED',
-        model: 'gemini-flash-latest',
-        voiceModel: 'gemini-3.1-flash-live-preview',
-      },
-      whatsapp: {
-        status: whatsappConfig?.isActive && whatsappConfig?.verifyToken ? 'UP' : (!whatsappConfig?.verifyToken ? 'NOT_CONFIGURED' : 'DEGRADED'),
-        phoneNumberId: whatsappConfig?.phoneNumberId ? 'CONFIGURED' : 'NOT_CONFIGURED',
-      },
-      wireguard: {
-        status: wgHealth.status === 'UP' ? 'UP' : (wgHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        installed: wgHealth.installed,
-        peersCount: wgHealth.peers.length,
-        interface: wgHealth.interface || 'wg0',
-      },
-      zerotier: {
-        status: ztHealth.status === 'UP' ? 'UP' : (ztHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        installed: ztHealth.installed,
-        nodeId: ztHealth.nodeId || 'NOT_CONFIGURED',
-      },
-      redis: {
-        status: (process.env.REDIS_URL || process.env.REDIS_HOST) ? 'UP' : 'NOT_CONFIGURED',
-      },
-      audioSocket: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'NOT_CONFIGURED',
-        port: 9092,
-      },
-    };
-
-    const isHealthy = components.postgresql.status === 'UP' && components.asterisk.status === 'UP';
-
-    res.json({
-      status: isHealthy ? 'UP' : 'DEGRADED',
-      timestamp: new Date().toISOString(),
-      platform: 'Enlace-PBX Pure Asterisk 20 + Gemini AI',
-      components,
-    });
-  });
-
-  const getHealthStatus = async () => {
-    const asteriskHealth = await asteriskAdapter.checkHealth();
-    const pgHealth = await postgresClient.checkHealth();
-    const wgHealth = await VpnAdapter.getWireguardStatus();
-    const ztHealth = await VpnAdapter.getZeroTierStatus();
-
-    const isHealthy = asteriskHealth.status === 'UP' && pgHealth.status === 'UP';
-
-    const allExtensions = await ExtensionRepository.listAll().catch(() => []);
-    const allTrunks = await TrunkRepository.listAll().catch(() => []);
-
-    return {
-      status: isHealthy ? 'healthy' : 'degraded',
-      timestamp: new Date().toISOString(),
-      platform: 'Enlace-PBX Pure Asterisk + Gemini AI',
-      version: '20.17.0-enlace-enterprise',
-      components: {
-        asterisk: {
-          status: asteriskHealth.status === 'UP' ? 'up' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'not_installed' : 'down'),
-          version: asteriskHealth.version || 'UNKNOWN',
-          uptime: asteriskHealth.uptime || 'NO_DATA',
-          channelsCount: asteriskHealth.channelsCount ?? 0,
-          mode: asteriskHealth.mode || 'UNKNOWN',
-          error: asteriskHealth.error || null,
-        },
-        postgresql: {
-          status: pgHealth.status === 'UP' ? 'up' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'down'),
-          latencyMs: pgHealth.latencyMs ?? null,
-          pool: pgHealth.status === 'UP' ? 'active' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'disconnected'),
-          mode: pgHealth.status === 'UP' ? 'postgresql_cluster' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'disconnected'),
-          error: pgHealth.error || null,
-        },
-        wireguard: {
-          status: wgHealth.status.toLowerCase(),
-          installed: wgHealth.installed,
-          peersCount: wgHealth.peers.length,
-          interface: wgHealth.interface || 'wg0',
-          message: wgHealth.message,
-        },
-        zerotier: {
-          status: ztHealth.status.toLowerCase(),
-          installed: ztHealth.installed,
-          nodeId: ztHealth.nodeId,
-          version: ztHealth.version,
-          message: ztHealth.message,
-        },
-        ari: { status: asteriskHealth.status === 'UP' ? 'up' : 'down', port: 8088, apps: ['enlace-gemini'] },
-        pjsip: {
-          status: asteriskHealth.status === 'UP' ? 'up' : 'down',
-          endpointsOnline: allExtensions.filter((e) => e.status === 'online').length,
-          trunksRegistered: allTrunks.filter((t) => t.status === 'registered').length,
-        },
-        audioSocket: {
-          status: asteriskHealth.status === 'UP' ? 'up' : 'not_configured',
-          activeStreams: 0,
-          bufferLatencyMs: null,
-        },
-        redis: {
-          status: (process.env.REDIS_URL || process.env.REDIS_HOST) ? 'up' : 'not_configured',
-          memoryUsedMb: null,
-        },
-        aiGateway: {
-          status: process.env.GEMINI_API_KEY ? 'up' : 'not_configured',
-          activeSessions: 0,
-        },
-        geminiApi: {
-          status: process.env.GEMINI_API_KEY ? 'connected' : 'not_configured',
-          model: 'gemini-flash-latest',
-          liveVoiceModel: 'gemini-3.1-flash-live-preview',
-          defaultVoice: 'pt-BR-Wavenet-A',
-        },
-      },
-    };
+  // Diagnóstico global restrito à administração da plataforma, sem detalhes brutos.
+  let healthCache:{until:number;value:Promise<ReturnType<typeof healthEvidence>>}|undefined;
+  const getHealthStatus=async()=>{
+    if(healthCache&&healthCache.until>Date.now())return healthCache.value;
+    const value=Promise.allSettled([asteriskAdapter.checkHealth(),postgresClient.checkHealth()]).then(([ast,pg])=>healthEvidence(ast.status==='fulfilled'?ast.value:{status:'DOWN'},pg.status==='fulfilled'?pg.value:{status:'DOWN'}));
+    const entry={until:Infinity,value};healthCache=entry;
+    void value.then(()=>{entry.until=Date.now()+5000;});return value;
   };
+  app.get('/api/v1/system/health',requireRole('super_admin'),async(_req,res)=>res.json(await getHealthStatus()));
 
   app.get('/api/v1/health/summary', (req, res) => {
-    res.json({ status: 'ok', pbx: 'Enlace-PBX Enterprise' });
+    res.json({ status: 'alive', timestamp: new Date().toISOString() });
   });
 
 
@@ -618,9 +466,7 @@ async function startServer() {
     res.json({leads:page,nextCursor:rows.length>100?page.at(-1).phone:null});
   });
 
-  app.get('/api/v1/health', async (req, res) => {
-    res.json(await getHealthStatus());
-  });
+  app.get('/api/v1/health',(_req,res)=>res.json({status:'alive',timestamp:new Date().toISOString()}));
 
   // -------------------------------------------------------------------------
   // Logs de Sistema em Tempo Real (Asterisk, Nginx, WireGuard, Fail2ban, etc.)
@@ -4650,85 +4496,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.sendStatus(200);
   });
 
-  app.post('/api/v1/health/run-diagnostic', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    const [extensions, trunks] = await Promise.all([
-      ExtensionRepository.listByTenant(tenantId).catch(() => []),
-      TrunkRepository.listByTenant(tenantId).catch(() => []),
-    ]);
-
-    const tAst = performance.now();
-    let isAstRunning = false;
-    try {
-      isAstRunning = await asteriskAdapter.isAsteriskRunning();
-    } catch {
-      isAstRunning = false;
-    }
-    const astLatency = Number((performance.now() - tAst).toFixed(2));
-
-    const tPg = performance.now();
-    let pgOk = false;
-    let pgDetails = 'PostgreSQL não conectado';
-    try {
-      const pgRes = await postgresClient.query('SELECT 1 as ping');
-      pgOk = Boolean(pgRes?.rows?.length);
-      pgDetails = 'Pool de conexões PostgreSQL ativo e operacional';
-    } catch (err: any) {
-      pgDetails = `PostgreSQL em modo fallback / offline: ${err?.message || 'Sem conexão'}`;
-    }
-    const pgLatency = Number((performance.now() - tPg).toFixed(2));
-
-    const memUsageMb = Number((process.memoryUsage().rss / (1024 * 1024)).toFixed(1));
-    const { reachable: ariReachable, latencyMs: ariLatency } = await measureSocketLatency('127.0.0.1', 8088, 500);
-
-    const diagnostics = [
-      {
-        name: 'Asterisk 20 Core Engine',
-        pingMs: astLatency,
-        status: isAstRunning ? 'PASS' : 'WARN',
-        details: isAstRunning ? 'Socket /var/run/asterisk/asterisk.ctl operacional' : 'Asterisk CLI offline ou em contêiner desacoplado',
-      },
-      {
-        name: 'ARI REST Interface (Porta 8088)',
-        pingMs: ariLatency,
-        status: ariReachable ? 'PASS' : 'WARN',
-        details: ariReachable ? 'Stasis App "enlace-gemini" ativo e respondendo na porta 8088' : 'Porta 8088 não respondeu no tempo limite',
-      },
-      {
-        name: 'PJSIP Stack & Transports (UDP/TCP/TLS)',
-        pingMs: 1.0,
-        status: 'PASS',
-        details: `${extensions.length} ramais cadastrados, ${trunks.length} troncos SIP configurados`,
-      },
-      {
-        name: 'PostgreSQL Realtime Database',
-        pingMs: pgLatency,
-        status: pgOk ? 'PASS' : 'WARN',
-        details: pgDetails,
-      },
-      {
-        name: 'Node.js Engine & Cache Memory',
-        pingMs: 0.5,
-        status: 'PASS',
-        details: `Consumo de memória do processo: ${memUsageMb} MB RSS`,
-      },
-      {
-        name: 'Google Gemini AI Gateway API',
-        pingMs: 25.0,
-        status: Boolean(process.env.GEMINI_API_KEY) ? 'PASS' : 'WARN',
-        details: Boolean(process.env.GEMINI_API_KEY) ? 'Chave GEMINI_API_KEY provisionada no ambiente' : 'Aguardando configuração de GEMINI_API_KEY',
-      },
-    ];
-
-    const hasWarnings = diagnostics.some((d) => d.status === 'WARN');
-
-    res.json({
-      timestamp: new Date().toISOString(),
-      testedBy: 'Diagnóstico em Tempo Real do Enlace NOC',
-      overallHealth: hasWarnings ? 'GOOD' : 'EXCELLENT',
-      diagnostics,
-    });
+  const diagnosticLimiter=rateLimit({windowMs:60000,limit:10,standardHeaders:true,legacyHeaders:false,message:{error:'Limite de consultas de diagnóstico excedido.'}});
+  app.post('/api/v1/health/run-diagnostic',requireRole('super_admin'),diagnosticLimiter,async(_req,res)=>{
+    res.json(diagnosticEvidence(await getHealthStatus()));
   });
 
   // -------------------------------------------------------------------------
@@ -4758,7 +4528,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   const server = app.listen(PORT, HOST, () => {
     console.log(`[Enlace-PBX] Servidor rodando em http://${HOST}:${PORT}`);
-    console.log(`[Enlace-PBX] Núcleo Asterisk 20 LTS + Google Gemini AI Gateway pronto.`);
+    console.log('[Enlace-PBX] HTTP iniciado; dependências e telefonia exigem verificação de prontidão.');
   });
 
   server.on('error', (err: any) => {
