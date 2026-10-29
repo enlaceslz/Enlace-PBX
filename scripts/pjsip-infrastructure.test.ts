@@ -1,3 +1,4 @@
+import {SystemRepository} from '../server/infrastructure/postgres/repositories/SystemRepository.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {pjsipInfrastructure} from '../server/infrastructure/asterisk/PjsipInfrastructure.js';
@@ -12,4 +13,16 @@ test('caminhos TLS não aceitam variáveis, diretivas, URLs ou travessia',()=>{
  const certificate={status:'valid',certPath:'/etc/letsencrypt/live/pbx/fullchain.pem',keyPath:'/etc/letsencrypt/live/pbx/privkey.pem'};
  assert.equal(pjsipInfrastructure({...config,sslCertificate:certificate}).sslCertificate.certPath,certificate.certPath);
  for(const path of ['../chave','/etc/../chave','https://host/chave','/etc/chave;diretiva=x','/etc/${SHELL(id)}','/etc/chave\nexec=x'])assert.throws(()=>pjsipInfrastructure({...config,sslCertificate:{...certificate,keyPath:path}}));
+});
+
+test('consulta de infraestrutura ausente não persiste exemplos da interface',async()=>{
+ const get=SystemRepository.getSetting;const set=SystemRepository.setInfraConfig;let writes=0;
+ try{
+  SystemRepository.getSetting=async()=>null;
+  SystemRepository.setInfraConfig=async()=>{writes++;throw new Error('escrita inesperada');};
+  const fallback={hostname:'rascunho.example.invalid'};
+  assert.equal(await SystemRepository.getInfraConfig(fallback),fallback);
+  assert.equal(typeof (await SystemRepository.getInfraConfig()).hostname,'string');
+  assert.equal(writes,0);
+ }finally{SystemRepository.getSetting=get;SystemRepository.setInfraConfig=set;}
 });

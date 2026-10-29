@@ -399,13 +399,8 @@ export class SystemRepository {
   public static async getInfraConfig(fallback?: any): Promise<any> {
     const val = await this.getSetting('infra_config');
     if (val) return val;
-    const def = fallback || this.getDefaultInfraConfig();
-    try {
-      await this.setInfraConfig(def);
-    } catch {
-      // ignore
-    }
-    return def;
+    // Consulta não transforma exemplos da interface em configuração persistida.
+    return fallback || this.getDefaultInfraConfig();
   }
 
   public static async setInfraConfig(config: any): Promise<any> {

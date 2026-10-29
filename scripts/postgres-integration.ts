@@ -796,6 +796,7 @@ try {
     const previousInfra=(await admin.query("SELECT value FROM system_settings WHERE key='infra_config'")).rows[0]?.value;
     const testInfra={hostname:'pbx.example.invalid',domain:'pbx.example.invalid',publicIp:'192.0.2.10',lanIp:'192.168.3.150',lanSubnet:'255.255.255.0',ports:{sipUdp:5060,sipTls:5061},sslCertificate:{status:'not_configured'}};
     await admin.query("DELETE FROM system_settings WHERE key='infra_config'");await assert.rejects(generatorService.generatePjsipConf(tenantA,true));
+    assert.equal((await fetch(base+'/api/v1/infra/config',{headers:rootHeaders})).status,200);
     assert.equal((await admin.query("SELECT key FROM system_settings WHERE key='infra_config'")).rowCount,0);
     const saveTestInfra=async(value:any)=>admin.query("INSERT INTO system_settings(key,value) VALUES('infra_config',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",[JSON.stringify(value)]);
     await saveTestInfra(testInfra);
