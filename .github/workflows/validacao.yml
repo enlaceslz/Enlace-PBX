@@ -1,0 +1,33 @@
+name: Validação da aplicação
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validacao:
+    name: Tipos, testes e build (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Instalar dependências fixadas
+        run: npm ci
+      - name: Verificar tipos
+        run: npm run lint
+      - name: Executar suíte local
+        run: npm test
+      - name: Compilar aplicação
+        run: npm run build
