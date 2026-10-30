@@ -39,3 +39,11 @@ Foi corrigida a afinidade de conexão no migrador: obtenção e liberação do a
 Quatro testes de regressão com cliente controlado cobrem sucesso, falha de bloqueio, rollback na falha de registro da segunda migração e descarte da conexão após falha de desbloqueio. Eles foram incorporados ao `npm test` e passaram localmente.
 
 A separação das credenciais de migração e de execução ainda exige implementação: o migrador atual usa a conexão operacional, que não deveria receber privilégios DDL em produção. O bootstrap também precisa ser validado contra RLS real. Nenhuma migração SQL histórica foi alterada nesta rodada para evitar quebra de checksums.
+
+## Continuação: inicialização de produção somente leitura
+
+A revisão de atomicidade passou no CI (execução 41080428145). A inicialização em NODE_ENV=production agora valida a saúde do banco e compara todas as versões e hashes SQL disponíveis com schema_migrations. Não executa DDL, não obtém bloqueio de migração e não chama bootstrap. Versão pendente, hash ausente/divergente, manifesto indisponível ou erro de banco impedem a inicialização.
+
+Quatro cenários adicionais verificam o caminho de produção: esquema íntegro, migração pendente, hash divergente e hash ausente. As consultas do teste são restritas à leitura do histórico. Resultado local: oito testes de regressão e 64 verificações da suíte aprovados; três integrações continuam bloqueadas.
+
+**Impacto operacional:** um banco vazio ou antigo precisa ser provisionado antes da inicialização de produção. O instalador atual ainda não implementa um comando independente com credencial administrativa para migrações e bootstrap; portanto, esta proteção não conclui o fluxo de instalação. Não conceder privilégios DDL a enlace_app para contornar a recusa. O pipeline de provisionamento e a homologação PostgreSQL real permanecem bloqueadores de produção. O modo de desenvolvimento conserva o executor anterior.

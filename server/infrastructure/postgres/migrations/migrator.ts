@@ -9,7 +9,32 @@ import { AuditLogRepository } from '../repositories/AuditLogRepository.js';
 export class DatabaseMigrator {
   private static readonly MIGRATION_LOCK_ID = 7429184;
 
+  /** Valida versões e hashes sem DDL, bootstrap ou escrita pelo usuário operacional. */
+  public static async verifySchema(): Promise<{ success: boolean; applied: number; error?: string }> {
+    try {
+      const health = await postgresClient.checkHealth();
+      if (health.status !== 'UP' || !postgresClient.isConfigured) {
+        throw new Error('SCHEMA_UNAVAILABLE: PostgreSQL operacional indisponível.');
+      }
+      const directory = path.join(process.cwd(), 'server', 'infrastructure', 'postgres', 'migrations');
+      const files = fs.readdirSync(directory).filter(file => /^\d+_.*\.sql$/.test(file)).sort();
+      if (files.length === 0) throw new Error('SCHEMA_MANIFEST_MISSING: Nenhuma migração disponível para validação.');
+      const result = await postgresClient.query('SELECT version, sha256 FROM schema_migrations');
+      const versions = new Map(result.rows.map(row => [row.version, row.sha256]));
+      for (const file of files) {
+        const version = file.split('_')[0];
+        const expected = crypto.createHash('sha256').update(fs.readFileSync(path.join(directory, file))).digest('hex');
+        if (!versions.has(version)) throw new Error(`SCHEMA_PENDING: Migração ${file} pendente; execute o provisionamento com credencial administrativa separada.`);
+        if (versions.get(version) !== expected) throw new Error(`SCHEMA_DRIFT: Hash ausente ou divergente em ${file}.`);
+      }
+      return { success: true, applied: 0 };
+    } catch (err: any) {
+      return { success: false, applied: 0, error: err.message };
+    }
+  }
+
   public static async runMigrations(): Promise<{ success: boolean; applied: number; error?: string }> {
+    if (process.env.NODE_ENV === 'production') return this.verifySchema();
     const health = await postgresClient.checkHealth();
     if (health.status !== 'UP') {
       console.log(`[DatabaseMigrator] PostgreSQL status: ${health.status} (${health.error || 'Aguardando configuração'}). Migrations adiadas.`);

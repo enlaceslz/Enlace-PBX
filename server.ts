@@ -50,7 +50,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Inicialização síncrona/bloqueante das migrações PostgreSQL e integridade do banco (Fail-Fast em produção)
+  // Em produção, validar o esquema sem DDL ou bootstrap pela credencial operacional.
   console.log('[Enlace-PBX] [1/5] Validando ambiente e inicializando integridade do PostgreSQL...');
   try {
     const migrationRes = await DatabaseMigrator.runMigrations();

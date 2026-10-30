@@ -64,3 +64,39 @@ for (const scenario of ['sucesso', 'bloqueio', 'registro', 'desbloqueio'] as con
     }
   });
 }
+
+for (const scenario of ['íntegro', 'pendente', 'divergente', 'sem hash'] as const) {
+  test(`Validação somente leitura: ${scenario}`, async () => {
+    const fs = await import('node:fs');
+    const crypto = await import('node:crypto');
+    const path = await import('node:path');
+    const original = { health: postgresClient.checkHealth, query: postgresClient.query, configured: postgresClient.isConfigured, env: process.env.NODE_ENV };
+    const directory = path.join(process.cwd(), 'server/infrastructure/postgres/migrations');
+    const rows = fs.readdirSync(directory).filter(file => /^\d+_.*\.sql$/.test(file)).map(file => ({
+      version: file.split('_')[0],
+      sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(directory, file))).digest('hex'),
+    }));
+    if (scenario === 'pendente') rows.pop();
+    if (scenario === 'divergente') rows[0].sha256 = 'inválido';
+    if (scenario === 'sem hash') rows[0].sha256 = null;
+    try {
+      process.env.NODE_ENV = 'production';
+      postgresClient.isConfigured = true;
+      postgresClient.checkHealth = async () => ({ status: 'UP' });
+      postgresClient.query = (async (sql: string) => {
+        assert.equal(sql, 'SELECT version, sha256 FROM schema_migrations');
+        return { rows };
+      }) as any;
+      const result = await DatabaseMigrator.runMigrations();
+      assert.equal(result.applied, 0);
+      assert.equal(result.success, scenario === 'íntegro');
+      if (scenario !== 'íntegro') assert.match(result.error!, /SCHEMA_PENDING|SCHEMA_DRIFT/);
+    } finally {
+      postgresClient.checkHealth = original.health;
+      postgresClient.query = original.query;
+      postgresClient.isConfigured = original.configured;
+      if (original.env === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = original.env;
+    }
+  });
+}
