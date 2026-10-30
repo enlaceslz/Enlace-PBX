@@ -42,6 +42,12 @@ test('ferramenta executa POST e GET reais com vínculo exato, confirmação e au
     await executeAiToolHttp(getTool, { documento: '12 & 3' }, true, { ...options, bindings: [{ ...binding, method: 'GET' }] });
     assert.equal(lastUrl, '/acao?documento=12+%26+3');
     const before = hits;
+    const beforeInvalidAudit=audited;
+    for(const invalid of [undefined,null,0,'false'])await assert.rejects(executeAiToolHttp({...tool,requiresConfirmation:invalid as any},{documento:'123'},true,options),/confirmação/);
+    await assert.rejects(executeAiToolHttp({...tool,name:''},{documento:'123'},true,options),/Nome/);
+    await assert.rejects(executeAiToolHttp({...tool,schemaJson:{type:'object',$ref:'https://example.invalid/schema'}},{documento:'123'},true,options),/Schema/);
+    assert.equal(audited,beforeInvalidAudit,'Definição inválida é recusada antes da tentativa auditada de envio.');
+
     await assert.rejects(executeAiToolHttp(tool, null, true, options), /objeto JSON/);
     await assert.rejects(executeAiToolHttp(tool, { documento: '123' }, false, options), /Confirme/);
     await assert.rejects(executeAiToolHttp(tool, { documento: 123 }, true, options), /Schema/);

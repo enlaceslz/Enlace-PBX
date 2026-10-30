@@ -81,6 +81,7 @@ export async function executeAiToolHttp(tool: AiTool, params: unknown, confirmed
   bindings?: ToolBinding[];
   policy?: OutboundPolicy;
 }) {
+  validateToolDefinition(tool);
   if (tool.requiresConfirmation && confirmed !== true) throw new OutboundHttpError('Confirme a execução real desta ferramenta.', 409);
   validateParams(params);
   const validate = compileToolSchema(tool.schemaJson);
