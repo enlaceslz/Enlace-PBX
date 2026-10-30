@@ -50,3 +50,12 @@ test('HTTP real fixa DNS, preserva JSON e autenticação, limita resposta e recu
     await assert.rejects(outboundJson(origin, { policy, headers: { Host: 'outro' } }), /Cabeçalho/);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+test('limites HTTP inválidos são recusados antes de DNS e acesso à rede',async()=>{
+ let lookups=0;const policy={allowedOrigins:['https://integracao.invalid'],privateOrigins:[],resolve:async()=>{lookups++;return [{address:'8.8.8.8',family:4}];}};
+ for(const key of ['timeoutMs','maxResponseBytes'])for(const value of [0,-1,NaN,Infinity,1.5,'100',null,Number.MAX_SAFE_INTEGER+1]){
+  await assert.rejects(outboundJson('https://integracao.invalid',{policy,[key]:value} as any),(error:any)=>error.statusCode===400&&/Limite/.test(error.message));
+ }
+ await assert.rejects(outboundJson('https://integracao.invalid',{policy,responseMode:'outro'} as any),/Modo de resposta/);
+ assert.equal(lookups,0);
+});

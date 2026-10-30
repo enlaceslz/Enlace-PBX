@@ -481,3 +481,6 @@ Execução de ferramenta revalida a definição completa antes de avaliar confir
 
 
 Transporte HTTP de saída: resposta JSON exige UTF-8 válido, sem substituição silenciosa de bytes inválidos; respostas com Content-Encoding diferente de identity são recusadas, coerentemente com a solicitação sem compressão. Modo discard continua contando bytes e aplicando o limite, mas não retém nem interpreta o corpo: confirma somente o status aceito pelo fluxo chamador. Teste HTTP real cobre UTF-8 inválido, caractere multibyte fragmentado, codificação inesperada e limite também em descarte. Sem retries, descompressão automática, alteração de origens autorizadas ou migração.
+
+
+Limites de saída HTTP são validados antes de DNS: timeout e tamanho devem ser inteiros positivos seguros, sem coerção de strings, null, valores fracionários ou não finitos. Ausência mantém 5 s/64 KiB; valores válidos maiores continuam limitados a 30 s/1 MiB. Modo de resposta aceita somente json/discard. Timeout do transporte começa após a validação DNS, que possui seu próprio limite de 2 s; não representa um prazo global incluindo processamento do chamador. Teste dedicado confirma recusa antes de DNS. Nenhuma configuração ou credencial foi alterada.

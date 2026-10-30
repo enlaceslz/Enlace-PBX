@@ -70,6 +70,14 @@ export interface OutboundRequest {
 
 /** DNS fixado no socket; não segue redirects nem encaminha credenciais para outro host. */
 export async function outboundJson(raw: string, options: OutboundRequest = {}): Promise<{ status: number; data: unknown; durationMs: number }> {
+  const positiveLimit=(value:unknown,fallback:number,maximum:number)=>{
+    if(value===undefined)return fallback;
+    if(typeof value!=='number'||!Number.isSafeInteger(value)||value<1)throw new OutboundHttpError('Limite de integração inválido.',400);
+    return Math.min(value,maximum);
+  };
+  const timeoutMs=positiveLimit(options.timeoutMs,5000,30000);
+  const limit=positiveLimit(options.maxResponseBytes,64*1024,1024*1024);
+  if(options.responseMode!==undefined&&!['json','discard'].includes(options.responseMode))throw new OutboundHttpError('Modo de resposta de integração inválido.',400);
   const start = Date.now();
   const { url, address } = await validateOutboundUrl(raw, options.policy);
   const method = options.method || 'GET';
@@ -83,7 +91,6 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
     headers[name] = value;
   }
   if (body) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = String(body.length); }
-  const limit = Math.min(options.maxResponseBytes || 64 * 1024, 1024 * 1024);
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (error?: OutboundHttpError, response?: { status: number; data: unknown; durationMs: number }) => {
@@ -122,7 +129,7 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
         finish(undefined, { status, data, durationMs: Date.now() - start });
       });
     });
-    const timeout = setTimeout(() => { request.destroy(); finish(new OutboundHttpError('Tempo limite da integração excedido.', 504)); }, Math.min(options.timeoutMs || 5000, 30000));
+    const timeout = setTimeout(() => { request.destroy(); finish(new OutboundHttpError('Tempo limite da integração excedido.', 504)); }, timeoutMs);
     request.on('error', () => finish(new OutboundHttpError('Falha na conexão com a integração.')));
     request.end(body);
   });
