@@ -1447,7 +1447,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   {prov.providerType}
                 </span>
                 <span className="text-xs text-blue-600 font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Conectado
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {prov.isActive?'Cadastro ativo':'Cadastro inativo'}
                 </span>
               </div>
 
@@ -1463,7 +1463,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs font-mono">
                 <div className="flex items-center justify-between text-slate-500">
                   <span className="flex items-center gap-1">
-                    <Lock className="w-3 h-3 text-blue-600" /> API Key Protegida:
+                    <Lock className="w-3 h-3 text-blue-600" /> Credencial:
                   </span>
                   <span className="text-slate-700">{prov.apiKeyMasked}</span>
                 </div>
@@ -1478,7 +1478,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               </div>
 
               <div className="pt-2 text-[11px] text-slate-500">
-                Segurança: Chaves executadas estritamente em ambiente de servidor (Server-Side). Nunca expostas ao browser.
+                Cadastro informativo, sem conexão verificada. As chamadas usam a configuração administrativa do gateway no servidor; este cadastro não altera o destino nem a credencial de execução.
               </div>
             </div>
           ))}

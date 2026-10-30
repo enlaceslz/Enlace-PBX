@@ -286,6 +286,10 @@ try {
     await assert.rejects(MaiaSessionRepository.createSession({...previewSession,id:'foreign-agent-session-'+id,agentId:sessionAgentB}));
     const aiRequest=async(kind:string,method:string,suffix:string,body?:any,selected:Record<string,string>=testHeaders)=>fetch(base+'/api/v1/ai/'+kind+suffix,{method,headers:selected,...(body===undefined?{}:{body:JSON.stringify(body)})});
     const aiAgentBody={name:'Configuração IA '+id,model:'modelo-ci',voice:'Zephyr',systemInstruction:'PROMPT_PRIVADO_CI_'+id,temperature:0,isActive:false,allowBargeIn:false};
+    const providerSecret='CREDENCIAL_LEGADA_NAO_PUBLICAR_'+id;
+    await admin.query("INSERT INTO ai_providers(id,tenant_id,name,api_key_masked,base_url,default_temperature,is_active) VALUES($1,$2,'Cadastro legado',$3,$4,0,false)",[ 'provider-ci-'+id,tenantA,providerSecret,'https://usuario:senha@example.invalid/?token='+providerSecret]);
+    const providerResponse=await fetch(base+'/api/v1/ai/providers',{headers:testHeaders});assert.equal(providerResponse.status,200);const providerText=await providerResponse.text();assert.equal(providerText.includes(providerSecret),false);assert.equal(providerText.includes('usuario:senha'),false);const providerPublic=JSON.parse(providerText).find(p=>p.id==='provider-ci-'+id);assert.equal(providerPublic.defaultTemperature,0);assert.equal(providerPublic.isActive,false);assert.equal(providerPublic.baseUrl,undefined);
+    const foreignProviders=await fetch(base+'/api/v1/ai/providers',{headers:{...rootHeaders,'x-tenant-id':tenantB}});assert.equal(foreignProviders.status,200);assert.equal((await foreignProviders.text()).includes('provider-ci-'+id),false);
     const toolBody={name:'Ferramenta cadastral '+id,endpoint:origin+'/acao',requiresConfirmation:false,schemaJson:{type:'object',properties:{}}};
     const toolCreatedResponse=await aiRequest('tools','POST','',toolBody);assert.equal(toolCreatedResponse.status,201);const managedTool=await toolCreatedResponse.json();assert.match(managedTool.id,/^tool-[a-f0-9-]{36}$/);
     assert.equal((await aiRequest('tools','POST','',{...toolBody,tenantId:tenantB})).status,400);

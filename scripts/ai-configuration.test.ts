@@ -1,3 +1,4 @@
+import {publicAiProvider} from '../server/infrastructure/postgres/repositories/AiToolRepository.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {agentPatch,toolPatch,configurationIds,knowledgePatch,knowledgeUpload,reviewedKnowledge} from '../server/infrastructure/ai/AiConfiguration.js';
@@ -36,4 +37,9 @@ test('ferramenta permite patch limitado e recusa identidade, resposta simulada e
  assert.deepEqual(toolPatch({description:'Texto revisado'}),{description:'Texto revisado'});
  for(const patch of [{id:'forjado'},{tenantId:'outra'},{mockResponse:{}},{requiresConfirmation:0},{method:'DELETE'},{name:'a\0b'},{endpoint:'https://example.invalid/'+ 'a'.repeat(256)}])assert.throws(()=>toolPatch(patch));
  assert.throws(()=>toolPatch({}));assert.throws(()=>toolPatch({name:'Sem destino'},true));
+});
+
+test('provedor público omite chave e URL legadas e preserva temperatura zero',()=>{
+ const value=publicAiProvider({id:'p',tenant_id:'t',name:'Cadastro',provider_type:'custom',api_key_masked:'SEGREDO_LEGADO',base_url:'https://usuario:senha@example.invalid/?token=segredo',default_temperature:0,is_active:false,updated_at:new Date()});
+ assert.equal(value.defaultTemperature,0);assert.equal(value.isActive,false);assert.equal(value.baseUrl,undefined);assert.equal(JSON.stringify(value).includes('SEGREDO_LEGADO'),false);assert.equal(JSON.stringify(value).includes('senha'),false);
 });
