@@ -1,3 +1,4 @@
+import {validatedWavAudio} from '../../../infrastructure/ai/VoiceAudio.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { MaiaAIProvider } from '../MaiaAIProvider.js';
 import {
@@ -121,10 +122,7 @@ export class GeminiProvider implements MaiaAIProvider {
         },
       });
 
-      const audioBase64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!audioBase64) {
-        throw new Error('Resposta de áudio vazia do Gemini TTS.');
-      }
+      const audioBase64 = validatedWavAudio(response.candidates?.[0]?.content?.parts?.[0]?.inlineData);
 
       return {
         audioBase64,
