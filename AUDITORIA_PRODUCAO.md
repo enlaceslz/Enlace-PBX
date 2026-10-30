@@ -422,3 +422,6 @@ Provedores de IA: listagens usam projeção pública explícita, omitindo base_u
 
 
 Execução de ferramenta revalida a definição completa antes de avaliar confirmação, parâmetros e vínculo administrativo. Registros legados com booleano de confirmação ausente/inválido, nome inválido ou schema não suportado são recusados antes da tentativa de envio; não são normalizados implicitamente nem recebem valores padrão em execução. O teste HTTP com servidor local verifica que entradas inválidas não alcançam o destino e não iniciam a auditoria de envio. Configurações válidas continuam exigindo auditoria antes da chamada externa. Sem migração ou alteração de credenciais nesta etapa.
+
+
+Transporte HTTP de saída: resposta JSON exige UTF-8 válido, sem substituição silenciosa de bytes inválidos; respostas com Content-Encoding diferente de identity são recusadas, coerentemente com a solicitação sem compressão. Modo discard continua contando bytes e aplicando o limite, mas não retém nem interpreta o corpo: confirma somente o status aceito pelo fluxo chamador. Teste HTTP real cobre UTF-8 inválido, caractere multibyte fragmentado, codificação inesperada e limite também em descarte. Sem retries, descompressão automática, alteração de origens autorizadas ou migração.

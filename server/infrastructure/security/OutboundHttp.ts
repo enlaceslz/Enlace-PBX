@@ -100,17 +100,25 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
         response.destroy(); request.destroy();
         return finish(new OutboundHttpError(status >= 300 && status < 400 ? 'Redirecionamento de integração recusado.' : `Destino retornou HTTP ${status}.`, 502, status));
       }
+      if (response.headers['content-encoding'] !== undefined && response.headers['content-encoding'].trim().toLowerCase() !== 'identity') {
+        response.destroy(); request.destroy();
+        return finish(new OutboundHttpError('Codificação da resposta da integração não suportada.'));
+      }
       let bytes = 0; const blocks: Buffer[] = [];
       response.on('data', (block: Buffer) => {
         bytes += block.length;
         if (bytes > limit) { response.destroy(); request.destroy(); return finish(new OutboundHttpError('Resposta da integração excedeu o limite.')); }
-        blocks.push(block);
+        if (options.responseMode !== 'discard') blocks.push(block);
       });
       response.on('error', () => finish(new OutboundHttpError('Resposta da integração interrompida.')));
       response.on('end', () => {
-        const text = Buffer.concat(blocks).toString('utf8');
         let data: unknown = null;
-        if (text && options.responseMode !== 'discard') { try { data = JSON.parse(text); } catch { return finish(new OutboundHttpError('Destino não retornou JSON válido.')); } }
+        if (options.responseMode !== 'discard' && bytes) {
+          let text:string;
+          try { text = new TextDecoder('utf-8', {fatal:true,ignoreBOM:true}).decode(Buffer.concat(blocks)); }
+          catch { return finish(new OutboundHttpError('Destino não retornou UTF-8 válido.')); }
+          try { data = JSON.parse(text); } catch { return finish(new OutboundHttpError('Destino não retornou JSON válido.')); }
+        }
         finish(undefined, { status, data, durationMs: Date.now() - start });
       });
     });

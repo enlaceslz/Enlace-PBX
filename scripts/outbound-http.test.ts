@@ -21,6 +21,10 @@ test('HTTP real fixa DNS, preserva JSON e autenticação, limita resposta e recu
     if (req.url === '/redirect') { res.writeHead(302, { Location: '/destino' }); return res.end(); }
     if (req.url === '/grande') return res.end(JSON.stringify('x'.repeat(200)));
     if (req.url === '/lento') return;
+    if (req.url === '/utf8-invalido') return res.end(Buffer.from([0x7b,0x22,0x78,0x22,0x3a,0x22,0xc3,0x22,0x7d]));
+    if (req.url === '/codificado') {res.setHeader('Content-Encoding','gzip');return res.end('{}');}
+    if (req.url === '/utf8-valido') {res.setHeader('Content-Encoding','Identity');res.write(Buffer.from([0x7b,0x22,0x78,0x22,0x3a,0x22,0xc3]));return res.end(Buffer.from([0xa1,0x22,0x7d]));}
+
     if (req.url === '/invalido') return res.end('não é JSON');
     const blocks: Buffer[] = []; req.on('data', chunk => blocks.push(chunk));
     req.on('end', () => res.end(JSON.stringify({ auth: req.headers.authorization, body: JSON.parse(Buffer.concat(blocks).toString() || '{}') })));
@@ -36,6 +40,12 @@ test('HTTP real fixa DNS, preserva JSON e autenticação, limita resposta e recu
     const before = hits; await assert.rejects(outboundJson(origin + '/redirect', { policy }), /Redirecionamento/); assert.equal(hits, before + 1);
     await assert.rejects(outboundJson(origin + '/grande', { policy, maxResponseBytes: 50 }), /excedeu/);
     await assert.rejects(outboundJson(origin + '/invalido', { policy }), /JSON válido/);
+    await assert.rejects(outboundJson(origin + '/utf8-invalido', { policy }), /UTF-8 válido/);
+    await assert.rejects(outboundJson(origin + '/codificado', { policy }), /Codificação/);
+    assert.deepEqual((await outboundJson(origin+'/utf8-valido',{policy})).data,{x:'á'});
+    assert.equal((await outboundJson(origin+'/utf8-invalido',{policy,responseMode:'discard'})).data,null);
+    await assert.rejects(outboundJson(origin+'/grande',{policy,responseMode:'discard',maxResponseBytes:50}),/excedeu/);
+
     await assert.rejects(outboundJson(origin + '/lento', { policy, timeoutMs: 50 }), /Tempo limite/);
     await assert.rejects(outboundJson(origin, { policy, headers: { Host: 'outro' } }), /Cabeçalho/);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
