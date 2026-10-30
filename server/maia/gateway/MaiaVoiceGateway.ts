@@ -1,3 +1,4 @@
+import {validatedWavAudio} from '../../infrastructure/ai/VoiceAudio.js';
 import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { MaiaRouter } from './MaiaRouter.js';
 import { MaiaVoiceRequest, MaiaVoiceResponse } from '../types.js';
@@ -7,11 +8,7 @@ export interface VoiceGatewayOptions {
   enableFallback?: boolean;
 }
 
-/**
- * MaiaVoiceGateway — Gateway abstrato e desacoplado de síntese de voz (TTS)
- * Não se acopla rigidamente a nenhum provedor específico. Permite roteamento
- * dinâmico para Google GenAI, 9router ou provedores neurais futuros.
- */
+/** Síntese com saída WAV validada e contingência entre provedores somente explícita. */
 export class MaiaVoiceGateway {
   constructor(private router: MaiaRouter) {}
 
@@ -19,7 +16,11 @@ export class MaiaVoiceGateway {
     request: MaiaVoiceRequest,
     options?: VoiceGatewayOptions
   ): Promise<MaiaVoiceResponse | null> {
-    const providerId = options?.preferredProviderId || 'gemini';
+    const providerId = options?.preferredProviderId ?? 'gemini';
+    const checked=(result:MaiaVoiceResponse):MaiaVoiceResponse=>{
+      if(result?.format!=='wav')throw new Error('Formato de síntese não suportado.');
+      return {audioBase64:validatedWavAudio({data:result.audioBase64,mimeType:'audio/wav'}),format:'wav'};
+    };
 
     // 1. Tenta o provedor preferencial
     const provider = this.router.getProvider(providerId) as any;
@@ -27,7 +28,7 @@ export class MaiaVoiceGateway {
       try {
         const res = await provider.generateVoice(request);
         if (res && res.audioBase64) {
-          return res;
+          return checked(res);
         }
       } catch (err: any) {
         logOperational('AI_PROVIDER_FAILURE');
@@ -35,14 +36,14 @@ export class MaiaVoiceGateway {
     }
 
     // 2. Se fallback habilitado, busca qualquer outro provedor que suporte síntese de voz
-    if (options?.enableFallback !== false) {
+    if (options?.enableFallback === true) {
       for (const p of this.router.getAllProviders()) {
         if (p.id !== providerId && typeof (p as any).generateVoice === 'function') {
           try {
             logOperational('AI_PROVIDER_FALLBACK');
             const res = await (p as any).generateVoice(request);
             if (res && res.audioBase64) {
-              return res;
+              return checked(res);
             }
           } catch (fallbackErr: any) {
             logOperational('AI_PROVIDER_FAILURE');

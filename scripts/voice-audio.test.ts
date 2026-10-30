@@ -1,3 +1,4 @@
+import {MaiaVoiceGateway} from '../server/maia/gateway/MaiaVoiceGateway.js';
 import {GeminiProvider} from '../server/maia/gateway/providers/GeminiProvider.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,6 +18,7 @@ test('síntese recusa PCM cru, base64 inválido, truncamento, tamanho e formato 
  const original=wav();
  const invalid=[{data:original.toString('base64'),mimeType:'audio/L16;rate=24000'},{data:'!!!!',mimeType:'audio/wav'},{data:original.subarray(0,44).toString('base64'),mimeType:'audio/wav'},{data:Buffer.alloc(2*1024*1024+1).toString('base64'),mimeType:'audio/wav'}];
  for(const offset of [4,16,20,22,24,28,32,34,40]){const copy=Buffer.from(original);copy.writeUInt16LE(0,offset);invalid.push({data:copy.toString('base64'),mimeType:'audio/wav'});}
+ for(const offset of [0,8,12,36]){const copy=Buffer.from(original);copy[offset]|=0x80;invalid.push({data:copy.toString('base64'),mimeType:'audio/wav'});}
  for(const value of invalid)assert.throws(()=>validatedWavAudio(value),/^Error: Áudio WAV inválido ou não suportado\.$/);
 });
 
@@ -27,4 +29,20 @@ test('voz exige modelo TTS explícito válido antes de chamar SDK',async()=>{
   if(model===undefined)delete process.env.GEMINI_TTS_MODEL;else process.env.GEMINI_TTS_MODEL=model;
   await assert.rejects(provider.generateVoice({text:'Teste',voiceName:'Zephyr',gender:'female'}),/^Error: AI_PROVIDER_UNAVAILABLE: Configure um modelo TTS explícito e homologado\.$/);
  }assert.equal(calls,0);}finally{if(previous===undefined)delete process.env.GEMINI_TTS_MODEL;else process.env.GEMINI_TTS_MODEL=previous;}
+});
+
+test('gateway valida áudio de qualquer provedor e não usa outro por padrão',async()=>{
+ let alternateCalls=0;const other={id:'outro',generateVoice:async()=>{alternateCalls++;return {format:'wav',audioBase64:wav().toString('base64')};}};
+ let response:any={format:'wav',audioBase64:'AAAA'};const selected={id:'gemini',generateVoice:async()=>response};
+ const gateway=new MaiaVoiceGateway({getProvider:()=>selected,getAllProviders:()=>[selected,other]} as any);
+ const request={text:'Texto privado',voiceName:'Zephyr',gender:'female' as const};
+ assert.equal(await gateway.synthesize(request),null);assert.equal(alternateCalls,0);
+ response={format:'mp3',audioBase64:wav().toString('base64')};assert.equal(await gateway.synthesize(request),null);assert.equal(alternateCalls,0);
+ response={format:'wav',audioBase64:wav().toString('base64'),durationMs:999999};assert.deepEqual(await gateway.synthesize(request),{format:'wav',audioBase64:response.audioBase64});
+});
+test('gateway só tenta outro provedor quando contingência é habilitada explicitamente',async()=>{
+ let calls=0;const selected={id:'gemini',generateVoice:async()=>{throw new Error('falha controlada');}};const other={id:'outro',generateVoice:async()=>{calls++;return {format:'wav',audioBase64:wav().toString('base64')};}};
+ const gateway=new MaiaVoiceGateway({getProvider:()=>selected,getAllProviders:()=>[selected,other]} as any);const request={text:'Texto',voiceName:'Zephyr',gender:'female' as const};
+ assert.equal(await gateway.synthesize(request,{enableFallback:false}),null);assert.equal(calls,0);
+ assert.equal((await gateway.synthesize(request,{enableFallback:true}))?.format,'wav');assert.equal(calls,1);
 });
