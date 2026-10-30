@@ -14,7 +14,7 @@ test('erros Gemini de texto, voz e diagnóstico não retornam detalhes do SDK ne
  const instance=provider(null);(instance as any).client.models.generateContent=async()=>{throw new Error('CREDENCIAL_PRIVADA_CI https://interno.invalid prompt privado');};
  await assert.rejects(instance.generateText(request),/^Error: Falha na geração de texto do Gemini\.$/);
  const previousModel=process.env.GEMINI_TTS_MODEL;process.env.GEMINI_TTS_MODEL='modelo-tts-ci';
- try{await assert.rejects(instance.generateVoice({text:'Teste',voiceName:'Zephyr'} as any),/^Error: Falha na síntese de voz do Gemini\.$/);}finally{if(previousModel===undefined)delete process.env.GEMINI_TTS_MODEL;else process.env.GEMINI_TTS_MODEL=previousModel;}
+ try{await assert.rejects(instance.generateVoice({text:'Teste',voiceName:'Zephyr',gender:'female'} as any),/^Error: Falha na síntese de voz do Gemini\.$/);}finally{if(previousModel===undefined)delete process.env.GEMINI_TTS_MODEL;else process.env.GEMINI_TTS_MODEL=previousModel;}
  const previous=process.env.GEMINI_API_KEY;process.env.GEMINI_API_KEY='credencial-descartavel';
  try{const health=await instance.healthCheck();assert.equal(health.status,'DOWN');assert.equal(health.error,'Falha na comunicação com o Gemini.');assert.deepEqual(health.modelsAvailable,[]);}finally{if(previous===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=previous;}
 });

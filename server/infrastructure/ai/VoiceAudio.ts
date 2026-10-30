@@ -19,3 +19,9 @@ export function validatedWavAudio(inline:unknown):string{
  }
  if(!blockAlign||!dataBytes||offset!==bytes.length)fail();return encoded;
 }
+
+/** Recusa entrada inválida antes de acessar qualquer provedor de síntese. */
+export function validateVoiceRequest(value:unknown):void{
+ const request=value as any;
+ if(!request||typeof request!=='object'||Array.isArray(request)||typeof request.text!=='string'||!request.text.trim()||Buffer.byteLength(request.text,'utf8')>16384||request.text.includes('\0')||Buffer.from(request.text,'utf8').toString('utf8')!==request.text||typeof request.voiceName!=='string'||!/^[-A-Za-z0-9_]{1,64}$/.test(request.voiceName)||!['male','female'].includes(request.gender))throw new Error('Entrada de síntese de voz inválida.');
+}

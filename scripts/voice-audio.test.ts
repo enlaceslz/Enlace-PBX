@@ -46,3 +46,18 @@ test('gateway só tenta outro provedor quando contingência é habilitada explic
  assert.equal(await gateway.synthesize(request,{enableFallback:false}),null);assert.equal(calls,0);
  assert.equal((await gateway.synthesize(request,{enableFallback:true}))?.format,'wav');assert.equal(calls,1);
 });
+
+test('entrada de voz inválida não acessa gateway nem SDK e não expõe conteúdo',async()=>{
+ let calls=0;const provider=new GeminiProvider();(provider as any).client={models:{generateContent:async()=>{calls++;return {};}}};
+ const gateway=new MaiaVoiceGateway({getProvider:()=>{calls++;return provider;},getAllProviders:()=>{calls++;return [];}} as any);
+ const base={text:'Texto privado',voiceName:'Zephyr',gender:'female'};
+ const invalid=[null,[],{...base,text:''},{...base,text:' '},{...base,text:'á'.repeat(8193)},{...base,text:'segredo\0'},{...base,text:'\ud800'},{...base,voiceName:'voz\nsegredo'},{...base,voiceName:'a'.repeat(65)},{...base,gender:'outro'}];
+ for(const request of invalid){for(const run of [()=>gateway.synthesize(request as any),()=>provider.generateVoice(request as any)])await assert.rejects(run,/^Error: Entrada de síntese de voz inválida\.$/);}
+ assert.equal(calls,0);
+});
+test('opções inválidas de voz não escolhem provedor nem habilitam contingência por coerção',async()=>{
+ let calls=0;const gateway=new MaiaVoiceGateway({getProvider:()=>{calls++;},getAllProviders:()=>{calls++;return [];}} as any);
+ const request={text:'Texto',voiceName:'Zephyr',gender:'female' as const};
+ for(const options of [{enableFallback:'true'},{enableFallback:1},{preferredProviderId:''},{preferredProviderId:'gemini\nsegredo'}])await assert.rejects(gateway.synthesize(request,options as any),/^Error: Opções de síntese de voz inválidas\.$/);
+ assert.equal(calls,0);
+});

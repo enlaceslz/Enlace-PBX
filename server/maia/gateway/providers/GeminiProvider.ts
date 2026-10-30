@@ -1,4 +1,4 @@
-import {validatedWavAudio} from '../../../infrastructure/ai/VoiceAudio.js';
+import {validatedWavAudio,validateVoiceRequest} from '../../../infrastructure/ai/VoiceAudio.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { MaiaAIProvider } from '../MaiaAIProvider.js';
 import {
@@ -99,6 +99,7 @@ export class GeminiProvider implements MaiaAIProvider {
   }
 
   public async generateVoice(request: MaiaVoiceRequest): Promise<MaiaVoiceResponse> {
+    validateVoiceRequest(request);
     const ai = this.initClient();
     if (!ai) {
       throw new Error('AI_PROVIDER_UNAVAILABLE: Gemini TTS não configurado.');

@@ -1,4 +1,4 @@
-import {validatedWavAudio} from '../../infrastructure/ai/VoiceAudio.js';
+import {validatedWavAudio,validateVoiceRequest} from '../../infrastructure/ai/VoiceAudio.js';
 import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { MaiaRouter } from './MaiaRouter.js';
 import { MaiaVoiceRequest, MaiaVoiceResponse } from '../types.js';
@@ -16,6 +16,8 @@ export class MaiaVoiceGateway {
     request: MaiaVoiceRequest,
     options?: VoiceGatewayOptions
   ): Promise<MaiaVoiceResponse | null> {
+    validateVoiceRequest(request);
+    if(options?.enableFallback!==undefined&&typeof options.enableFallback!=='boolean'||options?.preferredProviderId!==undefined&&(typeof options.preferredProviderId!=='string'||!/^[-A-Za-z0-9_]{1,64}$/.test(options.preferredProviderId)))throw new Error('Opções de síntese de voz inválidas.');
     const providerId = options?.preferredProviderId ?? 'gemini';
     const checked=(result:MaiaVoiceResponse):MaiaVoiceResponse=>{
       if(result?.format!=='wav')throw new Error('Formato de síntese não suportado.');

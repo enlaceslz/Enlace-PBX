@@ -452,3 +452,6 @@ Modelo de voz Gemini deixa de ser fixo: GEMINI_TTS_MODEL deve conter identificad
 
 
 Gateway de voz aplica validação WAV independentemente do adaptador: saída divergente, malformada ou sem formato explícito não segue ao chamador. Metadados de duração não verificados não são repassados. Assinaturas RIFF/WAVE/chunks são comparadas sem remover bits dos bytes. Contingência para outro provedor exige enableFallback:true no código chamador; omissão/false não envia o texto a outros serviços. O caminho atual MaIA omite essa opção e portanto não usa fallback TTS entre provedores. Isso não altera o roteamento de texto nem cancela chamadas já iniciadas. Testes cobrem áudio inválido/válido, assinatura adulterada, isolamento de tentativas e fallback explicitamente habilitado. Sem migração.
+
+
+Entrada TTS é validada no gateway e no adaptador Gemini: texto não vazio, UTF-8 válido, sem NUL e até 16 KiB; identificador de voz de até 64 caracteres com sintaxe limitada; perfil male/female explícito. O limite não divide nem trunca o texto. Opções exigem booleano real para contingência e identificador de provedor válido. Recusa ocorre antes de escolher/chamar provedor, com erro fixo sem reproduzir texto. Isso não confirma que o nome de voz existe no catálogo do serviço. Testes cobrem entrada, opções e ausência de chamadas; sem migração ou homologação externa.
