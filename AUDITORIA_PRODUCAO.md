@@ -431,3 +431,6 @@ Limites de saída HTTP são validados antes de DNS: timeout e tamanho devem ser 
 
 
 Cabeçalhos de saída HTTP: somente nomes autorizados, valores textuais compatíveis com HTTP, até 8 KiB por valor e 16 KiB somados aos nomes. Duplicatas com diferença de maiúsculas são recusadas. Método e cabeçalhos são validados antes de DNS; somente ausência de método assume GET, sem converter null ou string vazia. Erros fixos não reproduzem credenciais recusadas. Teste dedicado verifica tipos, caracteres inválidos, limites, duplicatas e ausência de resolução DNS. Não altera vínculos administrativos nem cria novas origens permitidas.
+
+
+Corpo POST do transporte HTTP preserva null explícito; somente ausência de corpo assume objeto vazio. Serialização impossível (referência circular, BigInt, função/símbolo como raiz ou exceção de serialização) retorna erro fixo 400 antes de DNS, sem conteúdo ou exceção interna. Limite de 32 KiB continua aplicado sobre bytes UTF-8 serializados. Testes verificam recebimento real de null e recusa sem DNS de corpos inválidos ou grandes. Não introduz repetição de requisições, alteração de credenciais ou migração.

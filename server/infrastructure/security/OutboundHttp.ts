@@ -81,7 +81,13 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
   const start = Date.now();
   const method = options.method === undefined ? 'GET' : options.method;
   if (!['GET', 'POST'].includes(method)) throw new OutboundHttpError('Método de integração não permitido.', 400);
-  const body = method === 'POST' ? Buffer.from(JSON.stringify(options.body ?? {})) : undefined;
+  let body:Buffer|undefined;
+  if(method==='POST'){
+    let serialized:unknown;
+    try{serialized=JSON.stringify(options.body===undefined?{}:options.body);}catch{throw new OutboundHttpError('Corpo da integração não é JSON serializável.',400);}
+    if(typeof serialized!=='string')throw new OutboundHttpError('Corpo da integração não é JSON serializável.',400);
+    body=Buffer.from(serialized,'utf8');
+  }
   if (body && body.length > 32 * 1024) throw new OutboundHttpError('Corpo da integração excedeu o limite.', 413);
   const headers: Record<string, string> = { Accept: 'application/json', 'Accept-Encoding': 'identity' };
   const allowedHeaders = new Set(['authorization', 'x-enlace-signature-256', 'x-enlace-request-id']);

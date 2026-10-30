@@ -37,6 +37,7 @@ test('HTTP real fixa DNS, preserva JSON e autenticação, limita resposta e recu
   try {
     const response = await outboundJson(origin, { policy, method: 'POST', headers: { Authorization: 'Bearer teste' }, body: { acao: 'teste' } });
     assert.deepEqual(response.data, { auth: 'Bearer teste', body: { acao: 'teste' } }); assert.equal(lookups, 1);
+    assert.deepEqual((await outboundJson(origin,{policy,method:'POST',body:null})).data,{body:null});
     const before = hits; await assert.rejects(outboundJson(origin + '/redirect', { policy }), /Redirecionamento/); assert.equal(hits, before + 1);
     await assert.rejects(outboundJson(origin + '/grande', { policy, maxResponseBytes: 50 }), /excedeu/);
     await assert.rejects(outboundJson(origin + '/invalido', { policy }), /JSON válido/);
@@ -67,5 +68,15 @@ test('cabeçalhos e método inválidos não resolvem DNS nem expõem o valor rec
   await assert.rejects(outboundJson('https://integracao.invalid',{policy,headers} as any),(error:any)=>error.statusCode===400&&!error.message.includes(secret));
  }
  for(const method of ['',null,'DELETE',42])await assert.rejects(outboundJson('https://integracao.invalid',{policy,method} as any),/Método/);
+ assert.equal(lookups,0);
+});
+
+test('corpos não serializáveis são recusados sem DNS nem detalhes internos',async()=>{
+ let lookups=0;const policy={allowedOrigins:['https://integracao.invalid'],privateOrigins:[],resolve:async()=>{lookups++;return [{address:'8.8.8.8',family:4}];}};
+ const circular:any={segredo:'SEGREDO_CORPO_CI'};circular.self=circular;
+ for(const body of [circular,1n,()=>1,Symbol('SEGREDO_CORPO_CI'),{toJSON(){throw new Error('SEGREDO_CORPO_CI');}}]){
+  await assert.rejects(outboundJson('https://integracao.invalid',{policy,method:'POST',body}),(error:any)=>error.statusCode===400&&error.message==='Corpo da integração não é JSON serializável.');
+ }
+ await assert.rejects(outboundJson('https://integracao.invalid',{policy,method:'POST',body:'á'.repeat(17000)}),(error:any)=>error.statusCode===413);
  assert.equal(lookups,0);
 });
