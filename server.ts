@@ -1,4 +1,4 @@
-import {agentPatch,knowledgePatch,knowledgeUpload} from './server/infrastructure/ai/AiConfiguration.js';
+import {agentPatch,toolPatch,knowledgePatch,knowledgeUpload} from './server/infrastructure/ai/AiConfiguration.js';
 import {AiConfigurationRepository} from './server/infrastructure/postgres/repositories/AiConfigurationRepository.js';
 import {infraPatch} from './server/infrastructure/asterisk/InfraMutation.js';
 import {InfraManagementRepository} from './server/infrastructure/postgres/repositories/InfraManagementRepository.js';
@@ -39,7 +39,7 @@ import { EntitySchemaRepository } from './server/infrastructure/postgres/reposit
 import { validateExtractionDefinition, extractEntities } from './server/maia/integrations/EntityExtraction.js';
 import { WebhookRepository } from './server/infrastructure/postgres/repositories/WebhookRepository.js';
 import { validateWebhook, prepareWebhookTest } from './server/infrastructure/integrations/OutboundWebhook.js';
-import { executeAiToolHttp, validateToolDefinition } from './server/maia/integrations/AiToolHttpExecution.js';
+import { executeAiToolHttp } from './server/maia/integrations/AiToolHttpExecution.js';
 import { OutboundHttpError } from './server/infrastructure/security/OutboundHttp.js';
 import { assertSingleLineConfig, safeTrunkPayload } from './server/infrastructure/asterisk/configValidation.js';
 import { TicketRepository } from './server/infrastructure/postgres/repositories/TicketRepository.js';
@@ -1707,68 +1707,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post('/api/v1/ai/tools', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar ferramenta.' });
-    }
-    const newTool = {
-      id: `tool-${crypto.randomUUID()}`,
-      tenantId,
-      name: req.body.name,
-      description: req.body.description ?? '',
-      endpoint: req.body.endpoint || '',
-      method: req.body.method ?? 'POST',
-      requiresConfirmation: req.body.requiresConfirmation ?? false,
-      schemaJson: req.body.schemaJson ?? { type: 'object', properties: {} },
-      mockResponse: {},
-    };
-    try {
-      validateToolDefinition(newTool);
-      await AiToolRepository.saveTool(tenantId, newTool);
-      res.status(201).json(newTool);
-    } catch (e: any) {
-      if (e instanceof OutboundHttpError) return res.status(e.statusCode).json({ error: e.message });
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao salvar ferramenta de IA' });
-    }
-  });
-
-  app.put('/api/v1/ai/tools/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiToolRepository.findById(req.params.id, tenantCtx.tenantId);
-      if (!prev) return res.status(404).json({ error: 'Ferramenta não encontrada' });
-
-      const updated = { ...prev, name: req.body.name ?? prev.name, description: req.body.description ?? prev.description,
-        endpoint: req.body.endpoint ?? prev.endpoint, method: req.body.method ?? prev.method,
-        requiresConfirmation: req.body.requiresConfirmation ?? prev.requiresConfirmation, schemaJson: req.body.schemaJson ?? prev.schemaJson,
-        mockResponse: {} };
-      validateToolDefinition(updated);
-      await AiToolRepository.saveTool(updated.tenantId, updated);
-      res.json(updated);
-    } catch (e: any) {
-      if (e instanceof OutboundHttpError) return res.status(e.statusCode).json({ error: e.message });
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao atualizar ferramenta de IA' });
-    }
-  });
-
-  app.delete('/api/v1/ai/tools/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiToolRepository.findById(req.params.id, tenantCtx.tenantId);
-      if (!prev) return res.status(404).json({ error: 'Ferramenta não encontrada' });
-
-      await AiToolRepository.delete(req.params.id, prev.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
-      res.status(500).json({ error: 'Erro ao excluir ferramenta de IA' });
-    }
-  });
+  app.post('/api/v1/ai/tools',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')throw new OutboundHttpError('Selecione uma empresa.',400);
+    const patch=toolPatch(req.body,true);await aiConfigurationAudit(req,context.tenantId,'CREATE_AI_TOOL_ATTEMPT','ai/tools/new');
+    const id=await AiConfigurationRepository.tool(context.tenantId,undefined,patch);return res.status(201).json(await AiToolRepository.findById(id,context.tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.put('/api/v1/ai/tools/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const tenantId=resolveTenantContext(req).tenantId;const patch=toolPatch(req.body);
+    await aiConfigurationAudit(req,tenantId,'UPDATE_AI_TOOL_ATTEMPT','ai/tools/'+req.params.id);
+    await AiConfigurationRepository.tool(tenantId,req.params.id,patch);return res.json(await AiToolRepository.findById(req.params.id,tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.delete('/api/v1/ai/tools/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const tenantId=resolveTenantContext(req).tenantId;await aiConfigurationAudit(req,tenantId,'DELETE_AI_TOOL_ATTEMPT','ai/tools/'+req.params.id);
+    await AiConfigurationRepository.removeTool(tenantId,req.params.id);return res.json({deleted:true});
+  }catch(error){return aiConfigurationFailure(error,res);}});
 
   const toolTestLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
     message: { error: 'Limite de testes atingido. Aguarde um minuto.' } });

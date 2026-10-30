@@ -1,3 +1,4 @@
+import {validateToolDefinition} from '../../maia/integrations/AiToolHttpExecution.js';
 import {OutboundHttpError} from '../security/OutboundHttp.js';
 export const agentColumns={name:'name',description:'description',providerId:'provider_id',model:'model',voice:'voice',voiceGender:'voice_gender',avatarType:'avatar_type',language:'language',systemInstruction:'system_instruction',initialGreeting:'initial_greeting',temperature:'temperature',tools:'tools',knowledgeSources:'knowledge_sources',allowBargeIn:'allow_barge_in',silenceTimeoutSeconds:'silence_timeout_seconds',maxSessionMinutes:'max_session_minutes',transferExtension:'transfer_extension',fallbackAction:'fallback_action',isActive:'is_active'};
 export const knowledgeColumns={title:'title',category:'category',content:'content',fileName:'file_name',fileType:'file_type'};
@@ -38,4 +39,18 @@ export function knowledgePatch(input:unknown,creating=false){
 export function knowledgeUpload(input:unknown){
  if(input&&typeof input==='object'&&(Object.hasOwn(input,'base64Data')||(input as any).fileType==='application/pdf'))fail('Extração de PDF/binários indisponível. Importe texto revisado em TXT ou Markdown.',501);
  const value=body(input,['rawText','title','category','fileName','fileType','targetAgentIds']);const {rawText,...metadata}=value;return knowledgePatch({...metadata,content:rawText},true);
+}
+
+export const toolColumns={name:'name',description:'description',endpoint:'endpoint',method:'method',requiresConfirmation:'requires_confirmation',schemaJson:'schema_json'};
+export function toolPatch(input:unknown,creating=false){
+ const value=body(input,Object.keys(toolColumns));if(!creating&&!Object.keys(value).length)fail('Informe uma alteração.');
+ const patch:Record<string,any>={};
+ for(const [key,item] of Object.entries(value)){
+  if(['name','description','endpoint'].includes(key))patch[key]=text(item,key,key==='name'?120:key==='endpoint'?255:4000,key!=='description',key==='description');
+  else if(key==='requiresConfirmation'){if(typeof item!=='boolean')fail('Confirmação deve ser booleana.');patch[key]=item;}
+  else if(key==='method'){if(!['GET','POST'].includes(item))fail('Método de ferramenta inválido.');patch[key]=item;}
+  else patch[key]=item;
+ }
+ if(creating){const result={description:'',method:'POST',requiresConfirmation:false,schemaJson:{type:'object',properties:{}},...patch};validateToolDefinition(result as any);return result;}
+ return patch;
 }

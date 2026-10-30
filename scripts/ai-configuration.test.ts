@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {agentPatch,configurationIds,knowledgePatch,knowledgeUpload,reviewedKnowledge} from '../server/infrastructure/ai/AiConfiguration.js';
+import {agentPatch,toolPatch,configurationIds,knowledgePatch,knowledgeUpload,reviewedKnowledge} from '../server/infrastructure/ai/AiConfiguration.js';
 const agent={name:'Atendimento',model:'modelo-revisado',voice:'Zephyr',systemInstruction:'Atenda conforme os textos revisados.'};
 test('agente aceita zero/false e não inventa ramal, ferramenta ou vínculo na criação',()=>{
  const value=agentPatch({...agent,temperature:0,isActive:false,allowBargeIn:false},true);assert.equal(value.temperature,0);assert.equal(value.isActive,false);assert.equal(value.allowBargeIn,false);
@@ -29,4 +29,11 @@ test('vínculos exigem até 32 IDs únicos sem conversão de objetos ou números
 test('grounding admite somente documentos marcados como texto revisado pelo servidor',()=>{
  const rows=[{id:'legacy'},{id:'pdf',contentStatus:'LEGACY_NOT_REVIEWED'},{id:'reviewed',contentStatus:'REVIEWED_TEXT'}];
  assert.deepEqual(reviewedKnowledge(rows).map(row=>row.id),['reviewed']);assert.equal(rows.length,3);
+});
+
+test('ferramenta permite patch limitado e recusa identidade, resposta simulada e tipos inválidos',()=>{
+ const value=toolPatch({name:'Consulta',endpoint:'https://example.invalid/consulta'},true);assert.equal(value.requiresConfirmation,false);assert.equal(value.method,'POST');
+ assert.deepEqual(toolPatch({description:'Texto revisado'}),{description:'Texto revisado'});
+ for(const patch of [{id:'forjado'},{tenantId:'outra'},{mockResponse:{}},{requiresConfirmation:0},{method:'DELETE'},{name:'a\0b'},{endpoint:'https://example.invalid/'+ 'a'.repeat(256)}])assert.throws(()=>toolPatch(patch));
+ assert.throws(()=>toolPatch({}));assert.throws(()=>toolPatch({name:'Sem destino'},true));
 });

@@ -286,7 +286,20 @@ try {
     await assert.rejects(MaiaSessionRepository.createSession({...previewSession,id:'foreign-agent-session-'+id,agentId:sessionAgentB}));
     const aiRequest=async(kind:string,method:string,suffix:string,body?:any,selected:Record<string,string>=testHeaders)=>fetch(base+'/api/v1/ai/'+kind+suffix,{method,headers:selected,...(body===undefined?{}:{body:JSON.stringify(body)})});
     const aiAgentBody={name:'Configuração IA '+id,model:'modelo-ci',voice:'Zephyr',systemInstruction:'PROMPT_PRIVADO_CI_'+id,temperature:0,isActive:false,allowBargeIn:false};
+    const toolBody={name:'Ferramenta cadastral '+id,endpoint:origin+'/acao',requiresConfirmation:false,schemaJson:{type:'object',properties:{}}};
+    const toolCreatedResponse=await aiRequest('tools','POST','',toolBody);assert.equal(toolCreatedResponse.status,201);const managedTool=await toolCreatedResponse.json();assert.match(managedTool.id,/^tool-[a-f0-9-]{36}$/);
+    assert.equal((await aiRequest('tools','POST','',{...toolBody,tenantId:tenantB})).status,400);
+    assert.equal((await aiRequest('tools','PUT','/'+managedTool.id,{name:'Outra empresa'},{...rootHeaders,'x-tenant-id':tenantB})).status,404);
+    assert.equal((await aiRequest('tools','DELETE','/'+managedTool.id,undefined,{...rootHeaders,'x-tenant-id':tenantB})).status,404);
+    const toolPatches=await Promise.all([aiRequest('tools','PUT','/'+managedTool.id,{name:'Nome concorrente'}),aiRequest('tools','PUT','/'+managedTool.id,{description:'Descrição concorrente'})]);assert.deepEqual(toolPatches.map(r=>r.status),[200,200]);
+    const keptTool=await (await aiRequest('tools','GET','')).json();assert.equal(keptTool.find(t=>t.id===managedTool.id).name,'Nome concorrente');assert.equal(keptTool.find(t=>t.id===managedTool.id).description,'Descrição concorrente');
+    await admin.query("CREATE FUNCTION ci_reject_tool_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action LIKE '%AI_TOOL_ATTEMPT' THEN RAISE EXCEPTION 'auditoria indisponível'; END IF; RETURN NEW; END $$");
+    try{await admin.query('CREATE TRIGGER ci_reject_tool_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION ci_reject_tool_audit()');assert.equal((await aiRequest('tools','PUT','/'+managedTool.id,{name:'Não persistir'})).status,500);assert.equal((await aiRequest('tools','DELETE','/'+managedTool.id)).status,500);assert.equal((await admin.query('SELECT name FROM ai_tools WHERE id=$1',[managedTool.id])).rows[0].name,'Nome concorrente');}finally{await admin.query('DROP TRIGGER IF EXISTS ci_reject_tool_audit ON audit_logs');await admin.query('DROP FUNCTION ci_reject_tool_audit()');}
     const agentCreated=await aiRequest('agents','POST','',aiAgentBody);assert.equal(agentCreated.status,201);const configuredAgent=await agentCreated.json();
+    assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{tools:[managedTool.id]})).status,200);
+    assert.equal((await aiRequest('tools','DELETE','/'+managedTool.id)).status,409);
+    assert.equal((await aiRequest('agents','PUT','/'+configuredAgent.id,{tools:[]})).status,200);
+    assert.equal((await aiRequest('tools','DELETE','/'+managedTool.id)).status,200);
     assert.match(configuredAgent.id,/^agent-[a-f0-9-]{36}$/);assert.equal(configuredAgent.temperature,0);assert.equal(configuredAgent.isActive,false);assert.equal(configuredAgent.allowBargeIn,false);assert.equal(configuredAgent.providerId,'9router');assert.equal(configuredAgent.transferExtension,'');assert.deepEqual(configuredAgent.tools,[]);
     assert.equal((await aiRequest('agents','POST','',{...aiAgentBody,tenantId:tenantB})).status,400);
     const rootOwnAgentResponse=await aiRequest('agents','POST','',aiAgentBody,rootHeaders);assert.equal(rootOwnAgentResponse.status,201);const rootOwnAgent=await rootOwnAgentResponse.json();assert.equal((await aiRequest('agents','DELETE','/'+rootOwnAgent.id,undefined,rootHeaders)).status,200);

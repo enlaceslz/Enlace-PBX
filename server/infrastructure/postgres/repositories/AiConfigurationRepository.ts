@@ -1,16 +1,27 @@
+import {validateToolDefinition} from '../../../maia/integrations/AiToolHttpExecution.js';
 import crypto from 'node:crypto';
 import {postgresClient} from '../client.js';
-import {agentColumns,agentPatch,configurationIds,knowledgeColumns,knowledgePatch} from '../../ai/AiConfiguration.js';
+import {agentColumns,agentPatch,configurationIds,knowledgeColumns,knowledgePatch,toolColumns,toolPatch} from '../../ai/AiConfiguration.js';
 import {OutboundHttpError} from '../../security/OutboundHttp.js';
 const missing=()=>new OutboundHttpError('Configuração não encontrada nesta empresa.',404);
 const lock=async(client:any,tenantId:string)=>client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['ai-configuration:'+tenantId]);
-async function save(client:any,table:'ai_agents'|'ai_knowledge',tenantId:string,id:string,fields:Record<string,any>,mapping:Record<string,string>,update:boolean){
+async function save(client:any,table:'ai_agents'|'ai_knowledge'|'ai_tools',tenantId:string,id:string,fields:Record<string,any>,mapping:Record<string,string>,update:boolean){
  const entries=Object.entries(fields).filter(([key])=>key!=='targetAgentIds');const columns=entries.map(([key])=>mapping[key]);if(columns.some(column=>!column))throw new OutboundHttpError('Campo de configuração não editável.',400);
- const values=entries.map(([key,value])=>['tools','knowledgeSources'].includes(key)?JSON.stringify(value):value);
- if(update){await client.query(`UPDATE ${table} SET ${columns.length?columns.map((column,index)=>column+'=$'+(index+1)).join(',')+',':''}updated_at=CURRENT_TIMESTAMP WHERE id=$${values.length+1} AND tenant_id=$${values.length+2}`,[...values,id,tenantId]);}
+ const values=entries.map(([key,value])=>['tools','knowledgeSources','schemaJson'].includes(key)?JSON.stringify(value):value);
+ if(update){await client.query(`UPDATE ${table} SET ${columns.map((column,index)=>column+'=$'+(index+1)).concat(table==='ai_tools'?[]:['updated_at=CURRENT_TIMESTAMP']).join(',')} WHERE id=$${values.length+1} AND tenant_id=$${values.length+2}`,[...values,id,tenantId]);}
  else{columns.push('id','tenant_id');values.push(id,tenantId);await client.query(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${values.map((_,index)=>'$'+(index+1)).join(',')})`,values);}
 }
 export class AiConfigurationRepository{
+ static async tool(tenantId:string,id:string|undefined,input:unknown){const patch=toolPatch(input,!id);return postgresClient.executeTenantScoped(tenantId,async client=>{
+  await lock(client,tenantId);const previous=id?(await client.query('SELECT * FROM ai_tools WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,tenantId])).rows[0]:undefined;if(id&&!previous)throw missing();
+  const effective={...Object.fromEntries(Object.entries(toolColumns).map(([key,column])=>[key,previous?.[column]])),...patch};validateToolDefinition(effective as any);
+  const target=id||'tool-'+crypto.randomUUID();await save(client,'ai_tools',tenantId,target,patch,toolColumns,!!id);return target;
+ });}
+ static async removeTool(tenantId:string,id:string){return postgresClient.executeTenantScoped(tenantId,async client=>{
+  await lock(client,tenantId);if(!(await client.query('SELECT id FROM ai_tools WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,tenantId])).rows.length)throw missing();
+  if((await client.query('SELECT id FROM ai_agents WHERE tenant_id=$1 AND tools ? $2 LIMIT 1',[tenantId,id])).rows.length)throw new OutboundHttpError('Ferramenta vinculada a agente; remova o vínculo antes de excluir.',409);
+  await client.query('DELETE FROM ai_tools WHERE id=$1 AND tenant_id=$2',[id,tenantId]);
+ });}
  static async agent(tenantId:string,id:string|undefined,input:unknown){const patch=agentPatch(input,!id);return postgresClient.executeTenantScoped(tenantId,async client=>{
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['routing-namespace:'+tenantId]);await lock(client,tenantId);const previous=id?(await client.query('SELECT * FROM ai_agents WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,tenantId])).rows[0]:undefined;if(id&&!previous)throw missing();
   for(const [key,table] of [['tools','ai_tools'],['knowledgeSources','ai_knowledge']] as const){const ids=patch[key]??(patch.isActive===true?previous?.[key==='tools'?'tools':'knowledge_sources']:undefined);if(ids!==undefined){
