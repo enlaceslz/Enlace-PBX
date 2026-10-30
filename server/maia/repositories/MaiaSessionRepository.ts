@@ -95,6 +95,9 @@ export class MaiaSessionRepository {
 
   public static async claimTurn(id:string,tenantId:string,attemptId:string):Promise<MaiaSession> {
     return postgresClient.executeTenantScoped(tenantId,async client=>{
+      const active=await client.query(`SELECT a.id FROM ai_agents a JOIN ai_sessions s ON s.agent_id=a.id AND s.tenant_id=a.tenant_id
+        WHERE s.id=$1 AND s.tenant_id=$2 AND a.is_active=TRUE FOR SHARE OF a`,[id,tenantId]);
+      if(!active.rows.length)throw new OutboundHttpError('Sessão sem agente ativo nesta empresa.',409);
       const result=await client.query(`UPDATE ai_sessions SET active_turn_id=$3,status='processing',last_activity_at=CURRENT_TIMESTAMP
         WHERE id=$1 AND tenant_id=$2 AND active_turn_id IS NULL AND status NOT IN ('completed','failed') RETURNING *`,[id,tenantId,attemptId]);
       if(!result.rows.length)throw new OutboundHttpError('Sessão indisponível, encerrada ou com turno em processamento.',409);

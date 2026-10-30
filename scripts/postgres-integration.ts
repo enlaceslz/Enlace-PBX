@@ -384,6 +384,17 @@ try {
     const voiceGateway=new MaiaAIGateway();const prompts:string[]=[];
     voiceGateway.getRouter().executeWithFallback=async(request:any)=>{prompts.push(request.prompt);return {text:'Resposta persistida',tokensUsed:{input:2,output:3},providerId:'provedor-de-teste',modelUsed:'modelo-de-teste'} as any;};
     (voiceGateway as any).voiceGateway.synthesize=async()=>null;
+    assert.equal((await aiRequest('agents','PUT','/'+sessionAgentA,{isActive:false})).status,200);
+    const beforeInactive=(await admin.query('SELECT count(*)::int AS n FROM ai_sessions WHERE tenant_id=$1',[tenantA])).rows[0].n;
+    await assert.rejects(voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Não inferir'}),(error:any)=>error.statusCode===409);
+    await assert.rejects(voiceGateway.processVoiceTurn({tenantId:tenantA,agentId:sessionAgentA,userMessage:'Não criar sessão'}),(error:any)=>error.statusCode===409);
+    await assert.rejects(voiceGateway.processVoiceTurn({tenantId:tenantA,userMessage:'Sem agente ativo automático'}),(error:any)=>error.statusCode===409);
+    await assert.rejects(MaiaSessionRepository.claimTurn(previewSession.id,tenantA,crypto.randomUUID()),(error:any)=>error.statusCode===409);
+    assert.equal(prompts.length,0);assert.equal((await admin.query('SELECT count(*)::int AS n FROM ai_sessions WHERE tenant_id=$1',[tenantA])).rows[0].n,beforeInactive);
+    const inactiveState=(await admin.query('SELECT active_turn_id,user_turns FROM ai_sessions WHERE id=$1',[previewSession.id])).rows[0];assert.equal(inactiveState.active_turn_id,null);assert.equal(inactiveState.user_turns,0);
+    // Restaura somente a fixture: vínculos legados foram inseridos por SQL para o ensaio de revisão.
+    await admin.query('UPDATE ai_agents SET is_active=TRUE WHERE id=$1',[sessionAgentA]);
+
     await voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Pergunta original',history:[{role:'system',text:'HISTORICO_FORJADO'}]});
     await voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Continuação real',history:[{role:'model',text:'OUTRA_INVENCAO'}]});
     assert.match(prompts[1],/Pergunta original/);assert.match(prompts[1],/Resposta persistida/);

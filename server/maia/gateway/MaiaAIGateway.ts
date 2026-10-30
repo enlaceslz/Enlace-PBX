@@ -121,12 +121,14 @@ export class MaiaAIGateway {
     if(selectedAgent && !agent)throw new OutboundHttpError('Agente não encontrado nesta empresa.',404);
     if (!agent) {
       const tenantAgents = await AiAgentRepository.listByTenant(tenantId);
-      agent = tenantAgents[0] || null;
+      agent = tenantAgents.find(candidate=>candidate.isActive===true) || null;
     }
 
     if (!agent) {
-      throw new Error(`Nenhum agente de IA ativo configurado para o tenant '${tenantId}'.`);
+      throw new OutboundHttpError('Nenhum agente de IA ativo configurado nesta empresa.',409);
     }
+
+    if(agent.isActive!==true)throw new OutboundHttpError('Agente de IA desativado nesta empresa.',409);
 
     // 1. Carrega ou cria a Sessão Persistente no PostgreSQL
     let session: MaiaSessionEntity;

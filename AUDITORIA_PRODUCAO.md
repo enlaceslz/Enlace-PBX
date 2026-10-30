@@ -455,3 +455,6 @@ Gateway de voz aplica validação WAV independentemente do adaptador: saída div
 
 
 Entrada TTS é validada no gateway e no adaptador Gemini: texto não vazio, UTF-8 válido, sem NUL e até 16 KiB; identificador de voz de até 64 caracteres com sintaxe limitada; perfil male/female explícito. O limite não divide nem trunca o texto. Opções exigem booleano real para contingência e identificador de provedor válido. Recusa ocorre antes de escolher/chamar provedor, com erro fixo sem reproduzir texto. Isso não confirma que o nome de voz existe no catálogo do serviço. Testes cobrem entrada, opções e ausência de chamadas; sem migração ou homologação externa.
+
+
+Turnos MaIA exigem agente ativo: seleção automática filtra ativos, agente explícito desativado é recusado antes de criar sessão e claimTurn confere o agente da mesma empresa sob FOR SHARE na transação da reserva. Desativação concorrente e reserva são serializadas pelo bloqueio da linha do agente; turno reservado antes da desativação ainda pode concluir, pois não há cancelamento de inferência em andamento. Histórico e sessões existentes não são apagados ou encerrados automaticamente. Teste PostgreSQL real desativa agente e confirma zero inferências, nenhuma sessão nova e nenhuma reserva/contador alterados; restauração SQL é somente fixture do CI. Sem migração.
