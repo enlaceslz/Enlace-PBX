@@ -104,7 +104,8 @@ export class GeminiProvider implements MaiaAIProvider {
       throw new Error('AI_PROVIDER_UNAVAILABLE: Gemini TTS não configurado.');
     }
 
-    const ttsModel = 'gemini-3.8-flash-lite-tts';
+    const ttsModel = process.env.GEMINI_TTS_MODEL;
+    if(typeof ttsModel!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(ttsModel))throw new Error('AI_PROVIDER_UNAVAILABLE: Configure um modelo TTS explícito e homologado.');
 
     try {
       const response = await ai.models.generateContent({
