@@ -79,18 +79,24 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
   const limit=positiveLimit(options.maxResponseBytes,64*1024,1024*1024);
   if(options.responseMode!==undefined&&!['json','discard'].includes(options.responseMode))throw new OutboundHttpError('Modo de resposta de integração inválido.',400);
   const start = Date.now();
-  const { url, address } = await validateOutboundUrl(raw, options.policy);
-  const method = options.method || 'GET';
+  const method = options.method === undefined ? 'GET' : options.method;
   if (!['GET', 'POST'].includes(method)) throw new OutboundHttpError('Método de integração não permitido.', 400);
   const body = method === 'POST' ? Buffer.from(JSON.stringify(options.body ?? {})) : undefined;
   if (body && body.length > 32 * 1024) throw new OutboundHttpError('Corpo da integração excedeu o limite.', 413);
   const headers: Record<string, string> = { Accept: 'application/json', 'Accept-Encoding': 'identity' };
   const allowedHeaders = new Set(['authorization', 'x-enlace-signature-256', 'x-enlace-request-id']);
+  if(options.headers!==undefined&&(!options.headers||typeof options.headers!=='object'||Array.isArray(options.headers)))throw new OutboundHttpError('Cabeçalho de integração inválido.',400);
+  const seen=new Set<string>();let headerBytes=0;
   for (const [name, value] of Object.entries(options.headers || {})) {
-    if (!allowedHeaders.has(name.toLowerCase()) || /[\r\n\0]/.test(value)) throw new OutboundHttpError('Cabeçalho de integração inválido.', 400);
-    headers[name] = value;
+    const key=name.toLowerCase();
+    if (!allowedHeaders.has(key)||seen.has(key)||typeof value!=='string'||Buffer.byteLength(value)>8192) throw new OutboundHttpError('Cabeçalho de integração inválido.',400);
+    try{http.validateHeaderValue(key,value);}catch{throw new OutboundHttpError('Cabeçalho de integração inválido.',400);}
+    headerBytes+=Buffer.byteLength(name)+Buffer.byteLength(value);
+    if(headerBytes>16384)throw new OutboundHttpError('Cabeçalhos de integração excederam o limite.',400);
+    seen.add(key);headers[key]=value;
   }
   if (body) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = String(body.length); }
+  const { url, address } = await validateOutboundUrl(raw, options.policy);
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (error?: OutboundHttpError, response?: { status: number; data: unknown; durationMs: number }) => {

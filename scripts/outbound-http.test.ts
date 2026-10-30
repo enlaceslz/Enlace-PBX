@@ -59,3 +59,13 @@ test('limites HTTP inválidos são recusados antes de DNS e acesso à rede',asyn
  await assert.rejects(outboundJson('https://integracao.invalid',{policy,responseMode:'outro'} as any),/Modo de resposta/);
  assert.equal(lookups,0);
 });
+
+test('cabeçalhos e método inválidos não resolvem DNS nem expõem o valor recusado',async()=>{
+ let lookups=0;const policy={allowedOrigins:['https://integracao.invalid'],privateOrigins:[],resolve:async()=>{lookups++;return [{address:'8.8.8.8',family:4}];}};
+ const secret='VALOR_PRIVADO_CI';
+ for(const headers of [null,[],{Authorization:123},{Authorization:secret+'\r\nX: 1'},{Authorization:secret+'🙂'},{Authorization:'a'.repeat(8193)},{Authorization:secret,authorization:'outro'},{Host:'outro'},{Authorization:'a'.repeat(8192),'x-enlace-signature-256':'b'.repeat(8192)}]){
+  await assert.rejects(outboundJson('https://integracao.invalid',{policy,headers} as any),(error:any)=>error.statusCode===400&&!error.message.includes(secret));
+ }
+ for(const method of ['',null,'DELETE',42])await assert.rejects(outboundJson('https://integracao.invalid',{policy,method} as any),/Método/);
+ assert.equal(lookups,0);
+});

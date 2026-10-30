@@ -428,3 +428,6 @@ Transporte HTTP de saída: resposta JSON exige UTF-8 válido, sem substituição
 
 
 Limites de saída HTTP são validados antes de DNS: timeout e tamanho devem ser inteiros positivos seguros, sem coerção de strings, null, valores fracionários ou não finitos. Ausência mantém 5 s/64 KiB; valores válidos maiores continuam limitados a 30 s/1 MiB. Modo de resposta aceita somente json/discard. Timeout do transporte começa após a validação DNS, que possui seu próprio limite de 2 s; não representa um prazo global incluindo processamento do chamador. Teste dedicado confirma recusa antes de DNS. Nenhuma configuração ou credencial foi alterada.
+
+
+Cabeçalhos de saída HTTP: somente nomes autorizados, valores textuais compatíveis com HTTP, até 8 KiB por valor e 16 KiB somados aos nomes. Duplicatas com diferença de maiúsculas são recusadas. Método e cabeçalhos são validados antes de DNS; somente ausência de método assume GET, sem converter null ou string vazia. Erros fixos não reproduzem credenciais recusadas. Teste dedicado verifica tipos, caracteres inválidos, limites, duplicatas e ausência de resolução DNS. Não altera vínculos administrativos nem cria novas origens permitidas.
