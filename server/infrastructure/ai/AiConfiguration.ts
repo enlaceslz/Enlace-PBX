@@ -54,3 +54,10 @@ export function toolPatch(input:unknown,creating=false){
  if(creating){const result={description:'',method:'POST',requiresConfirmation:false,schemaJson:{type:'object',properties:{}},...patch};validateToolDefinition(result as any);return result;}
  return patch;
 }
+
+export function automaticAgent<T extends {id:string;isActive?:boolean}>(agents:T[]):T{
+ const active=agents.filter(agent=>agent.isActive===true);
+ if(!active.length)fail('Nenhum agente de IA ativo configurado nesta empresa.',409);
+ if(active.length!==1)fail('Há mais de um agente ativo. Selecione o agente explicitamente.',409);
+ return active[0];
+}

@@ -394,6 +394,13 @@ try {
     const inactiveState=(await admin.query('SELECT active_turn_id,user_turns FROM ai_sessions WHERE id=$1',[previewSession.id])).rows[0];assert.equal(inactiveState.active_turn_id,null);assert.equal(inactiveState.user_turns,0);
     // Restaura somente a fixture: vínculos legados foram inseridos por SQL para o ensaio de revisão.
     await admin.query('UPDATE ai_agents SET is_active=TRUE WHERE id=$1',[sessionAgentA]);
+    const ambiguousAgentId='ambiguous-agent-'+id;
+    await admin.query("INSERT INTO ai_agents(id,tenant_id,name,system_instruction,initial_greeting) VALUES($1,$2,'Segundo ativo','Teste','Olá')",[ambiguousAgentId,tenantA]);
+    try{
+      await assert.rejects(voiceGateway.processVoiceTurn({tenantId:tenantA,userMessage:'Não escolher agente arbitrário'}),(error:any)=>error.statusCode===409);
+      assert.equal(prompts.length,0);assert.equal((await admin.query('SELECT count(*)::int AS n FROM ai_sessions WHERE tenant_id=$1',[tenantA])).rows[0].n,beforeInactive);
+    }finally{await admin.query('DELETE FROM ai_agents WHERE id=$1',[ambiguousAgentId]);}
+
 
     await voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Pergunta original',history:[{role:'system',text:'HISTORICO_FORJADO'}]});
     await voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Continuação real',history:[{role:'model',text:'OUTRA_INVENCAO'}]});

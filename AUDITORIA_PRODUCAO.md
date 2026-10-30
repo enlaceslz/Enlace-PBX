@@ -458,3 +458,6 @@ Entrada TTS é validada no gateway e no adaptador Gemini: texto não vazio, UTF-
 
 
 Turnos MaIA exigem agente ativo: seleção automática filtra ativos, agente explícito desativado é recusado antes de criar sessão e claimTurn confere o agente da mesma empresa sob FOR SHARE na transação da reserva. Desativação concorrente e reserva são serializadas pelo bloqueio da linha do agente; turno reservado antes da desativação ainda pode concluir, pois não há cancelamento de inferência em andamento. Histórico e sessões existentes não são apagados ou encerrados automaticamente. Teste PostgreSQL real desativa agente e confirma zero inferências, nenhuma sessão nova e nenhuma reserva/contador alterados; restauração SQL é somente fixture do CI. Sem migração.
+
+
+Seleção automática MaIA exige exatamente um agente ativo na leitura da configuração: nenhum ou múltiplos ativos retornam 409 antes da criação de sessão e inferência. Quando há vários agentes, o chamador deve enviar agentId explícito ou continuar uma sessão cujo agente já está fixado. Não usa ordem de nome/ID como preferência implícita. Isso não cria um agente padrão persistente nem impede alterações cadastrais concorrentes após a leitura; reserva mantém a verificação transacional de atividade. Testes unitários cobrem ordem/estados e integração PostgreSQL cobre ambiguidade sem sessão nova/inferência. Sem migração.

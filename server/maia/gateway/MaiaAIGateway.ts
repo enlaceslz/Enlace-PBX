@@ -1,4 +1,4 @@
-import {reviewedKnowledge} from '../../infrastructure/ai/AiConfiguration.js';
+import {reviewedKnowledge,automaticAgent} from '../../infrastructure/ai/AiConfiguration.js';
 import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { persistedDialogue, voiceMessage } from '../core/MaiaHistory.js';
 import { OutboundHttpError } from '../../infrastructure/security/OutboundHttp.js';
@@ -121,7 +121,7 @@ export class MaiaAIGateway {
     if(selectedAgent && !agent)throw new OutboundHttpError('Agente não encontrado nesta empresa.',404);
     if (!agent) {
       const tenantAgents = await AiAgentRepository.listByTenant(tenantId);
-      agent = tenantAgents.find(candidate=>candidate.isActive===true) || null;
+      agent = automaticAgent(tenantAgents);
     }
 
     if (!agent) {

@@ -1,7 +1,7 @@
 import {publicAiProvider} from '../server/infrastructure/postgres/repositories/AiToolRepository.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {agentPatch,toolPatch,configurationIds,knowledgePatch,knowledgeUpload,reviewedKnowledge} from '../server/infrastructure/ai/AiConfiguration.js';
+import {agentPatch,automaticAgent,toolPatch,configurationIds,knowledgePatch,knowledgeUpload,reviewedKnowledge} from '../server/infrastructure/ai/AiConfiguration.js';
 const agent={name:'Atendimento',model:'modelo-revisado',voice:'Zephyr',systemInstruction:'Atenda conforme os textos revisados.'};
 test('agente aceita zero/false e não inventa ramal, ferramenta ou vínculo na criação',()=>{
  const value=agentPatch({...agent,temperature:0,isActive:false,allowBargeIn:false},true);assert.equal(value.temperature,0);assert.equal(value.isActive,false);assert.equal(value.allowBargeIn,false);
@@ -42,4 +42,10 @@ test('ferramenta permite patch limitado e recusa identidade, resposta simulada e
 test('provedor público omite chave e URL legadas e preserva temperatura zero',()=>{
  const value=publicAiProvider({id:'p',tenant_id:'t',name:'Cadastro',provider_type:'custom',api_key_masked:'SEGREDO_LEGADO',base_url:'https://usuario:senha@example.invalid/?token=segredo',default_temperature:0,is_active:false,updated_at:new Date()});
  assert.equal(value.defaultTemperature,0);assert.equal(value.isActive,false);assert.equal(value.baseUrl,undefined);assert.equal(JSON.stringify(value).includes('SEGREDO_LEGADO'),false);assert.equal(JSON.stringify(value).includes('senha'),false);
+});
+
+test('seleção automática exige exatamente um agente ativo sem depender da ordem',()=>{
+ const enabled={id:'ativo',isActive:true};const disabled={id:'inativo',isActive:false};
+ assert.equal(automaticAgent([disabled,enabled]),enabled);assert.equal(automaticAgent([enabled,disabled]),enabled);
+ for(const agents of [[],[disabled],[{id:'sem-estado'}],[enabled,{id:'outro',isActive:true}]])assert.throws(()=>automaticAgent(agents),(error:any)=>error.statusCode===409);
 });
