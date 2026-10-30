@@ -517,3 +517,6 @@ Turnos MaIA exigem agente ativo: seleção automática filtra ativos, agente exp
 
 
 Seleção automática MaIA exige exatamente um agente ativo na leitura da configuração: nenhum ou múltiplos ativos retornam 409 antes da criação de sessão e inferência. Quando há vários agentes, o chamador deve enviar agentId explícito ou continuar uma sessão cujo agente já está fixado. Não usa ordem de nome/ID como preferência implícita. Isso não cria um agente padrão persistente nem impede alterações cadastrais concorrentes após a leitura; reserva mantém a verificação transacional de atividade. Testes unitários cobrem ordem/estados e integração PostgreSQL cobre ambiguidade sem sessão nova/inferência. Sem migração.
+
+
+Duração MaIA: claimTurn aplica max_session_minutes atual do agente (1–240) usando relógio do PostgreSQL na condição atômica da reserva. Início nulo/futuro, limite inválido ou duração atingida recusam novos turnos com 409, sem reserva/contador/inferência. Limite é tempo decorrido desde started_at, não tempo de fala ou inatividade. Alterar o limite afeta próximas reservas; turnos já reservados podem concluir. Sessão/histórico permanecem e não há hangup ou marcação de ligação encerrada sem Asterisk. Testes PostgreSQL cobrem expiração, início futuro/nulo e limites inválidos, restaurando somente fixtures. Sem migração ou cancelamento de inferência externa.

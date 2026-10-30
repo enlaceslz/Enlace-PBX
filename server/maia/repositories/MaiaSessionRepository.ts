@@ -95,12 +95,13 @@ export class MaiaSessionRepository {
 
   public static async claimTurn(id:string,tenantId:string,attemptId:string):Promise<MaiaSession> {
     return postgresClient.executeTenantScoped(tenantId,async client=>{
-      const active=await client.query(`SELECT a.id FROM ai_agents a JOIN ai_sessions s ON s.agent_id=a.id AND s.tenant_id=a.tenant_id
-        WHERE s.id=$1 AND s.tenant_id=$2 AND a.is_active=TRUE FOR SHARE OF a`,[id,tenantId]);
-      if(!active.rows.length)throw new OutboundHttpError('Sessão sem agente ativo nesta empresa.',409);
+      const active=await client.query(`SELECT a.id,a.max_session_minutes FROM ai_agents a JOIN ai_sessions s ON s.agent_id=a.id AND s.tenant_id=a.tenant_id
+        WHERE s.id=$1 AND s.tenant_id=$2 AND a.is_active=TRUE AND a.max_session_minutes BETWEEN 1 AND 240 FOR SHARE OF a`,[id,tenantId]);
+      if(!active.rows.length)throw new OutboundHttpError('Sessão sem agente ativo ou limite válido nesta empresa.',409);
       const result=await client.query(`UPDATE ai_sessions SET active_turn_id=$3,status='processing',last_activity_at=CURRENT_TIMESTAMP
-        WHERE id=$1 AND tenant_id=$2 AND active_turn_id IS NULL AND status NOT IN ('completed','failed') RETURNING *`,[id,tenantId,attemptId]);
-      if(!result.rows.length)throw new OutboundHttpError('Sessão indisponível, encerrada ou com turno em processamento.',409);
+        WHERE id=$1 AND tenant_id=$2 AND active_turn_id IS NULL AND status NOT IN ('completed','failed')
+          AND started_at<=clock_timestamp() AND started_at+make_interval(mins=>$4::int)>clock_timestamp() RETURNING *`,[id,tenantId,attemptId,active.rows[0].max_session_minutes]);
+      if(!result.rows.length)throw new OutboundHttpError('Sessão indisponível, expirada, encerrada ou com turno em processamento.',409);
       return this.rowToSession(result.rows[0]);
     });
   }

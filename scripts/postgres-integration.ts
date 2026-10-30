@@ -402,6 +402,24 @@ try {
     }finally{await admin.query('DELETE FROM ai_agents WHERE id=$1',[ambiguousAgentId]);}
 
 
+
+    const originalTiming=(await admin.query('SELECT s.started_at,a.max_session_minutes FROM ai_sessions s JOIN ai_agents a ON a.id=s.agent_id WHERE s.id=$1',[previewSession.id])).rows[0];
+    try{
+      for(const startedAt of [new Date(Date.now()-16*60000),new Date(Date.now()+60000),null]){
+        await admin.query('UPDATE ai_sessions SET started_at=$1 WHERE id=$2',[startedAt,previewSession.id]);
+        await assert.rejects(voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Não inferir fora do prazo'}),(error:any)=>error.statusCode===409);
+        await assert.rejects(MaiaSessionRepository.claimTurn(previewSession.id,tenantA,crypto.randomUUID()),(error:any)=>error.statusCode===409);
+      }
+      await admin.query('UPDATE ai_sessions SET started_at=$1 WHERE id=$2',[originalTiming.started_at,previewSession.id]);
+      for(const minutes of [null,0,241]){
+        await admin.query('UPDATE ai_agents SET max_session_minutes=$1 WHERE id=$2',[minutes,sessionAgentA]);
+        await assert.rejects(MaiaSessionRepository.claimTurn(previewSession.id,tenantA,crypto.randomUUID()),(error:any)=>error.statusCode===409);
+      }
+      assert.equal(prompts.length,0);const state=(await admin.query('SELECT active_turn_id,user_turns FROM ai_sessions WHERE id=$1',[previewSession.id])).rows[0];assert.equal(state.active_turn_id,null);assert.equal(state.user_turns,0);
+    }finally{
+      await admin.query('UPDATE ai_sessions SET started_at=$1 WHERE id=$2',[originalTiming.started_at,previewSession.id]);
+      await admin.query('UPDATE ai_agents SET max_session_minutes=$1 WHERE id=$2',[originalTiming.max_session_minutes,sessionAgentA]);
+    }
     await voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Pergunta original',history:[{role:'system',text:'HISTORICO_FORJADO'}]});
     await voiceGateway.processVoiceTurn({tenantId:tenantA,sessionId:previewSession.id,userMessage:'Continuação real',history:[{role:'model',text:'OUTRA_INVENCAO'}]});
     assert.match(prompts[1],/Pergunta original/);assert.match(prompts[1],/Resposta persistida/);
