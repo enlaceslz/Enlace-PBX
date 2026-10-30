@@ -6,6 +6,11 @@
 # ====================================================================
 
 set -euo pipefail
+umask 027
+[[ "${ASTERISK_VERSION:-20.17.0}" =~ ^20\.[0-9]+\.[0-9]+$ ]] || { echo "Versão Asterisk inválida." >&2; exit 1; }
+[[ "${ASTERISK_EXPECTED_SHA256:-}" =~ ^[a-fA-F0-9]{64}$ ]] || { echo "Forneça ASTERISK_EXPECTED_SHA256 verificado na fonte oficial." >&2; exit 1; }
+[[ -f "${PBX_CONFIG_FILE:-}" ]] || { echo "PBX_CONFIG_FILE obrigatório, com as credenciais da aplicação." >&2; exit 1; }
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 # Configuração de Versão
 ASTERISK_VER="${ASTERISK_VERSION:-20.17.0}"
@@ -44,11 +49,6 @@ apt-get install -y --no-install-recommends \
   libcurl4-openssl-dev pkg-config ca-certificates libspeexdsp-dev \
   sox libsox-fmt-all fail2ban sngrep
 
-# Tabela oficial de Checksums SHA-256 para versões homologadas do Asterisk 20 LTS
-declare -A KNOWN_ASTERISK_SHA256=(
-  ["20.17.0"]="a38b5847e93050cb25391a9b2c3c4314c1d7634f19bca4020a67e584f29ee873"
-)
-
 # 3. Download seguro e extração
 cd "${DOWNLOAD_DIR}"
 echo -e "\n${BOLD}[2/7] Obtendo pacote oficial do Asterisk ${ASTERISK_VER}...${NC}"
@@ -70,7 +70,7 @@ if [ ! -s "${ARCHIVE_FILE}" ]; then
 fi
 
 FILE_SHA256=$(sha256sum "${ARCHIVE_FILE}" | awk '{print $1}')
-EXPECTED_SHA256="${ASTERISK_EXPECTED_SHA256:-${KNOWN_ASTERISK_SHA256[${ASTERISK_VER}]:-}}"
+EXPECTED_SHA256="${ASTERISK_EXPECTED_SHA256}"
 
 if [ -n "${EXPECTED_SHA256}" ]; then
   if [ "${FILE_SHA256}" != "${EXPECTED_SHA256}" ]; then
@@ -134,7 +134,7 @@ NCPU=$(nproc 2>/dev/null || echo 2)
 echo -e "\n${BOLD}[6/7] Compilando Asterisk utilizando ${NCPU} threads...${NC}"
 make -j"${NCPU}"
 make install
-make samples
+if [[ ! -f /etc/asterisk/asterisk.conf ]]; then make samples; fi
 make config
 ldconfig
 
@@ -144,61 +144,15 @@ useradd -r -g asterisk -d /var/lib/asterisk -s /usr/sbin/nologin -c "Asterisk PB
 usermod -aG audio,dialout asterisk 2>/dev/null || true
 
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
-chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
-# Configuração e Padronização Segura de AMI (manager.conf) e ARI (ari.conf)
-mkdir -p /etc/asterisk
-if [ -f /etc/asterisk/manager.conf ] && ! grep -q "enlace_ami" /etc/asterisk/manager.conf 2>/dev/null; then
-  echo -e "${CYAN}Configurando usuário AMI 'enlace_ami' em /etc/asterisk/manager.conf...${NC}"
-  cat <<'EOF_AMI' >> /etc/asterisk/manager.conf
-
-[general]
-enabled = yes
-port = 5038
-bindaddr = 127.0.0.1
-
-[enlace_ami]
-secret = enlace_ami_secret_2026
-deny = 0.0.0.0/0.0.0.0
-permit = 127.0.0.1/255.255.255.255
-read = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
-write = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
-EOF_AMI
-fi
-
-if [ -f /etc/asterisk/http.conf ] && ! grep -q "bindaddr=127.0.0.1" /etc/asterisk/http.conf 2>/dev/null; then
-  cat <<'EOF_HTTP' >> /etc/asterisk/http.conf
-
-[general]
-enabled = yes
-bindaddr = 127.0.0.1
-bindport = 8088
-EOF_HTTP
-fi
-
-if [ -f /etc/asterisk/ari.conf ] && ! grep -q "enlace_ari" /etc/asterisk/ari.conf 2>/dev/null; then
-  echo -e "${CYAN}Configurando usuário ARI 'enlace_ari' em /etc/asterisk/ari.conf...${NC}"
-  cat <<'EOF_ARI' >> /etc/asterisk/ari.conf
-
-[general]
-enabled = yes
-pretty = yes
-allowed_origins = http://127.0.0.1:3000
-
-[enlace_ari]
-type = user
-read_only = no
-password = enlace_ari_secret_2026
-EOF_ARI
-fi
-
-chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
-chmod -R 750 /var/{lib,log,run,spool}/asterisk /etc/asterisk
+chown -R asterisk:asterisk /var/{lib,log,run,spool}/asterisk
+# O helper assume posse por descritor e não segue links nos destinos.
+node "$SCRIPT_DIR/scripts/asterisk-settings.mjs"
 
 # 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
 systemctl daemon-reload
 systemctl enable asterisk
-systemctl restart asterisk || true
+systemctl restart asterisk
 
 sleep 3
 
@@ -208,7 +162,8 @@ if command -v asterisk >/dev/null 2>&1; then
   if [[ "${VERSION_DETECTED}" == *"Asterisk"* ]]; then
     echo -e "${GREEN}✅ SUCESSO: Asterisk Core operacional:${NC} ${VERSION_DETECTED}"
   else
-    echo -e "${YELLOW}⚠️ Aviso: Asterisk instalado com sucesso. Aguardando inicialização completa do daemon.${NC}"
+    echo "Asterisk não respondeu após a instalação. Verifique journalctl -u asterisk." >&2
+    exit 1
   fi
 else
   echo -e "${RED}❌ ERRO: Binário asterisk não encontrado em /usr/sbin/asterisk após a compilação.${NC}"

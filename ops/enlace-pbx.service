@@ -1,0 +1,37 @@
+[Unit]
+Description=Enlace-PBX — Telefonia e atendimento
+After=network-online.target postgresql.service asterisk.service
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=enlace-pbx
+Group=enlace-pbx
+WorkingDirectory=/opt/enlace-pbx/current
+Environment=NODE_ENV=production
+Environment=PBX_CONFIG_FILE=/etc/enlace-pbx/runtime.json
+ExecStart=/usr/bin/node /opt/enlace-pbx/current/dist/server.cjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+KillSignal=SIGTERM
+UMask=0027
+StateDirectory=enlace-pbx
+LogsDirectory=enlace-pbx
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/enlace-pbx /var/log/enlace-pbx
+
+[Install]
+WantedBy=multi-user.target

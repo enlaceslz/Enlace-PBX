@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoString, toSafeIsoStringOrNow } from '../dateUtils.js';
 import { Did } from '../../../../src/types/pbx.js';
@@ -50,7 +51,7 @@ export class DidRepository {
         const res = await client.query('SELECT * FROM dids ORDER BY did ASC');
         return res.rows.map(row => this.mapRow(row));
       } catch (err: any) {
-        console.error('[DidRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -65,7 +66,7 @@ export class DidRepository {
         );
         return res.rows.map(row => this.mapRow(row));
       } catch (err: any) {
-        console.error('[DidRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -84,7 +85,7 @@ export class DidRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[DidRepository.findByDidNumber] Erro no PostgreSQL:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -106,7 +107,7 @@ export class DidRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[DidRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -121,7 +122,7 @@ export class DidRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[DidRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -186,7 +187,7 @@ export class DidRepository {
         );
         return did;
       } catch (err: any) {
-        console.error('[DidRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -201,7 +202,7 @@ export class DidRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[DidRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

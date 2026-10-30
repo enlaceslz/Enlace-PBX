@@ -1,5 +1,6 @@
+import {reviewedKnowledge} from './infrastructure/ai/AiConfiguration.js';
+import {logOperational} from './infrastructure/security/OperationalLog.js';
 import { GoogleGenAI, Type } from '@google/genai';
-import zlib from 'zlib';
 import { maiaAIGateway } from './maia/gateway/MaiaAIGateway.js';
 import {
   AiAgentRepository,
@@ -195,7 +196,7 @@ export class GeminiService {
   async processWhatsAppTurn(conversationId: string, userMessage: string, agentId?: string): Promise<string> {
     const ai = getAiClient();
     if (!ai) {
-      console.warn('Gemini API key missing, returning fallback for WhatsApp.');
+      logOperational('SERVER_WARNING');
       return 'Desculpe, o sistema de IA está temporariamente indisponível.';
     }
 
@@ -231,7 +232,7 @@ export class GeminiService {
     }
 
     // Assemble Knowledge grounding
-    const allKnowledge = await AiKnowledgeRepository.listByTenant(tenantId);
+    const allKnowledge = reviewedKnowledge(await AiKnowledgeRepository.listByTenant(tenantId));
     const knowledgeSnippets = agent.knowledgeSources
       .map((kId) => allKnowledge.find((k) => k.id === kId))
       .filter(Boolean)
@@ -270,7 +271,7 @@ ${historyContext}
       });
       return response.text || "Desculpe, não consegui formular uma resposta.";
     } catch (e) {
-      console.error('Gemini API error during WhatsApp turn:', e);
+      logOperational('SERVER_OPERATION_FAILURE');
       return 'Desculpe, ocorreu um erro interno ao processar sua mensagem.';
     }
   }
@@ -306,56 +307,6 @@ ${historyContext}
       tokensUsed: gatewayRes.tokensUsed,
       voiceConfig: gatewayRes.voiceConfig,
     };
-  }
-
-  async summarizeAndAnalyzeCall(transcript: string, caller: string, callee: string): Promise<{ summary: string; sentiment: string; category: string; actionItems: string[] }> {
-    const ai = getAiClient();
-    if (!ai) {
-      return {
-        summary: `Atendimento entre ${caller} e ${callee}. O cliente solicitou informações e o atendimento foi concluído satisfatoriamente.`,
-        sentiment: 'Positivo',
-        category: 'Atendimento Geral / Triagem',
-        actionItems: ['Verificar satisfação do cliente no pós-atendimento', 'Atualizar dados de contato no CRM'],
-      };
-    }
-
-    try {
-      const prompt = `Analise a seguinte transcrição de chamada telefônica do Enlace-PBX (Asterisk puro + IA) entre o chamador "${caller}" e o destino "${callee}":
-
-"${transcript}"
-
-Retorne uma análise em português no seguinte formato JSON:
-{
-  "summary": "Resumo executivo de 2 a 3 frases destacando objetivo e resolução",
-  "sentiment": "Positivo | Neutro | Frustrado",
-  "category": "Comercial | Suporte Técnico | Financeiro | Dúvida Geral",
-  "actionItems": ["Item de ação 1", "Item de ação 2"]
-}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        },
-      });
-
-      const parsed = JSON.parse(response.text || '{}');
-      return {
-        summary: parsed.summary || 'Atendimento telefônico registrado.',
-        sentiment: parsed.sentiment || 'Neutro',
-        category: parsed.category || 'Atendimento Geral',
-        actionItems: parsed.actionItems || ['Acompanhar histórico no CRM'],
-      };
-    } catch (e) {
-      console.warn('Fallback summarization:', e);
-      return {
-        summary: `Chamada realizada com sucesso entre ${caller} e ${callee}. Transcrição arquivada de acordo com as normas da LGPD.`,
-        sentiment: 'Neutro',
-        category: 'Telefonia Geral',
-        actionItems: ['Nenhuma pendência crítica identificada'],
-      };
-    }
   }
 
   private handleFallbackTurn(
@@ -516,138 +467,11 @@ Retorne uma análise em português no seguinte formato JSON:
       const text = response.text;
       return JSON.parse(text || '{}');
     } catch (e) {
-      console.error('Supervisor Evaluation failed', e);
+      logOperational('SERVER_OPERATION_FAILURE');
       return null;
     }
   }
 
-  async extractKnowledgeFromDocument(params: {
-    fileName: string;
-    fileType: string;
-    base64Data?: string;
-    rawText?: string;
-  }): Promise<{ title: string; category: string; content: string }> {
-    let rawContent = params.rawText || '';
-
-    // If PDF base64 provided and Gemini is available, use multimodal inlineData
-    if (params.fileType.includes('pdf') && params.base64Data) {
-      const ai = getAiClient();
-      if (ai) {
-        try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [
-              {
-                inlineData: {
-                  data: params.base64Data,
-                  mimeType: 'application/pdf',
-                },
-              },
-              'Extraia detalhadamente todo o conteúdo textual técnico, procedimentos de suporte, diretrizes de atendimento e dados operacionais deste manual. Formate em markdown claro com cabeçalhos e tópicos em português do Brasil.',
-            ],
-          });
-          if (response.text) {
-            rawContent = response.text.trim();
-          }
-        } catch (err) {
-          console.warn('Gemini PDF inline extraction warning:', err);
-        }
-      }
-
-      // If Gemini extraction was not available or empty, extract from PDF stream buffer
-      if (!rawContent && params.base64Data) {
-        try {
-          const buffer = Buffer.from(params.base64Data, 'base64');
-          rawContent = extractTextFromPdfBuffer(buffer);
-        } catch (err) {
-          console.warn('PDF stream extraction fallback error:', err);
-        }
-      }
-    }
-
-    // Default clean title from file name
-    const cleanTitle = params.fileName
-      .replace(/\.[^/.]+$/, '')
-      .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, (l) => l.toUpperCase());
-
-    // Category auto-detection based on file name and content
-    let category = 'Suporte Técnico';
-    const lower = (params.fileName + ' ' + rawContent).toLowerCase();
-    if (lower.includes('financeir') || lower.includes('fatura') || lower.includes('pix') || lower.includes('boleto')) {
-      category = 'Financeiro & Faturamento';
-    } else if (lower.includes('plano') || lower.includes('venda') || lower.includes('comercial') || lower.includes('preço')) {
-      category = 'Comercial & Planos';
-    } else if (
-      lower.includes('rede') ||
-      lower.includes('sip') ||
-      lower.includes('noc') ||
-      lower.includes('asterisk') ||
-      lower.includes('pjsip') ||
-      lower.includes('onu') ||
-      lower.includes('fibra') ||
-      lower.includes('roberto')
-    ) {
-      category = 'Diagnóstico de Rede / NOC';
-    } else if (lower.includes('lgpd') || lower.includes('política') || lower.includes('horário') || lower.includes('jurídico')) {
-      category = 'Políticas & Institucional';
-    }
-
-    return {
-      title: cleanTitle || 'Manual de Suporte Carregado',
-      category,
-      content: rawContent || 'Conteúdo do documento indexado para consulta dos agentes de IA.',
-    };
-  }
-}
-
-function extractTextFromPdfBuffer(buffer: Buffer): string {
-  const textChunks: string[] = [];
-  const str = buffer.toString('binary');
-
-  // Attempt to decompress FlateDecode streams
-  const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = streamRegex.exec(str)) !== null) {
-    const rawStream = Buffer.from(match[1], 'binary');
-    try {
-      const decompressed = zlib.inflateSync(rawStream).toString('utf-8');
-      const tjRegex = /\(([^)]+)\)\s*Tj/g;
-      let tjMatch: RegExpExecArray | null;
-      while ((tjMatch = tjRegex.exec(decompressed)) !== null) {
-        textChunks.push(tjMatch[1]);
-      }
-      const tjArrayRegex = /\[([^\]]+)\]\s*TJ/g;
-      let arrayMatch: RegExpExecArray | null;
-      while ((arrayMatch = tjArrayRegex.exec(decompressed)) !== null) {
-        const innerRegex = /\(([^)]+)\)/g;
-        let innerMatch: RegExpExecArray | null;
-        while ((innerMatch = innerRegex.exec(arrayMatch[1])) !== null) {
-          textChunks.push(innerMatch[1]);
-        }
-      }
-    } catch {
-      // Non-compressed stream
-    }
-  }
-
-  if (textChunks.length > 5) {
-    return textChunks
-      .join(' ')
-      .replace(/\\([nrtbf()])/g, '$1')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  // Fallback: extract readable Portuguese text segments of length >= 4
-  const decoded = buffer.toString('utf-8');
-  const readableTokens = decoded.match(/[A-Za-z0-9À-ÿ\s\.,;:!?\-\(\)\/\@\#\%]{4,}/g) || [];
-  const cleanTokens = readableTokens
-    .map((t) => t.trim())
-    .filter((t) => t.length > 3 && !t.startsWith('/') && !t.includes('obj') && !t.includes('endobj'));
-
-  return cleanTokens.slice(0, 500).join('\n') || 'Documento PDF carregado para base de conhecimento.';
 }
 
 export const geminiService = new GeminiService();

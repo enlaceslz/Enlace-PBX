@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import {installSessionObserver,cancelApiRequests,setApiTenant,getApiTenant,uiRole} from './utils/sessionClient';
+import {connectTelemetry} from './utils/telemetryConnection';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShieldAlert, AlertCircle, RefreshCw } from 'lucide-react';
 import { Navbar } from './components/Navbar';
@@ -58,7 +60,7 @@ export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(localStorage.getItem('enlace_jwt'));
 
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
-  const [userRole, setUserRole] = useState<UserRole>('super_admin');
+  const [userRole, setUserRole] = useState<UserRole>('auditor');
   const [isWebphoneOpen, setIsWebphoneOpen] = useState(false);
   const [webphoneTarget, setWebphoneTarget] = useState<string>('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -88,50 +90,56 @@ export default function App() {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [sessionNotice,setSessionNotice]=useState('');
+  const [tenantScope,setTenantScope]=useState<string|null>(getApiTenant());
+  const generation=useRef(0);
+  const loadingController=useRef<AbortController|null>(null);
+  const clearPrivateData=useCallback(()=>{
+    generation.current++;loadingController.current?.abort();cancelApiRequests();
+    setCurrentUser(null);setCurrentTenant(null);setUsers([]);setTenants([]);setMetrics(null);setChannels([]);
+    setExtensions([]);setTrunks([]);setDids([]);setRoutes([]);setQueues([]);setRingGroups([]);setIvrs([]);setCdrs([]);
+    setAiAgents([]);setAiProviders([]);setAiTools([]);setAiKnowledge([]);setAiSessions([]);setAuditLogs([]);setHealth(null);
+    setUserRole('auditor');setIsWebphoneOpen(false);setWebphoneTarget('');setIsMobileMenuOpen(false);setActiveView('dashboard');setLoadError(null);
+  },[]);
+  const expireSession=useCallback((notice='Sua sessão expirou ou foi revogada. Entre novamente.')=>{
+    localStorage.removeItem('enlace_jwt');localStorage.removeItem('enlace_token');setApiTenant(null);setTenantScope(null);
+    clearPrivateData();setAuthToken(null);setIsAuthenticated(false);setLoading(false);setSessionNotice(notice);
+  },[clearPrivateData]);
+  useEffect(()=>installSessionObserver(()=>expireSession()),[expireSession]);
+  useEffect(()=>{
+    const changed=(event:StorageEvent)=>{
+      if(event.key!==null&&event.key!=='enlace_jwt')return;
+      const value=localStorage.getItem('enlace_jwt');
+      if(event.key===null?value!==null:event.newValue!==value)return;
+      setApiTenant(null);setTenantScope(null);clearPrivateData();
+      if(value){setAuthToken(value);setIsAuthenticated(true);setSessionNotice('');}
+      else expireSession('A sessão foi encerrada em outra aba. Entre novamente.');
+    };
+    window.addEventListener('storage',changed);return()=>window.removeEventListener('storage',changed);
+  },[clearPrivateData,expireSession]);
+
 
   const loadAllData = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
+    const token=authToken;
+    if(!token || token!==localStorage.getItem('enlace_jwt') || getApiTenant()!==tenantScope)return;
+    const epoch=++generation.current;
+    loadingController.current?.abort();const batch=new AbortController();loadingController.current=batch;
+    const current=()=>epoch===generation.current&&token===localStorage.getItem('enlace_jwt')&&getApiTenant()===tenantScope&&!batch.signal.aborted;
+    setLoading(true);setLoadError(null);
     try {
-      const token = authToken || localStorage.getItem('enlace_jwt');
       
-      const fetchWithAuth = async (url: string, retries = 2): Promise<any> => {
-        for (let attempt = 0; attempt <= retries; attempt++) {
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
-            const res = await fetch(url, {
-              signal: controller.signal,
-              headers: token ? {
-                'Authorization': `Bearer ${token}`
-              } : {}
-            });
-            clearTimeout(timeoutId);
-
-            if (res.status === 401) {
-              localStorage.removeItem('enlace_jwt');
-              setAuthToken(null);
-              setIsAuthenticated(false);
-              return null;
-            }
-
-            const contentType = res.headers.get('content-type');
-            if (contentType && contentType.includes('application/json')) {
-              return await res.json();
-            }
-            return null;
-          } catch (err: any) {
-            if (attempt < retries) {
-              await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
-            } else {
-              console.warn(`[Enlace-PBX] Endpoint indisponível (${url}):`, err?.message || err);
-              return null;
-            }
-          }
-        }
-        return null;
+      const fetchWithAuth=async(url:string):Promise<any>=>{
+        if(!current())return null;const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),6000);
+        try{
+          const response=await fetch(url,{signal:AbortSignal.any([controller.signal,batch.signal]),headers:{Authorization:`Bearer ${token}`}});
+          if(!response.ok)return null;
+          return (response.headers.get('content-type')||'').includes('application/json')?await response.json():null;
+        }catch{return null;}finally{clearTimeout(timer);}
       };
-
+      const identity=await fetchWithAuth('/api/v1/auth/me');
+      if(!current())return;
+      if(!identity?.id || !identity?.tenantId || !identity?.role){setLoadError('Não foi possível verificar sua identidade no servidor. Tente novamente.');return;}
+      setCurrentUser(identity);setUserRole(uiRole(identity.role) as UserRole);
       const results = await Promise.allSettled([
         fetchWithAuth('/api/v1/dashboard/metrics'),
         fetchWithAuth('/api/v1/tenants'),
@@ -151,9 +159,10 @@ export default function App() {
         fetchWithAuth('/api/v1/ai/knowledge'),
         fetchWithAuth('/api/v1/ai/sessions'),
         fetchWithAuth('/api/v1/audit-logs'),
-        fetchWithAuth('/api/v1/health'),
+        fetchWithAuth(identity.role==='super_admin'?'/api/v1/system/health':'/api/v1/health'),
       ]);
 
+      if(!current())return;
       const [
         metricsRes,
         tenantsRes,
@@ -179,11 +188,11 @@ export default function App() {
       if (metricsRes) setMetrics(metricsRes);
       if (Array.isArray(tenantsRes) && tenantsRes.length > 0) {
         setTenants(tenantsRes);
-        setCurrentTenant(prev => prev || tenantsRes[0]);
+        setCurrentTenant(tenantsRes.find(tenant=>tenant.id===(tenantScope||identity.tenantId))||null);
       }
       if (Array.isArray(usersRes) && usersRes.length > 0) {
         setUsers(usersRes);
-        setCurrentUser(prev => prev || usersRes[0]);
+
       }
       if (Array.isArray(channelsRes)) setChannels(channelsRes);
       if (Array.isArray(extensionsRes)) setExtensions(extensionsRes);
@@ -208,11 +217,11 @@ export default function App() {
       }
     } catch (e: any) {
       console.warn('[Enlace-PBX] Falha ao carregar dados do PBX:', e?.message || e);
-      setLoadError('Erro de conexão ao sincronizar com o PBX.');
+      if(current())setLoadError('Erro de conexão ao sincronizar com o PBX.');
     } finally {
-      setLoading(false);
+      if(current())setLoading(false);
     }
-  }, [authToken]);
+  }, [authToken,tenantScope]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -220,99 +229,39 @@ export default function App() {
     }
   }, [loadAllData, isAuthenticated]);
 
-  // Conexão Segura SSE para telemetria em tempo real com Ticket Efêmero (P0-01)
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let isSubscribed = true;
-    let es: EventSource | null = null;
-    let retryTimer: any = null;
-
-    const connectSse = async () => {
-      try {
-        const token = authToken || localStorage.getItem('enlace_jwt');
-        if (!token || !isSubscribed) return;
-
-        // Solicita ticket efêmero de uso único (TTL 30s) sem expor JWT na URL
-        const res = await fetch('/api/v1/auth/sse-ticket', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!res.ok || !isSubscribed) {
-          retryTimer = setTimeout(connectSse, 5000);
-          return;
-        }
-
-        const data = await res.json();
-        const ticket = data.ticket;
-        if (!ticket || !isSubscribed) {
-          retryTimer = setTimeout(connectSse, 5000);
-          return;
-        }
-
-        es = new EventSource(`/api/v1/events/asterisk?ticket=${encodeURIComponent(ticket)}`);
-
-        es.onmessage = (event) => {
-          try {
-            const payload = JSON.parse(event.data);
-            if (payload.channels) setChannels(payload.channels);
-            if (payload.metrics) setMetrics(payload.metrics);
-          } catch {}
-        };
-
-        es.onerror = () => {
-          if (es) {
-            es.close();
-            es = null;
-          }
-          if (isSubscribed) {
-            // Reconexão solicitando um NOVO ticket efêmero
-            retryTimer = setTimeout(connectSse, 3000);
-          }
-        };
-      } catch {
-        if (isSubscribed) {
-          retryTimer = setTimeout(connectSse, 5000);
-        }
-      }
-    };
-
-    connectSse();
-
-    return () => {
-      isSubscribed = false;
-      if (retryTimer) clearTimeout(retryTimer);
-      if (es) es.close();
-    };
-  }, [isAuthenticated, authToken]);
+  useEffect(()=>{
+    if(!isAuthenticated||!authToken||!currentUser)return;
+    return connectTelemetry({token:authToken,tenant:tenantScope||currentUser.tenantId,binding:getApiTenant(),
+      getToken:()=>localStorage.getItem('enlace_jwt'),getBinding:getApiTenant,request:window.fetch.bind(window),source:url=>new EventSource(url),
+      data:payload=>{setChannels(payload.channels);if(payload.metrics&&typeof payload.metrics==='object')setMetrics(payload.metrics);},
+      unavailable:()=>setLoadError('Telemetria indisponível após cinco tentativas. Recarregue o painel para tentar novamente.')});
+  },[isAuthenticated,authToken,currentUser?.id,currentUser?.tenantId,tenantScope]);
 
   const handleOpenWebphone = (number?: string) => {
     if (number) setWebphoneTarget(number);
     setIsWebphoneOpen(true);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('enlace_jwt');
-    setAuthToken(null);
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-  };
+  const handleLogout=()=>expireSession('Sessão encerrada.');
 
   if (!isAuthenticated) {
     return (
-      <LoginView 
-        onLoginSuccess={(user, token) => {
-          setAuthToken(token);
-          setIsAuthenticated(true);
-          setCurrentUser(user);
-          setUserRole(user.role);
+      <LoginView notice={sessionNotice}
+        onLoginSuccess={(_user, token) => {
+          clearPrivateData();setApiTenant(null);setTenantScope(null);setSessionNotice('');
+          setAuthToken(token);setIsAuthenticated(true);
+
         }} 
       />
     );
   }
+
+  if(!currentUser)return <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-50 p-6">
+    <p role="status">{loadError||'Verificando identidade no servidor…'}</p>
+    <button onClick={()=>void loadAllData()} className="text-blue-700">Verificar novamente</button>
+    {tenantScope&&<button onClick={()=>{clearPrivateData();setApiTenant(null);setTenantScope(null);}} className="text-blue-700">Voltar à empresa de origem</button>}
+    <button onClick={handleLogout} className="text-slate-600">Voltar ao login</button>
+  </div>;
 
   const renderActiveView = () => {
 
@@ -537,11 +486,7 @@ export default function App() {
         return <NetworkSecurityView key="network_security" />;
       case 'infra_settings':
         return (
-          <InfraSettingsView
-            key="infra_settings"
-            onOpenWebphone={() => handleOpenWebphone()}
-            onNavigate={(v) => setActiveView(v)}
-          />
+          <InfraSettingsView key="infra_settings" />
         );
       case 'system_logs':
         return <SystemLogsView key="system_logs" />;
@@ -638,13 +583,12 @@ export default function App() {
       <Navbar
         tenants={tenants}
         currentTenant={currentTenant}
-        onSelectTenant={(t) => setCurrentTenant(t)}
+        onSelectTenant={(t) => {if(t.id===currentTenant?.id)return;clearPrivateData();setApiTenant(t.id);setTenantScope(t.id);setCurrentTenant(t);}}
         currentUser={currentUser}
         activeCallsCount={channels.length}
         onOpenWebphone={() => handleOpenWebphone()}
         isWebphoneOpen={isWebphoneOpen}
         userRole={userRole}
-        onChangeUserRole={setUserRole}
         onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         onLogout={handleLogout}
       />

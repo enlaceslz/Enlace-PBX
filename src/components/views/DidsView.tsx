@@ -1,3 +1,4 @@
+import {getAuthHeaders} from '../../utils/api';
 import React, { useState, useMemo } from 'react';
 import {
   Hash,
@@ -33,6 +34,8 @@ import {
   User,
 } from 'lucide-react';
 import { Did, Trunk, Extension, Queue, Ivr, AiAgent, RingGroup } from '../../types/pbx';
+
+const didRequest=(url:string,options:RequestInit={})=>fetch(url,{...options,headers:{...getAuthHeaders(),...options.headers}});
 
 interface DidsViewProps {
   dids: Did[];
@@ -76,11 +79,11 @@ export const DidsView: React.FC<DidsViewProps> = ({
     assignedCompany: '',
     assignedCnpj: '',
     assignedUser: '',
-    monthlyFee: '29.90',
+    monthlyFee: '',
     billingCycleDay: '10',
-    destinationType: 'ai_agent' as 'ai_agent' | 'extension' | 'queue' | 'ivr' | 'ring_group',
-    destinationId: 'agent-maia-general',
-    destinationLabel: 'Agente de Voz MaIA (IA Matriz)',
+    destinationType: 'extension' as 'ai_agent' | 'extension' | 'queue' | 'ivr' | 'ring_group',
+    destinationId: '',
+    destinationLabel: '',
     timeConditionEnabled: false,
     startHour: '08:00',
     endHour: '18:00',
@@ -88,7 +91,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
     afterHoursDestType: 'ai_agent' as 'ai_agent' | 'extension' | 'queue' | 'ivr',
     afterHoursDestId: 'agent-maia-general',
     fallbackType: 'human' as 'human' | 'voicemail' | 'hangup',
-    fallbackTarget: '4101',
+    fallbackTarget: '',
     didSourceHeader: 'request_uri' as 'request_uri' | 'to' | 'p_called_party_id' | 'custom',
     customHeaderName: '',
     unknownDidAction: 'reject_404' as 'reject_404' | 'default_route' | 'busy_486',
@@ -102,7 +105,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
     count: 10,
     trunkId: trunks[0]?.id || '',
     destinationType: 'extension' as const,
-    destinationId: '4101',
+    destinationId: '',
   });
   const [isBatchSaving, setIsBatchSaving] = useState(false);
 
@@ -158,11 +161,11 @@ export const DidsView: React.FC<DidsViewProps> = ({
       assignedCompany: '',
       assignedCnpj: '',
       assignedUser: '',
-      monthlyFee: '29.90',
+      monthlyFee: '',
       billingCycleDay: '10',
-      destinationType: 'ai_agent',
-      destinationId: aiAgents[0]?.id || 'agent-maia-general',
-      destinationLabel: aiAgents[0]?.name || 'Agente de Voz MaIA',
+      destinationType: 'extension',
+      destinationId: '',
+      destinationLabel: '',
       timeConditionEnabled: false,
       startHour: '08:00',
       endHour: '18:00',
@@ -170,7 +173,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
       afterHoursDestType: 'ai_agent',
       afterHoursDestId: aiAgents[0]?.id || 'agent-maia-general',
       fallbackType: 'human',
-      fallbackTarget: '4101',
+      fallbackTarget: '',
       didSourceHeader: 'request_uri',
       customHeaderName: '',
       unknownDidAction: 'reject_404',
@@ -189,7 +192,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
       assignedCompany: did.assignedCompany || '',
       assignedCnpj: did.assignedCnpj || '',
       assignedUser: did.assignedUser || '',
-      monthlyFee: did.monthlyFee !== undefined ? String(did.monthlyFee) : '29.90',
+      monthlyFee: did.monthlyFee !== undefined ? String(did.monthlyFee) : '',
       billingCycleDay: did.billingCycleDay !== undefined ? String(did.billingCycleDay) : '10',
       destinationType: did.destinationType,
       destinationId: did.destinationId,
@@ -217,39 +220,17 @@ export const DidsView: React.FC<DidsViewProps> = ({
     setIsSaving(true);
 
     try {
-      const payload = {
-        did: formData.did,
-        trunkId: formData.trunkId,
-        description: formData.description,
-        assignedCompany: formData.assignedCompany || undefined,
-        assignedCnpj: formData.assignedCnpj || undefined,
-        assignedUser: formData.assignedUser || undefined,
-        monthlyFee: formData.monthlyFee ? parseFloat(formData.monthlyFee) : undefined,
-        billingCycleDay: formData.billingCycleDay ? parseInt(formData.billingCycleDay, 10) : undefined,
-        destinationType: formData.destinationType,
-        destinationId: formData.destinationId,
-        destinationLabel: formData.destinationLabel,
-        timeConditionEnabled: formData.timeConditionEnabled,
-        timeSchedule: formData.timeConditionEnabled
-          ? {
-              startHour: formData.startHour,
-              endHour: formData.endHour,
-              weekdays: formData.weekdays,
-            }
-          : undefined,
-        afterHoursDestType: formData.afterHoursDestType,
-        afterHoursDestId: formData.afterHoursDestId,
-        fallbackType: formData.fallbackType,
-        fallbackTarget: formData.fallbackTarget,
-        didSourceHeader: formData.didSourceHeader,
-        customHeaderName: formData.customHeaderName,
-        unknownDidAction: formData.unknownDidAction,
-      };
+      if(formData.destinationType!=='extension'||formData.timeConditionEnabled||formData.didSourceHeader!=='request_uri'||formData.unknownDidAction!=='reject_404'||formData.fallbackTarget||(formData.fallbackType&&formData.fallbackType!=='human')){setFormError('Horários, IA, fallback e cabeçalhos alternativos ainda não são executados. Use ramal explícito sem recursos avançados.');return;}
+      const payload={did:formData.did,trunkId:formData.trunkId,description:formData.description,
+        assignedCompany:formData.assignedCompany,assignedCnpj:formData.assignedCnpj,assignedUser:formData.assignedUser,
+        ...(formData.monthlyFee!==''?{monthlyFee:Number(formData.monthlyFee)}:{}),
+        ...(formData.billingCycleDay!==''?{billingCycleDay:Number(formData.billingCycleDay)}:{}),
+        destinationType:'extension',destinationId:formData.destinationId};
 
       const url = editingDid ? `/api/v1/dids/${editingDid.id}` : '/api/v1/dids';
       const method = editingDid ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await didRequest(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -273,9 +254,10 @@ export const DidsView: React.FC<DidsViewProps> = ({
 
   // Delete DID
   const handleDeleteDid = async (id: string, numberStr: string) => {
-    if (!confirm(`Confirma a exclusão do DID ${numberStr}? As chamadas recebidas para este número não serão mais completadas.`)) return;
+    if (!confirm(`Confirma a exclusão do DID ${numberStr}? Esta alteração cadastral não aplica o plano no host.`)) return;
     try {
-      await fetch(`/api/v1/dids/${id}`, { method: 'DELETE' });
+      const response=await didRequest(`/api/v1/dids/${id}`, { method: 'DELETE' });
+      if(!response.ok){const body=await response.json().catch(()=>({}));alert(body.error||'Exclusão não confirmada.');return;}
       onRefresh();
     } catch (err) {
       console.error('Delete DID error:', err);
@@ -287,7 +269,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
     e.preventDefault();
     setIsBatchSaving(true);
     try {
-      const res = await fetch('/api/v1/dids/batch', {
+      const res = await didRequest('/api/v1/dids/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(batchData),
@@ -310,7 +292,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
   const handleRunSimulation = async () => {
     setIsSimulating(true);
     try {
-      const res = await fetch('/api/v1/dids/simulate', {
+      const res = await didRequest('/api/v1/dids/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -320,6 +302,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
         }),
       });
       const data = await res.json();
+      if(!res.ok){alert(data.error||'Simulação indisponível.');return;}
       setSimulateResult(data);
     } catch (err) {
       console.error('Simulation error:', err);
@@ -356,6 +339,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
 
   return (
     <div className="space-y-6">
+      <p className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-900">Cadastro disponível para tronco e ramal explícitos da empresa. IA, filas, URA, horários, fallback e simulação aguardam implementação e homologação. Salvar ou excluir não aplica o plano no Asterisk.</p>
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -499,8 +483,8 @@ export const DidsView: React.FC<DidsViewProps> = ({
               <option value="ai_agent">Agente IA (MaIA)</option>
               <option value="extension">Ramal PJSIP</option>
               <option value="queue">Fila ACD</option>
-              <option value="ivr">URA / IVR</option>
-              <option value="ring_group">Grupo de Toque</option>
+              <option value="ivr" disabled>URA — indisponível</option>
+              <option value="ring_group" disabled>Grupo — indisponível</option>
             </select>
           </div>
 
@@ -1090,11 +1074,11 @@ export const DidsView: React.FC<DidsViewProps> = ({
                       }}
                       className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 text-xs focus:border-blue-500 focus:outline-none"
                     >
-                      <option value="ai_agent">Agente de Voz IA (MaIA)</option>
+                      <option value="ai_agent" disabled>IA — indisponível</option>
                       <option value="extension">Ramal PJSIP</option>
-                      <option value="queue">Fila de Atendimento (ACD)</option>
-                      <option value="ivr">URA / IVR</option>
-                      <option value="ring_group">Grupo de Toque</option>
+                      <option value="queue" disabled>Fila — indisponível</option>
+                      <option value="ivr" disabled>URA — indisponível</option>
+                      <option value="ring_group" disabled>Grupo — indisponível</option>
                     </select>
                   </div>
 
@@ -1134,6 +1118,7 @@ export const DidsView: React.FC<DidsViewProps> = ({
                         }}
                         className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 text-xs focus:border-blue-500 focus:outline-none"
                       >
+                        <option value="">Selecione um ramal</option>
                         {extensions.map((ex) => (
                           <option key={ex.id} value={ex.number}>
                             {ex.number} - {ex.name}

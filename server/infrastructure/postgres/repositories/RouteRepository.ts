@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { Route } from '../../../../src/types/pbx.js';
 import { TenantContext } from '../../auth/tenantContext.js';
@@ -16,6 +17,8 @@ export class RouteRepository {
         return res.rows.map(row => ({
           id: row.id,
           tenantId: row.tenant_id,
+          isActive:row.is_active,
+          stripDigits:row.strip_digits,
           name: row.name,
           type: (row.type || 'outbound') as 'outbound' | 'inbound',
           pattern: row.pattern,
@@ -23,7 +26,7 @@ export class RouteRepository {
           prepend: row.prepend_digits || undefined,
           trunkId: row.trunk_id,
           failoverTrunkId: row.failover_trunk_id || undefined,
-          priority: row.priority || 1,
+          priority: row.priority ?? 1,
           isCliItx: row.is_cli_itx || false,
           callerIdOverride: row.caller_id_override || undefined,
           extensionOverrides: typeof row.extension_overrides === 'string'
@@ -33,7 +36,7 @@ export class RouteRepository {
           destinationId: row.destination_id || (row.trunk_id || ''),
         }));
       } catch (err: any) {
-        console.error('[RouteRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -49,6 +52,8 @@ export class RouteRepository {
         return res.rows.map(row => ({
           id: row.id,
           tenantId: row.tenant_id,
+          isActive:row.is_active,
+          stripDigits:row.strip_digits,
           name: row.name,
           type: (row.type || 'outbound') as 'outbound' | 'inbound',
           pattern: row.pattern,
@@ -56,7 +61,7 @@ export class RouteRepository {
           prepend: row.prepend_digits || undefined,
           trunkId: row.trunk_id,
           failoverTrunkId: row.failover_trunk_id || undefined,
-          priority: row.priority || 1,
+          priority: row.priority ?? 1,
           isCliItx: row.is_cli_itx || false,
           callerIdOverride: row.caller_id_override || undefined,
           extensionOverrides: typeof row.extension_overrides === 'string'
@@ -66,7 +71,7 @@ export class RouteRepository {
           destinationId: row.destination_id || (row.trunk_id || ''),
         }));
       } catch (err: any) {
-        console.error('[RouteRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -88,6 +93,8 @@ export class RouteRepository {
           return {
             id: row.id,
             tenantId: row.tenant_id,
+          isActive:row.is_active,
+          stripDigits:row.strip_digits,
             name: row.name,
             type: (row.type || 'outbound') as any,
             pattern: row.pattern,
@@ -95,7 +102,7 @@ export class RouteRepository {
             prepend: row.prepend_digits || undefined,
             trunkId: row.trunk_id,
             failoverTrunkId: row.failover_trunk_id || undefined,
-            priority: row.priority || 1,
+            priority: row.priority ?? 1,
             isCliItx: row.is_cli_itx || false,
             callerIdOverride: row.caller_id_override || undefined,
             extensionOverrides: typeof row.extension_overrides === 'string'
@@ -107,7 +114,7 @@ export class RouteRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[RouteRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -122,6 +129,8 @@ export class RouteRepository {
           return {
             id: row.id,
             tenantId: row.tenant_id,
+          isActive:row.is_active,
+          stripDigits:row.strip_digits,
             name: row.name,
             type: (row.type || 'outbound') as any,
             pattern: row.pattern,
@@ -129,7 +138,7 @@ export class RouteRepository {
             prepend: row.prepend_digits || undefined,
             trunkId: row.trunk_id,
             failoverTrunkId: row.failover_trunk_id || undefined,
-            priority: row.priority || 1,
+            priority: row.priority ?? 1,
             isCliItx: row.is_cli_itx || false,
             callerIdOverride: row.caller_id_override || undefined,
             extensionOverrides: typeof row.extension_overrides === 'string'
@@ -141,7 +150,7 @@ export class RouteRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[RouteRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -188,7 +197,7 @@ export class RouteRepository {
         );
         return route;
       } catch (err: any) {
-        console.error('[RouteRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -203,7 +212,7 @@ export class RouteRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[RouteRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

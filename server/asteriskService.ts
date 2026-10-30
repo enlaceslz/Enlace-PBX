@@ -1,3 +1,16 @@
+import {ariConfiguration,rtpConfiguration} from './infrastructure/asterisk/AuxiliaryConfig.js';
+import {managedTrunk,trunkPatch} from './infrastructure/asterisk/TrunkMutation.js';
+import {pjsipInfrastructure} from './infrastructure/asterisk/PjsipInfrastructure.js';
+import {managedExtension} from './infrastructure/asterisk/ExtensionMutation.js';
+import {managedIvr,renderIvr} from './infrastructure/asterisk/IvrMutation.js';
+import {managedCollection,assertInternalNumbers} from './infrastructure/asterisk/CollectionMutation.js';
+import {managedRoutePlan} from './infrastructure/asterisk/RouteMutation.js';
+import {managedDidDestination} from './infrastructure/asterisk/DidDialplan.js';
+import { callExtension, callDestination, channelReference, endpointFromChannel } from './infrastructure/asterisk/CallControl.js';
+import { OutboundHttpError } from './infrastructure/security/OutboundHttp.js';
+import { postgresClient } from './infrastructure/postgres/client.js';
+import { outboundGuardDialplan } from './infrastructure/asterisk/OutboundPolicy.js';
+import { assertSingleLineConfig } from './infrastructure/asterisk/configValidation.js';
 import { Extension, Trunk, Route } from '../src/types/pbx.js';
 import {
   ExtensionRepository,
@@ -31,45 +44,12 @@ export interface AsteriskChannel {
   };
 }
 
-const defaultInfraConfig = {
-  hostname: process.env.PBX_HOSTNAME || 'enlace-pbx-core',
-  publicIp: process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP || 'NOT_CONFIGURED',
-  domain: process.env.PBX_DOMAIN || 'NOT_CONFIGURED',
-  lanIp: process.env.PBX_LAN_IP || '127.0.0.1',
-  lanSubnet: process.env.PBX_LAN_SUBNET || '192.168.1.0/24',
-  ports: {
-    sipUdp: 5060,
-    sipTls: 5061,
-    webrtcWss: 8089,
-    http: 80,
-    https: 443,
-    rtpRange: '10000-20000',
-    ariPort: 8088,
-    amiPort: 5038,
-  },
-  sslCertificate: {
-    certPath: '/etc/asterisk/keys/asterisk.crt',
-    keyPath: '/etc/asterisk/keys/asterisk.key',
-  },
-};
-
 export class AsteriskService {
   private realLiveChannels: AsteriskChannel[] = [];
   private lastFetchTime: number = 0;
-  private channelTenantMap: Map<string, string> = new Map();
-  private endpointTenantCache: Map<string, { tenantId: string; cachedAt: number }> = new Map();
 
   constructor() {
     this.refreshChannelsReal().catch(() => {});
-  }
-
-  /**
-   * Vincula explicitamente um identificador ou nome de canal a um tenant
-   */
-  public bindChannelTenant(channelIdOrName: string, tenantId: string): void {
-    if (channelIdOrName && tenantId) {
-      this.channelTenantMap.set(channelIdOrName, tenantId);
-    }
   }
 
   /**
@@ -78,79 +58,14 @@ export class AsteriskService {
    * Mapeia: canal -> endpoint -> ramal/tronco no PostgreSQL -> tenantId real.
    */
   public async resolveChannelTenant(channel: AsteriskChannel | AsteriskChannelInfo): Promise<string | null> {
-    if (channel.tenantId) {
-      return channel.tenantId;
-    }
-
-    // 1. Vínculo explícito de originação/atendimento registrado em memória
-    if (channel.id && this.channelTenantMap.has(channel.id)) {
-      return this.channelTenantMap.get(channel.id)!;
-    }
-    if (channel.name && this.channelTenantMap.has(channel.name)) {
-      return this.channelTenantMap.get(channel.name)!;
-    }
-
-    // 2. Extração do endpoint a partir do nome do canal (ex: PJSIP/4101-0000002f -> 4101)
-    const endpointMatch = channel.name.match(/^(?:PJSIP|SIP)\/([a-zA-Z0-9_\-]+)/i);
-    const candidateEndpoint = endpointMatch ? endpointMatch[1] : null;
-
-    if (candidateEndpoint) {
-      const cached = this.endpointTenantCache.get(candidateEndpoint);
-      if (cached && Date.now() - cached.cachedAt < 60000) {
-        if (channel.id) this.channelTenantMap.set(channel.id, cached.tenantId);
-        return cached.tenantId;
-      }
-
-      // Consulta se o endpoint é um ramal existente em qualquer tenant
-      try {
-        const ext = await ExtensionRepository.findAnyByIdForSuperAdmin(candidateEndpoint);
-        if (ext && ext.tenantId) {
-          this.endpointTenantCache.set(candidateEndpoint, { tenantId: ext.tenantId, cachedAt: Date.now() });
-          if (channel.id) this.channelTenantMap.set(channel.id, ext.tenantId);
-          return ext.tenantId;
-        }
-      } catch {}
-
-      // Consulta se o endpoint é um tronco SIP corporativo
-      try {
-        const trunk = await TrunkRepository.findById(candidateEndpoint);
-        if (trunk && trunk.tenantId) {
-          this.endpointTenantCache.set(candidateEndpoint, { tenantId: trunk.tenantId, cachedAt: Date.now() });
-          if (channel.id) this.channelTenantMap.set(channel.id, trunk.tenantId);
-          return trunk.tenantId;
-        }
-      } catch {}
-    }
-
-    // 3. Resolução pelo número do chamador (callerNumber) se for ramal interno
-    if (channel.callerNumber && channel.callerNumber !== 'Desconhecido') {
-      const cleanNum = channel.callerNumber.replace(/\D/g, '');
-      if (cleanNum) {
-        try {
-          const ext = await ExtensionRepository.findAnyByIdForSuperAdmin(cleanNum);
-          if (ext && ext.tenantId) {
-            if (channel.id) this.channelTenantMap.set(channel.id, ext.tenantId);
-            return ext.tenantId;
-          }
-        } catch {}
-      }
-    }
-
-    // 4. Resolução pelo ramal conectado (connectedLine / exten) se for ramal interno
-    if (channel.connectedLine && channel.connectedLine !== 'Central') {
-      const cleanConn = channel.connectedLine.replace(/\D/g, '');
-      if (cleanConn) {
-        try {
-          const ext = await ExtensionRepository.findAnyByIdForSuperAdmin(cleanConn);
-          if (ext && ext.tenantId) {
-            if (channel.id) this.channelTenantMap.set(channel.id, ext.tenantId);
-            return ext.tenantId;
-          }
-        } catch {}
-      }
-    }
-
-    return null;
+    const endpoint = endpointFromChannel(channel.name);
+    if (!endpoint) return null;
+    return postgresClient.executeGlobalScoped(async client => {
+      const owners = await client.query(`SELECT tenant_id FROM extensions WHERE number=$1
+        UNION ALL SELECT tenant_id FROM trunks WHERE 'trunk-' || id=$1`, [endpoint]);
+      // Números duplicados entre empresas não têm namespace SIP homologado.
+      return owners.rows.length === 1 ? owners.rows[0].tenant_id : null;
+    });
   }
 
   /**
@@ -194,12 +109,7 @@ export class AsteriskService {
 
     // Resolve deterministicamente o tenantId de cada canal ativo
     for (const c of this.realLiveChannels) {
-      if (!c.tenantId) {
-        const resolved = await this.resolveChannelTenant(c);
-        if (resolved) {
-          c.tenantId = resolved;
-        }
-      }
+      c.tenantId = await this.resolveChannelTenant(c) || undefined;
     }
 
     // Super Admin com visão global explícita de todos os canais do sistema
@@ -227,170 +137,90 @@ export class AsteriskService {
   /**
    * Origina chamada real através do AsteriskAdapter com validação de Tenant.
    */
-  async originateCall(
-    caller: string,
-    callee: string,
-    tenantId: string,
-    isAi: boolean = false,
-    isSuperAdmin: boolean = false
-  ): Promise<AsteriskChannel> {
-    if (!isSuperAdmin) {
-      if (!tenantId || tenantId.trim() === '') {
-        throw new Error('ACCESS_DENIED: tenantId é obrigatório para originar chamadas.');
-      }
-      const ext = await ExtensionRepository.findByNumber(tenantId, caller);
-      if (!ext) {
-        throw new Error('ACCESS_DENIED: O ramal originador da chamada não pertence ao seu tenant.');
-      }
-    }
-
-    const chan = await asteriskAdapter.originateCall(caller, callee, isAi);
-    this.bindChannelTenant(chan.id, tenantId);
-    this.bindChannelTenant(chan.name, tenantId);
-    await this.refreshChannelsReal().catch(() => {});
-
-    return {
-      id: chan.id,
-      name: chan.name,
-      state: chan.state,
-      callerNumber: chan.callerNumber,
-      connectedLine: chan.connectedLine,
-      context: chan.context,
-      exten: chan.exten,
-      application: chan.application,
-      durationSeconds: chan.durationSeconds,
-      aiBridgeActive: chan.aiBridgeActive,
-      tenantId,
-      qos: chan.qos,
-    };
+  private async ownedExtension(number: string, tenantId: string) {
+    const extension = await ExtensionRepository.findByNumber(tenantId, number);
+    if (!extension) throw new Error('ACCESS_DENIED: Ramal fora da empresa.');
+    const owner = await this.resolveChannelTenant({ name: `PJSIP/${number}-00000000` } as AsteriskChannel);
+    if (owner !== tenantId) throw new OutboundHttpError('Endpoint SIP ausente ou ambíguo entre empresas.',409);
+    return extension;
   }
 
-  /**
-   * Encerra um canal real no Asterisk com validação estrita de Tenant.
-   */
-  async hangupChannel(channelId: string, tenantId?: string, isSuperAdmin: boolean = false): Promise<boolean> {
-    if (!isSuperAdmin) {
-      if (!tenantId || tenantId.trim() === '') {
-        throw new Error('ACCESS_DENIED: tenantId é obrigatório para encerrar canais.');
-      }
-      const channel = await this.getChannel(channelId, tenantId, false);
-      if (!channel) {
-        throw new Error('ACCESS_DENIED: O canal solicitado não existe ou não pertence ao seu tenant.');
-      }
-    }
-
-    const success = await asteriskAdapter.hangup(channelId);
-    this.channelTenantMap.delete(channelId);
-    await this.refreshChannelsReal().catch(() => {});
-    return success;
+  async originateCall(caller: string, callee: string, tenantId: string, isAi = false, _isSuperAdmin = false) {
+    caller=callExtension(caller);callee=callDestination(callee);
+    if (!tenantId || tenantId==='all') throw new Error('ACCESS_DENIED: Selecione a empresa.');
+    if (isAi) throw new OutboundHttpError('Originação com ponte IA ainda não homologada.',501);
+    await this.ownedExtension(caller,tenantId);
+    // Este controle administrativo só origina para ramais internos comprovados.
+    // Saída para operadora requer fluxo próprio de autorização e homologação.
+    await this.ownedExtension(callExtension(callee),tenantId);
+    return asteriskAdapter.originateCall(caller,callee,false);
   }
 
-  /**
-   * Transfere chamada real no Asterisk com validação de canal e destino por Tenant.
-   */
-  async transferChannel(
-    channelId: string,
-    destination: string,
-    tenantId?: string,
-    isSuperAdmin: boolean = false
-  ): Promise<AsteriskChannel | null> {
-    if (!isSuperAdmin) {
-      if (!tenantId || tenantId.trim() === '') {
-        throw new Error('ACCESS_DENIED: tenantId é obrigatório para transferir canais.');
-      }
-      const channel = await this.getChannel(channelId, tenantId, false);
-      if (!channel) {
-        throw new Error('ACCESS_DENIED: O canal solicitado para transferência não pertence ao seu tenant.');
-      }
-
-      // Validação do destino no mesmo tenant
-      const ext = await ExtensionRepository.findByNumber(tenantId, destination);
-      const queues = await QueueRepository.listByTenant(tenantId);
-      const isQueue = queues.some((q) => q.number === destination || q.id === destination);
-      if (!ext && !isQueue) {
-        throw new Error('ACCESS_DENIED: O destino da transferência não pertence à sua organização.');
-      }
-    }
-
-    await asteriskAdapter.transfer(channelId, destination);
-    await this.refreshChannelsReal().catch(() => {});
-    return this.realLiveChannels.find((c) => c.id === channelId || c.name === channelId) || null;
+  private async controlledChannel(channelId: string, tenantId?: string, isSuperAdmin = false) {
+    channelReference(channelId);
+    // A autorização usa uma coleta nova, e o comando recebe o nome real, nunca Uniqueid.
+    await this.refreshChannelsReal();
+    const channel = await this.getChannel(channelId,tenantId,isSuperAdmin);
+    if (!channel) throw new Error('ACCESS_DENIED: Canal ausente ou fora da empresa.');
+    channelReference(channel.name);
+    return channel;
   }
 
-  /**
-   * Redireciona um canal real no Asterisk (dialplan redirect) com validação de Tenant.
-   */
-  async redirectChannel(
-    channelId: string,
-    context: string,
-    destination: string,
-    priority: number = 1,
-    tenantId?: string,
-    isSuperAdmin: boolean = false
-  ): Promise<boolean> {
-    if (!isSuperAdmin) {
-      if (!tenantId || tenantId.trim() === '') {
-        throw new Error('ACCESS_DENIED: tenantId é obrigatório para redirecionar canais.');
-      }
-      const channel = await this.getChannel(channelId, tenantId, false);
-      if (!channel) {
-        throw new Error('ACCESS_DENIED: O canal solicitado para redirecionamento não pertence ao seu tenant.');
-      }
-      // Validação do destino no mesmo tenant
-      const ext = await ExtensionRepository.findByNumber(tenantId, destination);
-      const queues = await QueueRepository.listByTenant(tenantId);
-      const isQueue = queues.some((q) => q.number === destination || q.id === destination);
-      if (!ext && !isQueue) {
-        throw new Error('ACCESS_DENIED: O destino do redirecionamento não pertence à sua organização.');
-      }
-    }
-
-    return await AsteriskCommandService.redirectChannel(channelId, context, destination, priority);
+  async hangupChannel(channelId: string, tenantId?: string, isSuperAdmin = false) {
+    const channel = await this.controlledChannel(channelId,tenantId,isSuperAdmin);
+    return asteriskAdapter.hangup(channel.name);
   }
 
-  /**
-   * Escuta supervisora (ChanSpy) com validação estrita de Tenant para supervisor e alvo.
-   */
-  async spyChannel(
-    channelId: string,
-    supervisorExt: string = '4101',
-    tenantId?: string,
-    isSuperAdmin: boolean = false
-  ): Promise<boolean> {
-    if (!isSuperAdmin) {
-      if (!tenantId || tenantId.trim() === '') {
-        throw new Error('ACCESS_DENIED: tenantId é obrigatório para ChanSpy.');
-      }
-      const sup = await ExtensionRepository.findByNumber(tenantId, supervisorExt);
-      if (!sup) {
-        throw new Error('ACCESS_DENIED: O ramal de supervisão informado não pertence ao seu tenant.');
-      }
-      const targetChan = await this.getChannel(channelId, tenantId, false);
-      if (!targetChan) {
-        throw new Error('ACCESS_DENIED: O canal alvo de escuta não pertence ao seu tenant.');
-      }
-    }
+  async transferChannel(channelId: string, destination: string, tenantId?: string, isSuperAdmin = false) {
+    destination=callExtension(destination);
+    const channel = await this.controlledChannel(channelId,tenantId,isSuperAdmin);
+    const owner = channel.tenantId;
+    if (!owner) throw new Error('ACCESS_DENIED: Empresa do canal não identificada.');
+    await this.ownedExtension(destination,owner);
+    return asteriskAdapter.transfer(channel.name,destination);
+  }
 
-    const res = await AsteriskCommandService.startChanSpy(supervisorExt, channelId, 'qb');
-    return res.success;
+  async redirectChannel(channelId: string, context: string, destination: string, priority=1, tenantId?: string, isSuperAdmin=false) {
+    if(context!=='from-internal' || priority!==1) throw new OutboundHttpError('Redirecionamento permitido apenas para from-internal, prioridade 1.',400);
+    return this.transferChannel(channelId,destination,tenantId,isSuperAdmin);
+  }
+
+  async spyChannel(channelId: string, supervisorExt: string, tenantId?: string, isSuperAdmin=false) {
+    supervisorExt=callExtension(supervisorExt);
+    const channel=await this.controlledChannel(channelId,tenantId,isSuperAdmin);
+    if(!channel.tenantId)throw new Error('ACCESS_DENIED: Empresa do canal não identificada.');
+    await this.ownedExtension(supervisorExt,channel.tenantId);
+    return asteriskAdapter.supervise(channel.name,supervisorExt);
   }
 
   /**
    * Gerador oficial de configuração PJSIP (pjsip.conf) baseado em PostgreSQL.
    * Suporta mascaramento de segredos para exibição segura na API administrativa.
    */
-  async generatePjsipConf(tenantId: string, maskSecrets: boolean = false): Promise<string> {
-    const extensions = await ExtensionRepository.listByTenant(tenantId);
-    const trunks = await TrunkRepository.listByTenant(tenantId);
-    const infraStored = await SystemRepository.getInfraConfig();
-    const infra = infraStored || defaultInfraConfig;
+  async generateConfiguration(tenantId:string):Promise<{pjsip:string;dialplan:string;queues:string}>{
+    return postgresClient.withReadSnapshot(async()=>({
+      pjsip:await this.generatePjsipConf(tenantId),
+      dialplan:await this.generateExtensionsConf(tenantId),
+      queues:await this.generateQueuesConf(tenantId),
+    }));
+  }
 
+  async generatePjsipConf(tenantId: string, maskSecrets: boolean = false): Promise<string> {
+    const extensions = (await ExtensionRepository.listByTenant(tenantId)).map(extension=>managedExtension(extension,true));
+    const trunks = (await TrunkRepository.listByTenant(tenantId)).map(trunk=>managedTrunk(trunk));
+    const infra = pjsipInfrastructure(await SystemRepository.getSetting('infra_config'));
+
+    assertSingleLineConfig({ extensions, trunks, infra });
+    if (process.env.NODE_ENV === 'production' && !maskSecrets) {
+      const owners = new Set([...(await ExtensionRepository.listAll()).map(item => item.tenantId), ...(await TrunkRepository.listAll()).map(item => item.tenantId)]);
+      if (owners.size > 1) throw new Error('Provisionamento de telefonia neste host exige uma única empresa até a homologação de namespaces SIP.');
+    }
     let output = `; ====================================================================
 ; Enlace-PBX — Configuração Automática PJSIP (pjsip.conf)
 ; Asterisk 20 LTS Puro — Enlace Telecom (Brasil)
-; Hostname: ${infra.hostname || defaultInfraConfig.hostname} | Domínio: ${infra.domain || defaultInfraConfig.domain}
-; IP Público (WAN): ${infra.publicIp || defaultInfraConfig.publicIp} | Rede Local (LAN): ${infra.lanSubnet || defaultInfraConfig.lanSubnet}
-; Certificado SSL: ${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
+; Hostname: ${infra.hostname} | Domínio: ${infra.domain}
+; IP Público (WAN): ${infra.publicIp} | Rede Local (LAN): ${infra.localNet}
+; Certificado SSL: ${infra.sslCertificate.status==='valid'?infra.sslCertificate.certPath:'não configurado para SIP TLS'}
 ; Data de geração: ${new Date().toISOString()}
 ; ====================================================================
 
@@ -403,33 +233,31 @@ default_outbound_endpoint=default
 [transport-udp]
 type=transport
 protocol=udp
-bind=0.0.0.0:${infra.ports?.sipUdp || 5060}
-local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
-external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
-external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
+bind=0.0.0.0:${infra.ports.sipUdp}
+local_net=${infra.localNet}
+external_media_address=${infra.publicIp}
+external_signaling_address=${infra.publicIp}
 
-; --- Transporte TLS Seguro (SIP Seguro) ---
-[transport-tls]
+; --- Transporte TCP ---
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0:${infra.ports.sipUdp}
+
+; --- WebSocket interno: TLS termina no NGINX; HTTP Asterisk fica no loopback ---
+[transport-ws]
+type=transport
+protocol=ws
+bind=127.0.0.1
+
+${infra.sslCertificate?.status === 'valid' && infra.sslCertificate?.certPath && infra.sslCertificate?.keyPath ? `[transport-tls]
 type=transport
 protocol=tls
-bind=0.0.0.0:${infra.ports?.sipTls || 5061}
-cert_file=${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
-priv_key_file=${infra.sslCertificate?.keyPath || defaultInfraConfig.sslCertificate.keyPath}
+bind=0.0.0.0:${infra.ports.sipTls}
+cert_file=${infra.sslCertificate.certPath}
+priv_key_file=${infra.sslCertificate.keyPath}
 method=tlsv1_2
-local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
-external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
-external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
-
-; --- Transporte WebRTC WebSocket Seguro (WSS / Webphone) ---
-[transport-wss]
-type=transport
-protocol=wss
-bind=0.0.0.0:${infra.ports?.webrtcWss || 8089}
-cert_file=${infra.sslCertificate?.certPath || defaultInfraConfig.sslCertificate.certPath}
-priv_key_file=${infra.sslCertificate?.keyPath || defaultInfraConfig.sslCertificate.keyPath}
-local_net=${infra.lanSubnet || defaultInfraConfig.lanSubnet}
-external_media_address=${infra.publicIp || defaultInfraConfig.publicIp}
-external_signaling_address=${infra.publicIp || defaultInfraConfig.publicIp}
+` : ''}
 
 `;
 
@@ -454,8 +282,7 @@ rtp_symmetric=yes
 force_rport=yes
 ${ext.webrtc ? `webrtc=yes
 dtls_verify=fingerprint
-dtls_cert_file=/etc/asterisk/keys/asterisk.crt
-dtls_private_key_file=/etc/asterisk/keys/asterisk.key
+dtls_auto_generate_cert=yes
 dtls_setup=actpass` : ''}
 
 [${ext.number}-auth]
@@ -476,6 +303,9 @@ qualify_frequency=30
     // Troncos PJSIP
     for (const trk of trunks) {
       const isIpAuth = trk.authMode === 'ip';
+      if (trk.transport === 'TLS' && !(infra.sslCertificate?.status === 'valid' && infra.sslCertificate?.certPath && infra.sslCertificate?.keyPath)) throw new Error('Configure certificados SIP TLS válidos antes de aplicar troncos TLS.');
+      const trunkSecret = !isIpAuth ? await TrunkRepository.getSecret(trk.id, tenantId) : '';
+      if(!isIpAuth){if(!trunkSecret.trim())throw new OutboundHttpError('Tronco sem senha SIP válida. Revise antes de gerar.',400);trunkPatch({secret:trunkSecret});}
       const authorizedIpsList = (trk.authorizedIps && trk.authorizedIps.length > 0)
         ? trk.authorizedIps
         : [trk.host];
@@ -486,6 +316,7 @@ qualify_frequency=30
 ; ----------------------------------------------------
 [trunk-${trk.id}]
 type=endpoint
+transport=transport-${(trk.transport || 'UDP').toLowerCase()}
 context=${trk.inboundContext || trk.context || 'from-trunk'}
 disallow=all
 ${(trk.codecs || ['opus', 'alaw', 'ulaw']).map((c) => `allow=${c}`).join('\n')}
@@ -503,7 +334,7 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 [trunk-${trk.id}-aor]
 type=aor
 contact=sip:${trk.host}:${trk.port || 5060}
-qualify_frequency=${trk.qualifyFrequency || 60}
+qualify_frequency=${trk.qualifyFrequency}
 ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
 `;
 
@@ -521,7 +352,7 @@ match=${authorizedIpsList.join(',')}
 type=auth
 auth_type=userpass
 username=${trk.username}
-password=DEFINIR_SENHA_TRONCO_NO_ENV
+password=${maskSecrets ? '••••••••' : trunkSecret}
 
 ${trk.register ? `[trunk-${trk.id}-reg]
 type=registration
@@ -543,12 +374,19 @@ ${trk.outboundProxy ? `outbound_proxy=${trk.outboundProxy}` : ''}
    * Gerador oficial de Dialplan (extensions.conf) baseado em PostgreSQL.
    */
   async generateExtensionsConf(tenantId: string): Promise<string> {
-    const extensions = await ExtensionRepository.listByTenant(tenantId);
-    const routes = await RouteRepository.listByTenant(tenantId);
+    const extensions = (await ExtensionRepository.listByTenant(tenantId)).map(extension=>managedExtension(extension));
+    const routes = (await RouteRepository.listByTenant(tenantId)).filter(route=>route.isActive!==false);
     const groups = await RingGroupRepository.listByTenant(tenantId);
     const queues = await QueueRepository.listByTenant(tenantId);
     const ivrs = await IvrRepository.listByTenant(tenantId);
     const dids = (await DidRepository.listByTenant(tenantId)).filter((d) => d.status === 'active');
+    const trunks = await TrunkRepository.listByTenant(tenantId);
+    assertSingleLineConfig({ extensions, routes, groups, queues, ivrs, dids, trunks });
+    for(const route of routes)managedRoutePlan(route,trunks);
+    assertInternalNumbers(extensions,groups,queues,ivrs);
+    for(const ivr of ivrs)managedIvr(ivr,extensions,queues);
+    for(const group of groups)managedCollection('group',group,extensions);
+    for(const queue of queues)managedCollection('queue',queue,extensions);
 
     return `; ====================================================================
 ; Enlace-PBX — Dialplan Oficial Asterisk 20 LTS (extensions.conf)
@@ -563,8 +401,6 @@ clearglobalvars=no
 
 [globals]
 CONSOLE=Console/dsp
-TRUNK_VIVO=PJSIP/trunk-vivo-e1
-TRUNK_CLARO=PJSIP/trunk-claro-0800
 ENLACE_RECORDINGS_PATH=/var/spool/asterisk/recording
 
 ; ====================================================================
@@ -582,39 +418,24 @@ include => outbound-routes
 [internal-extensions]
 ${extensions
   .map(
-    (ext) => `exten => ${ext.number},1,NoOp(Enlace-PBX: Chamada Interna para Ramal ${ext.number} - ${ext.name})
+    (ext) => `exten => ${ext.number},1,NoOp(Chamada interna para ramal gerenciado)
  same => n,Set(CDR(tenant_id)=${tenantId})
- same => n,Set(CALLFILENAME=rec-\${EPOCH}-\${CALLERID(num)}-\${EXTEN})
+ same => n,Set(CALLFILENAME=rec-\${FILTER(0-9A-Za-z,\${UNIQUEID})})
  ${ext.recording === 'always' ? `same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)` : ''}
  same => n,Dial(PJSIP/\${EXTEN},30,tT)
  same => n,GotoIf($["\${DIALSTATUS}" = "BUSY"]?busy:unavail)
- ${
-   ext.voicemail
-     ? `same => n(busy),VoiceMail(\${EXTEN}@default,b)
- same => n,Hangup()
- same => n(unavail),VoiceMail(\${EXTEN}@default,u)
- same => n,Hangup()`
-     : `same => n(busy),Busy(10)
+ same => n(busy),Busy(10)
  same => n,Hangup()
  same => n(unavail),Congestion(10)
  same => n,Hangup()`
- }`
   )
   .join('\n\n')}
-
-; Padrão fallback para ramais de 3 a 5 dígitos
-exten => _[1-9]XX,1,Dial(PJSIP/\${EXTEN},30,tT)
- same => n,Hangup()
-exten => _[1-9]XXX,1,Dial(PJSIP/\${EXTEN},30,tT)
- same => n,Hangup()
-exten => _[1-9]XXXX,1,Dial(PJSIP/\${EXTEN},30,tT)
- same => n,Hangup()
 
 ; Grupos de Toque
 [ring-groups]
 ${groups
   .map(
-    (g) => `exten => ${g.number},1,NoOp(Grupo de Toque: ${g.name})
+    (g) => `exten => ${g.number},1,NoOp(Grupo de toque gerenciado)
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Dial(${g.members.map((m) => `PJSIP/${m}`).join('&')},${g.timeoutSeconds},tT)
  same => n,Hangup()`
@@ -625,7 +446,7 @@ ${groups
 [call-queues]
 ${queues
   .map(
-    (q) => `exten => ${q.number},1,NoOp(Fila: ${q.name})
+    (q) => `exten => ${q.number},1,NoOp(Fila gerenciada)
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Answer()
  same => n,Queue(${q.id},t,,,${q.timeoutSeconds})
@@ -635,33 +456,10 @@ ${queues
 
 ; URAs / IVR
 [ivr-menus]
-${ivrs
-  .map(
-    (ivr) => `exten => ${ivr.number},1,NoOp(URA: ${ivr.name})
- same => n,Set(CDR(tenant_id)=${tenantId})
- same => n,Answer()
- same => n,Wait(1)
- same => n(menu),Background(enlace/prompts/${ivr.id})
- same => n,WaitExten(${ivr.timeoutSeconds})
-${ivr.options
-  .map(
-    (opt) => `exten => ${opt.digit},1,NoOp(URA Opção ${opt.digit}: ${opt.label})
-${
-  opt.destinationType === 'extension'
-    ? ` same => n,Goto(from-internal,${opt.destinationTarget},1)`
-    : opt.destinationType === 'queue'
-    ? ` same => n,Goto(call-queues,${opt.destinationTarget},1)`
-    : opt.destinationType === 'ai_agent'
-    ? ` same => n,Goto(from-gemini,s,1)`
-    : ` same => n,Hangup()`
-}`
-  )
-  .join('\n')}
-exten => t,1,Goto(menu)
-exten => i,1,Playback(pbx-invalid)
- same => n,Goto(menu)`
-  )
-  .join('\n\n')}
+${ivrs.map(ivr=>`exten => ${ivr.number},1,Set(CDR(tenant_id)=${tenantId})
+ same => n,Goto(ivr-${ivr.id},s,1)`).join('\n')}
+
+${ivrs.map(ivr=>renderIvr(ivr)).join('\n\n')}
 
 ; ====================================================================
 ; Contexto do Agente de Voz Google Gemini (ARI / AudioSocket / Stasis)
@@ -679,63 +477,31 @@ exten => 9001,1,Goto(from-gemini,s,1) ; Discagem direta interna para MaIA
 ; ====================================================================
 ; Rotas de Saída (Regras brasileiras de discagem com LCR & Contingência)
 ; ====================================================================
+${outboundGuardDialplan()}
 [outbound-routes]
 ${routes
   .filter((r) => r.type === 'outbound')
   .map((r) => {
-    const pat = r.pattern.startsWith('_') ? r.pattern : `_${r.pattern}`;
-    const stripDigits = r.prefixRemove ? r.prefixRemove.length : 0;
-    const prependStr = r.prepend || '';
+    const validated=managedRoutePlan(r,trunks);
+    const pat=validated.pattern;
+    const stripDigits=validated.stripDigits;
+    const prependStr=validated.prepend;
     const dialedExten = prependStr ? `${prependStr}\${EXTEN:${stripDigits}}` : `\${EXTEN:${stripDigits}}`;
-    const targetTrunk = r.trunkId ? `PJSIP/trunk-${r.trunkId}` : `\${TRUNK_VIVO}`;
+    const targetTrunk = `PJSIP/trunk-${r.trunkId}`;
     const safeRouteTag = r.id.replace(/[^a-zA-Z0-9_]/g, '_');
 
-    let lines = `exten => ${pat},1,NoOp(Rota de Saida: ${r.name}${r.isCliItx ? ' [MODO CLI/ITX - BINA DINAMICA]' : ''})
+    let lines = `exten => ${pat},1,NoOp(Rota de saida gerenciada)
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CALLFILENAME=rec-out-\${EPOCH}-\${EXTEN})
  same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)`;
 
-    if (r.isCliItx) {
-      lines += `\n ; --- Tratamento Especial CLI/ITX: Identificacao de Ramal para BINA Aberta ---
- same => n,Set(CALLING_EXT=\${CALLERID(num)})
- same => n,Set(TARGET_CLI=)`;
-
-      if (r.extensionOverrides && r.extensionOverrides.length > 0) {
-        for (const ov of r.extensionOverrides) {
-          if (ov.extensionNumber && ov.callerId) {
-            lines += `\n same => n,ExecIf($["\${CALLING_EXT}" = "${ov.extensionNumber}"]?Set(TARGET_CLI=${ov.callerId}))`;
-          }
-        }
-      }
-
-      for (const ext of extensions) {
-        if (ext.cliCallerId) {
-          lines += `\n same => n,ExecIf($["\${CALLING_EXT}" = "${ext.number}" & $[${'${LEN(${TARGET_CLI})}'} = 0]]?Set(TARGET_CLI=${ext.cliCallerId}))`;
-        }
-      }
-
-      if (r.callerIdOverride) {
-        lines += `\n same => n,ExecIf($[$[${'${LEN(${TARGET_CLI})}'} = 0]]?Set(TARGET_CLI=${r.callerIdOverride}))`;
-      }
-
-      lines += `\n same => n,GotoIf($[$[${'${LEN(${TARGET_CLI})}'} > 0]?apply_cli_${safeRouteTag}:continue_dial_${safeRouteTag})
- same => n(apply_cli_${safeRouteTag}),NoOp(=== Enlace-PBX CLI/ITX: Ramal \${CALLING_EXT} binando com sucesso \${TARGET_CLI} ===)
- same => n,Set(CALLERID(num)=\${TARGET_CLI})
- same => n,Set(CALLERID(name)=\${TARGET_CLI})
- same => n,Set(PJSIP_HEADER(add,P-Asserted-Identity)=<sip:\${TARGET_CLI}@\${CHANNEL(pjsip,remote_addr)}>)
- same => n(continue_dial_${safeRouteTag}),NoOp(Prosseguindo discagem via tronco)`;
-    } else if (r.callerIdOverride) {
-      lines += `\n same => n,Set(CALLERID(num)=${r.callerIdOverride})
- same => n,Set(CALLERID(name)=${r.callerIdOverride})`;
-    }
-
-    lines += `\n same => n,Dial(${targetTrunk}/${dialedExten},60,tT)`;
+    lines += `\n same => n,Gosub(enlace-outbound-guard,s,1(${dialedExten}))\n same => n,Dial(${targetTrunk}/\${ENLACE_DEST},60,tT)`;
 
     if (r.failoverTrunkId) {
       const failoverTrunk = `PJSIP/trunk-${r.failoverTrunkId}`;
       lines += `\n same => n,GotoIf($["\${DIALSTATUS}" = "CHANUNAVAIL" | "\${DIALSTATUS}" = "CONGESTION" | "\${DIALSTATUS}" = "BUSY"]?failover_${safeRouteTag}:hangup_normal)
  same => n(failover_${safeRouteTag}),NoOp(=== CONTINGENCIA LCR: Tronco primario indisponivel (\${DIALSTATUS}). Acionando ${failoverTrunk} ===)
- same => n,Dial(${failoverTrunk}/${dialedExten},60,tT)
+ same => n,Dial(${failoverTrunk}/\${ENLACE_DEST},60,tT)
  same => n(hangup_normal),Hangup()`;
     } else {
       lines += `\n same => n,Hangup()`;
@@ -751,19 +517,13 @@ ${routes
 [from-trunk]
 ${dids
   .map((d) => {
-    let dest = 'Goto(from-internal,4101,1)';
-    if (d.destinationType === 'extension') dest = `Goto(from-internal,${d.destinationId},1)`;
-    else if (d.destinationType === 'queue') dest = `Goto(call-queues,${d.destinationId},1)`;
-    else if (d.destinationType === 'ivr') dest = `Goto(ivr-menus,${d.destinationId},1)`;
-    else if (d.destinationType === 'ai_agent') dest = `Goto(from-gemini,s,1)`;
-    else if (d.destinationType === 'ring_group') dest = `Goto(ring-groups,${d.destinationId},1)`;
+    const managed=managedDidDestination(d,extensions,trunks);
+    const dest=`Goto(from-internal,${managed.extension},1)`;
+    const cleanNational=managed.national;
+    const cleanE164=`55${cleanNational}`;
 
-    const cleanNumber = d.did.replace(/\D/g, '');
-    const cleanNational = cleanNumber.startsWith('55') ? cleanNumber.slice(2) : cleanNumber;
-    const cleanE164 = `55${cleanNational}`;
-
-    let lines = `; DID: ${d.presentedNumber} (${d.operatorName} - ${d.description})
-exten => ${cleanNational},1,NoOp(DID: ${d.presentedNumber} [${d.operatorName}])
+    let lines = `; DID: ${cleanNational}
+exten => ${cleanNational},1,NoOp(DID ${cleanNational})
  same => n,Set(CDR(tenant_id)=${tenantId})
  same => n,Set(CDR(did)=${d.did})
  same => n,Set(CALLFILENAME=rec-did-\${EPOCH}-${cleanNational})
@@ -776,149 +536,25 @@ exten => ${cleanE164},1,Goto(${cleanNational},1)`;
   })
   .join('\n\n')}
 
-${routes
-  .filter((r) => r.type === 'inbound')
-  .map((r) => {
-    const pat = r.pattern.startsWith('_')
-      ? r.pattern
-      : (r.pattern.includes('X') || r.pattern.includes('N') || r.pattern.includes('.') ? `_${r.pattern}` : r.pattern);
-    const safeRouteTag = r.id.replace(/[^a-zA-Z0-9_]/g, '_');
-
-    let dest = 'Goto(from-internal,4101,1)';
-    if (r.destinationType === 'extension') dest = `Goto(from-internal,${r.destinationId},1)`;
-    else if (r.destinationType === 'queue') dest = `Goto(call-queues,${r.destinationId},1)`;
-    else if (r.destinationType === 'ivr') dest = `Goto(ivr-menus,${r.destinationId},1)`;
-    else if (r.destinationType === 'ai_agent') dest = `Goto(from-gemini,s,1)`;
-    else if (r.destinationType === 'ring_group') dest = `Goto(ring-groups,${r.destinationId},1)`;
-
-    let lines = `exten => ${pat},1,NoOp(Rota de Entrada: ${r.name})
- same => n,Set(CDR(tenant_id)=${tenantId})
- same => n,Set(CALLFILENAME=rec-in-\${EPOCH}-\${CALLERID(num)}-\${EXTEN})
- same => n,MixMonitor(\${ENLACE_RECORDINGS_PATH}/\${CALLFILENAME}.wav,b)`;
-
-    if (r.timeConditionEnabled) {
-      let timeStr = '08:00-18:00,mon-fri,*,*';
-      if (r.timeSchedule && typeof r.timeSchedule === 'object') {
-        const weekdays = r.timeSchedule.weekdays?.length ? r.timeSchedule.weekdays.join('-') : 'mon-fri';
-        timeStr = `${r.timeSchedule.startHour || '08:00'}-${r.timeSchedule.endHour || '18:00'},${weekdays},*,*`;
-      }
-
-      let afterHoursDest = 'Goto(from-gemini,s,1)';
-      if (r.afterHoursDestType === 'ivr') afterHoursDest = `Goto(ivr-menus,${r.afterHoursDestId || 'ivr-principal'},1)`;
-      else if (r.afterHoursDestType === 'queue') afterHoursDest = `Goto(call-queues,${r.afterHoursDestId || 'queue-suporte-n1'},1)`;
-      else if (r.afterHoursDestType === 'extension') afterHoursDest = `Goto(from-internal,${r.afterHoursDestId || '4101'},1)`;
-      else if (r.afterHoursDestType === 'voicemail') afterHoursDest = `VoiceMail(${r.afterHoursDestId || '4101'}@default,u)`;
-
-      lines += `\n same => n,GotoIfTime(${timeStr}?open_${safeRouteTag}:closed_${safeRouteTag})
- same => n(closed_${safeRouteTag}),NoOp(=== FORA DO EXPEDIENTE (${timeStr}): Direcionando para destino alternativo ===)
- same => n,${afterHoursDest}
- same => n(open_${safeRouteTag}),NoOp(=== EXPEDIENTE NORMAL: Direcionando para destino principal ===)
- same => n,${dest}`;
-    } else {
-      lines += `\n same => n,${dest}`;
-    }
-
-    return lines;
-  })
-  .join('\n\n')}
-
 exten => _X.,1,NoOp(Chamada de tronco sem rota definida: \${EXTEN})
- same => n,Goto(from-internal,4101,1)
+ same => n,Hangup(1)
+exten => i,1,Hangup(1)
 `;
   }
 
   generateInstallScript(): string {
-    return `#!/usr/bin/env bash
-# ====================================================================
-# Enlace-PBX — Asterisk 20 LTS Installer Oficial
-# Slogan: Telefonia inteligente. Simples, aberta e brasileira.
-# Empresa: Enlace Telecom
-# Compatibilidade: Debian 12 / Ubuntu Server 24.04 LTS
-# ====================================================================
-
-set -e
-
-ASTERISK_VERSION="\${ASTERISK_VERSION:-20.17.0}"
-ENLACE_USER="asterisk"
-ENLACE_CONF_DIR="/etc/asterisk"
-ENLACE_LOG_DIR="/var/log/asterisk"
-ENLACE_SPOOL_DIR="/var/spool/asterisk"
-
-echo "=== [ENLACE-PBX] Instalador do Asterisk 20 LTS Puro Iniciado ==="
-
-if [ "$EUID" -ne 0 ]; then
-  echo "[ERRO] Este script deve ser executado como root."
-  exit 1
-fi
-
-apt-get update
-apt-get install -y build-essential wget subversion libncurses5-dev libssl-dev libxml2-dev libsqlite3-dev pkg-config libjansson-dev libedit-dev uuid-dev git sox libsox-fmt-all
-
-cd /usr/src
-if [ ! -d "asterisk-\${ASTERISK_VERSION}" ]; then
-  wget "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-\${ASTERISK_VERSION}.tar.gz"
-  tar -zxvf "asterisk-\${ASTERISK_VERSION}.tar.gz"
-fi
-
-cd "asterisk-\${ASTERISK_VERSION}"
-contrib/scripts/install_prereq install
-
-./configure --with-jansson --with-ssl --with-srtp --with-pjproject-bundled
-make menuselect.makeopts
-menuselect/menuselect --enable res_pjsip --enable res_pjsip_transport_websocket --enable res_http_websocket --enable res_srtp --enable app_audiosocket --enable codec_opus --enable format_wav menuselect.makeopts
-
-make -j$(nproc)
-make install
-make samples
-make config
-ldconfig
-
-if ! id "$ENLACE_USER" >/dev/null 2>&1; then
-  useradd -m -d /var/lib/asterisk -s /sbin/nologin "$ENLACE_USER"
-fi
-
-chown -R $ENLACE_USER:$ENLACE_USER $ENLACE_CONF_DIR $ENLACE_LOG_DIR $ENLACE_SPOOL_DIR /var/lib/asterisk /usr/lib/asterisk
-
-echo "=== [ENLACE-PBX] Instalação concluída com sucesso! ==="
-`;
+    throw new OutboundHttpError('Instalador legado retirado. Use install-enlace-pbx.sh e o procedimento revisado do repositório.',501);
   }
 
-  generateAriConf(maskSecrets: boolean = false): string {
-    const rawOrigins = process.env.ASTERISK_ARI_ALLOWED_ORIGINS || process.env.CORS_ALLOWED_ORIGINS;
-    const allowedOrigins = rawOrigins && rawOrigins.trim() !== '' && !rawOrigins.includes('*')
-      ? rawOrigins.trim()
-      : 'http://127.0.0.1:3000,http://localhost:3000';
-
-    const isProd = process.env.NODE_ENV === 'production';
-    const ariUser = process.env.ASTERISK_ARI_USERNAME || process.env.ASTERISK_ARI_USER || 'enlace_ari';
-    const ariPassword = process.env.ASTERISK_ARI_PASSWORD?.trim();
-
-    if (!ariPassword && isProd) {
-      throw new Error('FATAL PRODUÇÃO: ASTERISK_ARI_PASSWORD é obrigatória e deve ser configurada explicitamente sem fallback.');
-    }
-
-    const effectivePassword = ariPassword || (isProd ? '' : 'CONFIGURAR_ASTERISK_ARI_PASSWORD_NO_ENV');
-
-    return `; ====================================================================
-; Enlace-PBX — Configuração ARI (Asterisk REST Interface)
-; Asterisk 20 LTS — Enlace Telecom
-; ====================================================================
-
-[general]
-enabled = yes
-pretty = yes
-allowed_origins = ${allowedOrigins}
-
-[${ariUser}]
-type = user
-read_only = no
-password = ${maskSecrets ? '••••••••' : effectivePassword}
-password_format = plain
-`;
+  generateAriConf(maskSecrets:boolean=false):string {
+    return ariConfiguration(process.env,maskSecrets);
   }
 
   async generateQueuesConf(tenantId: string): Promise<string> {
     const queues = await QueueRepository.listByTenant(tenantId);
+    const extensions=await ExtensionRepository.listByTenant(tenantId);
+    assertInternalNumbers(extensions,await RingGroupRepository.listByTenant(tenantId),queues,await IvrRepository.listByTenant(tenantId));
+    for(const queue of queues)managedCollection('queue',queue,extensions);
 
     let output = `; ====================================================================
 ; Enlace-PBX — Configuração de Filas de Atendimento ACD (queues.conf)
@@ -936,11 +572,11 @@ shared_lastcall = yes
 
     queues.forEach((q) => {
       output += `[${q.id}]
-musicclass = default
+musicclass = ${q.mohSound}
 strategy = ${q.strategy}
 timeout = ${q.timeoutSeconds}
 retry = 5
-wrapuptime = 15
+wrapuptime = ${q.wrapUpTimeSeconds}
 maxlen = 50
 joinempty = no
 leavewhenempty = yes
@@ -958,43 +594,12 @@ announce-position = yes
     return output;
   }
 
-  generateRtpConf(): string {
-    return `; ====================================================================
-; Enlace-PBX — Configuração RTP & WebRTC ICE/STUN (rtp.conf)
-; Asterisk 20 LTS — Enlace Telecom
-; ====================================================================
-
-[general]
-rtpstart=10000
-rtpend=20000
-dtmftimeout=3000
-strictrtp=yes
-probation=8
-
-; Servidores STUN públicos e corporativos para atravessamento NAT WebRTC
-icesupport=yes
-stunaddr=stun.l.google.com:19302
-`;
+  async generateRtpConf():Promise<string> {
+    return rtpConfiguration(await SystemRepository.getSetting('infra_config'));
   }
 
-  generateAudioSocketConf(): string {
-    return `; ====================================================================
-; Enlace-PBX — Configuração AudioSocket para Google Gemini (audiosocket.conf)
-; Asterisk 20 LTS — Stasis AI Bridge / app_audiosocket
-; Taxa de Amostragem: 24000 Hz Linear PCM16 Bidirecional (Zero Latency)
-; ====================================================================
-
-[general]
-bindaddr = 127.0.0.1
-port = 9092
-
-[gemini-live]
-uuid = e8a7419c-09b3-4f9e-8c34-7164b97d8123
-endpoint = 127.0.0.1:9092
-timeout = 10
-sample_rate = 24000
-format = slin24
-`;
+  generateAudioSocketConf():string {
+    throw new OutboundHttpError('Arquivo AudioSocket legado retirado. O fluxo de áudio ainda exige implementação e homologação no host.',501);
   }
 
   /**

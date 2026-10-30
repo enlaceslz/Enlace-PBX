@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import bcrypt from 'bcrypt';
 import { postgresClient } from '../client.js';
 import { User } from '../../../../src/types/pbx.js';
@@ -33,6 +34,7 @@ export class UserRepository {
             email: row.email,
             role: row.role,
             passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: parseIsoDate(row.last_login),
@@ -40,7 +42,7 @@ export class UserRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[UserRepository.findByEmail] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     };
@@ -71,6 +73,7 @@ export class UserRepository {
             email: row.email,
             role: row.role,
             passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: parseIsoDate(row.last_login),
@@ -78,7 +81,7 @@ export class UserRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[UserRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -97,6 +100,7 @@ export class UserRepository {
             email: row.email,
             role: row.role,
             passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: parseIsoDate(row.last_login),
@@ -104,7 +108,7 @@ export class UserRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[UserRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -134,7 +138,7 @@ export class UserRepository {
           lastLogin: parseIsoDate(row.last_login),
         }));
       } catch (err: any) {
-        console.error('[UserRepository.listAll] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -158,7 +162,7 @@ export class UserRepository {
           lastLogin: parseIsoDate(row.last_login),
         }));
       } catch (err: any) {
-        console.error('[UserRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -194,7 +198,7 @@ export class UserRepository {
         );
         return user;
       } catch (err: any) {
-        console.error('[UserRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -209,7 +213,7 @@ export class UserRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[UserRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -221,7 +225,7 @@ export class UserRepository {
         const res = await client.query('SELECT COUNT(*) as count FROM users');
         return parseInt(res.rows[0]?.count || '0', 10);
       } catch (err: any) {
-        console.error('[UserRepository.countAll] Erro no PostgreSQL:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -241,6 +245,8 @@ export class UserRepository {
           );
           if (fnRes.rows.length > 0) {
             const row = fnRes.rows[0];
+            const version=await client.query('SELECT auth_version FROM users WHERE id=$1 AND tenant_id=$2',[row.id,row.tenant_id]);
+            row.auth_version=version.rows[0]?.auth_version || 0;
             return {
               id: row.id,
               tenantId: row.tenant_id,
@@ -248,6 +254,7 @@ export class UserRepository {
               email: row.email,
               role: row.role,
               passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
               extension: row.extension || undefined,
               isActive: row.is_active,
               lastLogin: undefined,
@@ -267,6 +274,7 @@ export class UserRepository {
             email: row.email,
             role: row.role,
             passwordHash: row.password_hash || '',
+            authVersion:row.auth_version || 0,
             extension: row.extension || undefined,
             isActive: row.is_active,
             lastLogin: parseIsoDate(row.last_login),
@@ -274,7 +282,7 @@ export class UserRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[UserRepository.lookupForAuth] Erro ao buscar identidade:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         return null;
       }
     });
@@ -287,7 +295,7 @@ export class UserRepository {
     try {
       return await bcrypt.compare(plainPassword, user.passwordHash);
     } catch (err: any) {
-      console.error('[UserRepository.verifyPassword] Erro na verificação de hash bcrypt:', err?.message || err);
+      logOperational('DB_OPERATION_FAILURE');
       return false;
     }
   }

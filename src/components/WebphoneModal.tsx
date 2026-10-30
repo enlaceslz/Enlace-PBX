@@ -443,7 +443,6 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         connectedDestination.toLowerCase().includes('roberto') ||
         connectedDestination.toLowerCase().includes('suporte');
 
-      const targetAgentId = isSupportTarget ? 'agent-suporte-n1' : 'agent-maia-247';
 
       const jwtToken = localStorage.getItem('enlace_jwt') || localStorage.getItem('enlace_token') || '';
       const res = await fetch('/api/v1/ai/voice-turn', {
@@ -453,15 +452,13 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
           ...(jwtToken ? { 'Authorization': `Bearer ${jwtToken}` } : {}),
         },
         body: JSON.stringify({
-          agentId: targetAgentId,
           userMessage: messageText,
-          history: aiHistory,
-          callerNumber: '4101',
           sessionId: aiSessionId || undefined,
         }),
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'A prévia da MaIA não foi concluída.');
       if (data.sessionId && !aiSessionId) {
         setAiSessionId(data.sessionId);
       }
@@ -515,36 +512,7 @@ export const WebphoneModal: React.FC<WebphoneProps> = ({
         speakText(modelReply, resolvedGender, resolvedPersona);
       }
 
-      if (data.action === 'transfer') {
-        const transferTarget = data.transferDestination || '4102';
-        setAiHistory((prev) => [
-          ...prev,
-          {
-            role: 'system',
-            text: `🔄 Asterisk Bridge ARI: Solicitando transferência para o Ramal ${transferTarget}...`,
-            timestamp: new Date().toLocaleTimeString('pt-BR'),
-          },
-        ]);
-        const jwtToken = localStorage.getItem('enlace_jwt') || localStorage.getItem('enlace_token') || '';
-        fetch('/api/v1/asterisk/channels/transfer', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${jwtToken}`,
-          },
-          body: JSON.stringify({ destination: transferTarget }),
-        })
-          .then((res) => {
-            if (res.ok) {
-              setConnectedDestination(transferTarget);
-              setCallType('extension');
-              setActiveTab('extension');
-            }
-          })
-          .catch((err) => console.warn('Falha na transferência ARI:', err));
-      } else if (data.action === 'hangup') {
-        endCall();
-      }
+
     } catch (err) {
       console.error('Turn error:', err);
       const fallbackText = 'Desculpe, tive uma instabilidade momentânea na conexão. Como posso te orientar?';

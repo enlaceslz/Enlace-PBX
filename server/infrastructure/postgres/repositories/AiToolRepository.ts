@@ -1,7 +1,17 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
 import { AiTool, AiProvider } from '../../../../src/types/pbx.js';
 import { TenantContext } from '../../auth/tenantContext.js';
+
+/** Cadastro legado não comprova credencial configurada nem conectividade. */
+export function publicAiProvider(row:any):AiProvider{return {
+ id:row.id,tenantId:row.tenant_id,name:row.name,providerType:row.provider_type,
+ apiKeyMasked:'Não disponível na API',googleProjectId:row.google_project_id||undefined,
+ googleLocation:row.google_location||undefined,defaultModel:row.default_model,
+ defaultVoice:row.default_voice,defaultTemperature:Number(row.default_temperature??0.7),
+ isActive:row.is_active??false,updatedAt:toSafeIsoStringOrNow(row.updated_at),
+};}
 
 export class AiToolRepository {
   public static async listAll(): Promise<AiTool[]> {
@@ -26,7 +36,7 @@ export class AiToolRepository {
           mockResponse: typeof row.mock_response === 'string' ? JSON.parse(row.mock_response) : (row.mock_response || {}),
         }));
       } catch (err: any) {
-        console.error('[AiToolRepository.listAllTools] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -38,30 +48,26 @@ export class AiToolRepository {
         const res = await client.query(
           'SELECT * FROM ai_providers ORDER BY name ASC'
         );
-        return res.rows.map(row => ({
-          id: row.id,
-          tenantId: row.tenant_id,
-          name: row.name,
-          providerType: row.provider_type as any,
-          baseUrl: row.base_url || undefined,
-          apiKeyMasked: row.api_key_masked,
-          googleProjectId: row.google_project_id || undefined,
-          googleLocation: row.google_location || undefined,
-          defaultModel: row.default_model,
-          defaultVoice: row.default_voice,
-          defaultTemperature: parseFloat(row.default_temperature || '0.7'),
-          isActive: row.is_active ?? true,
-          updatedAt: toSafeIsoStringOrNow(row.updated_at),
-        }));
+        return res.rows.map(publicAiProvider);
       } catch (err: any) {
-        console.error('[AiToolRepository.listAllProviders] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
   }
 
-  public static async listProviders(_contextOrTenant?: TenantContext | string): Promise<AiProvider[]> {
-    return this.listAllProviders();
+  public static async listProviders(contextOrTenant: TenantContext | string): Promise<AiProvider[]> {
+    return postgresClient.executeTenantScoped(contextOrTenant, async (client, ctx) => {
+      try {
+        const res = await client.query(
+          'SELECT * FROM ai_providers WHERE tenant_id = $1 ORDER BY name ASC', [ctx.tenantId]
+        );
+        return res.rows.map(publicAiProvider);
+      } catch (err: any) {
+        logOperational('DB_OPERATION_FAILURE');
+        throw err;
+      }
+    });
   }
 
   public static async listByTenant(contextOrTenant: TenantContext | string): Promise<AiTool[]> {
@@ -87,7 +93,7 @@ export class AiToolRepository {
           mockResponse: typeof row.mock_response === 'string' ? JSON.parse(row.mock_response) : (row.mock_response || {}),
         }));
       } catch (err: any) {
-        console.error('[AiToolRepository.listToolsByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -127,7 +133,7 @@ export class AiToolRepository {
         );
         return tool;
       } catch (err: any) {
-        console.error('[AiToolRepository.saveTool] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -149,7 +155,7 @@ export class AiToolRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[AiToolRepository.deleteTool] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -161,7 +167,7 @@ export class AiToolRepository {
         const res = await client.query('DELETE FROM ai_tools WHERE id = $1', [id]);
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[AiToolRepository.deleteAnyForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -194,7 +200,7 @@ export class AiToolRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AiToolRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -220,7 +226,7 @@ export class AiToolRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AiToolRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

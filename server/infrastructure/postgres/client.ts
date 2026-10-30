@@ -1,4 +1,7 @@
+import {logOperational} from '../security/OperationalLog.js';
+import '../../config/loadEnvironment.js';
 import pg from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { embeddedDatabaseEngine } from './embeddedEngine.js';
 import { TenantContext, toCanonicalTenantContext } from '../auth/tenantContext.js';
 
@@ -24,6 +27,7 @@ export type TenantTransactionContext = TenantContext;
 
 class PostgresClient {
   private pool: pg.Pool | null = null;
+  private readonly readSnapshot = new AsyncLocalStorage<{id:string;active:boolean}>();
   public isConfigured: boolean = false;
   private lastHealth: PostgresHealthStatus = {
     status: 'UP',
@@ -35,7 +39,7 @@ class PostgresClient {
   };
 
   constructor() {
-    this.initPool();
+    if (process.env.PBX_DATABASE_MIGRATION_MODE !== '1') this.initPool();
   }
 
   private initPool() {
@@ -55,9 +59,7 @@ class PostgresClient {
         error: isProd ? 'DATABASE_URL obrigatória em produção' : undefined,
       };
       if (isProd) {
-        console.error(
-          '[PostgresClient] FATAL DE PRODUÇÃO: Nenhuma string DATABASE_URL detectada. O Enlace-PBX exige PostgreSQL relacional em produção.'
-        );
+        logOperational('DB_NOT_CONFIGURED');
       } else {
         console.log(
           '[PostgresClient] Nenhuma string DATABASE_URL detectada. Ativando Modo de Persistência Embarcada para desenvolvimento/testes.'
@@ -82,15 +84,44 @@ class PostgresClient {
       this.isConfigured = true;
 
       this.pool.on('error', (err) => {
-        console.error('[PostgresClient] Erro no pool do PostgreSQL externo:', err.message);
+        logOperational('DB_POOL_FAILURE');
       });
     } catch (err: any) {
-      console.warn('[PostgresClient] Falha ao instanciar pool externo, mantendo motor embarcado:', err.message);
+      logOperational('DB_WARNING');
       this.isConfigured = false;
     }
   }
 
+  /** Compartilha a visão MVCC sem compartilhar as permissões RLS de cada consulta. */
+  public async withReadSnapshot<T>(callback: () => Promise<T>): Promise<T> {
+    const inherited=this.readSnapshot.getStore();
+    if(inherited){
+      if(!inherited.active)throw new Error('Snapshot de leitura encerrado.');
+      return callback();
+    }
+    if(!this.pool || !this.isConfigured)throw new Error('Geração consistente exige PostgreSQL conectado.');
+    const client=await this.pool.connect();
+    const state={id:'',active:true};
+    try {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const exported=await client.query('SELECT pg_export_snapshot() AS snapshot');
+      state.id=exported.rows[0]?.snapshot;
+      // O comando PostgreSQL exige literal; somente identificador emitido pelo servidor é aceito.
+      if(typeof state.id!=='string'||!/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[0-9]+$/.test(state.id))throw new Error('Identificador de snapshot inválido.');
+      const result=await this.readSnapshot.run(state,callback);
+      await client.query('COMMIT');
+      return result;
+    } catch(error){
+      await client.query('ROLLBACK').catch(()=>{});
+      throw error;
+    } finally {
+      state.active=false;
+      client.release();
+    }
+  }
+
   public async query<T = any>(text: string, params?: any[]): Promise<pg.QueryResult<T>> {
+    if(this.readSnapshot.getStore())throw new Error('Snapshot exige acesso pelo gate RLS.');
     const isProd = process.env.NODE_ENV === 'production';
 
     // Se PostgreSQL externo estiver configurado e operacional
@@ -100,14 +131,14 @@ class PostgresClient {
         const res = await this.pool.query<T>(text, params);
         const duration = Date.now() - start;
         if (duration > 500) {
-          console.warn(`[PostgresClient] Query lenta (${duration}ms): ${text.substring(0, 80)}...`);
+          logOperational('DB_SLOW_QUERY', {durationMs:duration});
         }
         return res;
       } catch (err: any) {
         if (isProd) {
           throw new Error(`FATAL DE PRODUÇÃO: Falha ao consultar PostgreSQL externo (${err.message}). Fallback em memória estritamente proibido em produção.`);
         }
-        console.warn(`[PostgresClient] Falha ao consultar PostgreSQL externo (${err.message}). Utilizando failover embarcado de desenvolvimento.`);
+        logOperational('DB_WARNING');
         return await embeddedDatabaseEngine.query<T>(text, params);
       }
     }
@@ -121,6 +152,7 @@ class PostgresClient {
   }
 
   public async getClient(): Promise<pg.PoolClient> {
+    if(this.readSnapshot.getStore())throw new Error('Snapshot exige acesso pelo gate RLS.');
     if (this.pool && this.isConfigured) {
       try {
         return await this.pool.connect();
@@ -128,7 +160,7 @@ class PostgresClient {
         if (process.env.NODE_ENV === 'production') {
           throw new Error(`FATAL DE PRODUÇÃO: Falha ao obter conexão física com PostgreSQL (${err.message}).`);
         }
-        console.warn('[PostgresClient] Falha ao obter client do pool, retornando cliente simulado resiliente:', err.message);
+        logOperational('DB_WARNING');
       }
     }
 
@@ -177,7 +209,7 @@ class PostgresClient {
 
           if (isProd && (!isDbAppRole || isSuperUser || hasBypassRls || hasCreateDb || hasCreateRole)) {
             const fatalMsg = `FATAL DE PRODUÇÃO (Fail-Closed): Conectado ao PostgreSQL como "${currentUser}" (super=${isSuperUser}, bypassrls=${hasBypassRls}, createdb=${hasCreateDb}, createrole=${hasCreateRole}). Em produção é estritamente obrigatório o uso do usuário operacional "enlace_app" sem privilégios administrativos (NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE). Inicialização recusada.`;
-            console.error(`[PostgresClient] ${fatalMsg}`);
+            logOperational('DB_POLICY_REJECTED');
             this.lastHealth = {
               status: 'DOWN',
               latencyMs: latency,
@@ -231,6 +263,10 @@ class PostgresClient {
     return this.lastHealth;
   }
 
+  public async close(): Promise<void> {
+    if (this.pool) await this.pool.end();
+  }
+
   public getCachedHealth(): PostgresHealthStatus {
     return this.lastHealth;
   }
@@ -273,7 +309,10 @@ class PostgresClient {
     if (this.pool && this.isConfigured) {
       const client = await this.pool.connect();
       try {
-        await client.query('BEGIN');
+        const snapshot=this.readSnapshot.getStore();
+        if(snapshot&&!snapshot.active)throw new Error('Snapshot de leitura encerrado.');
+        await client.query(snapshot?'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY':'BEGIN');
+        if(snapshot)await client.query("SET TRANSACTION SNAPSHOT '"+snapshot.id+"'");
 
         // Configuração segura e isolada da sessão local da transação via SET LOCAL
         if (accessMode === 'TENANT') {

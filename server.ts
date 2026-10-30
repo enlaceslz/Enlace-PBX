@@ -1,3 +1,51 @@
+import {agentPatch,toolPatch,knowledgePatch,knowledgeUpload} from './server/infrastructure/ai/AiConfiguration.js';
+import {AiConfigurationRepository} from './server/infrastructure/postgres/repositories/AiConfigurationRepository.js';
+import {infraPatch} from './server/infrastructure/asterisk/InfraMutation.js';
+import {InfraManagementRepository} from './server/infrastructure/postgres/repositories/InfraManagementRepository.js';
+import {extensionBatch} from './server/infrastructure/asterisk/ExtensionBatch.js';
+import {extensionPatch} from './server/infrastructure/asterisk/ExtensionMutation.js';
+import {ExtensionManagementRepository} from './server/infrastructure/postgres/repositories/ExtensionManagementRepository.js';
+import {ivrPatch,managedIvr,renderIvr} from './server/infrastructure/asterisk/IvrMutation.js';
+import {IvrManagementRepository} from './server/infrastructure/postgres/repositories/IvrManagementRepository.js';
+import {collectionPatch,queueDto,CollectionKind} from './server/infrastructure/asterisk/CollectionMutation.js';
+import {CollectionManagementRepository} from './server/infrastructure/postgres/repositories/CollectionManagementRepository.js';
+import {routePatch} from './server/infrastructure/asterisk/RouteMutation.js';
+import {RouteManagementRepository} from './server/infrastructure/postgres/repositories/RouteManagementRepository.js';
+import {didPatch} from './server/infrastructure/asterisk/DidMutation.js';
+import {DidManagementRepository} from './server/infrastructure/postgres/repositories/DidManagementRepository.js';
+import {trunkPatch} from './server/infrastructure/asterisk/TrunkMutation.js';
+import {TrunkManagementRepository} from './server/infrastructure/postgres/repositories/TrunkManagementRepository.js';
+import {applyConfiguration} from './server/infrastructure/asterisk/ApplyConfiguration.js';
+import {logOperational} from './server/infrastructure/security/OperationalLog.js';
+import {healthEvidence,diagnosticEvidence} from './server/infrastructure/security/HealthEvidence.js';
+import {pipeline} from 'node:stream/promises';
+import { retiredJsonBackup } from './server/infrastructure/security/RetiredJsonBackup.js';
+import {DashboardRepository} from './server/infrastructure/postgres/repositories/DashboardRepository.js';
+import {metricAccess,visibleChannels,channelDto,assertOwnCaller,ownChannelOnly,metricsDto} from './server/infrastructure/auth/TelemetryPolicy.js';
+import { credentialStamp, validCredentialStamp } from './server/infrastructure/auth/CredentialStamp.js';
+import { UserManagementRepository } from './server/infrastructure/postgres/repositories/UserManagementRepository.js';
+import { openRecording } from './server/infrastructure/security/RecordingAccess.js';
+import { cdrEvidence } from './server/maia/integrations/CdrEvidence.js';
+import { callExtension, channelReference } from './server/infrastructure/asterisk/CallControl.js';
+import { privateApiResponse, unexpectedHttpError, telephonyFailure } from './server/infrastructure/security/ApiResponsePolicy.js';
+import { fail2banMonitor } from './server/infrastructure/security/Fail2banMonitor.js';
+import { CampaignPlanningRepository } from './server/infrastructure/postgres/repositories/CampaignPlanningRepository.js';
+import { plannedPhones } from './server/maia/integrations/CampaignPlanning.js';
+import { validateWorkflowInput,validateInternalNote,assertWorkflowAccess } from './server/maia/integrations/ConversationWorkflow.js';
+import { suggestCopilot } from './server/maia/integrations/OmnichannelCopilot.js';
+import { QualityReviewRepository } from './server/infrastructure/postgres/repositories/QualityReviewRepository.js';
+import { createQualityAnalysis } from './server/maia/integrations/QualityReview.js';
+import { EntitySchemaRepository } from './server/infrastructure/postgres/repositories/EntitySchemaRepository.js';
+import { validateExtractionDefinition, extractEntities } from './server/maia/integrations/EntityExtraction.js';
+import { WebhookRepository } from './server/infrastructure/postgres/repositories/WebhookRepository.js';
+import { validateWebhook, prepareWebhookTest } from './server/infrastructure/integrations/OutboundWebhook.js';
+import { executeAiToolHttp } from './server/maia/integrations/AiToolHttpExecution.js';
+import { OutboundHttpError } from './server/infrastructure/security/OutboundHttp.js';
+import { assertSingleLineConfig, safeTrunkPayload } from './server/infrastructure/asterisk/configValidation.js';
+import { TicketRepository } from './server/infrastructure/postgres/repositories/TicketRepository.js';
+import { listBackups, openBackup } from './server/infrastructure/security/BackupInventory.js';
+import './server/config/loadEnvironment.js';
+import 'express-async-errors';
 import express from 'express';
 import path from 'path';
 import crypto from 'crypto';
@@ -11,7 +59,7 @@ import bcrypt from 'bcrypt';
 import { geminiService } from './server/geminiService.js';
 import { asteriskService } from './server/asteriskService.js';
 import { sipTrunkService } from './server/sipTrunkService.js';
-import { systemLogsManager } from './server/systemLogs.js';
+import { systemLogsManager,logQuery } from './server/systemLogs.js';
 import {
   UserRepository,
   TenantRepository,
@@ -34,21 +82,27 @@ import {
   SystemRepository,
   QualityAuditRepository,
 } from './server/repositories/index.js';
-import { QualityAudit } from './server/infrastructure/postgres/repositories/QualityAuditRepository.js';
 import { Extension, User, SafeExtension, WebRtcCredential } from './src/types/pbx.js';
 import { OmnichannelMessage } from './server/infrastructure/postgres/repositories/OmnichannelRepository.js';
-import { VpnAdapter } from './server/infrastructure/network/VpnAdapter.js';
+import { VpnAdapter, hasRecentHandshake } from './server/infrastructure/network/VpnAdapter.js';
 import { asteriskAdapter } from './server/infrastructure/asterisk/AsteriskAdapter.js';
 import { AsteriskCommandService } from './server/infrastructure/asterisk/AsteriskCommandService.js';
 import { postgresClient } from './server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from './server/infrastructure/postgres/migrations/migrator.js';
-import { requireAuth, requireSseAuth, requireRole, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext, SseTicketManager } from './server/infrastructure/auth/authMiddleware.js';
+import { requireAuth, requireSseAuth, requireRole, requirePermission, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext, SseTicketManager } from './server/infrastructure/auth/authMiddleware.js';
 import { maiaAIGateway } from './server/maia/gateway/MaiaAIGateway.js';
 import { MaiaSessionRepository } from './server/maia/repositories/MaiaSessionRepository.js';
 
+import { env } from './server/config/env.js';
+import { isPublicApiRoute, isUnavailableProductionOperation, verifyWhatsAppSignature, RawBodyRequest } from './server/infrastructure/security/httpSecurity.js';
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Respostas dinâmicas autenticadas não devem gerar validadores de cache.
+  app.disable('etag');
+  app.use('/api', privateApiResponse);
+  const PORT = env.PORT;
+  const HOST = process.env.HOST || (env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
 
   // Inicialização síncrona/bloqueante das migrações PostgreSQL e integridade do banco (Fail-Fast em produção)
   console.log('[Enlace-PBX] [1/5] Validando ambiente e inicializando integridade do PostgreSQL...');
@@ -56,23 +110,23 @@ async function startServer() {
     const migrationRes = await DatabaseMigrator.runMigrations();
     if (!migrationRes.success) {
       if (process.env.NODE_ENV === 'production') {
-        console.error('[Enlace-PBX] FATAL PRODUÇÃO: Falha crítica na execução das migrações PostgreSQL:', migrationRes.error);
+        logOperational('SERVER_OPERATION_FAILURE');
         process.exit(1);
       } else {
-        console.warn('[Enlace-PBX] Aviso: Migrações PostgreSQL em modo de desenvolvimento:', migrationRes.error || 'Aguardando conexão');
+        logOperational('SERVER_WARNING');
       }
     } else {
       console.log(`[Enlace-PBX] [PostgreSQL] Migrações e tabelas consolidadas com sucesso (${migrationRes.applied} novas aplicadas).`);
     }
   } catch (err: any) {
-    console.error('[PostgreSQL] Erro ao aplicar migrações:', err.message);
+    logOperational('SERVER_OPERATION_FAILURE');
     if (process.env.NODE_ENV === 'production') {
       process.exit(1);
     }
   }
 
   // Configure express to trust the reverse proxy (crucial for AI Studio environment)
-  app.set('trust proxy', 1);
+  app.set('trust proxy', process.env.TRUSTED_PROXIES ? process.env.TRUSTED_PROXIES.split(',').map(value => value.trim()) : 'loopback');
 
   // Health check padrão imediato (necessário para balanceadores e controle do AI Studio)
   app.get('/api/health', (req, res) => {
@@ -162,6 +216,7 @@ async function startServer() {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
     credentials: true,
+    exposedHeaders: ['X-Request-Id'],
   }));
 
   // Rate Limiting - Prevenção contra DDoS e Brute Force
@@ -182,19 +237,22 @@ async function startServer() {
     validate: { xForwardedForHeader: false, trustProxy: false },
     message: { error: 'Muitas tentativas de login. IP bloqueado temporariamente.' }
   });
-  app.use('/api/v1/auth/', authLimiter);
+  app.use('/api/v1/auth/login', authLimiter);
 
-  app.use(express.json());
+  app.use(express.json({
+    limit: '1mb',
+    verify: (req, _res, body) => { (req as RawBodyRequest).rawBody = Buffer.from(body); },
+  }));
 
   // -------------------------------------------------------------------------
   // Auth Routes (Login / JWT)
   // -------------------------------------------------------------------------
   app.post('/api/v1/auth/login', async (req, res) => {
     try {
-      const rawEmail = (req.body?.email || '').trim().toLowerCase();
-      const password = (req.body?.password || '').trim();
+      const rawEmail = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+      const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
-      if (!rawEmail || !password) {
+      if (!rawEmail || rawEmail.length>254 || !password || Buffer.byteLength(password)>72) {
         return res.status(400).json({ error: 'Por favor, informe o e-mail e a senha de acesso.' });
       }
 
@@ -217,11 +275,11 @@ async function startServer() {
 
       if (isPasswordValid) {
         user.lastLogin = new Date().toISOString();
-        await UserRepository.save(user);
+        await postgresClient.executeTenantScoped(user.tenantId,client=>client.query('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=$1 AND tenant_id=$2',[user.id,user.tenantId]));
 
         const secret = getJwtSecret();
         const token = jwt.sign(
-          { id: user.id, role: user.role, email: user.email, tenantId: user.tenantId, name: user.name },
+          { id: user.id, role: user.role, email: user.email, tenantId: user.tenantId, name: user.name,authStamp:credentialStamp(user,secret) },
           secret,
           { expiresIn: '8h' }
         );
@@ -232,25 +290,55 @@ async function startServer() {
         });
       }
     } catch (err: any) {
-      console.error('[Auth Login Error]:', err?.message || err);
-      return res.status(500).json({ error: 'Erro interno durante a autenticação: ' + (err?.message || 'Falha no servidor.') });
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
+      return res.status(500).json({ error: 'Erro interno durante a autenticação.' });
     }
   });
 
   // Middleware de Autenticação Estrita JWT e Isolamento Multitenant (com exceção apenas para endpoints públicos)
   app.use('/api/v1', (req, res, next) => {
     // Rotas públicas que não requerem autenticação
-    if (
-      req.path === '/auth/login' ||
-      req.path.startsWith('/health') ||
-      req.path.startsWith('/webhooks')
-    ) {
-      return next();
-    }
+    if (isPublicApiRoute(req.method, req.path)) return next();
+    // O stream valida seu ticket efêmero no middleware específico da rota.
+    if (req.path.toLowerCase().replace(/\/$/, '') === '/events/asterisk' && ['GET', 'HEAD'].includes(req.method)) return next();
     return requireAuth(req as any, res, (err?: any) => {
       if (err) return next(err);
       return requireTenant(req as any, res, next);
     });
+  });
+
+  // A infraestrutura é compartilhada entre empresas: somente o administrador da plataforma pode alterá-la.
+  app.use([
+    '/api/v1/network', '/api/v1/infra', '/api/v1/security', '/api/v1/setup',
+    '/api/v1/system/logs', '/api/v1/system/backup', '/api/v1/system/restore',
+    '/api/v1/system/snapshots', '/api/v1/system/quick-setup',
+    '/api/v1/asterisk/configs', '/api/v1/asterisk/cli', '/api/v1/asterisk/reload',
+    '/api/v1/asterisk/install-script', '/api/v1/crm/providers',
+  ], (req, res, next) => {
+    if (req.path.toLowerCase().replace(/\/$/, '') === '/whatsapp' && ['GET', 'HEAD', 'POST'].includes(req.method)) return next();
+    return requireRole('super_admin')(req as any, res, next);
+  });
+
+  // Cópias JSON parciais e restauração destrutiva foram retiradas em todos os ambientes.
+  app.all(['/api/v1/system/backup','/api/v1/system/restore'],retiredJsonBackup);
+
+  // Operações ainda sem adaptador real não podem confirmar sucesso em produção.
+  app.use('/api/v1', (req, res, next) => {
+    if (isProduction && isUnavailableProductionOperation(req.method, req.path)) {
+      return res.status(501).json({ error: 'Operação indisponível em produção: integração real ainda não homologada.', code: 'NOT_IMPLEMENTED' });
+    }
+    next();
+  });
+
+  // Dados financeiros e histórico de chamadas exigem capacidade explícita de leitura.
+  app.use('/api/v1/billing', requirePermission('billing:read'));
+  app.use('/api/v1/cdr', requirePermission('cdr:read'));
+  app.use('/api/v1/campaigns', requireRole('super_admin', 'admin', 'supervisor'));
+  app.use('/api/v1/ai', (req, res, next) => {
+    const route = req.path.toLowerCase().replace(/\/$/, '');
+    const roles = route === '/voice-turn' ? ['super_admin', 'admin', 'supervisor', 'operator', 'agent'] as const
+      : ['super_admin', 'admin', 'supervisor'] as const;
+    return requireRole(...roles)(req as any, res, next);
   });
 
   // Perfil do usuário atualmente autenticado
@@ -259,8 +347,7 @@ async function startServer() {
     if (!authUser) {
       return res.status(401).json({ error: 'Não autenticado' });
     }
-    const user = (authUser.id ? await UserRepository.findById(authUser.id) : null) ||
-                 (authUser.email ? await UserRepository.findByEmail(authUser.email) : null);
+    const user = await UserRepository.findById(authUser.id, authUser.tenantId);
     if (!user) {
       return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
@@ -273,7 +360,7 @@ async function startServer() {
     if (!authUser) {
       return res.status(401).json({ error: 'Sessão não autenticada.', code: 'AUTH_REQUIRED' });
     }
-    const tenantId = (req as any).tenantId || authUser.tenantId;
+    const tenantId = getAuthorizedTenantId(req);
     const ticketInfo = SseTicketManager.generateTicket(authUser, tenantId);
     res.json(ticketInfo);
   });
@@ -294,14 +381,15 @@ async function startServer() {
 
     const pgStatus = pgHealth.status === 'UP' ? 'UP' : (pgHealth.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'DOWN');
     const astStatus = asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'NOT_INSTALLED' : 'DOWN');
-    const amiStatus = asteriskHealth.amiConnected ? 'UP' : (asteriskHealth.status === 'UP' ? 'UP' : 'DOWN');
+    const amiStatus = asteriskHealth.amiConnected ? 'UP' : 'DOWN';
 
     // PostgreSQL é a dependência crítica obrigatória de persistência e autenticação
-    const isReady = pgHealth.status === 'UP';
+    const isReady = pgHealth.status === 'UP' && (!isProduction || (astStatus === 'UP' && amiStatus === 'UP'));
 
     const statusCode = isReady ? 200 : 503;
     res.status(statusCode).json({
       status: isReady ? 'ready' : 'not_ready',
+      releaseId: /^[-a-zA-Z0-9_]{1,80}$/.test(process.env.PBX_RELEASE_ID||'')?process.env.PBX_RELEASE_ID:undefined,
       timestamp: new Date().toISOString(),
       dependencies: {
         postgresql: pgStatus,
@@ -314,171 +402,18 @@ async function startServer() {
   app.get('/health/ready', readyHandler);
   app.get('/ready', readyHandler);
 
-  // 3. Diagnóstico do Sistema Protegido por RBAC (/api/v1/system/health)
-  app.get('/api/v1/system/health', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    const asteriskHealth = await asteriskAdapter.checkHealth();
-    const pgHealth = await postgresClient.checkHealth();
-    const wgHealth = await VpnAdapter.getWireguardStatus();
-    const ztHealth = await VpnAdapter.getZeroTierStatus();
-    const whatsappConfig = await SystemRepository.getWhatsappConfig();
-    const infraConfig = await SystemRepository.getInfraConfig();
-
-    const allExtensions = await ExtensionRepository.listAll().catch(() => []);
-    const allTrunks = await TrunkRepository.listAll().catch(() => []);
-
-    const components = {
-      postgresql: {
-        status: pgHealth.status === 'UP' ? 'UP' : (pgHealth.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'DOWN'),
-        latencyMs: pgHealth.latencyMs ?? null,
-        details: pgHealth.status === 'UP' ? 'Pool de conexões PostgreSQL conectado' : 'Banco de dados não operacional',
-      },
-      asterisk: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        version: asteriskHealth.version || 'UNKNOWN',
-        uptime: asteriskHealth.uptime || 'NO_DATA',
-        channelsCount: asteriskHealth.channelsCount ?? 0,
-      },
-      ami: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        host: process.env.ASTERISK_AMI_HOST || '127.0.0.1',
-        port: parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10),
-      },
-      ari: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        port: 8088,
-        application: 'enlace-gemini',
-      },
-      pjsip: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        endpointsOnline: allExtensions.filter((e) => e.status === 'online').length,
-        endpointsTotal: allExtensions.length,
-      },
-      sip: {
-        status: allTrunks.some(t => t.status === 'registered') ? 'UP' : (allTrunks.length === 0 ? 'NOT_CONFIGURED' : (allTrunks.some(t => t.lastPingStatus === 'SIP_OPTIONS_200') ? 'UP' : 'NOT_TESTED')),
-        trunksRegistered: allTrunks.filter((t) => t.status === 'registered').length,
-        trunksTotal: allTrunks.length,
-      },
-      webrtc: {
-        status: infraConfig?.ports?.webrtcWss === 8089 ? 'UP' : 'DEGRADED',
-        wssPort: infraConfig?.ports?.webrtcWss || 8089,
-        dtlsSrtp: true,
-      },
-      gemini: {
-        status: process.env.GEMINI_API_KEY ? 'UP' : 'NOT_CONFIGURED',
-        model: 'gemini-flash-latest',
-        voiceModel: 'gemini-3.1-flash-live-preview',
-      },
-      whatsapp: {
-        status: whatsappConfig?.isActive && whatsappConfig?.verifyToken ? 'UP' : (!whatsappConfig?.verifyToken ? 'NOT_CONFIGURED' : 'DEGRADED'),
-        phoneNumberId: whatsappConfig?.phoneNumberId ? 'CONFIGURED' : 'NOT_CONFIGURED',
-      },
-      wireguard: {
-        status: wgHealth.status === 'UP' ? 'UP' : (wgHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        installed: wgHealth.installed,
-        peersCount: wgHealth.peers.length,
-        interface: wgHealth.interface || 'wg0',
-      },
-      zerotier: {
-        status: ztHealth.status === 'UP' ? 'UP' : (ztHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        installed: ztHealth.installed,
-        nodeId: ztHealth.nodeId || 'NOT_CONFIGURED',
-      },
-      redis: {
-        status: (process.env.REDIS_URL || process.env.REDIS_HOST) ? 'UP' : 'NOT_CONFIGURED',
-      },
-      audioSocket: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'NOT_CONFIGURED',
-        port: 9092,
-      },
-    };
-
-    const isHealthy = components.postgresql.status === 'UP' && components.asterisk.status === 'UP';
-
-    res.json({
-      status: isHealthy ? 'UP' : 'DEGRADED',
-      timestamp: new Date().toISOString(),
-      platform: 'Enlace-PBX Pure Asterisk 20 + Gemini AI',
-      components,
-    });
-  });
-
-  const getHealthStatus = async () => {
-    const asteriskHealth = await asteriskAdapter.checkHealth();
-    const pgHealth = await postgresClient.checkHealth();
-    const wgHealth = await VpnAdapter.getWireguardStatus();
-    const ztHealth = await VpnAdapter.getZeroTierStatus();
-
-    const isHealthy = asteriskHealth.status === 'UP' && pgHealth.status === 'UP';
-
-    const allExtensions = await ExtensionRepository.listAll().catch(() => []);
-    const allTrunks = await TrunkRepository.listAll().catch(() => []);
-
-    return {
-      status: isHealthy ? 'healthy' : 'degraded',
-      timestamp: new Date().toISOString(),
-      platform: 'Enlace-PBX Pure Asterisk + Gemini AI',
-      version: '20.17.0-enlace-enterprise',
-      components: {
-        asterisk: {
-          status: asteriskHealth.status === 'UP' ? 'up' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'not_installed' : 'down'),
-          version: asteriskHealth.version || 'UNKNOWN',
-          uptime: asteriskHealth.uptime || 'NO_DATA',
-          channelsCount: asteriskHealth.channelsCount ?? 0,
-          mode: asteriskHealth.mode || 'UNKNOWN',
-          error: asteriskHealth.error || null,
-        },
-        postgresql: {
-          status: pgHealth.status === 'UP' ? 'up' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'down'),
-          latencyMs: pgHealth.latencyMs ?? null,
-          pool: pgHealth.status === 'UP' ? 'active' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'disconnected'),
-          mode: pgHealth.status === 'UP' ? 'postgresql_cluster' : (pgHealth.status === 'NOT_CONFIGURED' ? 'not_configured' : 'disconnected'),
-          error: pgHealth.error || null,
-        },
-        wireguard: {
-          status: wgHealth.status.toLowerCase(),
-          installed: wgHealth.installed,
-          peersCount: wgHealth.peers.length,
-          interface: wgHealth.interface || 'wg0',
-          message: wgHealth.message,
-        },
-        zerotier: {
-          status: ztHealth.status.toLowerCase(),
-          installed: ztHealth.installed,
-          nodeId: ztHealth.nodeId,
-          version: ztHealth.version,
-          message: ztHealth.message,
-        },
-        ari: { status: asteriskHealth.status === 'UP' ? 'up' : 'down', port: 8088, apps: ['enlace-gemini'] },
-        pjsip: {
-          status: asteriskHealth.status === 'UP' ? 'up' : 'down',
-          endpointsOnline: allExtensions.filter((e) => e.status === 'online').length,
-          trunksRegistered: allTrunks.filter((t) => t.status === 'registered').length,
-        },
-        audioSocket: {
-          status: asteriskHealth.status === 'UP' ? 'up' : 'not_configured',
-          activeStreams: 0,
-          bufferLatencyMs: null,
-        },
-        redis: {
-          status: (process.env.REDIS_URL || process.env.REDIS_HOST) ? 'up' : 'not_configured',
-          memoryUsedMb: null,
-        },
-        aiGateway: {
-          status: process.env.GEMINI_API_KEY ? 'up' : 'not_configured',
-          activeSessions: 0,
-        },
-        geminiApi: {
-          status: process.env.GEMINI_API_KEY ? 'connected' : 'not_configured',
-          model: 'gemini-flash-latest',
-          liveVoiceModel: 'gemini-3.1-flash-live-preview',
-          defaultVoice: 'pt-BR-Wavenet-A',
-        },
-      },
-    };
+  // Diagnóstico global restrito à administração da plataforma, sem detalhes brutos.
+  let healthCache:{until:number;value:Promise<ReturnType<typeof healthEvidence>>}|undefined;
+  const getHealthStatus=async()=>{
+    if(healthCache&&healthCache.until>Date.now())return healthCache.value;
+    const value=Promise.allSettled([asteriskAdapter.checkHealth(),postgresClient.checkHealth()]).then(([ast,pg])=>healthEvidence(ast.status==='fulfilled'?ast.value:{status:'DOWN'},pg.status==='fulfilled'?pg.value:{status:'DOWN'}));
+    const entry={until:Infinity,value};healthCache=entry;
+    void value.then(()=>{entry.until=Date.now()+5000;});return value;
   };
+  app.get('/api/v1/system/health',requireRole('super_admin'),async(_req,res)=>res.json(await getHealthStatus()));
 
   app.get('/api/v1/health/summary', (req, res) => {
-    res.json({ status: 'ok', pbx: 'Enlace-PBX Enterprise' });
+    res.json({ status: 'alive', timestamp: new Date().toISOString() });
   });
 
 
@@ -492,7 +427,7 @@ async function startServer() {
       if (!billing) return res.status(404).json({ error: 'Registro de faturamento não encontrado' });
       res.json(billing);
     } catch (e: any) {
-      console.error('[Billing] Erro ao buscar faturamento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao buscar dados de faturamento' });
     }
   });
@@ -510,245 +445,97 @@ async function startServer() {
       if (!billing) return res.status(404).json({ error: 'Registro de faturamento não encontrado' });
       res.json(billing);
     } catch (e: any) {
-      console.error('[Billing] Erro ao buscar faturamento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao buscar dados de faturamento' });
     }
   });
 
-  app.post('/api/v1/billing/:tenantId/recharge', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    if (req.params.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. Você não possui autorização para realizar recarga no tenant '${req.params.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-      });
-    }
-
-    const amount = Number(req.body.amount) || 100;
-    const paymentMethod = req.body.paymentMethod || 'PIX Instantâneo';
-
-    try {
-      const result = await BillingRepository.recharge(tenantCtx, amount, paymentMethod);
-
-      await recordAuditLog({
-        tenantId: tenantCtx.tenantId,
-        userId: (req as any).user?.id || 'SYSTEM',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'BILLING_RECHARGE',
-        resource: `billing/${tenantCtx.tenantId}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Recarga de crédito no valor de R$ ${amount.toFixed(2)} confirmada via ${paymentMethod}.`,
-        category: 'SYSTEM',
-        severity: 'INFO',
-      });
-
-      res.json({ success: true, balance: result.balance, transaction: result.transaction });
-    } catch (e: any) {
-      console.error('[Billing] Erro ao recarregar saldo:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao processar recarga' });
-    }
-  });
-
-  app.post('/api/v1/billing/:tenantId/invoices/:invoiceId/pay', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    if (req.params.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. Você não possui autorização para quitar faturas do tenant '${req.params.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-      });
-    }
-
-    const invoiceId = req.params.invoiceId;
-    const paymentMethod = req.body.paymentMethod || 'PIX';
-
-    try {
-      const paid = await BillingRepository.payInvoice(tenantCtx, invoiceId, paymentMethod);
-      if (!paid) {
-        return res.status(404).json({ error: 'Fatura não encontrada ou já quitada' });
-      }
-
-      await recordAuditLog({
-        tenantId: tenantCtx.tenantId,
-        userId: (req as any).user?.id || 'SYSTEM',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'BILLING_INVOICE_PAY',
-        resource: `billing/${tenantCtx.tenantId}/invoices/${invoiceId}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Fatura ${invoiceId} quitada com sucesso via ${paymentMethod}.`,
-        category: 'SYSTEM',
-        severity: 'INFO',
-      });
-
-      res.json({ success: true, invoiceId, status: 'paid' });
-    } catch (e: any) {
-      console.error('[Billing] Erro ao pagar fatura:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao processar pagamento de fatura' });
-    }
+  // Cobrança requer provedor, confirmação autenticada e conciliação idempotente.
+  app.post(['/api/v1/billing/:tenantId/recharge','/api/v1/billing/:tenantId/invoices/:invoiceId/pay'],requireRole('super_admin','admin'),(req,res)=>{
+    const tenant=resolveTenantContext(req);
+    if(req.params.tenantId!==tenant.tenantId)return res.status(403).json({error:'Operação financeira fora da empresa autorizada.'});
+    res.status(501).json({code:'PAYMENT_NOT_IMPLEMENTED',error:'Cobrança e confirmação de pagamento indisponíveis: integração financeira e conciliação ainda não implementadas.'});
   });
 
   // -------------------------------------------------------------------------
   // Campaigns API
   // -------------------------------------------------------------------------
-  app.get('/api/v1/campaigns', requireAuth, requireTenant, async (req, res) => {
-    try {
-      const tenantId = getAuthorizedTenantId(req);
-      const campaigns = await CampaignRepository.listByTenant(tenantId);
-      res.json(campaigns || []);
-    } catch (err: any) {
-      console.error('[Campaigns] Erro ao listar campanhas:', err?.message || err);
-      res.status(500).json({ error: 'Erro ao listar campanhas do PostgreSQL' });
-    }
+  const campaignError=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+  const campaignAudit=async(req:any,action:string)=>recordAuditLog({tenantId:getAuthorizedTenantId(req),userId:req.user.id,userName:req.user.name,ip:req.ip,action,resource:`campaigns/${req.params.id||'new'}`,category:action==='CAMPAIGN_LEADS_READ'?'LGPD_ACCESS':'TELECOM_SIP',strict:true,details:action==='CAMPAIGN_LEADS_READ'?'Consulta administrativa de destinos planejados.':'Tentativa de alteração de planejamento, sem execução de discagem.'});
+  app.get('/api/v1/campaigns',async(req,res)=>res.json(await CampaignPlanningRepository.list(getAuthorizedTenantId(req))));
+  app.post('/api/v1/campaigns',async(req,res)=>{try{await campaignAudit(req,'CAMPAIGN_CREATE_ATTEMPT');const result=await CampaignPlanningRepository.create(getAuthorizedTenantId(req),req.body);res.status(201).json(result);}catch(error){campaignError(error,res);}});
+  app.put('/api/v1/campaigns/:id',async(req,res)=>{try{await campaignAudit(req,'CAMPAIGN_UPDATE_ATTEMPT');await CampaignPlanningRepository.update(getAuthorizedTenantId(req),req.params.id,req.body);res.json({updated:true});}catch(error){campaignError(error,res);}});
+  app.delete('/api/v1/campaigns/:id',async(req,res)=>{try{if(!Number.isInteger(req.body.planVersion))return res.status(400).json({error:'Informe a versão do planejamento.'});await campaignAudit(req,'CAMPAIGN_DELETE_ATTEMPT');await CampaignPlanningRepository.remove(getAuthorizedTenantId(req),req.params.id,req.body.planVersion);res.json({deleted:true});}catch(error){campaignError(error,res);}});
+  app.post('/api/v1/campaigns/:id/toggle',async(req,res)=>{
+    if(!await CampaignPlanningRepository.find(getAuthorizedTenantId(req),req.params.id))return res.status(404).json({error:'Campanha não encontrada.'});
+    res.status(501).json({error:'Discagem de campanha indisponível: não há worker homologado para iniciar, pausar ou encerrar chamadas.'});
+  });
+  app.post('/api/v1/campaigns/:id/leads',async(req,res)=>{try{
+    const tenantId=getAuthorizedTenantId(req);if(!await CampaignPlanningRepository.find(tenantId,req.params.id))return res.status(404).json({error:'Campanha não encontrada.'});
+    const phones=plannedPhones(req.body.phones);await campaignAudit(req,'CAMPAIGN_IMPORT_ATTEMPT');res.json(await CampaignPlanningRepository.import(tenantId,req.params.id,phones));
+  }catch(error){campaignError(error,res);}});
+  app.delete('/api/v1/campaigns/:id/leads',async(req,res)=>{try{
+    if(!Number.isInteger(req.body.planVersion))return res.status(400).json({error:'Informe a versão do planejamento.'});
+    const phone=plannedPhones([req.body.phone])[0];await campaignAudit(req,'CAMPAIGN_LEAD_DELETE_ATTEMPT');
+    await CampaignPlanningRepository.removeLead(getAuthorizedTenantId(req),req.params.id,phone,req.body.planVersion);res.json({deleted:true});
+  }catch(error){campaignError(error,res);}});
+  app.get('/api/v1/campaigns/:id/leads',async(req,res)=>{
+    const tenantId=getAuthorizedTenantId(req);if(!await CampaignPlanningRepository.find(tenantId,req.params.id))return res.status(404).json({error:'Campanha não encontrada.'});
+    const after=req.query.after??'';if(typeof after!=='string'||(after!==''&&!/^55[1-9]\d{9,10}$/.test(after)))return res.status(400).json({error:'Cursor de paginação inválido.'});
+    await campaignAudit(req,'CAMPAIGN_LEADS_READ');const rows=await CampaignPlanningRepository.leads(tenantId,req.params.id,after);const page=rows.slice(0,100);
+    res.json({leads:page,nextCursor:rows.length>100?page.at(-1).phone:null});
   });
 
-  app.post('/api/v1/campaigns', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantId = getAuthorizedTenantId(req);
-      if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar campanha.' });
-      }
-      const newCampaign = {
-        id: req.body.id || `camp-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-        tenantId,
-        name: req.body.name || 'Nova Campanha Outbound',
-        type: req.body.type || 'ai_voicebot',
-        status: req.body.status || 'paused',
-        aiAgentId: req.body.aiAgentId || 'MaIA Comercial',
-        totalLeads: Number(req.body.totalLeads) || 0,
-        processedLeads: Number(req.body.processedLeads) || 0,
-        successCount: Number(req.body.successCount) || 0,
-        activeCalls: 0,
-        createdAt: new Date().toISOString(),
-      };
-      await CampaignRepository.save(newCampaign);
-      res.status(201).json(newCampaign);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao criar campanha' });
-    }
-  });
-
-  app.put('/api/v1/campaigns/:id', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-      if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para atualizar campanha.' });
-      }
-      let camp = await CampaignRepository.findById(req.params.id, tenantId);
-      if (!camp) return res.status(404).json({ error: 'Campanha não encontrada' });
-
-      camp = {
-        ...camp,
-        ...req.body,
-        id: camp.id,
-        tenantId: camp.tenantId,
-      };
-      await CampaignRepository.save(camp);
-      res.json(camp);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao atualizar campanha' });
-    }
-  });
-
-  app.delete('/api/v1/campaigns/:id', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-      if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para excluir campanha.' });
-      }
-      await CampaignRepository.delete(req.params.id, tenantId);
-      res.json({ success: true, message: 'Campanha removida com sucesso' });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao remover campanha' });
-    }
-  });
-
-  app.post('/api/v1/campaigns/:id/toggle', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-      if (!tenantId) {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para alternar status da campanha.' });
-      }
-      const camp = await CampaignRepository.findById(req.params.id, tenantId);
-      if (!camp) return res.status(404).json({ error: 'Campanha não encontrada' });
-      
-      if (camp.status === 'running') {
-        camp.status = 'paused';
-        camp.activeCalls = 0;
-      } else if (camp.status === 'paused' || camp.status === 'draft') {
-        camp.status = 'running';
-      }
-      await CampaignRepository.save(camp);
-      res.json(camp);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao alternar campanha' });
-    }
-  });
-
-  app.get('/api/v1/health', async (req, res) => {
-    res.json(await getHealthStatus());
-  });
+  app.get('/api/v1/health',(_req,res)=>res.json({status:'alive',timestamp:new Date().toISOString()}));
 
   // -------------------------------------------------------------------------
   // Logs de Sistema em Tempo Real (Asterisk, Nginx, WireGuard, Fail2ban, etc.)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/system/logs', (req, res) => {
-    const { service, level, date, search, since, limit } = req.query;
-    const result = systemLogsManager.getLogs({
-      service: service as string,
-      level: level as string,
-      date: date as string,
-      search: search as string,
-      since: since as string,
-      limit: limit ? parseInt(limit as string, 10) : 200,
-    });
-    res.json(result);
+  const logAccessAudit=async(req:any,action:string)=>{
+    const actor=req.user;
+    await AuditLogRepository.logStrict({tenantId:actor.tenantId,userId:actor.id,userName:actor.name,
+      action,category:'SYSTEM',resource:'system/logs',ip:req.ip||'127.0.0.1',
+      details:'Tentativa administrativa sobre buffer volátil de falhas HTTP; não altera auditoria persistente ou logs do host.'});
+  };
+  app.get('/api/v1/system/logs', (req,res)=>{
+    try{res.json(systemLogsManager.getLogs(logQuery(req.query)));}
+    catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
-
-  app.post('/api/v1/system/logs/clear', requireRole('super_admin', 'admin'), (req, res) => {
-    systemLogsManager.clearLogs();
-    res.json({ success: true, message: 'Buffer de logs limpo com sucesso' });
+  app.post('/api/v1/system/logs/clear',async(req,res)=>{
+    await logAccessAudit(req,'APPLICATION_LOG_BUFFER_CLEAR_ATTEMPT');
+    systemLogsManager.clearLogs();res.json({cleared:true,scope:'application_http_errors'});
   });
-
-  app.get('/api/v1/system/logs/download', (req, res) => {
-    const { service, level, date, search } = req.query;
-    const result = systemLogsManager.getLogs({
-      service: service as string,
-      level: level as string,
-      date: date as string,
-      search: search as string,
-      limit: 1000,
-    });
-
-    const lines = result.logs.map(
-      (l) => `[${l.timestamp}] [${l.level.padEnd(8)}] [${l.service.padEnd(14)}] [${l.component || 'sys'}]: ${l.message}`
-    ).join('\n');
-
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="system-logs-${new Date().toISOString().split('T')[0]}.log"`);
-    res.send(lines);
+  app.all('/api/v1/system/logs/simulate',(_req,res)=>res.status(501).json({error:'Injeção de eventos não disponível. Este buffer registra apenas respostas HTTP reais.'}));
+  app.get('/api/v1/system/logs/download',async(req,res)=>{
+    let query:ReturnType<typeof logQuery>;
+    try{query=logQuery(req.query,true);}catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
+    await logAccessAudit(req,'APPLICATION_LOG_BUFFER_DOWNLOAD_ATTEMPT');
+    const result=systemLogsManager.getLogs(query);
+    const lines=['# Falhas HTTP da aplicação; buffer volátil de até 600 eventos. Sem coletor de logs do host.',...result.logs.map(entry=>JSON.stringify(entry))].join('\n');
+    res.setHeader('Content-Type','text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition','attachment; filename="eventos-http.log"');res.send(lines);
   });
 
   // -------------------------------------------------------------------------
   // Redes, VPN & Conectividade (WireGuard & ZeroTier Reais)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/network/wireguard', async (req, res) => {
-    try {
-      const wgStatus = await VpnAdapter.getWireguardStatus();
-      const wgConfig = await SystemRepository.getWireguardConfig();
-      res.json({
-        ...wgConfig,
-        status: wgStatus.status === 'UP' ? 'active' : (wgConfig?.status || 'active'),
-        installed: wgStatus.installed,
-        interfaceName: wgStatus.interface || wgConfig?.interfaceName || 'wg0',
-        peers: wgConfig?.peers || [],
-        peersCount: wgConfig?.peersCount ?? (wgConfig?.peers?.length || 0),
-        activePeersCount: wgStatus.status === 'UP' ? (wgConfig?.activePeersCount ?? 0) : (wgConfig?.activePeersCount || 0),
-        message: wgStatus.message,
-      });
-    } catch (err: any) {
-      console.error('[Network/WireGuard] Erro ao obter status:', err?.message || err);
-      const wgConfig = await SystemRepository.getWireguardConfig().catch(() => null);
-      res.json(wgConfig || SystemRepository.getDefaultWireguardConfig());
-    }
+  app.get('/api/v1/network/wireguard', async (_req, res) => {
+    const live = await VpnAdapter.getWireguardStatus();
+    const config = await SystemRepository.getWireguardConfig();
+    const peers = (config?.peers || []).map((peer: any) => {
+      const actual = live.peers.find(value => value.publicKey === peer.publicKey && (!peer.interface || value.interface === peer.interface));
+      return { id: peer.id, name: peer.name, publicKey: peer.publicKey, allowedIps: peer.allowedIps,
+        assignedExtension: peer.assignedExtension, location: peer.location, enabled: peer.enabled,
+        endpoint: actual?.endpoint, latestHandshake: actual?.latestHandshake,
+        transferRx: actual?.transferRxBytes ?? 0, transferTx: actual?.transferTxBytes ?? 0,
+        status: actual && peer.enabled && hasRecentHandshake(actual) ? 'connected' : 'offline' };
+    });
+    res.json({ interfaceName: live.interface || config?.interfaceName || 'wg0',
+      status: live.status === 'UP' ? 'active' : 'inactive', installed: live.installed,
+      publicKey: live.publicKey || '', listenPort: live.listenPort, address: config?.address || '', dns: config?.dns || '',
+      peers, peersCount: peers.length, activePeersCount: peers.filter((peer: any) => peer.status === 'connected').length,
+      bytesRx: live.peers.reduce((sum, peer) => sum + peer.transferRxBytes, 0),
+      bytesTx: live.peers.reduce((sum, peer) => sum + peer.transferTxBytes, 0), message: live.message });
   });
 
   app.post('/api/v1/network/wireguard/toggle', requireRole('super_admin', 'admin'), async (req, res) => {
@@ -758,7 +545,7 @@ async function startServer() {
       await SystemRepository.setWireguardConfig(wgConfig);
       res.json({ success: true, status: wgConfig.status });
     } catch (err: any) {
-      console.error('[Network/WireGuard] Erro ao alternar:', err?.message || err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao alternar WireGuard' });
     }
   });
@@ -809,7 +596,7 @@ async function startServer() {
 
       res.json({ success: true, peer: newPeer });
     } catch (err: any) {
-      console.error('[Network/WireGuard] Erro ao cadastrar peer:', err?.message || err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao cadastrar peer WireGuard' });
     }
   });
@@ -872,25 +659,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   });
 
-  app.get('/api/v1/network/zerotier', async (req, res) => {
-    try {
-      const ztStatus = await VpnAdapter.getZeroTierStatus();
-      const ztConfig = await SystemRepository.getZerotierConfig();
-      res.json({
-        ...ztConfig,
-        status: ztStatus.status === 'UP' ? 'online' : (ztConfig?.status || 'online'),
-        installed: ztStatus.installed,
-        nodeId: ztStatus.nodeId || ztConfig?.nodeId || 'e28f3a99bc',
-        version: ztStatus.version || ztConfig?.version || '1.14.0',
-        networks: (ztStatus.networks && ztStatus.networks.length > 0) ? ztStatus.networks : (ztConfig?.networks || []),
-        peers: ztConfig?.peers || [],
-        message: ztStatus.message,
-      });
-    } catch (err: any) {
-      console.error('[Network/ZeroTier] Erro ao obter status:', err?.message || err);
-      const ztConfig = await SystemRepository.getZerotierConfig().catch(() => null);
-      res.json(ztConfig || SystemRepository.getDefaultZerotierConfig());
-    }
+  app.get('/api/v1/network/zerotier', async (_req, res) => {
+    const live = await VpnAdapter.getZeroTierStatus();
+    res.json({ status: live.status === 'UP' ? 'online' : 'offline', installed: live.installed,
+      nodeId: live.nodeId || '', version: live.version || '', networks: live.networks, peers: [], message: live.message });
   });
 
   app.post('/api/v1/network/zerotier/toggle', requireRole('super_admin', 'admin'), async (req, res) => {
@@ -962,9 +734,9 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     ztRxKbps: number;
     ztTxKbps: number;
     totalKbps: number;
-    latencyMs: number;
-    jitterMs: number;
-    pps: number;
+    latencyMs: number | null;
+    jitterMs: number | null;
+    pps: number | null;
   }> = [];
 
   let lastTelemetryTimestamp = Date.now();
@@ -1003,14 +775,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       if (currentZtStats) prevZtStats = currentZtStats;
 
       const totalKbps = currentWgRx + currentWgTx + currentZtRx + currentZtTx;
-      const pps = Math.round((totalKbps * 1000) / (8 * 1500));
+      const pps = null; // A taxa de bytes não informa a contagem de pacotes.
 
       const wgStatus = await VpnAdapter.getWireguardStatus();
-      const ztStatus = await VpnAdapter.getZeroTierStatus();
 
-      // Latência e jitter medidos reais ou 0 se inativo
-      const latencyAvg = 0;
-      const jitterAvg = 0;
+      // Sem sondas de RTT ou amostras de jitter: métricas indisponíveis.
+      const latencyAvg = null;
+      const jitterAvg = null;
 
       telemetryBuffer.push({
         time: timeStr,
@@ -1029,53 +800,33 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       const wgConfig = await SystemRepository.getWireguardConfig();
-      const ztConfig = await SystemRepository.getZerotierConfig();
       const vpnRouting = await SystemRepository.getVpnRouting();
 
       // Peers e nós reais do sistema
       const wgPeers = wgConfig?.peers || [];
-      const ztPeers = ztConfig?.peers || [];
       const nodes = [
         ...wgPeers.map((p: any) => {
-          const livePeer = (wgStatus.peers || []).find((wp) => wp.publicKey === p.publicKey);
-          const isUp = wgStatus.status === 'UP' && p.enabled;
+          const livePeer = (wgStatus.peers || []).find((wp) => wp.publicKey === p.publicKey && (!p.interface || wp.interface === p.interface));
+          const isUp = wgStatus.status === 'UP' && p.enabled && livePeer && hasRecentHandshake(livePeer);
           return {
             id: p.id,
             name: p.name,
             tunnelType: 'wireguard' as const,
             virtualIp: p.allowedIps,
             endpoint: livePeer?.endpoint || p.endpoint || 'Dinâmico (NAT Traversal)',
-            status: isUp ? p.status : ('offline' as const),
-            latencyMs: 0,
-            jitterMs: 0,
-            packetLossPercent: 0,
-            bytesRx: livePeer?.transferRxBytes || p.transferRx || 0,
-            bytesTx: livePeer?.transferTxBytes || p.transferTx || 0,
-            latestHandshake: livePeer?.latestHandshake || p.latestHandshake,
+            status: isUp ? ('connected' as const) : ('offline' as const),
+            latencyMs: null,
+            jitterMs: null,
+            packetLossPercent: null,
+            bytesRx: livePeer?.transferRxBytes ?? 0,
+            bytesTx: livePeer?.transferTxBytes ?? 0,
+            latestHandshake: livePeer?.latestHandshake,
             roleOrExtension: p.assignedExtension,
             location: p.location,
             enabled: p.enabled,
-            isPrimaryRoute: (vpnRouting?.activeTunnel || 'wireguard') === 'wireguard' && p.enabled && isUp,
+            isPrimaryRoute: false, // A configuração persistida não comprova a rota efetiva do kernel.
           };
         }),
-        ...ztPeers.map((zt: any) => ({
-          id: `zt-peer-${zt.nodeId}`,
-          name: zt.role === 'PLANET' ? `Root Planet ZeroTier (${zt.nodeId})` : `P2P Node Mesh (${zt.nodeId})`,
-          tunnelType: 'zerotier' as const,
-          virtualIp: '192.168.192.x',
-          endpoint: zt.physicalAddress,
-          status: ztStatus.status === 'UP' ? ('connected' as const) : ('offline' as const),
-          latencyMs: zt.latencyMs || 0,
-          jitterMs: 0,
-          packetLossPercent: 0,
-          bytesRx: 0,
-          bytesTx: 0,
-          latestHandshake: 'Ativo via UDP 9993',
-          roleOrExtension: `ZeroTier ${zt.role} (${zt.linkType})`,
-          location: zt.role === 'PLANET' ? 'Global Root Server' : 'Nó P2P Enlace',
-          enabled: ztStatus.status === 'UP',
-          isPrimaryRoute: (vpnRouting?.activeTunnel || 'wireguard') === 'zerotier' && ztStatus.status === 'UP',
-        })),
       ];
 
       res.json({
@@ -1089,30 +840,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           pps,
           latencyAvgMs: latencyAvg,
           jitterAvgMs: jitterAvg,
-          packetLossPercent: 0,
+          packetLossPercent: null,
         },
         history: telemetryBuffer,
         nodes,
       });
     } catch (err: any) {
-      console.error('[Network/Telemetry] Erro ao coletar telemetria:', err?.message || err);
-      const vpnRouting = await SystemRepository.getVpnRouting().catch(() => SystemRepository.getDefaultVpnRouting());
-      res.json({
-        routing: vpnRouting,
-        currentRates: {
-          wgRxKbps: 0,
-          wgTxKbps: 0,
-          ztRxKbps: 0,
-          ztTxKbps: 0,
-          totalKbps: 0,
-          pps: 0,
-          latencyAvgMs: 15,
-          jitterAvgMs: 2,
-          packetLossPercent: 0,
-        },
-        history: telemetryBuffer,
-        nodes: [],
-      });
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
+      res.status(503).json({ error: 'Telemetria VPN indisponível no momento.' });
     }
   });
 
@@ -1159,24 +894,17 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Teste de Conectividade Instantâneo no Nó via Socket Real
   app.post('/api/v1/network/nodes/:type/:id/ping', requireRole('super_admin', 'admin'), async (req, res) => {
     const { type, id } = req.params;
-    let targetIp = '127.0.0.1';
-    let targetPort = 5060;
+    if (type !== 'wireguard') return res.status(501).json({ error: 'Sonda TCP disponível apenas para peers WireGuard cadastrados.' });
+    const wgConfig = await SystemRepository.getWireguardConfig();
+    const peer = wgConfig?.peers?.find((p: any) => p.id === id);
+    if (!peer) return res.status(404).json({ error: 'Peer não encontrado.' });
+    const targetIp = String(peer.allowedIps || '').split(',')[0].trim().split('/')[0];
+    const targetPort = 5060;
+    if (!net.isIP(targetIp) || targetIp.startsWith('127.') || targetIp === '::1') return res.status(422).json({ error: 'Peer sem endereço virtual válido para a sonda.' });
 
-    if (type === 'wireguard') {
-      const wgConfig = await SystemRepository.getWireguardConfig();
-      const peer = wgConfig?.peers?.find((p: any) => p.id === id);
-      if (peer?.endpoint) {
-        const parts = peer.endpoint.split(':');
-        targetIp = parts[0];
-        targetPort = parts[1] ? Number(parts[1]) : 51820;
-      } else if (peer?.allowedIps) {
-        targetIp = peer.allowedIps.split('/')[0];
-      }
-    }
-
-    const { reachable, latencyMs } = await measureSocketLatency(targetIp, targetPort, 1200);
-    const ttl = 64;
-    const jitter = Number((latencyMs > 0 ? (latencyMs * 0.08).toFixed(2) : 0));
+    const probe = await measureSocketLatency(targetIp, targetPort, 1200);
+    const { latencyMs } = probe;
+    const reachable = probe.reachable && !probe.error;
 
     res.json({
       success: reachable,
@@ -1185,11 +913,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       target: `${targetIp}:${targetPort}`,
       status: reachable ? 'online' : 'unreachable',
       latencyMs,
-      jitterMs: jitter,
-      ttl: reachable ? ttl : 0,
+      jitterMs: null,
+      ttl: null,
       timestamp: new Date().toISOString(),
       details: reachable
-        ? `Socket TCP/SIP OPTIONS para ${targetIp}:${targetPort} respondeu em ${latencyMs}ms (Jitter ${jitter}ms, TTL ${ttl}).`
+        ? `Conexão TCP com ${targetIp}:${targetPort} estabelecida em ${latencyMs}ms; não mede SIP, RTP, jitter ou TTL.`
         : `Nó ${targetIp}:${targetPort} não respondeu no tempo limite (offline ou firewall bloqueando).`,
     });
   });
@@ -1217,66 +945,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Infraestrutura, Domínio, IPs (LAN/WAN) e Validação de Certificado SSL/TLS
   // (Webphone WebRTC, PWA com Notificação Push, WhatsApp Cloud API)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/infra/config', async (req, res) => {
-    const config = await SystemRepository.getInfraConfig();
-    res.json(config);
-  });
+  app.all(['/api/v1/infra/validate-ssl','/api/v1/infra/validate-webphone','/api/v1/infra/validate-pwa','/api/v1/infra/validate-whatsapp','/api/v1/infra/vapid/generate','/api/v1/infra/send-test-push'],(_req,res)=>res.status(501).json({code:'INFRA_VALIDATION_NOT_IMPLEMENTED',error:'Validação ou execução no host ainda não implementada; cadastro não comprova operação.'}));
+  app.get('/api/v1/infra/config',async(_req,res)=>{try{return res.json(await InfraManagementRepository.read());}catch(error){return administrativeFailure(error,res);}});
+  app.put('/api/v1/infra/config',requireAuth,requireTenant,requireRole('super_admin'),async(req,res)=>{try{
+    const {expectedRevision,patch}=infraPatch(req.body);const actor=(req as any).user;
+    await AuditLogRepository.logStrict({tenantId:actor.tenantId,userId:actor.id,userName:actor.name,action:'UPDATE_INFRA_CONFIG_ATTEMPT',resource:'infra/config',category:'SYSTEM',ip:req.ip||'127.0.0.1',details:'Tentativa de alteração global com revisão obrigatória; sem corpo ou segredos na auditoria.'});
+    return res.json({success:true,config:await InfraManagementRepository.mutate(expectedRevision,patch)});
+  }catch(error){return administrativeFailure(error,res);}});
 
-  app.put('/api/v1/infra/config', requireRole('super_admin', 'admin'), async (req, res) => {
-    const body = req.body;
-    if (!body) {
-      return res.status(400).json({ error: 'Dados de infraestrutura não fornecidos' });
-    }
-
-    const infraConfig = await SystemRepository.getInfraConfig();
-
-    // Validações básicas de formato
-    if (body.hostname !== undefined) infraConfig.hostname = String(body.hostname).trim();
-    if (body.domain !== undefined) infraConfig.domain = String(body.domain).trim().toLowerCase();
-    if (body.publicIp !== undefined) infraConfig.publicIp = String(body.publicIp).trim();
-    if (body.lanIp !== undefined) infraConfig.lanIp = String(body.lanIp).trim();
-    if (body.lanSubnet !== undefined) infraConfig.lanSubnet = String(body.lanSubnet).trim();
-    if (body.lanGateway !== undefined) infraConfig.lanGateway = String(body.lanGateway).trim();
-    if (body.lanInterface !== undefined) infraConfig.lanInterface = String(body.lanInterface).trim();
-    if (body.natMode !== undefined) infraConfig.natMode = body.natMode;
-    if (body.stunServer !== undefined) infraConfig.stunServer = String(body.stunServer).trim();
-
-    if (body.ports) {
-      infraConfig.ports = {
-        ...infraConfig.ports,
-        ...body.ports,
-      };
-    }
-
-    if (body.sslCertificate) {
-      infraConfig.sslCertificate = {
-        ...infraConfig.sslCertificate,
-        ...body.sslCertificate,
-      };
-    }
-
-    if (body.validationWhatsapp?.verifyToken) {
-      if (!infraConfig.validationWhatsapp) infraConfig.validationWhatsapp = {};
-      infraConfig.validationWhatsapp.verifyToken = body.validationWhatsapp.verifyToken;
-    }
-
-    infraConfig.updatedAt = new Date().toISOString();
-    await SystemRepository.setInfraConfig(infraConfig);
-
-    await AuditLogRepository.create({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      userId: (req as any).user?.id || 'SYSTEM',
-      userName: (req as any).user?.name || 'Administrador',
-      action: 'INFRA_CONFIG_UPDATE',
-      resource: 'infra/config',
-      ip: req.ip || '127.0.0.1',
-      details: `Configurações de infraestrutura atualizadas: Hostname=${infraConfig.hostname}, Domínio=${infraConfig.domain}, IP Público=${infraConfig.publicIp}, IP LAN=${infraConfig.lanIp}`,
-    });
-
-    res.json({ success: true, config: infraConfig });
-  });
-
-  // Auto-detectar IP público do servidor
   app.post('/api/v1/infra/auto-detect-ip', requireRole('super_admin', 'admin'), async (req, res) => {
     let detectedIp: string | null = process.env.PUBLIC_IP || process.env.WAN_IP || null;
     if (!detectedIp) {
@@ -1299,911 +975,150 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
     }
 
-    const infraConfig = await SystemRepository.getInfraConfig();
-    infraConfig.publicIp = detectedIp;
-    infraConfig.updatedAt = new Date().toISOString();
-    await SystemRepository.setInfraConfig(infraConfig);
-
-    res.json({
-      success: true,
-      detectedIp,
-      method: 'Egress Resolution (api.ipify.org)',
-      natType: 'UNKNOWN',
-    });
-  });
-
-  // Validação em tempo real do Certificado SSL/TLS
-  app.post('/api/v1/infra/validate-ssl', requireRole('super_admin', 'admin'), async (req, res) => {
-    const infraConfig = await SystemRepository.getInfraConfig();
-    const cert = infraConfig.sslCertificate;
-    const domain = infraConfig.domain;
-
-    const validToDate = new Date(cert.validTo);
-    const now = new Date();
-    const diffTime = validToDate.getTime() - now.getTime();
-    const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-
-    cert.daysRemaining = daysRemaining;
-
-    // Verificar se o domínio bate com os SANs ou com o issuedTo
-    const domainMatches =
-      cert.issuedTo.toLowerCase() === domain.toLowerCase() ||
-      cert.san.some((s: string) => s.toLowerCase() === domain.toLowerCase() || (s.startsWith('*.') && domain.endsWith(s.slice(1))));
-
-    if (!domainMatches) {
-      cert.status = 'invalid';
-    } else if (daysRemaining <= 0) {
-      cert.status = 'expired';
-    } else if (daysRemaining <= 30) {
-      cert.status = 'expiring_soon';
-    } else {
-      cert.status = 'valid';
-    }
-
-    infraConfig.updatedAt = new Date().toISOString();
-    await SystemRepository.setInfraConfig(infraConfig);
-
-    res.json({
-      success: true,
-      status: cert.status,
-      domain,
-      domainMatches,
-      issuer: cert.issuer,
-      keyType: cert.keyType,
-      fingerprintSha256: cert.fingerprintSha256,
-      validFrom: cert.validFrom,
-      validTo: cert.validTo,
-      daysRemaining,
-      san: cert.san,
-      autoRenew: cert.autoRenew,
-      message: cert.status === 'valid'
-        ? `Certificado SSL ativo e confiável para ${domain}. Expira em ${daysRemaining} dias.`
-        : `Atenção: Status do certificado é ${cert.status}. Recomenda-se renovação via Certbot.`,
-    });
-  });
-
-  // Validador 1: Webphone (WebRTC + WSS)
-  app.post('/api/v1/infra/validate-webphone', requireRole('super_admin', 'admin'), async (req, res) => {
-    const infra = await SystemRepository.getInfraConfig();
-    const isHttps = infra.sslCertificate.status === 'valid';
-    const isWssConfigured = infra.ports.webrtcWss === 8089;
-    const isStunConfigured = !!infra.stunServer;
-
-    const allPassed = isHttps && isWssConfigured && isStunConfigured;
-
-    infra.validationWebphone = {
-      status: allPassed ? 'passed' : 'warning',
-      httpsEnabled: isHttps,
-      wssPortAccessible: isWssConfigured,
-      webrtcDtlsSrtp: true,
-      mediaMicrophonePermission: 'granted',
-      stunConfigured: isStunConfigured,
-      lastTested: new Date().toISOString(),
-      details: allPassed
-        ? `Ambiente Webphone WebRTC 100% validado: HTTPS ativo, WSS (wss://${infra.domain}:${infra.ports.webrtcWss}/ws) pronto, DTLS-SRTP e STUN configurados.`
-        : 'Pendência no Webphone: Certificado SSL ou porta WSS requerem revisão para evitar falhas de áudio no browser.',
-    };
-
-    await SystemRepository.setInfraConfig(infra);
-
-    res.json({
-      success: true,
-      validation: infra.validationWebphone,
-      checks: [
-        { name: 'Contexto Seguro HTTPS (Exigência do Navegador para getUserMedia)', status: isHttps ? 'ok' : 'fail' },
-        { name: `Porta WSS WebRTC Asterisk (${infra.ports.webrtcWss}/TCP)`, status: isWssConfigured ? 'ok' : 'warn' },
-        { name: 'Criptografia DTLS-SRTP de Áudio (RFC 5764)', status: 'ok' },
-        { name: 'Servidor STUN para NAT Traversal', status: isStunConfigured ? 'ok' : 'fail', target: infra.stunServer },
-        { name: 'Codecs WebRTC Prioritários (Opus 48kHz, PCMU, PCMA)', status: 'ok' },
-      ],
-    });
-  });
-
-  // Validador 2: PWA com Notificação Push
-  app.post('/api/v1/infra/validate-pwa', requireRole('super_admin', 'admin'), async (req, res) => {
-    const infra = await SystemRepository.getInfraConfig();
-    const isHttps = infra.sslCertificate.status === 'valid';
-    const hasVapid = !!infra.validationPwa?.vapidPublicKey && infra.validationPwa.vapidPublicKey.length > 20;
-
-    const allPassed = isHttps && hasVapid;
-
-    infra.validationPwa = {
-      ...infra.validationPwa,
-      status: allPassed ? 'passed' : 'warning',
-      httpsSecured: isHttps,
-      serviceWorkerRegistered: true,
-      manifestValid: true,
-      pushVapidConfigured: hasVapid,
-      lastTested: new Date().toISOString(),
-      details: allPassed
-        ? 'PWA e Notificações Push VAPID validadas: Web App Manifest ativo, Service Worker operacional e suporte a notificações de chamadas em segundo plano.'
-        : 'Pendência no PWA: HTTPS é estritamente obrigatório para Service Workers e Web Push.',
-    };
-
-    await SystemRepository.setInfraConfig(infra);
-
-    res.json({
-      success: true,
-      validation: infra.validationPwa,
-      checks: [
-        { name: 'Origem Segura HTTPS (Obrigatório pela W3C para Service Worker)', status: isHttps ? 'ok' : 'fail' },
-        { name: 'Web App Manifest (/manifest.json válido com ícones 192/512)', status: 'ok' },
-        { name: 'Service Worker Background Sync (/sw.js)', status: 'ok' },
-        { name: 'Par de Chaves VAPID (Web Push RFC 8292)', status: hasVapid ? 'ok' : 'fail' },
-        { name: 'Notificações de Ramal em Segundo Plano (Action Buttons: Atender/Recusar)', status: 'ok' },
-      ],
-    });
-  });
-
-  // Gerar / Rotacionar novo par de chaves VAPID criptograficamente seguro para Web Push (NIST P-256)
-  app.post('/api/v1/infra/vapid/generate', requireRole('super_admin', 'admin'), async (req, res) => {
-    // Geração segura de chave pública VAPID uncompressed (65 bytes começando com 0x04)
-    const rawBytes = Buffer.concat([Buffer.from([0x04]), crypto.randomBytes(64)]);
-    const newPubKey = rawBytes.toString('base64url');
-
-    const infraConfig = await SystemRepository.getInfraConfig();
-    if (!infraConfig.validationPwa) infraConfig.validationPwa = {};
-    infraConfig.validationPwa.vapidPublicKey = newPubKey;
-    infraConfig.validationPwa.pushVapidConfigured = true;
-    infraConfig.updatedAt = new Date().toISOString();
-    await SystemRepository.setInfraConfig(infraConfig);
-
-    res.json({
-      success: true,
-      vapidPublicKey: newPubKey,
-      vapidSubject: infraConfig.validationPwa.vapidSubject,
-      message: 'Novo par de chaves VAPID NIST P-256 gerado criptograficamente para Web Push Notifications.',
-    });
-  });
-
-  // Disparar Push de Teste para o navegador
-  app.post('/api/v1/infra/send-test-push', requireRole('super_admin', 'admin'), (req, res) => {
-    const pushPayload = {
-      title: 'Enlace-PBX: Chamada Recebida (Ramal 4101)',
-      body: 'Chamada de Suporte NOC (11 98765-4321) tocando agora...',
-      icon: '/logo-icon.png',
-      badge: '/logo-icon.png',
-      vibrate: [200, 100, 200, 100, 200],
-      tag: 'incoming-call-test',
-      renotify: true,
-      data: {
-        callerNumber: '11987654321',
-        callerName: 'Suporte NOC Enlace',
-        extension: '4101',
-        callId: `call-${Date.now()}`,
-      },
-      actions: [
-        { action: 'answer', title: 'Atender' },
-        { action: 'reject', title: 'Recusar' },
-      ],
-    };
-
-    res.json({
-      success: true,
-      sentAt: new Date().toISOString(),
-      payload: pushPayload,
-      message: 'Notificação Push simulada enviada ao cliente com sucesso.',
-    });
-  });
-
-  // Validador 3: API Oficial do WhatsApp (Meta Cloud API / Graph API)
-  app.post('/api/v1/infra/validate-whatsapp', requireRole('super_admin', 'admin'), async (req, res) => {
-    const infra = await SystemRepository.getInfraConfig();
-    const isHttps = infra.sslCertificate.status === 'valid';
-    const hasPublicCert = infra.sslCertificate.provider !== 'custom' || infra.sslCertificate.issuer.includes("Let's Encrypt");
-    const isStandardPort = infra.ports.https === 443;
-    const webhookUrl = `https://${infra.domain}/api/v1/webhooks/whatsapp`;
-    const verifyToken = infra.validationWhatsapp?.verifyToken || process.env.WHATSAPP_VERIFY_TOKEN || '';
-    const hasValidToken = Boolean(verifyToken && verifyToken.trim() !== '' && verifyToken !== 'enlace_meta_webhook_token_2026');
-
-    const allPassed = isHttps && hasPublicCert && isStandardPort && hasValidToken;
-
-    infra.validationWhatsapp = {
-      ...infra.validationWhatsapp,
-      status: allPassed ? 'passed' : 'warning',
-      httpsVerified: isHttps,
-      publicCertTrusted: hasPublicCert,
-      webhookEndpoint: webhookUrl,
-      verifyToken: hasValidToken ? verifyToken : '',
-      port443Standard: isStandardPort,
-      lastTested: new Date().toISOString(),
-      details: allPassed
-        ? `Conformidade Meta WhatsApp 100%: Webhook HTTPS público na porta 443 (${webhookUrl}), certificado SSL de autoridade confiável e desafio hub.challenge respondendo com 200 OK.`
-        : (!hasValidToken
-            ? 'Alerta Meta: Token WHATSAPP_VERIFY_TOKEN não configurado no ambiente ou na central.'
-            : 'Alerta Meta: A API oficial do WhatsApp exige estritamente HTTPS válido na porta 443 com certificado público (não autoassinado).'),
-    };
-
-    await SystemRepository.setInfraConfig(infra);
-
-    res.json({
-      success: true,
-      validation: infra.validationWhatsapp,
-      checks: [
-        { name: 'Protocolo HTTPS Obrigatório pela Meta (HTTP é rejeitado pela Meta)', status: isHttps ? 'ok' : 'fail' },
-        { name: 'Certificado de Autoridade Pública Confiável (Let\'s Encrypt / DigiCert)', status: hasPublicCert ? 'ok' : 'fail' },
-        { name: 'Porta Padrão 443/TCP (Meta rejeita portas alternativas como 8443)', status: isStandardPort ? 'ok' : 'fail' },
-        { name: 'Webhook Endpoint FQDN Acessível', status: 'ok', url: webhookUrl },
-        { name: 'Meta Hub Challenge Token Handshake (GET verification)', status: 'ok', token: verifyToken },
-        { name: 'Ciphers TLS 1.2+ e Assinatura SHA256 (Meta Security Policy)', status: 'ok' },
-      ],
-    });
+    if(net.isIP(detectedIp)!==4)return res.status(503).json({error:'Endereço IPv4 não confirmado.'});
+    return res.json({success:true,detectedIp,status:'DRAFT_NOT_SAVED',source:process.env.PUBLIC_IP||process.env.WAN_IP?'CONFIGURED_ENVIRONMENT':'EGRESS_SERVICE'});
   });
 
   // -------------------------------------------------------------------------
   // Segurança & Monitoramento do Fail2ban
   // -------------------------------------------------------------------------
-  app.get('/api/v1/security/fail2ban', async (req, res) => {
-    try {
-      const config = await SystemRepository.getFail2banConfig();
-      res.json(config || SystemRepository.getDefaultFail2banConfig());
-    } catch (err: any) {
-      console.error('[Security/Fail2ban] Erro ao obter dados do fail2ban:', err?.message || err);
-      res.json(SystemRepository.getDefaultFail2banConfig());
-    }
+  app.get('/api/v1/security/fail2ban', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const snapshot = await fail2banMonitor.snapshot();
+    res.status(snapshot.available ? 200 : 503).json(snapshot);
   });
 
-  app.post('/api/v1/security/fail2ban/reload', requireRole('super_admin', 'admin'), async (req, res) => {
-    const config = await SystemRepository.getFail2banConfig();
-    config.daemonStatus = 'reloading';
-    setTimeout(async () => {
-      config.daemonStatus = 'active';
-      config.uptime = '4d 18h 33m (Recarregado)';
-      await SystemRepository.setFail2banConfig(config);
-    }, 400);
-
-    await AuditLogRepository.create({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      userId: (req as any).user?.id || 'SYSTEM',
-      userName: (req as any).user?.name || 'Administrador',
-      action: 'FAIL2BAN_RELOAD',
-      resource: 'security/fail2ban',
-      ip: req.ip || '127.0.0.1',
-      details: 'Daemon Fail2ban recarregado com sucesso (fail2ban-client reload)',
-    });
-
-    res.json({ success: true, message: 'Fail2ban recarregado com sucesso!' });
-  });
-
-  app.post('/api/v1/security/fail2ban/ban', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { ip, jail, reason } = req.body;
-    if (!ip) return res.status(400).json({ error: 'Endereço IP é obrigatório' });
-
-    const config = await SystemRepository.getFail2banConfig();
-
-    // Check if in whitelist
-    if (config.whitelist.some((w: string) => ip.startsWith(w.replace(/\/.*$/, '')))) {
-      return res.status(400).json({ error: 'Este IP está cadastrado na Whitelist de segurança e não pode ser banido.' });
-    }
-
-    const selectedJail = jail || 'asterisk-pjsip';
-    const newBan = {
-      id: `ban-${Date.now()}`,
-      ip,
-      jail: selectedJail,
-      country: 'IP Manual',
-      countryCode: 'BR',
-      failures: 1,
-      bannedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 86400000).toISOString(),
-      reason: reason || 'Bloqueio administrativo manual via Painel Enlace-PBX',
-      reverseDns: 'manual-ban.local',
-    };
-
-    config.bannedIps.unshift(newBan);
-    config.totalBanned = config.bannedIps.length;
-
-    const targetJail = config.jails.find((j: any) => j.name === selectedJail);
-    if (targetJail) {
-      targetJail.currentlyBanned += 1;
-      targetJail.totalBanned += 1;
-    }
-
-    await SystemRepository.setFail2banConfig(config);
-
-    await AuditLogRepository.create({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      userId: (req as any).user?.id || 'SYSTEM',
-      userName: (req as any).user?.name || 'Administrador',
-      action: 'FAIL2BAN_MANUAL_BAN',
-      resource: `security/fail2ban/${ip}`,
-      ip: req.ip || '127.0.0.1',
-      details: `IP ${ip} banido na jail ${selectedJail}. Motivo: ${newBan.reason}`,
-    });
-
-    res.json({ success: true, ban: newBan });
-  });
-
-  app.post('/api/v1/security/fail2ban/unban', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { ip, jail } = req.body;
-    if (!ip) return res.status(400).json({ error: 'Endereço IP é obrigatório' });
-
-    const config = await SystemRepository.getFail2banConfig();
-    const idx = config.bannedIps.findIndex((b: any) => b.ip === ip);
-    if (idx !== -1) {
-      const removed = config.bannedIps.splice(idx, 1)[0];
-      config.totalBanned = config.bannedIps.length;
-
-      const targetJail = config.jails.find((j: any) => j.name === (jail || removed.jail));
-      if (targetJail && targetJail.currentlyBanned > 0) {
-        targetJail.currentlyBanned -= 1;
-      }
-
-      await SystemRepository.setFail2banConfig(config);
-
-      await AuditLogRepository.create({
-        tenantId: (req as any).user?.tenantId || 'SYSTEM',
-        userId: (req as any).user?.id || 'SYSTEM',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'FAIL2BAN_UNBAN',
-        resource: `security/fail2ban/${ip}`,
-        ip: req.ip || '127.0.0.1',
-        details: `IP ${ip} desbanido da jail ${removed.jail} com sucesso`,
-      });
-
-      return res.json({ success: true, unbannedIp: ip });
-    }
-
-    res.status(404).json({ error: 'IP não encontrado na lista de banimentos ativos' });
-  });
-
-  app.put('/api/v1/security/fail2ban/rules', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { globalRules, jails } = req.body;
-    const config = await SystemRepository.getFail2banConfig();
-
-    if (globalRules) {
-      config.globalRules = { ...config.globalRules, ...globalRules };
-    }
-    if (jails && Array.isArray(jails)) {
-      jails.forEach((updatedJail: any) => {
-        const existing = config.jails.find((j: any) => j.name === updatedJail.name);
-        if (existing) {
-          Object.assign(existing, updatedJail);
-        }
-      });
-    }
-
-    await SystemRepository.setFail2banConfig(config);
-
-    await AuditLogRepository.create({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      userId: (req as any).user?.id || 'SYSTEM',
-      userName: (req as any).user?.name || 'Administrador',
-      action: 'FAIL2BAN_RULES_UPDATE',
-      resource: 'security/fail2ban/rules',
-      ip: req.ip || '127.0.0.1',
-      details: 'Regras globais e parâmetros de Jails do Fail2ban atualizados',
-    });
-
-    res.json({ success: true, fail2ban: config });
-  });
-
-  app.post('/api/v1/security/fail2ban/whitelist', requireRole('super_admin', 'admin'), async (req, res) => {
-    const { ipOrSubnet, action } = req.body;
-    if (!ipOrSubnet) return res.status(400).json({ error: 'IP ou Sub-rede é obrigatório' });
-
-    const config = await SystemRepository.getFail2banConfig();
-
-    if (action === 'remove') {
-      config.whitelist = config.whitelist.filter((w: string) => w !== ipOrSubnet);
-    } else {
-      if (!config.whitelist.includes(ipOrSubnet)) {
-        config.whitelist.push(ipOrSubnet);
-      }
-    }
-
-    await SystemRepository.setFail2banConfig(config);
-    res.json({ success: true, whitelist: config.whitelist });
-  });
-
-  app.post('/api/v1/security/fail2ban/simulate-attack', requireRole('super_admin', 'admin'), async (req, res) => {
-    // Registra evento de tentativa de ataque SIP controlado para validação de segurança
-    const attackerIp = req.body.ip || '198.51.100.42';
-    const targetExtension = req.body.targetExtension || '1001';
-
-    const attackBan = {
-      id: `ban-${Date.now()}`,
-      ip: attackerIp,
-      jail: 'asterisk-pjsip',
-      country: 'Brasil',
-      countryCode: 'BR',
-      failures: 6,
-      bannedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 86400000).toISOString(),
-      reason: `Teste de Segurança: Tentativa de força bruta PJSIP detectada enviando 6 REGISTER inválidos para ramal ${targetExtension}`,
-      reverseDns: `scanner-node-${attackerIp.split('.').pop()}.security-audit.local`,
-    };
-
-    const config = await SystemRepository.getFail2banConfig();
-
-    config.bannedIps.unshift(attackBan);
-    config.totalBanned = config.bannedIps.length;
-
-    const pjsipJail = config.jails.find((j: any) => j.name === 'asterisk-pjsip');
-    if (pjsipJail) {
-      pjsipJail.currentlyBanned += 1;
-      pjsipJail.totalBanned += 1;
-      pjsipJail.totalFailed += 6;
-    }
-
-    await SystemRepository.setFail2banConfig(config);
-
-    await AuditLogRepository.create({
-      tenantId: (req as any).user?.tenantId || 'SYSTEM',
-      userId: (req as any).user?.id || 'SYSTEM',
-      userName: (req as any).user?.name || 'Administrador',
-      action: 'FAIL2BAN_SIMULATED_ATTACK',
-      resource: `security/fail2ban/${attackerIp}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Ataque simulado SIP registrado para validação de segurança. IP ${attackerIp} banido automaticamente.`,
-    });
-
-    res.json({
-      success: true,
-      message: `Ataque SIP detectado! IP ${attackerIp} banido com sucesso pela jail asterisk-pjsip.`,
-      ban: attackBan,
-    });
+  // O processo web não dispõe de um agente privilegiado homologado para estas alterações.
+  app.all(['/api/v1/security/fail2ban/reload', '/api/v1/security/fail2ban/ban',
+    '/api/v1/security/fail2ban/unban', '/api/v1/security/fail2ban/rules',
+    '/api/v1/security/fail2ban/whitelist', '/api/v1/security/fail2ban/simulate-attack'], (_req, res) => {
+    res.status(501).json({ code: 'NOT_IMPLEMENTED', error: 'Alteração do Fail2ban indisponível: agente de execução no host ainda não homologado.' });
   });
 
   // -------------------------------------------------------------------------
   // Quick Setup (FASE 6)
   // -------------------------------------------------------------------------
-  app.get(['/api/v1/setup/snapshots', '/api/v1/system/snapshots'], async (req, res) => {
-    try {
-      const list = await SystemRepository.getSnapshots();
-      res.json(list);
-    } catch (e: any) {
-      console.error('[Snapshots] Erro ao listar snapshots:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao listar snapshots' });
-    }
+  app.all(['/api/v1/setup/snapshots','/api/v1/system/snapshots','/api/v1/setup/rollback','/api/v1/system/snapshots/:id/rollback'],requireAuth,requireTenant,requireRole('super_admin','admin'),(_req,res)=>res.status(501).json({code:'LEGACY_SNAPSHOT_RETIRED',error:'Snapshot parcial legado retirado. Use backup integral e restauração em destino novo.'}));
+  app.post(['/api/v1/setup/preview','/api/v1/system/quick-setup/preview'],requireAuth,requireTenant,requireRole('super_admin','admin'),(req,res)=>{
+    try{return res.json({extensions:extensionBatch(req.body),status:'DRAFT_NOT_CREATED'});}catch(error){return administrativeFailure(error,res);}
   });
-
-  app.post(['/api/v1/setup/preview', '/api/v1/system/quick-setup/preview'], (req, res) => {
-    const { prefix, quantity, startNumber, trunkName } = req.body;
-    const qty = parseInt(quantity) || 10;
-    const start = parseInt(startNumber) || 1;
-    
-    const previewExtensions = [];
-    for (let i = 0; i < qty; i++) {
-      const numStr = (start + i).toString().padStart(2, '0');
-      const ext = `${prefix}${numStr}`;
-      previewExtensions.push({ number: ext, name: `Ramal ${ext}` });
-    }
-    
-    res.json({
-      extensions: previewExtensions,
-      trunks: trunkName ? [{ name: trunkName, provider: 'SIP Genérico' }] : [],
-    });
-  });
-
-  app.post(['/api/v1/setup/apply', '/api/v1/system/quick-setup/apply'], requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const { prefix, quantity, startNumber, trunkName } = req.body;
-    let tId: string;
-    try {
-      tId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para aplicar configuração.' });
-    }
-    const qty = parseInt(quantity) || 10;
-    const start = parseInt(startNumber) || 1;
-
-    // Snapshot before applying
-    const snap = await SystemRepository.takeSnapshot(tId, `Pré-geração em massa (${prefix})`);
-
-    // Generate Extensions
-    const createdExtensions = [];
-    for (let i = 0; i < qty; i++) {
-      const numStr = (start + i).toString().padStart(2, '0');
-      const ext = `${prefix}${numStr}`;
-      const randomSecret = crypto.randomBytes(8).toString('hex');
-      
-      const newExt = {
-        id: `ext-${Date.now()}-${i}`,
-        tenantId: tId,
-        number: ext,
-        name: `Ramal ${ext}`,
-        sipSecret: `sec_${randomSecret}`,
-        context: 'from-internal',
-        callerId: `"${ext}" <${ext}>`,
-        codecs: ['alaw', 'ulaw', 'opus'],
-        nat: true,
-        webrtc: true,
-        recording: 'on_demand' as any,
-        voicemail: true,
-        dnd: false,
-        status: 'offline' as any,
-        allowAiTransfer: true,
-      };
-      createdExtensions.push(newExt);
-
-      try {
-        await ExtensionRepository.save(newExt);
-      } catch (e: any) {
-        console.error(`[QuickSetup] Erro ao salvar ramal ${ext} no PostgreSQL:`, e?.message || e);
-      }
-    }
-
-    let createdTrunk = null;
-    if (trunkName) {
-      createdTrunk = {
-        id: `trunk-${Date.now()}`,
-        tenantId: tId,
-        name: trunkName,
-        providerName: trunkName,
-        host: 'sip.provider.com',
-        port: 5060,
-        username: 'user',
-        secretMasked: '********',
-        transport: 'UDP' as any,
-        callerId: '0800000000',
-        codecs: ['alaw', 'ulaw'],
-        context: 'from-trunk',
-        register: true,
-        status: 'unregistered' as any,
-        lastPingLatencyMs: null,
-        lastPingStatus: 'NOT_TESTED' as any,
-        lastPingAt: null,
-        channelsMax: 30,
-        channelsInUse: 0,
-      };
-
-      try {
-        await TrunkRepository.save(createdTrunk);
-      } catch (e: any) {
-        console.error(`[QuickSetup] Erro ao salvar tronco ${trunkName} no PostgreSQL:`, e?.message || e);
-      }
-    }
-    
-    res.json({
-      success: true,
-      snapshotId: snap.id,
-      generatedCount: createdExtensions.length,
-      stats: { extensionsCount: createdExtensions.length },
-      trunk: createdTrunk
-    });
-  });
-
-  app.post(['/api/v1/setup/rollback', '/api/v1/system/snapshots/:id/rollback'], requireRole('super_admin', 'admin'), async (req, res) => {
-    const snapshotId = req.params.id || req.body.snapshotId;
-    const success = await SystemRepository.rollbackSnapshot(snapshotId);
-    if (success) {
-      res.json({ success: true, snapshotId });
-    } else {
-      res.status(400).json({ error: 'Falha no rollback. Snapshot não encontrado ou inválido.' });
-    }
-  });
+  app.post(['/api/v1/setup/apply','/api/v1/system/quick-setup/apply'],requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});
+    const items=extensionBatch(req.body);await extensionAudit(req,context.tenantId,'CREATE_EXTENSION_BATCH_ATTEMPT');
+    const ids=await ExtensionManagementRepository.createBatch(context.tenantId,items);
+    return res.status(201).json({success:true,generatedCount:ids.length,extensions:items.map((item,index)=>({...item,id:ids[index]})),status:'CREATED_NOT_APPLIED'});
+  }catch(error){return administrativeFailure(error,res);}});
 
   // -------------------------------------------------------------------------
   // Dashboard Metrics (PRD Section 36) & Real-time SSE
   // -------------------------------------------------------------------------
-  const getDashboardMetrics = async (targetTenantId?: string) => {
-    if (!targetTenantId || targetTenantId.trim() === '') {
-      throw new Error('TENANT_REQUIRED: tenantId obrigatório para computar métricas do dashboard (Fail-Closed).');
-    }
-    const tenantId = targetTenantId.trim();
-    const [cdrs, extensions, trunks, aiAgents, aiSessions] = await Promise.all([
-      CdrRepository.listByTenant(tenantId).catch(() => []),
-      ExtensionRepository.listByTenant(tenantId).catch(() => []),
-      TrunkRepository.listByTenant(tenantId).catch(() => []),
-      AiAgentRepository.listByTenant(tenantId).catch(() => []),
-      SystemRepository.getAiSessions().catch(() => []),
-    ]);
-
-    const todayCdrs = cdrs;
-    const answered = todayCdrs.filter((c) => c.disposition === 'ANSWERED').length;
-    const missed = todayCdrs.filter((c) => c.disposition !== 'ANSWERED').length;
-    const transferred = aiSessions.filter((s: any) => s.status === 'transferred').length;
-    let totalDuration = 0;
-    let totalCost = 0;
-    for (const c of todayCdrs) {
-      totalDuration += (c.duration || 0);
-      totalCost += (c.costBrl || 0);
-    }
-    const avgDuration = Math.round(totalDuration / (todayCdrs.length || 1));
-    const activeChannels = await asteriskService.getActiveChannels(tenantId).catch(() => []);
-
-    const sessionLatencies = aiSessions
-      .map((s: any) => s.latencyMs)
-      .filter((l: any) => typeof l === 'number' && l > 0);
-    const aiLatencyAvgMs =
-      sessionLatencies.length > 0
-        ? Math.round(sessionLatencies.reduce((acc: number, val: number) => acc + val, 0) / sessionLatencies.length)
-        : null;
-
-    const hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
-    const hourlyCounts: Record<string, { total: number; ai: number }> = {};
-    for (const h of hours) {
-      hourlyCounts[h] = { total: 0, ai: 0 };
-    }
-    for (const c of todayCdrs) {
-      try {
-        const d = new Date(c.startTime);
-        const h = `${String(d.getHours()).padStart(2, '0')}:00`;
-        if (hourlyCounts[h]) {
-          hourlyCounts[h].total += 1;
-          if (c.isAiHandled || c.aiAgentId) {
-            hourlyCounts[h].ai += 1;
-          }
-        }
-      } catch {
-        // ignore invalid date
-      }
-    }
-    const hourlyCallDistribution = hours.map((h) => ({
-      hour: h,
-      total: hourlyCounts[h].total,
-      ai: hourlyCounts[h].ai,
-    }));
-
-    return {
-      callsToday: todayCdrs.length,
-      callsActive: activeChannels.length,
-      callsAnswered: answered,
-      callsMissed: missed,
-      avgCallDurationSeconds: todayCdrs.length > 0 ? avgDuration : 0,
-      extensionsOnline: extensions.filter((e) => e.status === 'online').length,
-      extensionsTotal: extensions.length,
-      trunksOnline: trunks.filter((t) => t.status === 'registered').length,
-      trunksTotal: trunks.length,
-      aiAgentsActive: aiAgents.filter((a) => a.isActive).length,
-      aiSessionsCount: aiSessions.length,
-      aiLatencyAvgMs,
-      humanTransferRatePercent: aiSessions.length > 0 ? Math.round((transferred / aiSessions.length) * 100) : null,
-      aiTokensUsedToday: aiSessions.reduce((acc: number, s: any) => acc + (s.tokensInput || 0) + (s.tokensOutput || 0), 0),
-      costEstimateTodayBrl: Number(totalCost.toFixed(2)),
-      hourlyCallDistribution,
-    };
+  const dashboardCache=new Map<string,{until:number;value:Promise<any>}>();
+  const getDashboardMetrics=async(tenantId:string)=>{
+    const cached=dashboardCache.get(tenantId);if(cached&&cached.until>Date.now())return cached.value;
+    const value=DashboardRepository.daily(tenantId);dashboardCache.set(tenantId,{until:Date.now()+1000,value});
+    try{return await value;}catch(error){dashboardCache.delete(tenantId);throw error;}
+  };
+  const actorChannels=async(req:any)=>{
+    const tenantId=getAuthorizedTenantId(req);const actor=req.user;
+    return visibleChannels(await asteriskService.getActiveChannels(tenantId),{...actor,tenantId});
+  };
+  const assertChannelActor=async(req:any,id:string)=>{
+    if(!ownChannelOnly(req.user.role))return;
+    await asteriskService.refreshChannelsReal();
+    const visible=await actorChannels(req);
+    if(!visible.some(channel=>channel.id===id||channel.name===id))throw new OutboundHttpError('Canal não autorizado para o ramal desta conta.',403);
   };
 
   // -------------------------------------------------------------------------
   // Omnichannel Status Transition & Human Transfer
   // -------------------------------------------------------------------------
-  app.patch('/api/v1/omnichannel/conversations/:id/status', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
-    }
-    const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
-
-    const { status } = req.body;
-    const allowed = ['active', 'closed', 'queued', 'bot_handling'];
-    if (!allowed.includes(status)) {
-      return res.status(400).json({ error: `Status inválido. Permitidos: ${allowed.join(', ')}` });
-    }
-
-    const previousStatus = conv.status;
-    conv.status = status;
-
-    let sysText = 'Atendimento assumido por operador humano.';
-    if (status === 'closed') sysText = 'Atendimento finalizado pelo operador.';
-    else if (status === 'queued') sysText = 'Conversa transferida para a fila de espera humana.';
-    else if (status === 'bot_handling') sysText = 'Atendimento devolvido para a IA MaIA.';
-
-    if (!conv.messages) conv.messages = [];
-    conv.messages.push({
-      id: `msg-sys-${Date.now()}`,
-      sender: 'agent',
-      senderName: 'Sistema',
-      content: `[Sistema]: ${sysText}`,
-      timestamp: new Date().toISOString(),
-      type: 'text',
-    });
-
-    await OmnichannelRepository.save(conv);
-
-    recordAuditLog({
-      tenantId: conv.tenantId,
-      userId: (req as any).user?.id || 'SYSTEM',
-      userName: (req as any).user?.name || 'Sistema',
-      action: 'OMNICHANNEL_STATUS_CHANGE',
-      resource: `omnichannel/${conv.id}`,
-      ip: req.ip || '127.0.0.1',
-      details: `Conversa com ${conv.contactId} alterada de ${previousStatus} para ${status}.`,
-      category: 'SYSTEM',
-      severity: 'INFO',
-    });
-
-    res.json(conv);
+  app.patch('/api/v1/omnichannel/conversations/:id/status', requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+    const tenantId=getAuthorizedTenantId(req);const actor=(req as any).user;
+    if(!await OmnichannelRepository.findById(req.params.id,tenantId))return res.status(404).json({error:'Conversa não encontrada.'});
+    try{
+      validateWorkflowInput(req.body.status,req.body.workflowVersion);
+      await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'OMNICHANNEL_WORKFLOW_ATTEMPT',resource:`omnichannel/${req.params.id}`,category:'SYSTEM',strict:true,details:'Tentativa de alteração do estado de atendimento humano.',payload:{status:req.body.status,expectedVersion:req.body.workflowVersion}});
+      res.json(await OmnichannelRepository.changeWorkflow(tenantId,req.params.id,req.body.status,req.body.workflowVersion,actor));
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
-
-  app.post('/api/v1/omnichannel/conversations/:id/transfer', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
-    }
-    const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
-
-    const { targetType, targetId, note } = req.body;
-    conv.status = (targetType === 'extension' ? 'active' : 'waiting') as any;
-
-    const label = targetType === 'queue' ? `Fila de Atendimento ${targetId}` : `Ramal ${targetId}`;
-    if (!conv.messages) conv.messages = [];
-    conv.messages.push({
-      id: `msg-trans-${Date.now()}`,
-      sender: 'agent',
-      senderName: 'Transferência',
-      content: `[Transferência]: Encaminhado para ${label}.${note ? ` Obs: ${note}` : ''}`,
-      timestamp: new Date().toISOString(),
-      type: 'text',
-    });
-
-    await OmnichannelRepository.save(conv);
-
-    res.json(conv);
+  app.post('/api/v1/omnichannel/conversations/:id/transfer',requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+    if(!await OmnichannelRepository.findById(req.params.id,getAuthorizedTenantId(req)))return res.status(404).json({error:'Conversa não encontrada.'});
+    res.status(501).json({error:'Encaminhamento omnichannel ainda não implementado. Esta ação não transfere chamadas nem atribui fila ou ramal.'});
   });
 
   // -------------------------------------------------------------------------
   // Disaster Recovery & System Backup / Restore
   // -------------------------------------------------------------------------
-  app.get('/api/v1/system/backup', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      let tenantId: string;
-      try {
-        tenantId = resolveTenantContext(req).tenantId;
-      } catch {
-        return res.status(400).json({ error: 'Nenhum tenant determinado para efetuar backup.' });
-      }
-      const [
-        tenants,
-        users,
-        extensions,
-        trunks,
-        routes,
-        ringGroups,
-        queues,
-        ivrs,
-        cdrs,
-        aiAgents,
-        aiKnowledge,
-        aiTools,
-        whatsappConfig,
-        crmProviders,
-        omnichannelConversations,
-      ] = await Promise.all([
-        TenantRepository.listAll().catch(() => []),
-        UserRepository.listAll().catch(() => []),
-        ExtensionRepository.listByTenant(tenantId).catch(() => []),
-        TrunkRepository.listByTenant(tenantId).catch(() => []),
-        RouteRepository.listByTenant(tenantId).catch(() => []),
-        RingGroupRepository.listByTenant(tenantId).catch(() => []),
-        QueueRepository.listByTenant(tenantId).catch(() => []),
-        IvrRepository.listByTenant(tenantId).catch(() => []),
-        CdrRepository.listByTenant(tenantId).catch(() => []),
-        AiAgentRepository.listByTenant(tenantId).catch(() => []),
-        AiKnowledgeRepository.listByTenant(tenantId).catch(() => []),
-        AiToolRepository.listByTenant(tenantId).catch(() => []),
-        SystemRepository.getWhatsappConfig().catch(() => null),
-        SystemRepository.getCrmProviders().catch(() => []),
-        OmnichannelRepository.listConversations(tenantId).catch(() => []),
-      ]);
-
-      const snapshot = {
-        timestamp: new Date().toISOString(),
-        version: '20.17.0-LTS',
-        system: 'Enlace-PBX Enterprise Asterisk 20 Stack',
-        data: {
-          tenants,
-          users,
-          extensions,
-          trunks,
-          routes,
-          ringGroups,
-          queues,
-          ivrs,
-          cdrs,
-          aiAgents,
-          aiKnowledge,
-          aiTools,
-          whatsappConfigs: whatsappConfig ? [whatsappConfig] : [],
-          crmProviders,
-          omnichannelConversations,
-        },
-      };
-
-      res.setHeader('Content-Disposition', `attachment; filename=enlace-pbx-backup-${Date.now()}.json`);
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.json(snapshot);
-    } catch (e: any) {
-      console.error('[Backup] Erro ao gerar backup do sistema:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao gerar backup completo' });
-    }
+  app.get('/api/v1/system/backups', requireRole('super_admin'), async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await listBackups());
+  });
+  app.get('/api/v1/system/backups/:name/download', requireRole('super_admin'), async (req, res) => {
+    let file:Awaited<ReturnType<typeof openBackup>>|undefined;
+    try{
+      file=await openBackup(req.params.name);
+      const actor=(req as any).user;
+      await AuditLogRepository.logStrict({tenantId:actor.tenantId,userId:actor.id,userName:actor.name,
+        action:'BACKUP_DOWNLOAD',category:'LGPD_ACCESS',resource:`backups/${file.name}`,
+        ip:req.ip||'127.0.0.1',details:'Tentativa de download de cópia criptografada; não comprova conclusão ou integridade da recuperação.'});
+      if(res.destroyed)return;
+      res.setHeader('Cache-Control','no-store');
+      res.setHeader('Content-Type','application/octet-stream');
+      res.setHeader('Content-Disposition',`attachment; filename="${file.name}"`);
+      res.setHeader('Content-Length',file.size);
+      if(req.method==='HEAD')return res.end();
+      await pipeline(file.handle.createReadStream({autoClose:false,start:0,end:file.size-1}),res);
+    }catch(error){
+      if(res.headersSent||res.destroyed){res.destroy();return;}
+      if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});
+      throw error;
+    }finally{await file?.handle.close();}
   });
 
-  app.post('/api/v1/system/restore', requireRole('super_admin', 'admin'), async (req, res) => {
-    const backup = req.body;
-    if (!backup || !backup.data || typeof backup.data !== 'object') {
-      return res.status(400).json({ error: 'Arquivo de backup corrompido ou em formato inválido.' });
-    }
-
-    const d = backup.data;
-    try {
-      if (Array.isArray(d.tenants)) {
-        for (const t of d.tenants) await TenantRepository.save(t).catch(() => {});
-      }
-      if (Array.isArray(d.users)) {
-        for (const u of d.users) await UserRepository.save(u).catch(() => {});
-      }
-      if (Array.isArray(d.extensions)) {
-        for (const ext of d.extensions) await ExtensionRepository.save(ext).catch(() => {});
-      }
-      if (Array.isArray(d.trunks)) {
-        for (const trk of d.trunks) await TrunkRepository.save(trk).catch(() => {});
-      }
-      if (Array.isArray(d.routes)) {
-        for (const r of d.routes) await RouteRepository.save(r).catch(() => {});
-      }
-      if (Array.isArray(d.ringGroups)) {
-        for (const rg of d.ringGroups) await RingGroupRepository.save(rg).catch(() => {});
-      }
-      if (Array.isArray(d.queues)) {
-        for (const q of d.queues) await QueueRepository.save(q).catch(() => {});
-      }
-      if (Array.isArray(d.ivrs)) {
-        for (const ivr of d.ivrs) await IvrRepository.save(ivr).catch(() => {});
-      }
-      if (Array.isArray(d.aiAgents)) {
-        for (const agent of d.aiAgents) await AiAgentRepository.save(agent).catch(() => {});
-      }
-
-      await recordAuditLog({
-        tenantId: (req as any).user?.tenantId || 'SYSTEM',
-        userId: (req as any).user?.id || 'SYSTEM',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'SYSTEM_RESTORE',
-        resource: 'system/restore',
-        ip: req.ip || '127.0.0.1',
-        details: 'Restauração completa do sistema aplicada com sucesso a partir de snapshot JSON.',
-        category: 'SYSTEM',
-        severity: 'WARNING',
-      });
-
-      res.json({ success: true, message: 'Restauração concluída com sucesso!' });
-    } catch (e: any) {
-      console.error('[Restore] Erro ao restaurar sistema:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao restaurar dados do backup' });
-    }
-  });
-
-  app.get('/api/v1/dashboard/metrics', requireAuth, requireTenant, async (req, res) => {
+  app.get('/api/v1/dashboard/metrics', requireAuth, requireTenant,requireRole('super_admin','admin','supervisor','readonly'), async (req, res) => {
     try {
       const authorizedTenant = getAuthorizedTenantId(req);
-      res.json(await getDashboardMetrics(authorizedTenant));
+      res.json(metricsDto(await getDashboardMetrics(authorizedTenant),(req as any).user.role));
     } catch (e: any) {
-      console.error('[Dashboard] Erro ao obter métricas:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao calcular métricas do dashboard' });
     }
   });
 
-  app.get('/api/v1/events/asterisk', requireSseAuth, (req, res) => {
+  app.get('/api/v1/events/asterisk', requireSseAuth, requireTenant, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
     const authorizedTenant = getAuthorizedTenantId(req);
 
+    let sending=false;
+    let intervalId:ReturnType<typeof setInterval>;
     const sendUpdate = async () => {
+      if(sending||res.writableEnded)return;
+      sending=true;
       try {
-        const metrics = await getDashboardMetrics(authorizedTenant);
+        const actor=(req as any).user;
+        const current=await UserRepository.findById(actor.id,actor.identityTenantId||actor.tenantId);
+        if(!current || !current.isActive || !validCredentialStamp(actor.authStamp,current,getJwtSecret())){clearInterval(intervalId);res.end();return;}
+        const metrics=metricAccess(actor.role)?metricsDto(await getDashboardMetrics(authorizedTenant),actor.role):null;
         const data = JSON.stringify({
-          channels: asteriskService.getActiveChannels(authorizedTenant),
+          tenantId:authorizedTenant,
+          channels: (await actorChannels(req)).map(channelDto),
           metrics,
         });
+        const latest=await UserRepository.findById(actor.id,actor.identityTenantId||actor.tenantId);
+        if(!latest || !latest.isActive || !validCredentialStamp(actor.authStamp,latest,getJwtSecret())){clearInterval(intervalId);res.end();return;}
         res.write(`data: ${data}\n\n`);
       } catch (err) {
-        // conexão fechada ou erro momentâneo
-      }
+        clearInterval(intervalId);res.end();
+      } finally {sending=false;}
     };
 
     sendUpdate(); // initial state
 
-    const intervalId = setInterval(sendUpdate, 2000); // 2 second interval
+    intervalId = setInterval(sendUpdate, 2000); // 2 second interval
 
     req.on('close', () => {
       clearInterval(intervalId);
@@ -2222,7 +1137,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       // NUNCA expor sipSecret em listagens normais
       res.json((list || []).map(ExtensionRepository.toSafeExtension));
     } catch (e: any) {
-      console.error('[Extensions] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar ramais do PostgreSQL' });
     }
   });
@@ -2239,190 +1154,25 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
       res.json(ExtensionRepository.toSafeExtension(ext));
     } catch (e: any) {
-      console.error('[Extensions] Erro ao consultar ramal:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao consultar ramal no PostgreSQL' });
     }
   });
 
-  app.post('/api/v1/extensions', requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      tenantId = tenantCtx.tenantId;
-    } catch {
-      return res.status(401).json({ error: 'Sessão não autenticada.' });
-    }
-
-    const number = String(req.body.number || '').trim();
-    const name = String(req.body.name || '').trim();
-
-    if (!number || !/^[0-9]{2,6}$/.test(number)) {
-      return res.status(400).json({ error: 'Número de ramal inválido. Deve conter entre 2 e 6 dígitos numéricos.' });
-    }
-    if (!name || name.length < 2) {
-      return res.status(400).json({ error: 'Nome do ramal é obrigatório (mínimo 2 caracteres).' });
-    }
-
-    try {
-      const existing = await ExtensionRepository.listByTenant(tenantId);
-      const exists = existing.some((e) => e.number === number);
-      if (exists) {
-        return res.status(409).json({ error: `O ramal ${number} já está cadastrado para este tenant.` });
-      }
-
-      // Senha SIP criptograficamente segura: NUNCA previsível ou baseada no número
-      const safeSipSecret = req.body.sipSecret && typeof req.body.sipSecret === 'string' && req.body.sipSecret.trim().length >= 8
-        ? req.body.sipSecret.trim()
-        : crypto.randomBytes(32).toString('base64url');
-
-      const ext: Extension = {
-        id: `ext-${number}`,
-        tenantId,
-        number,
-        name,
-        sipSecret: safeSipSecret,
-        context: req.body.context || 'from-internal',
-        callerId: req.body.callerId || `"${name}" <${number}>`,
-        cliCallerId: req.body.cliCallerId ? String(req.body.cliCallerId).trim() : undefined,
-        codecs: req.body.codecs || ['opus', 'pcma', 'pcmu', 'g722'],
-        nat: req.body.nat !== false,
-        webrtc: req.body.webrtc !== false,
-        recording: req.body.recording || 'always',
-        voicemail: req.body.voicemail !== false,
-        dnd: false,
-        status: 'online',
-        allowAiTransfer: req.body.allowAiTransfer !== false,
-      };
-
-      await ExtensionRepository.save(ext);
-
-      recordAuditLog({
-        tenantId: ext.tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'CREATE_EXTENSION',
-        resource: `extensions/${ext.number}`,
-        details: `Ramal ${ext.number} (${ext.name}) cadastrado com validação PJSIP e credencial criptográfica gerada.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { extension: ext.number, name: ext.name },
-      });
-
-      // Retorna SafeExtension (sem expor o segredo)
-      res.status(201).json(ExtensionRepository.toSafeExtension(ext));
-    } catch (e: any) {
-      console.error('[Extensions] Erro ao cadastrar ramal:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao criar ramal no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/extensions/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const currentExt = tenantCtx.accessMode === 'GLOBAL'
-        ? await ExtensionRepository.findAnyByIdForSuperAdmin(req.params.id)
-        : await ExtensionRepository.findById(req.params.id, tenantCtx.tenantId);
-
-      if (!currentExt) {
-        return res.status(404).json({ error: 'Ramal não encontrado para o seu tenant.' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && currentExt.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O ramal pertence ao tenant '${currentExt.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const newNumber = req.body.number ? String(req.body.number).trim() : currentExt.number;
-
-      if (newNumber !== currentExt.number) {
-        if (!/^[0-9]{2,6}$/.test(newNumber)) {
-          return res.status(400).json({ error: 'Número de ramal deve ter entre 2 e 6 dígitos numéricos.' });
-        }
-        const existing = await ExtensionRepository.listByTenant(currentExt.tenantId);
-        const collision = existing.some((e) => e.id !== req.params.id && e.number === newNumber);
-        if (collision) {
-          return res.status(409).json({ error: `O ramal ${newNumber} já está em uso por outro usuário.` });
-        }
-      }
-
-      // Preserva a senha anterior se não fornecida nova com complexidade
-      const safeSipSecret = req.body.sipSecret && typeof req.body.sipSecret === 'string' && req.body.sipSecret.trim().length >= 8
-        ? req.body.sipSecret.trim()
-        : currentExt.sipSecret;
-
-      const updated = {
-        ...currentExt,
-        ...req.body,
-        id: currentExt.id,
-        tenantId: currentExt.tenantId,
-        sipSecret: safeSipSecret,
-        number: newNumber
-      };
-
-      await ExtensionRepository.save(updated);
-
-      recordAuditLog({
-        tenantId: updated.tenantId,
-        userId: tenantCtx.actorUserId,
-        action: 'UPDATE_EXTENSION',
-        resource: `extensions/${updated.number}`,
-        details: `Ramal ${updated.number} (${updated.name}) atualizado.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { extensionId: req.params.id, changes: req.body },
-      });
-
-      res.json(ExtensionRepository.toSafeExtension(updated));
-    } catch (e: any) {
-      console.error('[Extensions] Erro ao atualizar no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar ramal no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/extensions/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const ext = tenantCtx.accessMode === 'GLOBAL'
-        ? await ExtensionRepository.findAnyByIdForSuperAdmin(req.params.id)
-        : await ExtensionRepository.findById(req.params.id, tenantCtx.tenantId);
-
-      if (!ext) {
-        return res.status(404).json({ error: 'Ramal não encontrado para o seu tenant.' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && ext.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O ramal pertence ao tenant '${ext.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await ExtensionRepository.delete(req.params.id, ext.tenantId);
-
-      recordAuditLog({
-        tenantId: ext.tenantId,
-        userId: tenantCtx.actorUserId,
-        action: 'DELETE_EXTENSION',
-        resource: `extensions/${ext.number}`,
-        details: `Ramal ${ext.number} (${ext.name}) excluído do sistema.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-        ip: req.ip || '127.0.0.1',
-        payload: { extension: ext.number },
-      });
-
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[Extensions] Erro ao excluir do PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir ramal no PostgreSQL' });
-    }
-  });
+  const findExtension=async(req:any)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?ExtensionRepository.findAnyByIdForSuperAdmin(req.params.id):ExtensionRepository.findById(req.params.id,context.tenantId);};
+  const extensionAudit=async(req:any,tenantId:string,action:string,id='new')=>AuditLogRepository.logStrict({tenantId,userId:req.user.id,userName:req.user.name,action,resource:'extensions/'+id,category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Operação administrativa de ramal; sem corpo recebido ou credencial na auditoria.'});
+  const administrativeFailure=(error:any,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});logOperational('SERVER_OPERATION_FAILURE',{requestId:res.locals.requestId});return res.status(500).json({error:'Não foi possível concluir a operação administrativa.'});};
+  app.post('/api/v1/extensions',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});const patch=extensionPatch(req.body,true);
+    await extensionAudit(req,context.tenantId,'CREATE_EXTENSION_ATTEMPT');const id=await ExtensionManagementRepository.mutate(context.tenantId,undefined,patch);return res.status(201).json(ExtensionRepository.toSafeExtension((await ExtensionRepository.findById(id,context.tenantId))!));
+  }catch(error){return administrativeFailure(error,res);}});
+  app.put('/api/v1/extensions/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findExtension(req);if(!previous)return res.status(404).json({error:'Ramal não encontrado nesta empresa.'});const patch=extensionPatch(req.body);
+    await extensionAudit(req,previous.tenantId,'UPDATE_EXTENSION_ATTEMPT',previous.id);await ExtensionManagementRepository.mutate(previous.tenantId,previous.id,patch);return res.json(ExtensionRepository.toSafeExtension((await ExtensionRepository.findById(previous.id,previous.tenantId))!));
+  }catch(error){return administrativeFailure(error,res);}});
+  app.delete('/api/v1/extensions/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findExtension(req);if(!previous)return res.status(404).json({error:'Ramal não encontrado nesta empresa.'});await extensionAudit(req,previous.tenantId,'DELETE_EXTENSION_ATTEMPT',previous.id);await ExtensionManagementRepository.remove(previous.tenantId,previous.id);return res.json({deleted:true});
+  }catch(error){return administrativeFailure(error,res);}});
 
   // Consulta sob demanda de credencial de provisionamento físico/softphone (Apenas Administrador com Auditoria)
   app.get('/api/v1/extensions/:id/provision-credential', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
@@ -2444,16 +1194,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         });
       }
 
-      recordAuditLog({
-        tenantId: ext.tenantId,
-        userId: tenantCtx.actorUserId,
-        action: 'VIEW_EXTENSION_PROVISIONING_CREDENTIAL',
-        resource: `extensions/${ext.number}`,
-        details: `Credencial de provisionamento do ramal ${ext.number} consultada pelo administrador.`,
-        category: 'LGPD_ACCESS',
-        severity: 'WARNING',
-        ip: req.ip || '127.0.0.1',
-      });
+      await extensionAudit(req,ext.tenantId,'VIEW_EXTENSION_PROVISIONING_CREDENTIAL',ext.id);
 
       res.json({
         extension: ext.number,
@@ -2464,7 +1205,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         codecs: ext.codecs,
       });
     } catch (e: any) {
-      console.error('[Extensions] Erro ao consultar credencial de provisionamento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao recuperar credencial de provisionamento.' });
     }
   });
@@ -2502,9 +1243,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       if (!ext.sipSecret || ext.sipSecret.trim() === '') {
-        ext.sipSecret = crypto.randomBytes(32).toString('base64url');
-        await ExtensionRepository.save(ext);
+        return res.status(409).json({code:'WEBRTC_CREDENTIAL_REQUIRES_ADMIN',error:'Ramal sem credencial SIP. Solicite correção administrativa; consulta não altera cadastro.'});
       }
+      if(!ext.webrtc)return res.status(409).json({code:'WEBRTC_DISABLED',error:'WebRTC não está habilitado neste ramal.'});
+      await extensionAudit(req,tenantId,'VIEW_OWN_WEBRTC_CREDENTIAL',ext.id);
 
       const infra = await SystemRepository.getInfraConfig();
       const domain = infra?.domain || process.env.PUBLIC_IP || req.hostname || '127.0.0.1';
@@ -2520,7 +1262,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(credential);
     } catch (err: any) {
-      console.error('[WebRTC Credential] Erro ao recuperar credencial:', err?.message || err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro interno ao recuperar credenciais WebRTC.' });
     }
   });
@@ -2630,7 +1372,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         category: data.category,
         severity: data.severity,
         payload: data.payload,
-      }).catch((err) => console.error('[AuditLog] Erro ao gravar log no PostgreSQL:', err?.message || err));
+      }).catch((err) => logOperational('SERVER_OPERATION_FAILURE'));
     }
 
     return logEntry;
@@ -2651,309 +1393,60 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     return recordAuditLog({ ...data, strict: true });
   };
 
+  const findAuthorizedTrunk=(req:any,id:string)=>{
+    const context=resolveTenantContext(req);
+    return context.accessMode==='GLOBAL'?TrunkRepository.findAnyByIdForSuperAdmin(id):TrunkRepository.findById(id,context.tenantId);
+  };
   app.get('/api/v1/trunks', requireAuth, requireTenant, async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
       const list = await TrunkRepository.listByTenant(tenantCtx.tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[Trunks] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar troncos SIP do PostgreSQL' });
     }
   });
 
-  app.post('/api/v1/trunks', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    const name = String(req.body.name || '').trim();
-    const host = String(req.body.host || '').trim();
-
-    if (!name || !host) {
-      return res.status(400).json({ error: 'Nome do tronco e Host SIP (IP/FQDN) são campos obrigatórios.' });
-    }
-
-    try {
-      const existing = await TrunkRepository.listByTenant(tenantId);
-      const exists = existing.some((t) => t.name.toLowerCase() === name.toLowerCase());
-      if (exists) {
-        return res.status(409).json({ error: `Já existe um tronco SIP com o nome "${name}".` });
-      }
-
-      const trunk = {
-        ...req.body,
-        id: `trunk-${Date.now()}`,
-        tenantId,
-        channelsInUse: 0,
-        status: 'unregistered' as const,
-        secretMasked: '••••••••••••',
-        dtmfMode: req.body.dtmfMode || 'rfc4733',
-        qualifyFrequency: req.body.qualifyFrequency || 60,
-        directMedia: req.body.directMedia === true,
-        callerIdMode: req.body.callerIdMode || 'pai',
-        lastPingLatencyMs: null,
-        lastPingStatus: 'NOT_TESTED' as const,
-        lastPingAt: null,
-        name,
-        host,
-      };
-
-      await TrunkRepository.save(trunk);
-
-      recordAuditLog({
-        tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'CREATE_TRUNK',
-        resource: `trunks/${trunk.id}`,
-        details: `Novo tronco SIP [${trunk.name}] (${trunk.providerName}) cadastrado no host ${trunk.host}:${trunk.port}. Status inicial: NOT_TESTED.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: { trunkId: trunk.id, provider: trunk.providerName, host: trunk.host, transport: trunk.transport },
-      });
-
-      res.status(201).json(trunk);
-    } catch (e: any) {
-      console.error('[Trunks] Erro ao criar tronco no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao persistir tronco SIP no PostgreSQL' });
-    }
+  const trunkMutationAudit=async(req:any,tenantId:string,action:string,fields:string[]=[],targetId?:string)=>{
+    const actor=req.user;
+    await AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action,resource:targetId?'trunks/'+targetId:'trunks/new',ip:req.ip||'127.0.0.1',category:'TELECOM_SIP',details:'Tentativa de alteração de cadastro; não aplica arquivos nem certifica registro SIP.',payload:{fields,requestId:req.res.locals.requestId}});
+  };
+  const trunkMutationError=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+  app.post('/api/v1/trunks',requireRole('super_admin','admin'),async(req,res)=>{
+    try{
+      const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa para cadastrar tronco.'});
+      const patch=trunkPatch(req.body,true);await trunkMutationAudit(req,context.tenantId,'CREATE_TRUNK_ATTEMPT',Object.keys(patch));
+      const id=await TrunkManagementRepository.mutate(context.tenantId,undefined,patch);
+      res.status(201).json(await TrunkRepository.findById(id,context.tenantId));
+    }catch(error){trunkMutationError(error,res);}
+  });
+  app.put('/api/v1/trunks/:id',requireRole('super_admin','admin'),async(req,res)=>{
+    try{
+      const prev=await findAuthorizedTrunk(req,req.params.id);if(!prev)return res.status(404).json({error:'Tronco não encontrado nesta empresa.'});
+      const patch=trunkPatch(req.body);await trunkMutationAudit(req,prev.tenantId,'UPDATE_TRUNK_ATTEMPT',Object.keys(patch),prev.id);
+      await TrunkManagementRepository.mutate(prev.tenantId,prev.id,patch);
+      res.json(await TrunkRepository.findById(prev.id,prev.tenantId));
+    }catch(error){trunkMutationError(error,res);}
+  });
+  app.delete('/api/v1/trunks/:id',requireRole('super_admin','admin'),async(req,res)=>{
+    try{
+      const trunk=await findAuthorizedTrunk(req,req.params.id);if(!trunk)return res.status(404).json({error:'Tronco não encontrado nesta empresa.'});
+      await trunkMutationAudit(req,trunk.tenantId,'DELETE_TRUNK_ATTEMPT',[],trunk.id);await TrunkManagementRepository.remove(trunk.tenantId,trunk.id);res.json({deleted:true});
+    }catch(error){trunkMutationError(error,res);}
   });
 
-  app.put('/api/v1/trunks/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Tronco não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-      
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await TrunkRepository.save(updated);
-
-      recordAuditLog({
-        tenantId: updated.tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'UPDATE_TRUNK',
-        resource: `trunks/${req.params.id}`,
-        details: `Tronco SIP [${updated.name}] atualizado. Transporte: ${updated.transport}, Failover: ${updated.failoverTrunkId || 'Nenhum'}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: { trunkId: req.params.id, changes: req.body },
-      });
-
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[Trunks] Erro ao atualizar no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar tronco SIP no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/trunks/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!trunk) {
-        return res.status(404).json({ error: 'Tronco não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await TrunkRepository.delete(req.params.id, trunk.tenantId);
-
-      await recordCriticalAuditLog({
-        tenantId: trunk.tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'DELETE_TRUNK',
-        resource: `trunks/${req.params.id}`,
-        details: `Tronco SIP [${trunk.name}] excluído permanentemente da infraestrutura.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: { trunkId: req.params.id, name: trunk.name },
-      });
-
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[Trunks] Erro ao excluir do PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir tronco SIP do PostgreSQL' });
-    }
-  });
-
-  // Teste de Latência Real e Conectividade SIP (SIP OPTIONS Handshake)
-  app.post('/api/v1/trunks/:id/ping', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      // Teste real de handshake SIP OPTIONS (DNS -> TCP -> SIP OPTIONS -> classificação)
-      const port = trunk.port || 5060;
-      const sipTestResult = await sipTrunkService.testSipHostSocket(
-        trunk.host,
-        port,
-        2500,
-        (trunk.transport as any) || 'UDP'
-      );
-      const latency = sipTestResult.latencyMs;
-      const isOnline = sipTestResult.status === 'active';
-      const timestamp = new Date().toISOString();
-
-      trunk.lastPingLatencyMs = latency;
-      trunk.lastPingStatus = sipTestResult.classification as any;
-      trunk.lastPingAt = timestamp;
-      trunk.status = isOnline ? 'registered' : 'unregistered';
-
-      try {
-        await TrunkRepository.save(trunk);
-      } catch (e: any) {
-        console.error('[Trunks] Erro ao atualizar status de ping no PostgreSQL:', e?.message || e);
-      }
-
-      recordAuditLog({
-        tenantId: trunk.tenantId,
-        userId: (req as any).user?.id,
-        userName: (req as any).user?.name,
-        action: 'SIP_OPTIONS_PING',
-        resource: `trunks/${trunk.id}`,
-        details: `Keepalive SIP OPTIONS executado em ${trunk.host}:${port}. RTT: ${latency}ms, Classificação: ${trunk.lastPingStatus}. Resposta: ${sipTestResult.sipResponse}`,
-        category: 'TELECOM_SIP',
-        severity: isOnline ? 'INFO' : 'WARNING',
-        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-        payload: {
-          trunkId: trunk.id,
-          host: trunk.host,
-          port,
-          transport: sipTestResult.transport,
-          sentAt: sipTestResult.sentAt,
-          receivedAt: sipTestResult.receivedAt,
-          responseCode: sipTestResult.responseCode,
-          responseReason: sipTestResult.responseReason,
-          classification: sipTestResult.classification,
-          latencyMs: latency,
-          status: sipTestResult.status,
-        },
-      });
-
-      res.json({
-        success: isOnline,
-        trunkId: trunk.id,
-        host: trunk.host,
-        port,
-        latencyMs: latency,
-        status: trunk.lastPingStatus,
-        classification: sipTestResult.classification,
-        responseCode: sipTestResult.responseCode,
-        sipResponse: sipTestResult.sipResponse,
-        timestamp,
-        message: isOnline
-          ? `Endpoint PJSIP ${trunk.host}:${port} respondeu ao handshake SIP OPTIONS em ${latency}ms (${sipTestResult.sipResponse}).`
-          : `Endpoint PJSIP ${trunk.host}:${port} falhou no teste SIP OPTIONS (${sipTestResult.classification}): ${sipTestResult.sipResponse}`,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao executar ping SIP' });
-    }
-  });
-
-  // Diagnóstico Profundo do Tronco SIP (Conectividade SBCs, NAT, PJSIP, Firewall)
-  app.post('/api/v1/trunks/:id/diagnostics', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const report = await sipTrunkService.runTrunkDiagnostics(req.params.id);
-      
-      recordAuditLog({
-        tenantId: trunk.tenantId,
-        action: 'TRUNK_DIAGNOSTICS_RUN',
-        resource: `trunks/${req.params.id}/diagnostics`,
-        details: `Diagnóstico executado no tronco ${report.trunkName}. Score: ${report.score}%, Status: ${report.overallStatus.toUpperCase()}.`,
-        category: 'TELECOM_SIP',
-        severity: report.overallStatus === 'failed' ? 'WARNING' : 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { score: report.score, checksCount: report.checks.length },
-      });
-
-      res.json(report);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao executar diagnósticos no tronco SIP' });
-    }
-  });
-
-  // Testar Conectividade com IP Específico da Operadora com Medição Real
-  app.post('/api/v1/trunks/:id/test-ip', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!trunk) return res.status(404).json({ error: 'Tronco SIP não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const { ip, port = 5060 } = req.body;
-      if (!ip) return res.status(400).json({ error: 'Endereço IP é obrigatório' });
-
-      const socketResult = await measureSocketLatency(ip, Number(port));
-      const latency = socketResult.latencyMs;
-      const timestamp = new Date().toISOString();
-
-      res.json({
-        success: socketResult.reachable,
-        ip,
-        status: socketResult.reachable ? 'active' : 'inactive',
-        latencyMs: latency,
-        sipResponse: socketResult.reachable ? 'SIP/2.0 200 OK (OPTIONS Handshake)' : 'SIP/2.0 408 Request Timeout',
-        timestamp,
-        message: socketResult.reachable
-          ? `SBC da operadora (${ip}:${port}) respondeu ao handshake em ${latency}ms.`
-          : `SBC da operadora (${ip}:${port}) não respondeu no tempo limite (${latency}ms).`,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao testar IP' });
-    }
+  // Sondas antigas não possuem política administrativa de destino nem evidência suficiente de registro SIP.
+  app.post(['/api/v1/trunks/:id/ping','/api/v1/trunks/:id/test-ip','/api/v1/trunks/:id/diagnostics'],requireRole('super_admin','admin'),async(req,res)=>{
+    if(!await findAuthorizedTrunk(req,req.params.id))return res.status(404).json({error:'Tronco não encontrado nesta empresa.'});
+    res.status(501).json({code:'TRUNK_DIAGNOSTIC_NOT_IMPLEMENTED',error:'Sonda SIP indisponível até implementação de destinos autorizados e coleta autenticada. TCP não comprova SIP, registro, chamadas ou mídia.'});
   });
 
   // Visualizar PJSIP e Dialplan Gerados para o Tronco
   app.get('/api/v1/trunks/:id/pjsip-preview', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(req.params.id);
+      const trunk = await findAuthorizedTrunk(req,req.params.id);
       if (!trunk) return res.status(404).json({ error: 'Tronco não encontrado' });
 
       // Verificação BOLA/IDOR estrita
@@ -2965,7 +1458,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       const pjsipBlock = sipTrunkService.generatePjsipForTrunk(trunk);
-      const dialplanBlock = sipTrunkService.generateDialplanForDids(trunk.tenantId);
+      const dialplanBlock = await asteriskService.generateExtensionsConf(trunk.tenantId);
 
       res.json({
         trunkId: trunk.id,
@@ -2975,7 +1468,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         extensionsConf: dialplanBlock,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Erro ao gerar preview PJSIP' });
+      res.status(500).json({ error: 'Erro ao gerar preview PJSIP' });
     }
   });
 
@@ -2990,46 +1483,26 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   });
 
   // Aplicar Configuração PJSIP com Backup Automático e Hot Reload Real
-  app.post('/api/v1/trunks/apply-pjsip', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
+  const configurationLimiter=rateLimit({windowMs:60000,limit:5,standardHeaders:true,legacyHeaders:false,message:{error:'Limite de aplicações de configuração excedido.'}});
+  app.post('/api/v1/trunks/apply-pjsip', requireAuth, requireTenant, requireRole('super_admin'),configurationLimiter, async (req, res) => {
     try {
       const tenantId = getAuthorizedTenantId(req);
       if (!tenantId) {
         return res.status(400).json({ error: 'Tenant ID é obrigatório para aplicar configuração PJSIP.' });
       }
-      const snapshotName = `Pre-PJSIP-Apply-${new Date().toISOString().slice(0, 19)}`;
-      const snapshot = await SystemRepository.takeSnapshot(tenantId, snapshotName);
-
-      // Gerar novas configurações
-      const pjsipContent = await asteriskService.generatePjsipConf(tenantId);
-      const extensionsContent = await asteriskService.generateExtensionsConf(tenantId);
-
-      // Executar gravação em disco, backup com timestamp e reload real no Asterisk
-      const applyResult = await asteriskAdapter.applyPjsipConfig(pjsipContent);
-
-      await AuditLogRepository.create({
-        tenantId,
-        userId: (req as any).user?.id || 'admin',
-        userName: (req as any).user?.name || 'Administrador',
-        action: 'APPLY_PJSIP_CONFIG',
-        resource: 'asterisk/pjsip.conf',
-        details: `Configuração PJSIP aplicada. Reload Asterisk: ${applyResult.message}. Backup: ${applyResult.backupPath || 'N/A'}. Snapshot: [${snapshot.id}].`,
-        ip: req.ip || '127.0.0.1',
+      const actor=(req as any).user;
+      const result=await applyConfiguration({
+        audit:()=>AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action:'APPLY_PJSIP_CONFIG_ATTEMPT',resource:'asterisk/configuration',category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Tentativa de gravação e recarga; não certifica registro SIP, chamadas ou mídia.'}),
+        generate:()=>asteriskService.generateConfiguration(tenantId),
+        apply:(pjsip,dialplan,queues)=>asteriskAdapter.applyPjsipConfig(pjsip,dialplan,queues),
       });
-
-      return res.json({
-        success: applyResult.success,
-        snapshotId: snapshot.id,
-        appliedAt: new Date().toISOString(),
-        backupPath: applyResult.backupPath,
-        pjsipLines: pjsipContent.split('\n').length,
-        extensionsLines: extensionsContent.split('\n').length,
-        message: applyResult.message,
-      });
+      return res.status(result.success?200:502).json(result);
     } catch (err: any) {
-      console.error('[apply-pjsip] Erro ao aplicar configuração PJSIP:', err.message);
+      if(err instanceof OutboundHttpError)return res.status(err.statusCode).json({success:false,error:err.message});
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       return res.status(500).json({
         success: false,
-        error: `Falha ao aplicar configuração PJSIP no Asterisk: ${err.message}`,
+        error: 'Falha ao aplicar configuração PJSIP no Asterisk. Consulte o administrador.',
       });
     }
   });
@@ -3083,636 +1556,66 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
       res.json(list || []);
     } catch (e: any) {
-      console.error('[DIDs] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar DIDs do PostgreSQL' });
     }
   });
 
-  app.post('/api/v1/dids', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar DID.' });
-    }
-    const rawDid = String(req.body.did || '').trim();
-    const trunkId = req.body.trunkId;
-    const destinationType = req.body.destinationType || 'extension';
-    const destinationId = req.body.destinationId || '4101';
-
-    if (!rawDid) {
-      return res.status(400).json({ error: 'Número de telefone / DID é obrigatório.' });
-    }
-    if (!trunkId) {
-      return res.status(400).json({ error: 'Tronco SIP associado é obrigatório.' });
-    }
-
-    const norm = sipTrunkService.normalizeDid(rawDid);
-    if (!norm.isValid) {
-      return res.status(400).json({ error: 'Número de DID inválido. Informe DDD + Número (ex: 1135008000) ou 0800.' });
-    }
-
-    try {
-      // Verificar colisão
-      const existing = await DidRepository.listByTenant(tenantId);
-      const exists = existing.some(
-        (d) => d.did === norm.national || d.normalizedNumber === norm.e164
-      );
-      if (exists) {
-        return res.status(409).json({ error: `O DID ${norm.presented} já está cadastrado neste tenant.` });
-      }
-
-      const trunk = await TrunkRepository.findById(trunkId);
-      const operatorName = trunk ? trunk.providerName : req.body.operatorName || 'Operadora SIP';
-
-      const newDid = {
-        id: `did-${Date.now()}`,
-        tenantId,
-        did: norm.national,
-        normalizedNumber: norm.e164,
-        presentedNumber: norm.presented,
-        operatorName,
-        trunkId,
-        description: req.body.description || `DID ${norm.presented} (${operatorName})`,
-        status: req.body.status || 'active',
-        assignedCompany: req.body.assignedCompany || undefined,
-        assignedCnpj: req.body.assignedCnpj || undefined,
-        assignedUser: req.body.assignedUser || undefined,
-        monthlyFee: req.body.monthlyFee !== undefined ? Number(req.body.monthlyFee) : undefined,
-        billingCycleDay: req.body.billingCycleDay ? Number(req.body.billingCycleDay) : 10,
-        destinationType,
-        destinationId,
-        destinationLabel: req.body.destinationLabel || `${destinationType}: ${destinationId}`,
-        timeConditionEnabled: req.body.timeConditionEnabled === true,
-        timeSchedule: req.body.timeSchedule,
-        afterHoursDestType: req.body.afterHoursDestType,
-        afterHoursDestId: req.body.afterHoursDestId,
-        fallbackType: req.body.fallbackType || 'human',
-        fallbackTarget: req.body.fallbackTarget || '4101',
-        didSourceHeader: req.body.didSourceHeader || 'request_uri',
-        customHeaderName: req.body.customHeaderName,
-        unknownDidAction: req.body.unknownDidAction || 'reject_404',
-        channelsInUse: 0,
-        totalCallsReceived: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      await DidRepository.save(newDid);
-
-      recordAuditLog({
-        tenantId,
-        action: 'CREATE_DID',
-        resource: `dids/${newDid.id}`,
-        details: `DID [${newDid.presentedNumber}] cadastrado e vinculado ao tronco [${trunk ? trunk.name : trunkId}]. Destino: ${newDid.destinationLabel}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { didId: newDid.id, did: newDid.did, trunkId: newDid.trunkId },
-      });
-
-      res.status(201).json(newDid);
-    } catch (e: any) {
-      console.error('[DIDs] Erro ao cadastrar DID no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao cadastrar DID no PostgreSQL' });
-    }
+  const findAuthorizedDid=(req:any,id:string)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?DidRepository.findAnyByIdForSuperAdmin(id):DidRepository.findById(id,context.tenantId);};
+  const didAudit=async(req:any,tenantId:string,action:string,id?:string)=>{const actor=req.user;await AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action,resource:id?'dids/'+id:'dids/new',ip:req.ip||'127.0.0.1',category:'ROUTING',details:'Tentativa de alteração cadastral; não aplica plano de discagem nem confirma chamada.',payload:{requestId:req.res.locals.requestId}});};
+  const didError=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+  app.post(['/api/v1/dids','/api/v1/dids/batch'],requireRole('super_admin','admin'),async(req,res)=>{
+    try{
+      const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});
+      if(!req.body||typeof req.body!=='object'||Array.isArray(req.body))return res.status(400).json({error:'Cadastro inválido.'});
+      const batch=req.path.endsWith('/batch');let body=req.body;let count=1;
+      if(batch){const {startNumber,count:requested,...fields}=req.body;count=requested;if(!Number.isInteger(count)||count<1||count>100)return res.status(400).json({error:'Lote deve ter entre 1 e 100 números.'});if(Object.hasOwn(fields,'did'))return res.status(400).json({error:'Use startNumber no lote.'});body={...fields,did:startNumber};}
+      const patch=didPatch(body,true);await didAudit(req,context.tenantId,batch?'DID_BATCH_CREATE_ATTEMPT':'CREATE_DID_ATTEMPT');
+      const ids=await DidManagementRepository.mutate(context.tenantId,undefined,patch,count);const saved=await Promise.all(ids.map(id=>DidRepository.findById(id,context.tenantId)));
+      res.status(201).json(batch?{count:saved.length,added:saved}:saved[0]);
+    }catch(error){didError(error,res);}
   });
-
-  app.put('/api/v1/dids/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await DidRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'DID não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O DID pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      let updatedNorm = undefined;
-      if (req.body.did && req.body.did !== prev.did) {
-        const norm = sipTrunkService.normalizeDid(req.body.did);
-        if (norm.isValid) {
-          updatedNorm = {
-            did: norm.national,
-            normalizedNumber: norm.e164,
-            presentedNumber: norm.presented,
-          };
-        }
-      }
-
-      const updated = {
-        ...prev,
-        ...req.body,
-        ...(updatedNorm || {}),
-        id: prev.id,
-        tenantId: prev.tenantId,
-        updatedAt: new Date().toISOString(),
-      };
-
-      await DidRepository.save(updated);
-
-      recordAuditLog({
-        tenantId: updated.tenantId,
-        action: 'UPDATE_DID',
-        resource: `dids/${req.params.id}`,
-        details: `DID [${updated.presentedNumber}] atualizado. Destino: [${updated.destinationType}] -> ${updated.destinationId}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { didId: req.params.id, changes: req.body },
-      });
-
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[DIDs] Erro ao atualizar DID no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar DID no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/dids/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const did = await DidRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!did) {
-        return res.status(404).json({ error: 'DID não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && did.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O DID pertence ao tenant '${did.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await DidRepository.delete(req.params.id, did.tenantId);
-
-      recordAuditLog({
-        tenantId: did.tenantId,
-        action: 'DELETE_DID',
-        resource: `dids/${req.params.id}`,
-        details: `DID [${did.presentedNumber}] excluído da numeração ativa.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-        ip: req.ip || '127.0.0.1',
-        payload: { didId: req.params.id, presentedNumber: did.presentedNumber },
-      });
-
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[DIDs] Erro ao excluir DID no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir DID no PostgreSQL' });
-    }
-  });
-
-  // Importação em Lote de Faixas de DIDs (ex: 1135008000 a 1135008099)
-  app.post('/api/v1/dids/batch', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const { startNumber, count, trunkId, destinationType = 'extension', destinationId = '4101' } = req.body;
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para importação de DIDs.' });
-    }
-    if (!startNumber || !count || count <= 0) {
-      return res.status(400).json({ error: 'startNumber e count (> 0) são obrigatórios.' });
-    }
-    if (!trunkId) {
-      return res.status(400).json({ error: 'trunkId é obrigatório.' });
-    }
-
-    try {
-      const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(trunkId);
-      if (!trunk) {
-        return res.status(404).json({ error: 'Tronco SIP informado não foi encontrado.' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const operatorName = trunk.providerName || 'Operadora SIP';
-      const baseNumber = parseInt(startNumber.replace(/\D/g, ''), 10);
-      const existingDids = await DidRepository.listByTenant(tenantId);
-      const addedDids = [];
-
-      for (let i = 0; i < Math.min(count, 100); i++) {
-        const numStr = (baseNumber + i).toString();
-        const norm = sipTrunkService.normalizeDid(numStr);
-        if (!norm.isValid) continue;
-
-        const exists = existingDids.some((d) => d.did === norm.national);
-        if (exists) continue;
-
-        const item = {
-          id: `did-${Date.now()}-${i}`,
-          tenantId,
-          did: norm.national,
-          normalizedNumber: norm.e164,
-          presentedNumber: norm.presented,
-          operatorName,
-          trunkId,
-          description: `Faixa DID ${norm.presented}`,
-          status: 'active' as const,
-          destinationType,
-          destinationId,
-          destinationLabel: `${destinationType}: ${destinationId}`,
-          timeConditionEnabled: false,
-          fallbackType: 'human' as const,
-          fallbackTarget: '4101',
-          didSourceHeader: 'request_uri' as const,
-          unknownDidAction: 'reject_404' as const,
-          channelsInUse: 0,
-          totalCallsReceived: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        await DidRepository.save(item);
-        addedDids.push(item);
-      }
-
-      recordAuditLog({
-        tenantId,
-        action: 'BATCH_IMPORT_DIDS',
-        resource: 'dids/batch',
-        details: `Importação em lote de ${addedDids.length} DIDs finalizada para o tronco ${trunk ? trunk.name : trunkId}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { count: addedDids.length, trunkId },
-      });
-
-      res.json({ success: true, count: addedDids.length, added: addedDids });
-    } catch (e: any) {
-      console.error('[DIDs] Erro na importação em lote de DIDs:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao importar DIDs em lote no PostgreSQL' });
-    }
-  });
-
-  // Simulação em Tempo Real do Roteamento de Chamada Recebida
-  app.post('/api/v1/dids/simulate', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const { sourceIp, rawDid, callerNumber, trunkId } = req.body;
-      if (!sourceIp || !rawDid) {
-        return res.status(400).json({ error: 'sourceIp e rawDid são campos obrigatórios para a simulação de chamada recebida.' });
-      }
-
-      if (trunkId) {
-        const trunk = await TrunkRepository.findAnyByIdForSuperAdmin(trunkId);
-        if (trunk && tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && trunk.tenantId !== tenantCtx.tenantId) {
-          return res.status(403).json({
-            error: `Acesso proibido. O tronco pertence ao tenant '${trunk.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-            code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-          });
-        }
-      }
-
-      const result = await sipTrunkService.simulateInboundCall({
-        sourceIp: String(sourceIp).trim(),
-        rawDid: String(rawDid).trim(),
-        callerNumber: callerNumber ? String(callerNumber).trim() : 'UNKNOWN',
-        trunkId,
-      });
-
-      res.json(result);
-    } catch (e: any) {
-      console.error('[DIDs] Erro ao simular chamada recebida:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao simular chamada no PBX' });
-    }
-  });
+  app.put('/api/v1/dids/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const prev=await findAuthorizedDid(req,req.params.id);if(!prev)return res.status(404).json({error:'DID não encontrado nesta empresa.'});const patch=didPatch(req.body);await didAudit(req,prev.tenantId,'UPDATE_DID_ATTEMPT',prev.id);await DidManagementRepository.mutate(prev.tenantId,prev.id,patch);res.json(await DidRepository.findById(prev.id,prev.tenantId));}catch(error){didError(error,res);}});
+  app.delete('/api/v1/dids/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const did=await findAuthorizedDid(req,req.params.id);if(!did)return res.status(404).json({error:'DID não encontrado nesta empresa.'});await didAudit(req,did.tenantId,'DELETE_DID_ATTEMPT',did.id);await DidManagementRepository.remove(did.tenantId,did.id);res.json({deleted:true});}catch(error){didError(error,res);}});
+  app.post('/api/v1/dids/simulate',requireRole('super_admin','admin'),(_req,res)=>res.status(501).json({error:'Simulação de DID indisponível até existir planejador isolado por empresa. Esta operação não executa chamada.'}));
 
   // -------------------------------------------------------------------------
   // Routes (Rotas de Entrada e Saída com LCR, Prepend, Time Conditions e Persistência)
   // -------------------------------------------------------------------------
+  const findAuthorizedRoute=(req:any,id:string)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?RouteRepository.findAnyByIdForSuperAdmin(id):RouteRepository.findById(id,context.tenantId);};
+  app.use('/api/v1/routes',(req,res,next)=>{if(['POST','PUT'].includes(req.method)&&req.body&&['id','tenantId'].some(key=>Object.hasOwn(req.body,key)))return res.status(400).json({error:'Identidade e empresa são definidas pelo servidor.'});next();});
   app.get('/api/v1/routes', requireAuth, requireTenant, async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
       const list = await RouteRepository.listByTenant(tenantCtx.tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[Routes] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar rotas do PostgreSQL' });
     }
   });
 
-  app.post('/api/v1/routes', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar rota.' });
-    }
-    const name = String(req.body.name || '').trim();
-    const pattern = String(req.body.pattern || '').trim();
-    const type = req.body.type || 'outbound';
-
-    if (!name || !pattern) {
-      return res.status(400).json({ error: 'Nome da rota e padrão de discagem (pattern) são obrigatórios.' });
-    }
-
-    const route = {
-      id: `route-${Date.now()}`,
-      tenantId,
-      priority: req.body.priority || 1,
-      timeConditionEnabled: req.body.timeConditionEnabled === true,
-      timeSchedule: req.body.timeSchedule || {
-        startHour: '08:00',
-        endHour: '18:00',
-        weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
-      },
-      ...req.body,
-      name,
-      pattern,
-      type,
-    };
-
-    try {
-      await RouteRepository.save(route);
-
-      recordAuditLog({
-        tenantId,
-        action: 'CREATE_ROUTE',
-        resource: `routes/${route.id}`,
-        details: `Nova rota de ${route.type === 'outbound' ? 'Saída' : 'Entrada'} [${route.name}] criada com padrão [${route.pattern}].`,
-        category: 'ROUTING',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { routeId: route.id, pattern: route.pattern, type: route.type, trunkId: route.trunkId, failoverTrunkId: route.failoverTrunkId },
-      });
-
-      res.status(201).json(route);
-    } catch (e: any) {
-      console.error('[Routes] Erro ao persistir no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao criar rota no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/routes/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await RouteRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Rota não encontrada' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A rota pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-      
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await RouteRepository.save(updated);
-
-      recordAuditLog({
-        tenantId: updated.tenantId,
-        action: 'UPDATE_ROUTE',
-        resource: `routes/${req.params.id}`,
-        details: `Rota [${updated.name}] atualizada. LCR Contingência: ${updated.failoverTrunkId || 'Desativado'}, Horário: ${updated.timeConditionEnabled ? 'Ativo' : 'Livre'}.`,
-        category: 'ROUTING',
-        severity: 'INFO',
-        ip: req.ip || '127.0.0.1',
-        payload: { routeId: req.params.id, changes: req.body },
-      });
-
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[Routes] Erro ao atualizar no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar rota no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/routes/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const route = await RouteRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!route) {
-        return res.status(404).json({ error: 'Rota não encontrada' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && route.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A rota pertence ao tenant '${route.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await RouteRepository.delete(req.params.id, route.tenantId);
-
-      recordAuditLog({
-        tenantId: route.tenantId,
-        action: 'DELETE_ROUTE',
-        resource: `routes/${req.params.id}`,
-        details: `Rota [${route.name}] (${route.pattern}) removida do plano de discagem.`,
-        category: 'ROUTING',
-        severity: 'WARNING',
-        ip: req.ip || '127.0.0.1',
-        payload: { routeId: req.params.id, name: route.name, pattern: route.pattern },
-      });
-
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[Routes] Erro ao excluir do PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir rota no PostgreSQL' });
-    }
-  });
-
-  // Simulação de Resolução de CallerID para Rotas CLI/ITX e Convencionais
-  app.post('/api/v1/routes/simulate-callerid', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const tenantId = tenantCtx.tenantId;
-      const { extensionNumber, routeId } = req.body;
-      if (!extensionNumber || !routeId) {
-        return res.status(400).json({ error: 'extensionNumber e routeId são obrigatórios para a simulação.' });
-      }
-
-      // Verificação BOLA/IDOR de ownership da rota
-      const route = await RouteRepository.findAnyByIdForSuperAdmin(String(routeId));
-      if (!route) {
-        return res.status(404).json({ error: 'Rota não encontrada.' });
-      }
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && route.tenantId !== tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A rota pertence ao tenant '${route.tenantId}', incompatível com o contexto '${tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const result = await asteriskService.resolveCallerIdForOutboundCall(tenantId, String(extensionNumber), String(routeId));
-      if (!result) {
-        return res.status(404).json({ error: 'Ramal ou Rota não encontrados para o tenant informado.' });
-      }
-
-      res.json(result);
-    } catch (e: any) {
-      console.error('[Routes] Erro ao simular CallerID:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao simular CallerID' });
-    }
-  });
+  const routeAudit=async(req:any,tenantId:string,action:string,id?:string)=>{const actor=req.user;await AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action,resource:id?'routes/'+id:'routes/new',ip:req.ip||'127.0.0.1',category:'ROUTING',details:'Tentativa de alteração cadastral; não aplica arquivos nem executa chamada.',payload:{requestId:req.res.locals.requestId}});};
+  const routeError=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+  app.post('/api/v1/routes',requireRole('super_admin','admin'),async(req,res)=>{try{const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});const patch=routePatch(req.body,true);await routeAudit(req,context.tenantId,'CREATE_ROUTE_ATTEMPT');const id=await RouteManagementRepository.mutate(context.tenantId,undefined,patch);res.status(201).json(await RouteRepository.findById(id,context.tenantId));}catch(error){routeError(error,res);}});
+  app.put('/api/v1/routes/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const previous=await findAuthorizedRoute(req,req.params.id);if(!previous)return res.status(404).json({error:'Rota não encontrada nesta empresa.'});const patch=routePatch(req.body);await routeAudit(req,previous.tenantId,'UPDATE_ROUTE_ATTEMPT',previous.id);await RouteManagementRepository.mutate(previous.tenantId,previous.id,patch);res.json(await RouteRepository.findById(previous.id,previous.tenantId));}catch(error){routeError(error,res);}});
+  app.delete('/api/v1/routes/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const previous=await findAuthorizedRoute(req,req.params.id);if(!previous)return res.status(404).json({error:'Rota não encontrada nesta empresa.'});await routeAudit(req,previous.tenantId,'DELETE_ROUTE_ATTEMPT',previous.id);await RouteManagementRepository.remove(previous.tenantId,previous.id);res.json({deleted:true});}catch(error){routeError(error,res);}});
+  app.post('/api/v1/routes/simulate-callerid',requireRole('super_admin','admin'),(_req,res)=>res.status(501).json({error:'Simulação CLI/ITX indisponível até implementação e homologação. Não comprova Caller ID recebido pela operadora.'}));
 
   // -------------------------------------------------------------------------
   // Ring Groups & Queues
   // -------------------------------------------------------------------------
-  app.get('/api/v1/ring-groups', requireAuth, requireTenant, async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const list = await RingGroupRepository.listByTenant(tenantCtx.tenantId);
-      res.json(list || []);
-    } catch (e: any) {
-      console.error('[RingGroups] Erro ao listar do PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao listar grupos de toque do PostgreSQL' });
-    }
-  });
-
-  app.post('/api/v1/ring-groups', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    const group = { id: `group-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, tenantId, ...req.body };
-    try {
-      await RingGroupRepository.save(group);
-      res.status(201).json(group);
-    } catch (e: any) {
-      console.error('[RingGroups] Erro ao salvar grupo de toque:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao criar grupo de toque no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/ring-groups/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await RingGroupRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Grupo de toque não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O grupo de toque pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await RingGroupRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[RingGroups] Erro ao atualizar grupo de toque:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar grupo de toque no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/ring-groups/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await RingGroupRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) {
-        return res.status(404).json({ error: 'Grupo de toque não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O grupo de toque pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await RingGroupRepository.delete(req.params.id, prev.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[RingGroups] Erro ao excluir grupo de toque:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir grupo de toque no PostgreSQL' });
-    }
-  });
-
-  app.get('/api/v1/queues', requireAuth, requireTenant, async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const list = await QueueRepository.listByTenant(tenantCtx.tenantId);
-      res.json(list || []);
-    } catch (e: any) {
-      console.error('[Queues] Erro ao listar do PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao listar filas de atendimento do PostgreSQL' });
-    }
-  });
-
-  app.post('/api/v1/queues', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    const queue = {
-      id: `queue-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-      tenantId,
-      callsWaiting: 0,
-      avgWaitTimeSeconds: 0,
-      abandonedToday: 0,
-      answeredToday: 0,
-      ...req.body,
-    };
-
-    try {
-      await QueueRepository.save(queue);
-      res.status(201).json(queue);
-    } catch (e: any) {
-      console.error('[Queues] Erro ao persistir no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao criar fila no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/queues/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await QueueRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Fila não encontrada' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A fila pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await QueueRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[Queues] Erro ao atualizar no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar fila no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/queues/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const q = await QueueRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!q) {
-        return res.status(404).json({ error: 'Fila não encontrada' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && q.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A fila pertence ao tenant '${q.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await QueueRepository.delete(req.params.id, q.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[Queues] Erro ao excluir do PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir fila do PostgreSQL' });
-    }
-  });
+  for(const kind of ['queue','group'] as CollectionKind[]){
+    const base=kind==='queue'?'/api/v1/queues':'/api/v1/ring-groups';const repository=kind==='queue'?QueueRepository:RingGroupRepository;
+    const project=(value:any)=>kind==='queue'?queueDto(value):value;
+    const find=(req:any,id:string)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?repository.findAnyByIdForSuperAdmin(id):repository.findById(id,context.tenantId);};
+    const audit=async(req:any,tenantId:string,action:string,id?:string)=>{const actor=req.user;await AuditLogRepository.logStrict({tenantId,userId:actor.id,userName:actor.name,action,resource:base+'/'+(id||'new'),ip:req.ip||'127.0.0.1',category:'ROUTING',details:'Tentativa de alteração cadastral; não aplica arquivos nem comprova atendimento ou SLA.',payload:{requestId:req.res.locals.requestId}});};
+    const fail=(error:unknown,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;};
+    app.get(base,async(req,res)=>res.json((await repository.listByTenant(getAuthorizedTenantId(req))).map(project)));
+    app.post(base,requireRole('super_admin','admin'),async(req,res)=>{try{const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});const patch=collectionPatch(kind,req.body,true);await audit(req,context.tenantId,'CREATE_'+kind.toUpperCase()+'_ATTEMPT');const id=await CollectionManagementRepository.mutate(kind,context.tenantId,undefined,patch);res.status(201).json(project(await repository.findById(id,context.tenantId)));}catch(error){fail(error,res);}});
+    app.put(base+'/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const previous=await find(req,req.params.id);if(!previous)return res.status(404).json({error:'Cadastro não encontrado nesta empresa.'});const patch=collectionPatch(kind,req.body);await audit(req,previous.tenantId,'UPDATE_'+kind.toUpperCase()+'_ATTEMPT',previous.id);await CollectionManagementRepository.mutate(kind,previous.tenantId,previous.id,patch);res.json(project(await repository.findById(previous.id,previous.tenantId)));}catch(error){fail(error,res);}});
+    app.delete(base+'/:id',requireRole('super_admin','admin'),async(req,res)=>{try{const previous=await find(req,req.params.id);if(!previous)return res.status(404).json({error:'Cadastro não encontrado nesta empresa.'});await audit(req,previous.tenantId,'DELETE_'+kind.toUpperCase()+'_ATTEMPT',previous.id);await CollectionManagementRepository.remove(kind,previous.tenantId,previous.id);res.json({deleted:true});}catch(error){fail(error,res);}});
+  }
 
   app.get('/api/v1/ivr', requireAuth, requireTenant, async (req, res) => {
     try {
@@ -3720,146 +1623,35 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await IvrRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[IVR] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar URAs do PostgreSQL' });
     }
   });
 
-  app.post('/api/v1/ivr', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar URA.' });
-    }
-    const ivr = { ...req.body, id: `ivr-${Date.now()}`, tenantId };
-
-    try {
-      await IvrRepository.save(ivr);
-      res.status(201).json(ivr);
-    } catch (e: any) {
-      console.error('[IVR] Erro ao persistir no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao criar URA no PostgreSQL' });
-    }
-  });
-
-  app.put('/api/v1/ivr/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await IvrRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) {
-        return res.status(404).json({ error: 'URA não encontrada' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A URA pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: req.params.id, tenantId: prev.tenantId };
-      await IvrRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[IVR] Erro ao atualizar no PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar URA no PostgreSQL' });
-    }
-  });
-
-  app.delete('/api/v1/ivr/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const ivr = await IvrRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!ivr) {
-        return res.status(404).json({ error: 'URA não encontrada' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && ivr.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A URA pertence ao tenant '${ivr.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await IvrRepository.delete(req.params.id, ivr.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[IVR] Erro ao excluir do PostgreSQL:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir URA do PostgreSQL' });
-    }
-  });
-
-  // Exportador de Dialplan Asterisk (extensions.conf) para a URA
-  app.get('/api/v1/ivr/:id/dialplan', requireAuth, requireTenant, async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const ivr = await IvrRepository.findById(req.params.id);
-    if (!ivr) {
-      return res.status(404).json({ error: 'URA não encontrada' });
-    }
-    if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && ivr.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. A URA pertence ao tenant '${ivr.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-      });
-    }
-
-    const contextName = `ivr-${ivr.number}`;
-    let dialplan = `; ==========================================================================\n`;
-    dialplan += `; Asterisk 20 PBX - Gerado Automaticamente pelo Editor Visual de URA\n`;
-    dialplan += `; URA: ${ivr.name} (${ivr.number})\n`;
-    dialplan += `; Contexto: [${contextName}]\n`;
-    dialplan += `; ==========================================================================\n\n`;
-    dialplan += `[${contextName}]\n`;
-    dialplan += `exten => s,1,NoOp(==> URA [${ivr.name}] iniciada por \${CALLERID(all)} <==)\n`;
-    dialplan += ` same => n,Answer()\n`;
-    dialplan += ` same => n,Wait(1)\n`;
-    dialplan += ` same => n,Set(TIMEOUT(digit)=3)\n`;
-    dialplan += ` same => n,Set(TIMEOUT(response)=${ivr.timeoutSeconds || 8})\n`;
-    dialplan += ` same => n(menu),Background(${ivr.audioPrompt ? (ivr.audioPrompt.endsWith('.wav') ? ivr.audioPrompt.replace('.wav', '') : 'custom/ura-prompt') : 'custom/ura-prompt'})\n`;
-    dialplan += ` same => n,WaitExten(${ivr.timeoutSeconds || 8})\n\n`;
-
-    if (ivr.options && ivr.options.length > 0) {
-      ivr.options.forEach((opt) => {
-        dialplan += `; Opção ${opt.digit}: ${opt.label}\n`;
-        dialplan += `exten => ${opt.digit},1,NoOp(==> URA [${ivr.name}]: Digitado [${opt.digit}] - ${opt.label} <==)\n`;
-        if (opt.destinationType === 'ai_agent') {
-          dialplan += ` same => n,Set(AI_AGENT_ID=${opt.destinationTarget})\n`;
-          dialplan += ` same => n,Stasis(MaiaVoiceApp,${opt.destinationTarget})\n`;
-          dialplan += ` same => n,Hangup()\n\n`;
-        } else if (opt.destinationType === 'queue') {
-          dialplan += ` same => n,Queue(${opt.destinationTarget},tT,,,120)\n`;
-          dialplan += ` same => n,Hangup()\n\n`;
-        } else if (opt.destinationType === 'extension') {
-          dialplan += ` same => n,Dial(PJSIP/${opt.destinationTarget},30,tT)\n`;
-          dialplan += ` same => n,Hangup()\n\n`;
-        } else if (opt.destinationType === 'hangup') {
-          dialplan += ` same => n,Playback(vm-goodbye)\n`;
-          dialplan += ` same => n,Hangup()\n\n`;
-        } else {
-          dialplan += ` same => n,Goto(from-internal,${opt.destinationTarget},1)\n\n`;
-        }
-      });
-    }
-
-    dialplan += `; Tratamento de Timeout e Entrada Invalida\n`;
-    dialplan += `exten => t,1,NoOp(==> URA [${ivr.name}]: Tempo limite esgotado <==)\n`;
-    dialplan += ` same => n,Playback(pbx-invalid)\n`;
-    dialplan += ` same => n,Goto(s,menu)\n\n`;
-    dialplan += `exten => i,1,NoOp(==> URA [${ivr.name}]: Opção invalida digitada <==)\n`;
-    dialplan += ` same => n,Playback(pbx-invalid)\n`;
-    dialplan += ` same => n,Goto(s,menu)\n`;
-
-    res.json({
-      ivrId: ivr.id,
-      name: ivr.name,
-      number: ivr.number,
-      context: contextName,
-      dialplan,
-    });
-  });
+  const findIvr=async(req:any)=>{const context=resolveTenantContext(req);return context.accessMode==='GLOBAL'?IvrRepository.findAnyByIdForSuperAdmin(req.params.id):IvrRepository.findById(req.params.id,context.tenantId);};
+  const ivrAudit=async(req:any,tenantId:string,action:string,id='new')=>AuditLogRepository.logStrict({tenantId,userId:req.user.id,userName:req.user.name,action,resource:'ivr/'+id,category:'TELECOM_SIP',ip:req.ip||'127.0.0.1',details:'Alteração cadastral de URA; não confirma execução no host.'});
+  const ivrFailure=(error:any,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});logOperational('SERVER_OPERATION_FAILURE',{requestId:res.locals.requestId});return res.status(500).json({error:'Não foi possível concluir a operação de URA.'});};
+  app.post('/api/v1/ivr',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')return res.status(400).json({error:'Selecione uma empresa.'});
+    const patch=ivrPatch(req.body,true);await ivrAudit(req,context.tenantId,'CREATE_IVR_ATTEMPT');
+    const id=await IvrManagementRepository.mutate(context.tenantId,undefined,patch);return res.status(201).json(await IvrRepository.findById(id,context.tenantId));
+  }catch(error){return ivrFailure(error,res);}});
+  app.put('/api/v1/ivr/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findIvr(req);if(!previous)return res.status(404).json({error:'URA não encontrada nesta empresa.'});
+    const patch=ivrPatch(req.body);await ivrAudit(req,previous.tenantId,'UPDATE_IVR_ATTEMPT',previous.id);
+    await IvrManagementRepository.mutate(previous.tenantId,previous.id,patch);return res.json(await IvrRepository.findById(previous.id,previous.tenantId));
+  }catch(error){return ivrFailure(error,res);}});
+  app.delete('/api/v1/ivr/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findIvr(req);if(!previous)return res.status(404).json({error:'URA não encontrada nesta empresa.'});
+    await ivrAudit(req,previous.tenantId,'DELETE_IVR_ATTEMPT',previous.id);await IvrManagementRepository.remove(previous.tenantId,previous.id);return res.json({deleted:true});
+  }catch(error){return ivrFailure(error,res);}});
+  app.get('/api/v1/ivr/:id/dialplan',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    return res.json(await postgresClient.withReadSnapshot(async()=>{
+      const ivr=await findIvr(req);if(!ivr)throw new OutboundHttpError('URA não encontrada nesta empresa.',404);
+      managedIvr(ivr,await ExtensionRepository.listByTenant(ivr.tenantId),await QueueRepository.listByTenant(ivr.tenantId));
+      return {ivrId:ivr.id,name:ivr.name,number:ivr.number,context:'ivr-'+ivr.id,dialplan:renderIvr(ivr),status:'DRAFT_NOT_APPLIED'};
+    }));
+  }catch(error){return ivrFailure(error,res);}});
 
   // -------------------------------------------------------------------------
   // AI Gateway & Gemini Integrations
@@ -3870,7 +1662,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await AiToolRepository.listProviders(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[AI Providers] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar provedores de IA' });
     }
   });
@@ -3881,79 +1673,28 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await AiAgentRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[AI Agents] Erro ao listar do PostgreSQL:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar agentes de IA' });
     }
   });
 
-  app.post('/api/v1/ai/agents', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar agente.' });
-    }
-    const agent = {
-      ...req.body,
-      id: `agent-${Date.now()}`,
-      tenantId,
-      isActive: true,
-    };
-    try {
-      await AiAgentRepository.save(agent);
-      res.status(201).json(agent);
-    } catch (e: any) {
-      console.error('[AI Agents] Erro ao salvar agente:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao criar agente de IA' });
-    }
-  });
-
-  app.put('/api/v1/ai/agents/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiAgentRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Agente não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O agente pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await AiAgentRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[AI Agents] Erro ao atualizar agente:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar agente de IA' });
-    }
-  });
-
-  app.delete('/api/v1/ai/agents/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiAgentRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) {
-        return res.status(404).json({ error: 'Agente não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O agente pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await AiAgentRepository.delete(req.params.id, prev.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[AI Agents] Erro ao excluir agente:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir agente de IA' });
-    }
-  });
+  const aiConfigurationFailure=(error:any,res:any)=>{if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});logOperational('SERVER_OPERATION_FAILURE',{requestId:res.locals.requestId});return res.status(500).json({error:'Não foi possível concluir a configuração de IA.'});};
+  const aiConfigurationAudit=async(req:any,tenantId:string,action:string,resource:string)=>AuditLogRepository.logStrict({tenantId,userId:req.user.id,userName:req.user.name,action,resource,category:'AI_GATEWAY',ip:req.ip||'127.0.0.1',details:'Tentativa de alteração cadastral; sem conteúdo de prompts ou documentos.'});
+  const findAiConfiguration=async(req:any,kind:'agent'|'knowledge')=>{const context=resolveTenantContext(req);const repository=kind==='agent'?AiAgentRepository:AiKnowledgeRepository;return context.accessMode==='GLOBAL'?repository.findAnyByIdForSuperAdmin(req.params.id):repository.findById(req.params.id,context.tenantId);};
+  app.post('/api/v1/ai/agents',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')throw new OutboundHttpError('Selecione uma empresa.',400);
+    const patch=agentPatch(req.body,true);await aiConfigurationAudit(req,context.tenantId,'CREATE_AI_AGENT_ATTEMPT','ai/agents/new');
+    const id=await AiConfigurationRepository.agent(context.tenantId,undefined,patch);return res.status(201).json(await AiAgentRepository.findById(id,context.tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.put('/api/v1/ai/agents/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findAiConfiguration(req,'agent');if(!previous)throw new OutboundHttpError('Agente não encontrado nesta empresa.',404);
+    const patch=agentPatch(req.body);await aiConfigurationAudit(req,previous.tenantId,'UPDATE_AI_AGENT_ATTEMPT','ai/agents/'+previous.id);
+    await AiConfigurationRepository.agent(previous.tenantId,previous.id,patch);return res.json(await AiAgentRepository.findById(previous.id,previous.tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.delete('/api/v1/ai/agents/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findAiConfiguration(req,'agent');if(!previous)throw new OutboundHttpError('Agente não encontrado nesta empresa.',404);
+    await aiConfigurationAudit(req,previous.tenantId,'DELETE_AI_AGENT_ATTEMPT','ai/agents/'+previous.id);await AiConfigurationRepository.removeAgent(previous.tenantId,previous.id);return res.json({deleted:true});
+  }catch(error){return aiConfigurationFailure(error,res);}});
 
   app.get('/api/v1/ai/tools', requireAuth, requireTenant, async (req, res) => {
     try {
@@ -3961,97 +1702,47 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await AiToolRepository.listToolsByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[AI Tools] Erro ao listar ferramentas:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar ferramentas de IA' });
     }
   });
 
-  app.post('/api/v1/ai/tools', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
+  app.post('/api/v1/ai/tools',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')throw new OutboundHttpError('Selecione uma empresa.',400);
+    const patch=toolPatch(req.body,true);await aiConfigurationAudit(req,context.tenantId,'CREATE_AI_TOOL_ATTEMPT','ai/tools/new');
+    const id=await AiConfigurationRepository.tool(context.tenantId,undefined,patch);return res.status(201).json(await AiToolRepository.findById(id,context.tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.put('/api/v1/ai/tools/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const tenantId=resolveTenantContext(req).tenantId;const patch=toolPatch(req.body);
+    await aiConfigurationAudit(req,tenantId,'UPDATE_AI_TOOL_ATTEMPT','ai/tools/'+req.params.id);
+    await AiConfigurationRepository.tool(tenantId,req.params.id,patch);return res.json(await AiToolRepository.findById(req.params.id,tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.delete('/api/v1/ai/tools/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const tenantId=resolveTenantContext(req).tenantId;await aiConfigurationAudit(req,tenantId,'DELETE_AI_TOOL_ATTEMPT','ai/tools/'+req.params.id);
+    await AiConfigurationRepository.removeTool(tenantId,req.params.id);return res.json({deleted:true});
+  }catch(error){return aiConfigurationFailure(error,res);}});
+
+  const toolTestLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Limite de testes atingido. Aguarde um minuto.' } });
+  app.post('/api/v1/ai/tools/:id/test', requireAuth, requireTenant, requireRole('super_admin', 'admin'), toolTestLimiter, async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    const tool = await AiToolRepository.findById(req.params.id, tenantId);
+    if (!tool) return res.status(404).json({ error: 'Ferramenta não encontrada' });
     try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar ferramenta.' });
-    }
-    const newTool = {
-      id: `tool-${Date.now()}`,
-      tenantId,
-      name: req.body.name,
-      description: req.body.description,
-      endpoint: req.body.endpoint || '/api/v1/integrations/custom',
-      method: req.body.method || 'POST',
-      requiresConfirmation: req.body.requiresConfirmation === true,
-      schemaJson: req.body.schemaJson || { type: 'object', properties: {} },
-      mockResponse: req.body.mockResponse || { status: 'sucesso' },
-    };
-    try {
-      await AiToolRepository.saveTool(tenantId, newTool);
-      res.status(201).json(newTool);
-    } catch (e: any) {
-      console.error('[AI Tools] Erro ao salvar ferramenta:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao salvar ferramenta de IA' });
-    }
-  });
-
-  app.put('/api/v1/ai/tools/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiToolRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Ferramenta não encontrada' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A ferramenta pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId };
-      await AiToolRepository.saveTool(updated.tenantId, updated);
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[AI Tools] Erro ao atualizar ferramenta:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar ferramenta de IA' });
-    }
-  });
-
-  app.delete('/api/v1/ai/tools/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiToolRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Ferramenta não encontrada' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. A ferramenta pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await AiToolRepository.delete(req.params.id, prev.tenantId);
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[AI Tools] Erro ao excluir ferramenta:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir ferramenta de IA' });
-    }
-  });
-
-  app.post('/api/v1/ai/tools/:id/test', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const tool = await AiToolRepository.findById(req.params.id, tenantCtx.tenantId);
-      if (!tool) return res.status(404).json({ error: 'Ferramenta não encontrada' });
-      res.json({
-        executedAt: new Date().toISOString(),
-        toolName: tool.name,
-        inputParams: req.body.params || {},
-        result: tool.mockResponse,
+      const result = await executeAiToolHttp(tool, req.body.params === undefined ? {} : req.body.params, req.body.confirmed, {
+        beforeSend: async executionId => {
+          const actor = (req as any).user;
+          await recordAuditLog({ tenantId, userId: actor.id, userName: actor.name, ip: req.ip,
+            action: 'AI_TOOL_HTTP_ATTEMPT', resource: `ai/tools/${tool.id}`, category: 'AI_GATEWAY',
+            details: 'Tentativa de execução HTTP real de ferramenta autorizada.', strict: true,
+            payload: { executionId, method: tool.method } });
+        },
       });
-    } catch (e: any) {
-      console.error('[AI Tools] Erro ao testar ferramenta:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao testar ferramenta de IA' });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message,
+        ...(tool.method === 'POST' && error.statusCode >= 500 ? { outcome: 'UNKNOWN', warning: 'O destino pode ter executado a operação. Confira antes de repetir.' } : {}) });
+      throw error;
     }
   });
 
@@ -4061,171 +1752,28 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const list = await AiKnowledgeRepository.listByTenant(tenantId);
       res.json(list || []);
     } catch (e: any) {
-      console.error('[AI Knowledge] Erro ao listar conhecimento:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar base de conhecimento' });
     }
   });
 
-  app.post('/api/v1/ai/knowledge', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para cadastrar documento.' });
-    }
-    const newDoc = {
-      id: `kb-${Date.now()}`,
-      tenantId,
-      title: req.body.title || 'Documento de Suporte',
-      category: req.body.category || 'Geral',
-      content: req.body.content || '',
-      fileName: req.body.fileName,
-      fileType: req.body.fileType,
-      fileSizeBytes: req.body.fileSizeBytes,
-      updatedAt: new Date().toISOString(),
-    };
-
-    try {
-      await AiKnowledgeRepository.save(newDoc);
-
-      // Link to specified agents or default to all active agents
-      const allAgents = await AiAgentRepository.listByTenant(tenantId);
-      const targetAgents = Array.isArray(req.body.targetAgentIds) && req.body.targetAgentIds.length > 0
-        ? allAgents.filter((a) => req.body.targetAgentIds.includes(a.id))
-        : allAgents;
-
-      for (const agent of targetAgents) {
-        if (!agent.knowledgeSources.includes(newDoc.id)) {
-          agent.knowledgeSources.push(newDoc.id);
-          await AiAgentRepository.save(agent);
-        }
-      }
-
-      res.status(201).json(newDoc);
-    } catch (e: any) {
-      console.error('[AI Knowledge] Erro ao salvar documento RAG:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao salvar documento na base de conhecimento' });
-    }
-  });
-
-  // Dedicated file upload endpoint for Knowledge Base (TXT, PDF, MD, etc.)
-  app.post('/api/v1/ai/knowledge/upload', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const { fileName, fileType, base64Data, rawText, title, category, targetAgentIds } = req.body;
-      let tenantId: string;
-      try {
-        tenantId = resolveTenantContext(req).tenantId;
-      } catch {
-        return res.status(400).json({ error: 'Tenant ID é obrigatório para upload na base de conhecimento.' });
-      }
-
-      if (!fileName && !rawText) {
-        return res.status(400).json({ error: 'Nenhum arquivo ou texto fornecido.' });
-      }
-
-      // Extract and structure content using Gemini multimodal or stream parser
-      const extracted = await geminiService.extractKnowledgeFromDocument({
-        fileName: fileName || 'manual_suporte.txt',
-        fileType: fileType || 'text/plain',
-        base64Data,
-        rawText,
-      });
-
-      const newDoc = {
-        id: `kb-${Date.now()}`,
-        tenantId,
-        title: title || extracted.title,
-        category: category || extracted.category,
-        content: rawText || extracted.content,
-        fileName: fileName || 'manual.txt',
-        fileType: fileType || 'text/plain',
-        fileSizeBytes: base64Data ? Math.round((base64Data.length * 3) / 4) : (rawText?.length || 0),
-        updatedAt: new Date().toISOString(),
-      };
-
-      await AiKnowledgeRepository.save(newDoc);
-
-      // Link to designated agents or all active voice agents for instant grounding
-      const allAgents = await AiAgentRepository.listByTenant(tenantId);
-      const targetAgents = Array.isArray(targetAgentIds) && targetAgentIds.length > 0
-        ? allAgents.filter((a) => targetAgentIds.includes(a.id))
-        : allAgents;
-
-      for (const agent of targetAgents) {
-        if (!agent.knowledgeSources.includes(newDoc.id)) {
-          agent.knowledgeSources.push(newDoc.id);
-          await AiAgentRepository.save(agent);
-        }
-      }
-
-      res.status(201).json({
-        success: true,
-        doc: newDoc,
-        message: 'Arquivo carregado e integrado com sucesso à base de conhecimento dos agentes.',
-      });
-    } catch (err: unknown) {
-      console.error('Error in knowledge upload:', err);
-      res.status(500).json({
-        error: 'Erro ao processar e salvar arquivo na base de conhecimento.',
-        details: err instanceof Error ? err.message : String(err),
-      });
-    }
-  });
-
-  app.put('/api/v1/ai/knowledge/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const prev = await AiKnowledgeRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!prev) return res.status(404).json({ error: 'Documento RAG não encontrado' });
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O documento pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      const updated = { ...prev, ...req.body, id: prev.id, tenantId: prev.tenantId, updatedAt: new Date().toISOString() };
-      await AiKnowledgeRepository.save(updated);
-      res.json(updated);
-    } catch (e: any) {
-      console.error('[AI Knowledge] Erro ao atualizar documento:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao atualizar documento RAG' });
-    }
-  });
-
-  app.delete('/api/v1/ai/knowledge/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const id = req.params.id;
-      const prev = await AiKnowledgeRepository.findAnyByIdForSuperAdmin(id);
-      if (!prev) {
-        return res.status(404).json({ error: 'Documento RAG não encontrado' });
-      }
-
-      // Verificação BOLA/IDOR estrita
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && prev.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({
-          error: `Acesso proibido. O documento pertence ao tenant '${prev.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-          code: 'TENANT_CROSS_OPERATION_FORBIDDEN'
-        });
-      }
-
-      await AiKnowledgeRepository.delete(id, prev.tenantId);
-      const agents = await AiAgentRepository.listByTenant(prev.tenantId);
-      for (const agent of agents) {
-        if (agent.knowledgeSources.includes(id)) {
-          agent.knowledgeSources = agent.knowledgeSources.filter((kId) => kId !== id);
-          await AiAgentRepository.save(agent);
-        }
-      }
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error('[AI Knowledge] Erro ao excluir documento:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao excluir documento RAG' });
-    }
-  });
+  const createKnowledge=async(req:any,res:any,upload=false)=>{try{
+    const context=resolveTenantContext(req);if(context.accessMode==='GLOBAL')throw new OutboundHttpError('Selecione uma empresa.',400);
+    const patch=upload?knowledgeUpload(req.body):knowledgePatch(req.body,true);await aiConfigurationAudit(req,context.tenantId,'CREATE_AI_KNOWLEDGE_ATTEMPT','ai/knowledge/new');
+    const id=await AiConfigurationRepository.knowledge(context.tenantId,undefined,patch);const doc=await AiKnowledgeRepository.findById(id,context.tenantId);
+    return res.status(201).json(upload?{success:true,doc,message:'Texto revisado salvo e vínculos registrados.'}:doc);
+  }catch(error){return aiConfigurationFailure(error,res);}};
+  app.post('/api/v1/ai/knowledge',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>createKnowledge(req,res));
+  app.post('/api/v1/ai/knowledge/upload',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>createKnowledge(req,res,true));
+  app.put('/api/v1/ai/knowledge/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findAiConfiguration(req,'knowledge');if(!previous)throw new OutboundHttpError('Documento não encontrado nesta empresa.',404);
+    const patch=knowledgePatch(req.body);await aiConfigurationAudit(req,previous.tenantId,'UPDATE_AI_KNOWLEDGE_ATTEMPT','ai/knowledge/'+previous.id);
+    await AiConfigurationRepository.knowledge(previous.tenantId,previous.id,patch);return res.json(await AiKnowledgeRepository.findById(previous.id,previous.tenantId));
+  }catch(error){return aiConfigurationFailure(error,res);}});
+  app.delete('/api/v1/ai/knowledge/:id',requireAuth,requireTenant,requireRole('super_admin','admin'),async(req,res)=>{try{
+    const previous=await findAiConfiguration(req,'knowledge');if(!previous)throw new OutboundHttpError('Documento não encontrado nesta empresa.',404);
+    await aiConfigurationAudit(req,previous.tenantId,'DELETE_AI_KNOWLEDGE_ATTEMPT','ai/knowledge/'+previous.id);await AiConfigurationRepository.removeKnowledge(previous.tenantId,previous.id);return res.json({deleted:true});
+  }catch(error){return aiConfigurationFailure(error,res);}});
 
   app.get('/api/v1/ai/sessions', requireAuth, requireTenant, async (req, res) => {
     try {
@@ -4238,7 +1786,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         sessions.slice(0, 50).map(async (s) => {
           let turns: any[] = [];
           try {
-            turns = await MaiaSessionRepository.listTurns(s.id);
+            turns = await MaiaSessionRepository.listTurns(s.id,s.tenantId);
           } catch {
             turns = [];
           }
@@ -4267,7 +1815,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(enrichedSessions);
     } catch (e: any) {
-      console.error('[AI Sessions] Erro ao listar sessões:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar sessões da MaIA' });
     }
   });
@@ -4292,7 +1840,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
         : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
-      const turns = await MaiaSessionRepository.listTurns(req.params.id);
+      const turns = await MaiaSessionRepository.listTurns(req.params.id,sess.tenantId);
       res.json(turns);
     } catch (e: any) {
       res.status(500).json({ error: 'Erro ao listar turnos da sessão' });
@@ -4306,7 +1854,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
         : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
-      const tools = await MaiaSessionRepository.listToolExecutions(req.params.id);
+      const tools = await MaiaSessionRepository.listToolExecutions(req.params.id,sess.tenantId);
       res.json(tools);
     } catch (e: any) {
       res.status(500).json({ error: 'Erro ao listar execuções de ferramentas da sessão' });
@@ -4320,95 +1868,47 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
         : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
       if (!sess) return res.status(404).json({ error: 'Sessão da MaIA não encontrada' });
-      const events = await MaiaSessionRepository.listEvents(req.params.id);
+      const events = await MaiaSessionRepository.listEvents(req.params.id,sess.tenantId);
       res.json(events);
     } catch (e: any) {
       res.status(500).json({ error: 'Erro ao listar eventos da sessão' });
     }
   });
 
-  app.post('/api/v1/ai/sessions/:id/end', requireAuth, requireTenant, async (req, res) => {
+  app.post('/api/v1/ai/sessions/:id/end', requireAuth, requireTenant, async(req,res)=>{
     try {
-      const tenantCtx = resolveTenantContext(req);
-      const session = tenantCtx.accessMode === 'GLOBAL'
-        ? await MaiaSessionRepository.findAnyByIdForSuperAdmin(req.params.id)
-        : await MaiaSessionRepository.findById(req.params.id, tenantCtx.tenantId);
-      if (!session) return res.status(404).json({ error: 'Sessão não encontrada' });
-
-      const now = new Date();
-      const started = new Date(session.startedAt);
-      const durationSeconds = Math.max(0, Math.floor((now.getTime() - started.getTime()) / 1000));
-
-      session.status = 'completed';
-      session.endedAt = now.toISOString();
-      session.lastActivityAt = now.toISOString();
-      session.durationSeconds = durationSeconds;
-      if (req.body.summary) session.summary = req.body.summary;
-      if (req.body.csatScore) session.csatScore = req.body.csatScore;
-      if (req.body.sentiment) session.sentiment = req.body.sentiment;
-
-      await MaiaSessionRepository.updateSession(session);
-      await MaiaSessionRepository.addSessionEvent({
-        id: crypto.randomUUID(),
-        sessionId: session.id,
-        tenantId: session.tenantId,
-        eventType: 'SESSION_TERMINATED',
-        fromStatus: session.status || 'connected',
-        toStatus: 'completed',
-        payload: { reason: req.body.reason || 'Chamada finalizada pelo usuário' },
-        createdAt: now.toISOString(),
-      });
-
-      res.json({ success: true, session });
-    } catch (e: any) {
-      console.error('[AI Sessions] Erro ao encerrar sessão:', e?.message || e);
-      res.status(500).json({ error: 'Erro ao encerrar sessão da MaIA' });
-    }
+      if(Object.keys(req.body).some(key=>!['reason'].includes(key)))return res.status(400).json({error:'Resumo, nota e sentimento não podem ser definidos no encerramento da prévia.'});
+      const tenantId=getAuthorizedTenantId(req);const actor=(req as any).user;
+      await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'MAIA_PREVIEW_END_ATTEMPT',resource:'ai/sessions',category:'AI_GATEWAY',strict:true,details:'Tentativa de encerramento de sessão de prévia; não encerra canal telefônico.'});
+      res.json({success:true,session:await MaiaSessionRepository.endPreview(req.params.id,tenantId)});
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // Voice Interaction endpoint - Connects real phone voice turns with MaIA V2 Architecture
   app.post('/api/v1/ai/voice-turn', async (req, res) => {
     try {
       const authUser = (req as any).user;
-      let tenantId: string | undefined;
-
-      // 1. Se autenticado (ex: Webphone ou operador), utiliza o tenant da sessão autenticada
-      if (authUser?.tenantId) {
-        tenantId = authUser.tenantId;
-      } else if (req.body.sessionId) {
-        // 2. Se sessionId informado, valida se a sessão existe e obtém seu tenantId
-        const existingSession = await MaiaSessionRepository.findById(req.body.sessionId);
-        if (existingSession) {
-          tenantId = existingSession.tenantId;
-        }
+      const tenantId=getAuthorizedTenantId(req);
+      // O navegador não é um emissor autenticado de eventos ARI/AMI.
+      for(const key of ['channelId','asteriskChannelId','asteriskUniqueId','linkedId','callerNumber']) {
+        if(req.body[key] !== undefined)return res.status(400).json({error:'Identidade de chamada não pode ser definida pela prévia no navegador.'});
       }
-
-      // 3. Se chamada de entrada via Asterisk ARI / SIP Stasis, valida o canal
-      if (!tenantId && req.body.channelId) {
-        const sessionByChan = await MaiaSessionRepository.findByChannelId(req.body.channelId);
-        if (sessionByChan) {
-          tenantId = sessionByChan.tenantId;
-        }
-      }
-
-      // Fail-Closed estrito: Contexto de tenant é obrigatório para processar turno de voz
-      if (!tenantId) {
-        return res.status(400).json({
-          error: 'Contexto de tenant obrigatório e não determinado para a chamada de voz.',
-          code: 'TENANT_REQUIRED'
-        });
+      if(typeof req.body.userMessage!=='string' || !req.body.userMessage.trim() || req.body.userMessage.length>8000)
+        return res.status(400).json({error:'Informe uma mensagem de até 8000 caracteres.'});
+      if(req.body.sessionId!==undefined) {
+        if(typeof req.body.sessionId!=='string' || req.body.sessionId.length>128)return res.status(400).json({error:'Sessão inválida.'});
+        const existing=await MaiaSessionRepository.findById(req.body.sessionId,tenantId);
+        if(!existing)return res.status(404).json({error:'Sessão não encontrada nesta empresa.'});
+        if(existing.asteriskChannelId || existing.asteriskUniqueId || existing.linkedId)
+          return res.status(409).json({error:'Sessões telefônicas não podem ser controladas pela prévia no navegador.'});
+        if(['completed','failed'].includes(existing.status))return res.status(409).json({error:'Sessão encerrada. Inicie uma nova prévia.'});
       }
 
       const result = await maiaAIGateway.processVoiceTurn({
         agentId: req.body.agentId,
         userMessage: req.body.userMessage,
-        history: req.body.history || [],
-        callerNumber: req.body.callerNumber,
         tenantId,
         sessionId: req.body.sessionId,
-        asteriskChannelId: req.body.channelId || req.body.asteriskChannelId,
-        asteriskUniqueId: req.body.asteriskUniqueId,
-        linkedId: req.body.linkedId,
         routingProfile: req.body.routingProfile,
         authenticatedUserId: authUser?.id,
         authenticatedRole: authUser?.role,
@@ -4417,10 +1917,10 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(result);
     } catch (err: unknown) {
-      console.error('Error in voice turn endpoint:', err);
+      if(err instanceof OutboundHttpError)return res.status(err.statusCode).json({error:err.message});
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({
         error: 'Erro no AI Gateway',
-        details: err instanceof Error ? err.message : String(err),
       });
     }
   });
@@ -4437,35 +1937,22 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       });
       res.json(preview);
     } catch (err: unknown) {
-      console.error('Error in preview-voice endpoint:', err);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({
         error: 'Erro ao gerar prévia de voz',
-        details: err instanceof Error ? err.message : String(err),
       });
     }
   });
 
-  // Call summarization with Gemini
-  app.post('/api/v1/ai/summarize-call', async (req, res) => {
-    try {
-      const { transcript, caller, callee, cdrId } = req.body;
-      const result = await geminiService.summarizeAndAnalyzeCall(transcript, caller, callee);
-
-      if (cdrId) {
-        try {
-          await CdrRepository.updateAnalysis(cdrId, {
-            summary: result.summary,
-            transcription: transcript,
-          });
-        } catch (err: any) {
-          console.error('[CDR] Erro ao atualizar resumo do CDR:', err?.message || err);
-        }
-      }
-
-      res.json(result);
-    } catch (e: unknown) {
-      res.status(500).json({ error: 'Erro ao gerar resumo da chamada' });
-    }
+  const cdrAnalysisLimiter=rateLimit({windowMs:60000,limit:10,standardHeaders:true,legacyHeaders:false,message:{error:'Limite de análises excedido. Aguarde.'}});
+  const evidenceAudit=async(req:any,tenantId:string,id:string)=>{await recordAuditLog({tenantId,userId:req.user.id,userName:req.user.name,ip:req.ip,
+    action:'CDR_EVIDENCE_ATTEMPT',resource:req.params.id ? `cdr/${req.params.id}/analysis` : 'cdr/analysis',category:'AI_GATEWAY',strict:true,details:'Tentativa de seleção de trechos literais; sem gravação automática no CDR.',payload:{executionId:id}});};
+  app.post('/api/v1/ai/summarize-call',cdrAnalysisLimiter,async(req,res)=>{
+    try{
+      if(req.body.cdrId!==undefined)return res.status(400).json({error:'Use a análise do CDR para consultar sua transcrição registrada. Este endpoint não altera bilhetagem.'});
+      const tenantId=getAuthorizedTenantId(req);
+      res.json(await cdrEvidence(tenantId,req.body.transcript,id=>evidenceAudit(req,tenantId,id)));
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // -------------------------------------------------------------------------
@@ -4479,270 +1966,138 @@ PersistentKeepalive = ${peer.persistentKeepalive}
         : await CdrRepository.listByTenant(tenantCtx.tenantId, { limit: 100 });
       res.json(records || []);
     } catch (e: any) {
-      console.error('[CDR] Erro ao consultar CdrRepository:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao consultar bilhetagem no PostgreSQL' });
     }
   });
 
-  app.post('/api/v1/cdr/:id/summarize', requireAuth, requireTenant, async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const record = await CdrRepository.findAnyByIdForSuperAdmin(req.params.id);
-      if (!record) {
-        return res.status(404).json({ error: 'Registro CDR não encontrado.' });
-      }
-
-      // Isolamento BOLA/IDOR: operador/admin não analisa chamadas de outro tenant
-      if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && record.tenantId !== tenantCtx.tenantId) {
-        return res.status(403).json({ error: 'Acesso não autorizado a esta chamada.', code: 'TENANT_CROSS_OPERATION_FORBIDDEN' });
-      }
-
-      if (!record.transcription && !record.recordingUrl) {
-        return res.status(400).json({
-          error: 'Esta chamada não possui transcrição fonética nem gravação de áudio anexada para análise (NO_DATA).'
-        });
-      }
-
-      const transcript = record.transcription;
-      if (!transcript || transcript.trim() === '') {
-        return res.status(400).json({
-          error: 'Transcrição fonética vazia ou não disponível para processamento por IA (NO_DATA).'
-        });
-      }
-
-      const analysis = await geminiService.summarizeAndAnalyzeCall(
-        transcript,
-        record.caller,
-        record.callee
-      );
-
-      record.summary = analysis.summary;
-      await CdrRepository.updateAnalysis(record.id, {
-        summary: analysis.summary,
-        transcription: transcript,
-      });
-
-      res.json({ success: true, analysis, cdr: record });
-    } catch (e) {
-      console.error('Error summarizing CDR:', e);
-      res.status(500).json({ error: 'Erro ao processar análise da chamada com Gemini.' });
-    }
+  const authorizedCdr=async(req:any)=>{
+    const context=resolveTenantContext(req);
+    return context.accessMode==='GLOBAL' ? CdrRepository.findAnyByIdForSuperAdmin(req.params.id) : CdrRepository.findById(req.params.id,context.tenantId);
+  };
+  app.post('/api/v1/cdr/:id/summarize',requireRole('super_admin','admin','supervisor'),cdrAnalysisLimiter,async(req,res)=>{
+    try{
+      const record=await authorizedCdr(req);if(!record)return res.status(404).json({error:'Registro CDR não encontrado nesta empresa.'});
+      res.json({cdrId:record.id,analysis:await cdrEvidence(record.tenantId,record.transcription,id=>evidenceAudit(req,record.tenantId,id))});
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
+  });
+  app.get('/api/v1/cdr/:id/recording',async(req,res)=>{
+    try{
+      const record=await authorizedCdr(req);if(!record)return res.status(404).json({error:'Registro CDR não encontrado nesta empresa.'});
+      if(!record.recordingUrl)return res.status(404).json({error:'CDR sem gravação vinculada.'});
+      const file=await openRecording(record.recordingUrl);
+      try{
+        await recordAuditLog({tenantId:record.tenantId,userId:(req as any).user.id,userName:(req as any).user.name,ip:req.ip,
+          action:'CDR_RECORDING_ACCESS',resource:`cdr/${record.id}`,category:'LGPD_ACCESS',strict:true,details:'Acesso autenticado ao arquivo original de gravação.'});
+      }catch(error){await file.handle.close();throw error;}
+      res.setHeader('Content-Type',file.type);res.setHeader('Content-Length',file.size);
+      res.setHeader('Content-Disposition',`attachment; filename="${file.filename}"`);
+      const stream=file.handle.createReadStream({autoClose:true,end:file.size-1});
+      res.on('close',()=>stream.destroy());stream.on('error',()=>res.destroy());stream.pipe(res);
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // -------------------------------------------------------------------------
   // Asterisk Core & Config Generation
   // -------------------------------------------------------------------------
-  app.get('/api/v1/asterisk/channels', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
+  app.get('/api/v1/asterisk/channels', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator','agent'), async (req, res) => {
     try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const channels = await asteriskService.getActiveChannels(tenantId, isSuper);
-      res.json(channels);
+      res.json((await actorChannels(req)).map(channelDto));
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Falha ao consultar os canais de telefonia.' });
     }
   });
 
-  app.post('/api/v1/asterisk/channels', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
+  const callControlLimiter = rateLimit({ windowMs:60000, limit:30, standardHeaders:true, legacyHeaders:false,
+    message:{error:'Limite de operações de telefonia excedido. Aguarde antes de uma nova solicitação.'} });
+  app.use('/api/v1/asterisk/channels', (req,res,next)=> ['GET','HEAD'].includes(req.method) ? next() : callControlLimiter(req,res,next));
+  const callAttempt = async (req:any, operation:string) => {
+    const actor=req.user;
+    await recordAuditLog({ tenantId:resolveTenantContext(req).tenantId || 'SYSTEM', userId:actor.id,userName:actor.name,
+      action:operation,resource:'asterisk/channels',ip:req.ip,category:'TELECOM_SIP',strict:true,
+      details:'Tentativa administrativa de controle de chamada; aceite AMI não comprova execução concluída.',
+      payload:{requestId:req.res.locals.requestId} });
+  };
+  const callFailure = (error:unknown,res:any) => {
+    if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});
+    const failure=telephonyFailure(error);return res.status(failure.status).json({error:failure.error});
+  };
+  app.post('/api/v1/asterisk/channels', requireRole('super_admin','admin','supervisor','operator','agent'),async(req,res)=>{
     try {
-      const tenantCtx = resolveTenantContext(req);
-      const user = (req as any).user;
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      if (!tenantId && !isSuper) {
-        return res.status(403).json({ error: 'Tenant obrigatório para originar chamadas.' });
+      const caller=callExtension(req.body.caller);const callee=callExtension(req.body.callee);
+      assertOwnCaller((req as any).user,caller);
+      if(req.body.isAi !== undefined && req.body.isAi !== false)return res.status(501).json({error:'Ponte de IA não homologada para esta originação.'});
+      const context=resolveTenantContext(req);
+      await callAttempt(req,'ORIGINATE_CHANNEL_ATTEMPT');
+      res.status(202).json(await asteriskService.originateCall(caller,callee,context.tenantId,false,false));
+    }catch(error){callFailure(error,res);}
+  });
+  const hangupCall = async(req:any,res:any)=>{
+    try {channelReference(req.params.id);const context=resolveTenantContext(req);
+      await assertChannelActor(req,req.params.id);
+      await callAttempt(req,'HANGUP_CHANNEL_ATTEMPT');
+      const result=await asteriskService.hangupChannel(req.params.id,context.tenantId,context.actorRole==='super_admin');
+      res.status(202).json(result);
+    }catch(error){callFailure(error,res);}
+  };
+  app.delete('/api/v1/asterisk/channels/:id',requireRole('super_admin','admin','supervisor','operator','agent'),hangupCall);
+  app.post('/api/v1/asterisk/channels/:id/hangup',requireRole('super_admin','admin','supervisor','operator','agent'),hangupCall);
+  app.post('/api/v1/asterisk/channels/:id/transfer',requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+    try {channelReference(req.params.id);const destination=callExtension(req.body.destination);const context=resolveTenantContext(req);
+      await assertChannelActor(req,req.params.id);
+      await callAttempt(req,'TRANSFER_CHANNEL_ATTEMPT');
+      res.status(202).json(await asteriskService.transferChannel(req.params.id,destination,context.tenantId,context.actorRole==='super_admin'));
+    }catch(error){callFailure(error,res);}
+  });
+  app.post('/api/v1/asterisk/channels/:id/redirect',requireRole('super_admin','admin','supervisor'),async(req,res)=>{
+    try {channelReference(req.params.id);const destination=callExtension(req.body.destination);const context=resolveTenantContext(req);
+      if(req.body.context!=='from-internal' || req.body.priority!==1)return res.status(400).json({error:'Informe from-internal e prioridade 1.'});
+      await callAttempt(req,'REDIRECT_CHANNEL_ATTEMPT');
+      res.status(202).json(await asteriskService.redirectChannel(req.params.id,'from-internal',destination,1,context.tenantId,context.actorRole==='super_admin'));
+    }catch(error){callFailure(error,res);}
+  });
+  app.post('/api/v1/asterisk/channels/:id/spy',requireRole('super_admin','admin','supervisor'),async(req,res)=>{
+    try {channelReference(req.params.id);const supervisor=callExtension(req.body.supervisorExt);const context=resolveTenantContext(req);
+      await callAttempt(req,'CHANSPY_CHANNEL_ATTEMPT');
+      res.status(202).json(await asteriskService.spyChannel(req.params.id,supervisor,context.tenantId,context.actorRole==='super_admin'));
+    }catch(error){callFailure(error,res);}
+  });
+
+  app.get('/api/v1/asterisk/configs',requireAuth,requireTenant,requireRole('super_admin'),async(req,res)=>{try{
+    const tenantId=getAuthorizedTenantId(req);if(!tenantId)return res.status(400).json({error:'Selecione uma empresa.'});
+    return res.json(await postgresClient.withReadSnapshot(async()=>({
+      pjsipConf:await asteriskService.generatePjsipConf(tenantId,true),
+      extensionsConf:await asteriskService.generateExtensionsConf(tenantId),
+      ariConf:asteriskService.generateAriConf(true),
+      queuesConf:await asteriskService.generateQueuesConf(tenantId),
+      rtpConf:await asteriskService.generateRtpConf(),
+      status:'DRAFT_NOT_APPLIED',unavailable:{audioSocket:'NOT_IMPLEMENTED',installerScript:'LEGACY_RETIRED'},
+    })));
+  }catch(error){return administrativeFailure(error,res);}});
+  app.get('/api/v1/asterisk/configs/:file',requireAuth,requireTenant,requireRole('super_admin'),async(req,res)=>{try{
+    const tenantId=getAuthorizedTenantId(req);if(!tenantId)return res.status(400).json({error:'Selecione uma empresa.'});
+    const content=await postgresClient.withReadSnapshot(async()=>{
+      switch(req.params.file){
+        case 'pjsip':return asteriskService.generatePjsipConf(tenantId,true);
+        case 'extensions':return asteriskService.generateExtensionsConf(tenantId);
+        case 'ari':return asteriskService.generateAriConf(true);
+        case 'queues':return asteriskService.generateQueuesConf(tenantId);
+        case 'rtp':return asteriskService.generateRtpConf();
+        case 'audiosocket':return asteriskService.generateAudioSocketConf();
+        default:throw new OutboundHttpError('Arquivo de configuração não encontrado.',404);
       }
-      const chan = await asteriskService.originateCall(
-        req.body.caller || user?.extension || '4101',
-        req.body.callee || '4102',
-        tenantId,
-        Boolean(req.body.isAi),
-        isSuper
-      );
-      res.status(201).json(chan);
-    } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
-    }
-  });
-
-  app.delete('/api/v1/asterisk/channels/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
-      res.json({ success });
-    } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
-    }
-  });
-
-  app.post('/api/v1/asterisk/channels/:id/hangup', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const success = await asteriskService.hangupChannel(req.params.id, tenantId, isSuper);
-      recordAuditLog({
-        tenantId: tenantId || 'SYSTEM',
-        action: 'HANGUP_CHANNEL',
-        resource: `channels/${req.params.id}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Canal ${req.params.id} desconectado manualmente via comando ARI/CLI.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-      });
-      res.json({ success, message: `Canal ${req.params.id} encerrado.` });
-    } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
-    }
-  });
-
-  app.post('/api/v1/asterisk/channels/:id/transfer', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const destination = (req.body.destination || '4102').trim();
-      const chan = await asteriskService.transferChannel(req.params.id, destination, tenantId, isSuper);
-      if (!chan) {
-        return res.status(404).json({ error: 'Canal não encontrado para transferência.' });
-      }
-      recordAuditLog({
-        tenantId: tenantId || 'SYSTEM',
-        action: 'TRANSFER_CHANNEL',
-        resource: `channels/${req.params.id}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Transferência cega/assistida do canal ${chan.name} para destino ${destination}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-      });
-      res.json({ success: true, channel: chan, message: `Canal transferido para ${destination}.` });
-    } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
-    }
-  });
-
-  app.post('/api/v1/asterisk/channels/:id/redirect', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const context = (req.body.context || 'from-internal').trim();
-      const destination = (req.body.destination || '4102').trim();
-      const priority = Number(req.body.priority) || 1;
-      const success = await asteriskService.redirectChannel(req.params.id, context, destination, priority, tenantId, isSuper);
-      recordAuditLog({
-        tenantId: tenantId || 'SYSTEM',
-        action: 'REDIRECT_CHANNEL',
-        resource: `channels/${req.params.id}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Redirecionamento de canal ${req.params.id} para ${destination}@${context},${priority}.`,
-        category: 'TELECOM_SIP',
-        severity: 'INFO',
-      });
-      res.json({ success, message: `Canal ${req.params.id} redirecionado para ${destination}.` });
-    } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
-    }
-  });
-
-  app.post('/api/v1/asterisk/channels/:id/spy', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    try {
-      const tenantCtx = resolveTenantContext(req);
-      const user = (req as any).user;
-      const isSuper = tenantCtx.accessMode === 'GLOBAL' || (tenantCtx.actorRole === 'super_admin' && tenantCtx.accessMode === 'SUPER_ADMIN_TARGET');
-      const tenantId = tenantCtx.tenantId;
-      const supervisorExt = (req.body.supervisorExt || user?.extension || '4101').trim();
-      const spyChan = await asteriskService.spyChannel(req.params.id, supervisorExt, tenantId, isSuper);
-      recordAuditLog({
-        tenantId: tenantId || 'SYSTEM',
-        action: 'CHANSPY_CHANNEL',
-        resource: `channels/${req.params.id}`,
-        ip: req.ip || '127.0.0.1',
-        details: `Originação de ChanSpy no ramal supervisor ${supervisorExt} para monitoramento silencioso do canal ${req.params.id}.`,
-        category: 'TELECOM_SIP',
-        severity: 'WARNING',
-      });
-      res.json({ success: true, channel: spyChan, message: `ChanSpy iniciado no ramal ${supervisorExt}.` });
-    } catch (err: any) {
-      res.status(err.message.includes('ACCESS_DENIED') ? 403 : 500).json({ error: err.message });
-    }
-  });
-
-  app.get('/api/v1/asterisk/configs', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para gerar configurações do Asterisk.' });
-    }
-    // Sempre mascara segredos para exibição segura na API administrativa
-    res.json({
-      pjsipConf: await asteriskService.generatePjsipConf(tenantId, true),
-      extensionsConf: asteriskService.generateExtensionsConf(tenantId),
-      ariConf: asteriskService.generateAriConf(true),
-      queuesConf: await asteriskService.generateQueuesConf(tenantId),
-      rtpConf: asteriskService.generateRtpConf(),
-      audioSocketConf: asteriskService.generateAudioSocketConf(),
-      installerScript: asteriskService.generateInstallScript(),
     });
-  });
+    return res.type('text/plain').send(content);
+  }catch(error){return administrativeFailure(error,res);}});
+  app.get('/api/v1/asterisk/install-script',requireAuth,requireRole('super_admin'),(_req,res)=>res.status(501).json({code:'LEGACY_INSTALLER_RETIRED',error:'Use install-enlace-pbx.sh e o procedimento revisado do repositório. Download legado retirado.'}));
 
-  app.get('/api/v1/asterisk/configs/:file', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
-    }
-    const { file } = req.params;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-
-    // Mascara segredos para visualização na UI administrativa
-    if (file === 'pjsip') {
-      return res.send(await asteriskService.generatePjsipConf(tenantId, true));
-    }
-    if (file === 'extensions') {
-      return res.send(asteriskService.generateExtensionsConf(tenantId));
-    }
-    if (file === 'ari') {
-      return res.send(asteriskService.generateAriConf(true));
-    }
-    if (file === 'queues') {
-      return res.send(await asteriskService.generateQueuesConf(tenantId));
-    }
-    if (file === 'rtp') {
-      return res.send(asteriskService.generateRtpConf());
-    }
-    if (file === 'audiosocket') {
-      return res.send(asteriskService.generateAudioSocketConf());
-    }
-    return res.status(404).send('; Arquivo de configuração não encontrado');
-  });
-
-  app.get('/api/v1/asterisk/install-script', requireAuth, requireRole('super_admin', 'admin'), (req, res) => {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(asteriskService.generateInstallScript());
-  });
-
-  app.post('/api/v1/asterisk/reload', requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantId = (req as any).user?.tenantId || 'SYSTEM';
-    const userId = (req as any).user?.id || 'admin';
-    const ip = req.ip || '127.0.0.1';
-
-    const output = await asteriskService.executeCliCommand('core reload', { tenantId, userId, ip });
-    recordAuditLog({
-      tenantId,
-      userId,
-      userName: (req as any).user?.name || 'Administrador',
-      action: 'RELOAD_ASTERISK_CORE',
-      resource: 'asterisk/core',
-      ip,
-      details: 'Recarregamento seguro dos módulos do Asterisk (PJSIP, Dialplan, AudioSocket e ARI).',
-      category: 'TELECOM_SIP',
-      severity: 'WARNING',
-    });
-    res.json({ success: true, message: output });
+  app.post('/api/v1/asterisk/reload', requireRole('super_admin'), async (req,res) => {
+    await recordAuditLog({ tenantId:(req as any).user.tenantId || 'SYSTEM',userId:(req as any).user.id,
+      userName:(req as any).user.name,action:'RELOAD_ASTERISK_CORE_ATTEMPT',resource:'asterisk/core',ip:req.ip,
+      details:'Tentativa de envio de core reload; não certifica recarga individual de módulos.',category:'TELECOM_SIP',strict:true });
+    const result=await AsteriskCommandService.executeSafeCli('core reload');
+    if(!result.success)return res.status(502).json({error:'Comando de recarga sem confirmação do Asterisk.'});
+    res.json({success:true,message:'Comando core reload aceito. Verifique o estado dos módulos no host.'});
   });
 
   app.post('/api/v1/asterisk/cli', requireRole('super_admin', 'admin'), async (req, res) => {
@@ -4765,41 +2120,82 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Webhooks & Audit Logs & Users
   // -------------------------------------------------------------------------
-  app.get('/api/v1/webhooks', async (req, res) => {
-    const hooks = await SystemRepository.getWebhooks();
-    res.json(hooks);
+  app.get('/api/v1/webhooks', requireRole('super_admin', 'admin'), async (req, res) => {
+    res.json(await WebhookRepository.list(getAuthorizedTenantId(req)));
   });
-  app.post('/api/v1/webhooks/test', requireAuth, requireTenant, requireRole('super_admin', 'admin'), (req, res) => {
-    let tenantId: string;
+  app.post('/api/v1/webhooks', requireRole('super_admin', 'admin'), async (req, res) => {
     try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      tenantId = 'UNKNOWN';
+      const input = validateWebhook({ ...req.body, enabled: req.body.enabled ?? false });
+      const tenantId = getAuthorizedTenantId(req);
+      await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+        action: 'WEBHOOK_CREATE_ATTEMPT', resource: 'webhooks', category: 'SYSTEM', strict: true, details: 'Tentativa de cadastro de webhook de teste.' });
+      res.status(201).json(await WebhookRepository.create(tenantId, input));
+    } catch (error) {
+      if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message });
+      throw error;
     }
-    res.json({
-      event: req.body.event || 'call.started',
-      deliveredAt: new Date().toISOString(),
-      httpStatus: 200,
-      responseTimeMs: 142,
-      payload: {
-        tenant_id: tenantId,
-        call_id: 'call-test-9981',
-        caller: '4101',
-        callee: '08007702020',
-        timestamp: Math.floor(Date.now() / 1000),
-      },
-    });
+  });
+  app.put('/api/v1/webhooks/:id', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    const hook = await WebhookRepository.find(tenantId, req.params.id);
+    if (!hook) return res.status(404).json({ error: 'Webhook não encontrado.' });
+    try {
+      const input = validateWebhook({ ...hook, ...req.body });
+      await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+        action: 'WEBHOOK_UPDATE_ATTEMPT', resource: `webhooks/${hook.id}`, category: 'SYSTEM', strict: true, details: 'Tentativa de atualização de webhook de teste.' });
+      res.json(await WebhookRepository.update(tenantId, hook.id, input));
+    } catch (error) {
+      if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message });
+      throw error;
+    }
+  });
+  app.get('/api/v1/webhooks/:id/deliveries', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    if (!await WebhookRepository.find(tenantId, req.params.id)) return res.status(404).json({ error: 'Webhook não encontrado.' });
+    res.json(await WebhookRepository.deliveries(tenantId, req.params.id));
+  });
+  const webhookTestLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Limite de testes de webhook atingido. Aguarde um minuto.' } });
+  app.post('/api/v1/webhooks/test', requireRole('super_admin', 'admin'), webhookTestLimiter, async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    if (typeof req.body.webhookId !== 'string') return res.status(400).json({ error: 'Informe o ID de um webhook cadastrado.' });
+    const hook = await WebhookRepository.find(tenantId, req.body.webhookId);
+    if (!hook) return res.status(404).json({ error: 'Webhook não encontrado.' });
+    let attempt: ReturnType<typeof prepareWebhookTest>;
+    try { attempt = prepareWebhookTest(hook); }
+    catch (error) { if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message }); throw error; }
+    await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+      action: 'WEBHOOK_HTTP_ATTEMPT', resource: `webhooks/${hook.id}`, category: 'SYSTEM', strict: true,
+      details: 'Tentativa de entrega HTTP de evento explícito de teste.', payload: { deliveryId: attempt.id } });
+    await WebhookRepository.begin(tenantId, hook.id, attempt.id);
+    let response: Awaited<ReturnType<typeof attempt.send>>;
+    try { response = await attempt.send(); }
+    catch (error) {
+      await WebhookRepository.finish(tenantId, attempt.id, 'UNKNOWN', error instanceof OutboundHttpError ? error.upstreamStatus : undefined, undefined,
+        error instanceof OutboundHttpError ? error.message : 'Entrega não confirmada.');
+      return res.status(502).json({ deliveryId: attempt.id, outcome: 'UNKNOWN', error: 'Entrega não confirmada. Consulte o destino antes de repetir.' });
+    }
+    try {
+      const delivery = await WebhookRepository.finish(tenantId, attempt.id, 'ACKNOWLEDGED', response.status, response.durationMs);
+      if (!delivery) throw new Error();
+      res.json({ deliveryId: attempt.id, status: 'ACKNOWLEDGED', httpStatus: response.status, durationMs: response.durationMs });
+    } catch {
+      res.status(503).json({ deliveryId: attempt.id, outcome: 'UNKNOWN', error: 'Destino respondeu, mas não foi possível confirmar o histórico. Consulte o destino antes de repetir.' });
+    }
   });
 
-  app.get('/api/v1/audit-logs', async (req, res) => {
+  app.get('/api/v1/audit-logs', requireRole('super_admin', 'admin', 'supervisor', 'readonly'), async (req, res) => {
     const { category, severity, search, format, limit } = req.query;
     try {
-      const { logs } = await AuditLogRepository.listAll({
-        category: category as string,
-        severity: severity as string,
-        search: search as string,
-        limit: limit ? parseInt(String(limit), 10) : 100,
-      });
+      const context = resolveTenantContext(req);
+      const maxLogs = Math.min(1000, Math.max(1, Number(limit) || 100));
+      const logs = context.accessMode === 'GLOBAL'
+        ? (await AuditLogRepository.listAll({ category: category as string, severity: severity as string, search: search as string, limit: maxLogs })).logs
+        : (await AuditLogRepository.listByTenant(context, maxLogs)).filter(log =>
+          (!category || category === 'ALL' || log.category === category) &&
+          (!severity || severity === 'ALL' || log.severity === severity) &&
+          (!search || JSON.stringify(log).toLowerCase().includes(String(search).toLowerCase())));
+
 
       // SIEM RFC 5424 Syslog Export
       if (format === 'syslog') {
@@ -4814,7 +2210,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
       res.json(logs);
     } catch (e: any) {
-      console.error('[AuditLogs] Erro ao listar logs:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar logs de auditoria' });
     }
   });
@@ -4823,36 +2219,24 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   app.post('/api/v1/audit-logs/verify-integrity', requireRole('super_admin', 'admin', 'supervisor', 'readonly'), async (req, res) => {
     const { logId } = req.body;
     try {
+      const context = resolveTenantContext(req);
       if (logId) {
-        const log = await AuditLogRepository.findById(logId);
+        const log = await AuditLogRepository.findById(logId, context);
         if (!log) return res.status(404).json({ error: 'Registro de auditoria não encontrado.' });
-
-        const payloadStr = JSON.stringify(log.payload || {});
-        const calculatedHash = crypto.createHash('sha256').update(`${log.id}|${log.tenantId}|${log.action}|${log.resource}|${log.timestamp}|${payloadStr}`).digest('hex');
-        const isAuthentic = !log.sha256Hash || log.sha256Hash.length === 64; // In PostgreSQL, valid SHA-256 length
-
-        return res.json({
-          logId: log.id,
-          storedHash: log.sha256Hash,
-          calculatedHash,
-          isAuthentic: true,
-          verifiedAt: new Date().toISOString(),
-          algorithm: 'SHA-256 (NIST FIPS 180-4)',
-          chainOfCustodyStatus: 'INTEGRAL_UNALTERED',
+        const calculatedHash = AuditLogRepository.computeCanonicalHash({
+          previousHash: log.previousHash || '0'.repeat(64), id: log.id, tenantId: log.tenantId,
+          userId: log.userId, action: log.action, resource: log.resource, timestamp: log.timestamp,
         });
+        const isAuthentic = calculatedHash === log.sha256Hash;
+        return res.json({ logId: log.id, storedHash: log.sha256Hash, calculatedHash, isAuthentic,
+          verifiedAt: new Date().toISOString(), algorithm: 'SHA-256',
+          chainOfCustodyStatus: isAuthentic ? 'HASH_VALID' : 'HASH_MISMATCH' });
       }
-
-      // Check all logs
-      const { total } = await AuditLogRepository.listAll({ limit: 1 });
-      res.json({
-        totalLogsAudited: total,
-        compromisedCount: 0,
-        chainOfCustodyStatus: 'COMPLIANT_LGPD_GRADE',
-        algorithm: 'SHA-256 (HMAC-free Merkle Anchor)',
-        lastAuditCheck: new Date().toISOString(),
-      });
+      if (!context.tenantId) return res.status(400).json({ error: 'Selecione uma empresa para verificar a cadeia.' });
+      const result = await AuditLogRepository.verifyChain(context);
+      res.json({ ...result, chainOfCustodyStatus: result.valid ? 'CHAIN_VALID' : 'CHAIN_BROKEN' });
     } catch (e: any) {
-      console.error('[AuditLogs] Erro ao verificar integridade:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao verificar integridade dos logs' });
     }
   });
@@ -4879,7 +2263,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.status(201).json(log);
   });
 
-  app.get('/api/v1/users', requireAuth, requireTenant, async (req, res) => {
+  app.get('/api/v1/users', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const tenantCtx = resolveTenantContext(req);
       const list = (tenantCtx.accessMode === 'GLOBAL')
@@ -4889,194 +2273,27 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       const safeList = list.map((u) => UserRepository.toSafeUser(u));
       res.json(safeList);
     } catch (e: any) {
-      console.error('[Users] Erro ao listar usuários:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar usuários no PostgreSQL' });
     }
   });
 
-  app.post('/api/v1/users', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const authUser = (req as any).user;
-    const { name, email, role, extension, password } = req.body;
-
-    // Tenant obtido estritamente da autoridade canônica autorizada
-    const tenantId = getAuthorizedTenantId(req);
-
-    if (!name || !email) {
-      return res.status(400).json({ error: 'Nome e e-mail são campos obrigatórios.' });
-    }
-
-    // Prevenção de escalada de privilégios: apenas super_admin pode criar super_admin
-    const targetRole = role || 'operador';
-    if (targetRole === 'super_admin' && authUser.role !== 'super_admin') {
-      return res.status(403).json({
-        error: 'Acesso proibido. Administradores de tenant não possuem permissão para criar usuários super_admin.',
-        code: 'PRIVILEGE_ESCALATION_BLOCKED',
-      });
-    }
-
-    // Validação de e-mail existente
-    const existing = await UserRepository.findByEmail(email.trim().toLowerCase());
-    if (existing) {
-      return res.status(409).json({ error: 'Já existe um usuário cadastrado com este e-mail.' });
-    }
-
-    // Hash de senha estritamente via bcrypt (custo 10)
-    let passwordHash = '';
-    if (password && typeof password === 'string' && password.trim().length > 0) {
-      if (password.trim().length < 6) {
-        return res.status(400).json({ error: 'A senha do usuário deve ter no mínimo 6 caracteres.' });
-      }
-      passwordHash = await bcrypt.hash(password.trim(), 10);
-    } else {
-      // Gera senha temporária criptográfica segura caso não fornecida
-      const tempPass = crypto.randomBytes(8).toString('hex');
-      passwordHash = await bcrypt.hash(tempPass, 10);
-    }
-
-    const newUser: User = {
-      id: `user-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-      tenantId,
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      role: targetRole,
-      extension: extension || undefined,
-      passwordHash,
-      isActive: req.body.isActive !== false,
-      lastLogin: new Date().toISOString(),
-    };
-
-    await UserRepository.save(newUser);
-
-    recordAuditLog({
-      tenantId: newUser.tenantId,
-      userId: authUser.id,
-      userName: authUser.name,
-      action: 'CREATE_USER',
-      category: 'USER_MGMT',
-      resource: `users/${newUser.id}`,
-      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-      details: `Criação do usuário ${newUser.name} (${newUser.email}) com papel '${newUser.role}' no tenant '${newUser.tenantId}'.`,
-    });
-
-    // NUNCA retornar passwordHash para o frontend
-    res.status(201).json(UserRepository.toSafeUser(newUser));
-  });
-
-  app.put('/api/v1/users/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const authUser = (req as any).user;
-    const tenantCtx = resolveTenantContext(req);
-    const targetUser = await UserRepository.findAnyByIdForSuperAdmin(req.params.id);
-    if (!targetUser) {
-      return res.status(404).json({ error: 'Usuário não encontrado.' });
-    }
-
-    // Isolamento de Tenant BOLA/IDOR estrito
-    if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && targetUser.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. O usuário pertence ao tenant '${targetUser.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN',
-      });
-    }
-
-    // Prevenção de escalada de privilégios: não-super_admin não pode alterar para super_admin nem alterar papel de super_admin
-    if (req.body.role) {
-      if (req.body.role === 'super_admin' && authUser.role !== 'super_admin') {
-        return res.status(403).json({
-          error: 'Operação proibida. Somente super_admin pode atribuir o perfil de super_admin.',
-          code: 'PRIVILEGE_ESCALATION_BLOCKED',
-        });
-      }
-      if (targetUser.role === 'super_admin' && authUser.role !== 'super_admin') {
-        return res.status(403).json({
-          error: 'Operação proibida. Administrador de tenant não pode modificar uma conta super_admin.',
-          code: 'PRIVILEGE_ESCALATION_BLOCKED',
-        });
-      }
-    }
-
-    // Se senha foi informada: hash com bcrypt
-    let passwordHash = targetUser.passwordHash;
-    if (req.body.password && typeof req.body.password === 'string' && req.body.password.trim().length > 0) {
-      if (req.body.password.trim().length < 6) {
-        return res.status(400).json({ error: 'A senha do usuário deve possuir no mínimo 6 caracteres.' });
-      }
-      passwordHash = await bcrypt.hash(req.body.password.trim(), 10);
-    }
-
-    const updatedUser: User = {
-      ...targetUser,
-      name: req.body.name !== undefined ? req.body.name.trim() : targetUser.name,
-      email: req.body.email !== undefined ? req.body.email.trim().toLowerCase() : targetUser.email,
-      role: req.body.role || targetUser.role,
-      extension: req.body.extension !== undefined ? req.body.extension : targetUser.extension,
-      isActive: req.body.isActive !== undefined ? req.body.isActive : targetUser.isActive,
-      tenantId: targetUser.tenantId, // Imutável: nunca transferir usuário de tenant via payload
-      passwordHash,
-    };
-
-    await UserRepository.save(updatedUser);
-
-    recordAuditLog({
-      tenantId: updatedUser.tenantId,
-      userId: authUser.id,
-      userName: authUser.name,
-      action: 'UPDATE_USER',
-      category: 'USER_MGMT',
-      resource: `users/${req.params.id}`,
-      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-      details: `Atualização dos parâmetros do usuário ${updatedUser.name} (${updatedUser.email}).`,
-    });
-
-    res.json(UserRepository.toSafeUser(updatedUser));
-  });
-
-  app.delete('/api/v1/users/:id', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const authUser = (req as any).user;
-    const tenantCtx = resolveTenantContext(req);
-    const targetUser = await UserRepository.findAnyByIdForSuperAdmin(req.params.id);
-    if (!targetUser) {
-      return res.status(404).json({ error: 'Usuário não encontrado.' });
-    }
-
-    // Não permite auto-exclusão
-    if (authUser.id === targetUser.id) {
-      return res.status(400).json({ error: 'Operação proibida. Você não pode excluir seu próprio usuário.' });
-    }
-
-    // Isolamento de Tenant BOLA/IDOR estrito
-    if (tenantCtx.accessMode !== 'SUPER_ADMIN_TARGET' && tenantCtx.accessMode !== 'GLOBAL' && targetUser.tenantId !== tenantCtx.tenantId) {
-      return res.status(403).json({
-        error: `Acesso proibido. O usuário pertence ao tenant '${targetUser.tenantId}', incompatível com o contexto '${tenantCtx.tenantId}'.`,
-        code: 'TENANT_CROSS_OPERATION_FORBIDDEN',
-      });
-    }
-
-    // Impedir exclusão de super_admin por administrador comum
-    if (targetUser.role === 'super_admin' && authUser.role !== 'super_admin') {
-      return res.status(403).json({
-        error: 'Operação proibida. Administrador comum não pode excluir um super_admin.',
-        code: 'PRIVILEGE_ESCALATION_BLOCKED',
-      });
-    }
-
-    await UserRepository.delete(req.params.id, targetUser.tenantId);
-
-    recordAuditLog({
-      tenantId: targetUser.tenantId,
-      userId: authUser.id,
-      userName: authUser.name,
-      action: 'DELETE_USER',
-      category: 'USER_MGMT',
-      resource: `users/${req.params.id}`,
-      ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
-      details: `Exclusão do usuário ${targetUser.name} (${targetUser.email}).`,
-    });
-
-    res.json({ success: true, message: 'Usuário removido com sucesso.' });
-  });
+  const userMutationLimiter=rateLimit({windowMs:60000,limit:20,standardHeaders:true,legacyHeaders:false,message:{error:'Limite de alterações de usuários excedido.'}});
+  const mutateUser=(operation:'create'|'update'|'delete')=>async(req:any,res:any)=>{
+    try{
+      const context=resolveTenantContext(req);const scope=context.accessMode==='GLOBAL'?undefined:context.tenantId;
+      await recordAuditLog({tenantId:scope||'SYSTEM',userId:req.user.id,userName:req.user.name,ip:req.ip,action:'USER_'+operation.toUpperCase()+'_ATTEMPT',resource:req.params.id?`users/${req.params.id}`:'users',category:'USER_MGMT',strict:true,details:'Tentativa administrativa de alteração de conta; conteúdo de senha omitido.'});
+      const result=await UserManagementRepository.mutate(req.user.id,scope,operation,req.params.id,req.body);
+      res.status(operation==='create'?201:200).json(result);
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
+  };
+  app.post('/api/v1/users',requireRole('super_admin','admin'),userMutationLimiter,mutateUser('create'));
+  app.put('/api/v1/users/:id',requireRole('super_admin','admin'),userMutationLimiter,mutateUser('update'));
+  app.delete('/api/v1/users/:id',requireRole('super_admin','admin'),userMutationLimiter,mutateUser('delete'));
 
   app.get('/api/v1/tenants', async (req, res) => {
-    const list = await TenantRepository.listAll();
+    const user = (req as any).user;
+    const list = user.role === 'super_admin' ? await TenantRepository.listAll() : [await TenantRepository.findById(user.tenantId)].filter(Boolean);
     res.json(list);
   });
 
@@ -5150,6 +2367,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({ success: true, provider });
   });
 
+  app.get('/api/v1/tickets', requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    if (!tenantId) return res.status(400).json({ error: 'Selecione uma empresa para consultar os chamados.' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await TicketRepository.list(tenantId));
+  });
+
   app.get('/api/v1/crm/contacts', requireAuth, requireTenant, async (req, res) => {
     const tenantCtx = resolveTenantContext(req);
     const contacts = await CrmRepository.listContacts(tenantCtx.tenantId);
@@ -5189,7 +2413,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       if (!contact) return res.status(404).json({ error: 'Contato não encontrado para o seu tenant.' });
       res.json(contact);
     } catch (e: any) {
-      console.error('[CRM Contacts] Erro ao consultar contato:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao consultar contato no PostgreSQL.' });
     }
   });
@@ -5212,7 +2436,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await CrmRepository.saveContact(updated);
       res.json(updated);
     } catch (e: any) {
-      console.error('[CRM Contacts] Erro ao atualizar contato:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao atualizar contato no PostgreSQL.' });
     }
   });
@@ -5234,12 +2458,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       await CrmRepository.deleteContact(req.params.id, prev.tenantId);
       res.json({ success: true });
     } catch (e: any) {
-      console.error('[CRM Contacts] Erro ao excluir contato:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao excluir contato no PostgreSQL.' });
     }
   });
 
-  app.get('/api/v1/omnichannel/conversations', requireAuth, requireTenant, async (req, res) => {
+  app.get('/api/v1/omnichannel/conversations', requireAuth, requireTenant, requireRole('super_admin','admin','supervisor','operator'), async (req, res) => {
     const tenantCtx = resolveTenantContext(req);
     const conversations = await OmnichannelRepository.listConversations(tenantCtx.tenantId);
     res.json(conversations);
@@ -5247,29 +2471,27 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // --- WhatsApp & Omnichannel API ---
 
-  app.get('/api/v1/whatsapp/config', requireAuth, requireTenant, async (req, res) => {
-    const config = await SystemRepository.getWhatsappConfig();
-    res.json(config);
+  const safeWhatsappConfig = (config: any) => {
+    if (!config) return null;
+    const { accessToken, verifyToken, ...safe } = config;
+    return { ...safe, hasAccessToken: Boolean(accessToken) };
+  };
+  app.get('/api/v1/whatsapp/config', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    res.json(safeWhatsappConfig(await SystemRepository.getWhatsappConfig(undefined, tenantId)));
   });
 
-  app.post('/api/v1/whatsapp/config', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      tenantId = 'UNKNOWN';
-    }
-    const current = (await SystemRepository.getWhatsappConfig()) || { tenantId };
-    const updated = {
-      ...current,
-      tenantId,
-      phoneNumberId: req.body.phoneNumberId,
-      accessToken: req.body.accessToken,
-      verifyToken: req.body.verifyToken,
-      isActive: req.body.isActive,
-    };
+  app.post('/api/v1/whatsapp/config', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    const current = await SystemRepository.getWhatsappConfig(undefined, tenantId);
+    const phoneNumberId = String(req.body.phoneNumberId || '');
+    if (!/^\d+$/.test(phoneNumberId)) return res.status(400).json({ error: 'Identificador de número WhatsApp inválido.' });
+    const existing = await OmnichannelRepository.findIntegrationByPhoneNumberId(phoneNumberId);
+    if (existing && existing.tenantId !== tenantId) return res.status(409).json({ error: 'Número já vinculado a outra empresa.' });
+    const updated = { tenantId, phoneNumberId, isActive: req.body.isActive === true,
+      accessToken: typeof req.body.accessToken === 'string' && req.body.accessToken ? req.body.accessToken : current?.accessToken || '' };
     await SystemRepository.setWhatsappConfig(updated);
-    res.json(updated);
+    res.json(safeWhatsappConfig(updated));
   });
 
   app.post('/api/v1/whatsapp/conversations/:id/reply', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
@@ -5280,96 +2502,68 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
     }
     const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
-    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (conv.status === 'closed') return res.status(409).json({ error: 'Conversa encerrada.' });
+    if (conv.channel !== 'whatsapp') return res.status(501).json({ error: 'Este envio está disponível somente para conversas WhatsApp.' });
     
+    try{assertWorkflowAccess(conv.assignedUserId??null,(req as any).user);}catch(error){return res.status(403).json({error:'Atendimento atribuído a outro operador.'});}
     const { text } = req.body;
-    
-    const newMessage = {
-      id: `msg-${Date.now()}`,
-      sender: 'agent' as const,
-      senderName: 'Atendente',
-      content: text,
-      timestamp: new Date().toISOString(),
-      type: 'text' as const,
-    };
-    if (!conv.messages) conv.messages = [];
-    conv.messages.push(newMessage);
-    await OmnichannelRepository.save(conv);
-
-    const config = await SystemRepository.getWhatsappConfig();
-    if (config && config.isActive && config.accessToken) {
-      try {
-        const metaRes = await fetch(`https://graph.facebook.com/v17.0/${config.phoneNumberId}/messages`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${config.accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: conv.contactPhone ? conv.contactPhone.replace(/\D/g, '') : '',
-            type: 'text',
-            text: { body: text }
-          })
-        });
-        
-        if (!metaRes.ok) {
-          const errData = await metaRes.json();
-          console.error('Meta API Error:', errData);
-        }
-      } catch (err) {
-        console.error('Failed to send to Meta Graph API:', err);
-      }
+    if (typeof text !== 'string' || !text.trim() || text.length > 4096) return res.status(400).json({ error: 'Mensagem inválida.' });
+    const config = await SystemRepository.getWhatsappConfig(undefined, tenantId);
+    const graphVersion = process.env.WHATSAPP_GRAPH_API_VERSION;
+    if (!config?.isActive || !config.accessToken || !/^v\d+\.\d+$/.test(graphVersion || '')) {
+      return res.status(503).json({ error: 'Configure a integração WhatsApp e WHATSAPP_GRAPH_API_VERSION.' });
+    }
+    try {
+      const actor=(req as any).user;
+      await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'OMNICHANNEL_REPLY_ATTEMPT',resource:`omnichannel/${conv.id}`,category:'SYSTEM',strict:true,details:'Tentativa de saída humana por WhatsApp.',payload:{requestId:crypto.randomUUID()}});
+      await OmnichannelRepository.reserveHumanReply(tenantId,conv.id,actor);
+      const metaRes = await fetch(`https://graph.facebook.com/${graphVersion}/${config.phoneNumberId}/messages`, {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+        headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', to: (conv.contactPhone || conv.contactId).replace(/\D/g, ''), type: 'text', text: { body: text } }),
+      });
+      if (!metaRes.ok) return res.status(502).json({ error: 'A Meta rejeitou o envio da mensagem.' });
+      const delivery = await metaRes.json();
+      if (typeof delivery.messages?.[0]?.id!=='string'||!delivery.messages[0].id) return res.status(502).json({ error: 'Envio sem confirmação da Meta.' });
+      await OmnichannelRepository.appendAgentMessage(tenantId,conv.id,{id:delivery.messages[0].id,sender:'agent',senderName:(req as any).user.name,
+        content:text,timestamp:new Date().toISOString(),type:'text'},(req as any).user.id);
+      const updated=await OmnichannelRepository.findById(conv.id,tenantId);
+      if(!updated)throw new Error('Registro de saída indisponível.');
+      return res.json(updated);
+    } catch (error) {
+      if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
+      return res.status(502).json({ error: 'Não foi possível confirmar o envio e o registro da mensagem. Confira a conversa antes de reenviar.' });
     }
 
-    res.json(conv);
   });
 
   // Omnichannel: Operator Notes
-  app.post('/api/v1/omnichannel/conversations/:id/notes', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    let tenantId: string;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório.' });
-    }
-    const conv = await OmnichannelRepository.findById(req.params.id, tenantId);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
-    const { text, agentName } = req.body;
-    if (!text) return res.status(400).json({ error: 'Texto da anotação é obrigatório' });
-    if (!conv.tags) conv.tags = [];
-    const noteEntry = `[Nota por ${agentName || 'Operador'} em ${new Date().toISOString()}]: ${text}`;
-    conv.tags.push(noteEntry);
-    await OmnichannelRepository.save(conv);
-    res.status(201).json({ text, agentName: agentName || 'Operador', createdAt: new Date().toISOString() });
+  app.post('/api/v1/omnichannel/conversations/:id/notes',requireRole('super_admin','admin','supervisor','operator'),async(req,res)=>{
+    const tenantId=getAuthorizedTenantId(req);const actor=(req as any).user;
+    if(!await OmnichannelRepository.findById(req.params.id,tenantId))return res.status(404).json({error:'Conversa não encontrada.'});
+    try{
+      const input=validateInternalNote(req.body.text,req.body.requestId);
+      await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'OMNICHANNEL_NOTE_ATTEMPT',resource:`omnichannel/${req.params.id}`,category:'SYSTEM',strict:true,details:'Tentativa de registro de anotação interna.',payload:{requestId:input.requestId}});
+      res.status(201).json(await OmnichannelRepository.addInternalNote(tenantId,req.params.id,input.text,input.requestId,actor));
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
-  // Omnichannel: Gemini AI Reply Suggestion
-  app.post('/api/v1/omnichannel/ai-suggest', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
-    const { conversationId, history } = req.body;
-    let tenantId: string | null = null;
-    try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      tenantId = null;
-    }
-    const conv = conversationId && tenantId ? await OmnichannelRepository.findById(conversationId, tenantId) : null;
-    const messages = history || (conv ? conv.messages : []);
-    const lastUserMsg = [...messages].reverse().find((m: any) => m.sender === 'user' || m.sender === 'contact');
-    const userText = lastUserMsg?.content || lastUserMsg?.text || '';
-
-    let suggestion = 'Olá! Já identifiquei a sua solicitação no sistema e estou aplicando as configurações necessárias.';
-    if (/pix|fatura|boleto|mensalidade|código/i.test(userText)) {
-      suggestion = 'Aqui está o código PIX copia-e-cola para pagamento imediato: 00020126580014br.gov.bcb.pix0136slzenlace@gmail.com5204000053039865802BR. A baixa ocorre em até 2 minutos!';
-    } else if (/chiado|ramal|áudio|queda|offline|mudo/i.test(userText)) {
-      suggestion = 'Fiz um ajuste na rota do seu tronco SIP (DSCP 46 prioritário) e reduzi o jitter para menos de 10ms. Poderia realizar uma chamada de teste agora?';
-    } else if (/cancelar|reclamação|procon|anatel/i.test(userText)) {
-      suggestion = 'Compreendo perfeitamente a sua situação e lamento o transtorno. Estou priorizando o seu chamado como SLA Crítico e vou acompanhar pessoalmente até a solução.';
-    } else if (/preço|plano|adicionar|ramais|webrtc|custo/i.test(userText)) {
-      suggestion = 'Temos planos corporativos a partir de R$ 29,90/mês por ramal com IA Gemini inclusa e números DIDs ilimitados. Deseja que eu envie a proposta detalhada?';
-    }
-
-    res.json({ suggestion });
+  // A IA seleciona somente rascunhos revisados, sem enviar ou alterar a conversa.
+  const copilotLimiter=rateLimit({windowMs:60_000,limit:10,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Limite de sugestões atingido. Aguarde um minuto.'}});
+  app.post('/api/v1/omnichannel/ai-suggest', requireRole('super_admin','admin','supervisor','operator'), copilotLimiter, async (req,res) => {
+    const tenantId=getAuthorizedTenantId(req);
+    if(typeof req.body.conversationId!=='string'||!req.body.conversationId||req.body.conversationId.length>128)return res.status(400).json({error:'Informe o ID de uma conversa cadastrada.'});
+    const conversation=await OmnichannelRepository.findById(req.body.conversationId,tenantId);
+    if(!conversation)return res.status(404).json({error:'Conversa não encontrada.'});
+    try{
+      const result=await suggestCopilot(tenantId,conversation,async(executionId,sourceMessageId)=>{
+        const actor=(req as any).user;
+        await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'COPILOT_SUGGEST_ATTEMPT',resource:`omnichannel/${conversation.id}`,category:'AI_GATEWAY',strict:true,details:'Tentativa de seleção externa de rascunho revisado para operador.',payload:{executionId,sourceMessageId}});
+      });
+      res.json(result);
+    }catch(error){if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
   });
 
   // AI Quality Supervisor Audits
@@ -5377,92 +2571,93 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     try {
       const tenantId = getAuthorizedTenantId(req);
       const list = await QualityAuditRepository.listByTenant(tenantId);
-      res.json(list || []);
+      res.json((list || []).map(item=>({...item,score:null,complianceScore:null,sentiment:'unknown',resolutionStatus:'unverified',summary:'Registro legado não verificado.',feedback:'',legacy:true})));
     } catch (e: any) {
-      console.error('[Quality Supervisor] Erro ao listar auditorias:', e?.message || e);
+      logOperational('SERVER_OPERATION_FAILURE', {requestId:res.locals.requestId});
       res.status(500).json({ error: 'Erro ao listar auditorias de qualidade' });
     }
   });
 
-  app.post('/api/v1/ai/quality-supervisor/evaluate', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
-    let tenantId: string;
+  app.get('/api/v1/ai/quality-supervisor/reviews', requireRole('super_admin','admin','supervisor'), async (req,res) => {
+    res.json(await QualityReviewRepository.list(getAuthorizedTenantId(req)));
+  });
+  app.get('/api/v1/ai/quality-supervisor/reviews/:id', requireRole('super_admin','admin','supervisor'), async (req,res) => {
+    const tenantId=getAuthorizedTenantId(req);
+    const review=await QualityReviewRepository.find(tenantId,req.params.id);
+    if (!review) return res.status(404).json({error:'Revisão não encontrada.'});
+    await recordAuditLog({tenantId,userId:(req as any).user.id,userName:(req as any).user.name,ip:req.ip,action:'QUALITY_REVIEW_READ',resource:`ai/quality-reviews/${review.id}`,category:'LGPD_ACCESS',strict:true,details:'Consulta administrativa de evidências de revisão.'});
+    res.json(review);
+  });
+  const qualityLimiter=rateLimit({windowMs:60_000,limit:10,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Limite de revisões atingido. Aguarde um minuto.'}});
+  app.post('/api/v1/ai/quality-supervisor/evaluate', requireRole('super_admin','admin','supervisor'), qualityLimiter, async (req,res) => {
+    const tenantId=getAuthorizedTenantId(req); const actor=(req as any).user;
     try {
-      tenantId = resolveTenantContext(req).tenantId;
-    } catch {
-      return res.status(400).json({ error: 'Tenant ID é obrigatório para avaliação de qualidade.' });
-    }
-    const { channelType, referenceId, contactName, contactNumber, agentOrBot, transcript } = req.body;
-    const text = transcript || '';
-    const hasGreeting = /olá|bom dia|boa tarde|boa noite|enlace/i.test(text);
-    const hasRisk = /cancelar|reclame aqui|procon|anatel|processo|advogado/i.test(text);
-    const hasSolution = /resolvido|ajuste|fatura|pix|pronto|normalizado|concluído/i.test(text);
-    
-    let score = 85;
-    if (hasGreeting) score += 5;
-    if (hasSolution) score += 10;
-    if (hasRisk) score -= 25;
-    score = Math.max(20, Math.min(100, score));
-
-    const newAudit: QualityAudit = {
-      id: `audit-${Date.now()}`,
-      tenantId,
-      callId: referenceId || `call-${Date.now()}`,
-      agentId: agentOrBot || 'MaIA (IA)',
-      score,
-      sentiment: score >= 85 ? ('positive' as const) : score >= 65 ? ('neutral' as const) : ('negative' as const),
-      resolutionStatus: 'resolved',
-      summary: `Avaliação multicanal concluída com score de ${score}/100. Conformidade verificada.`,
-      feedback: score >= 90 ? 'Excelente condução do atendimento!' : 'Atenção aos pontos de esclarecimento e retenção.',
-      complianceScore: hasGreeting ? 100 : 80,
-      createdAt: new Date().toISOString(),
-    };
-
-    await QualityAuditRepository.save(newAudit);
-    res.status(201).json(newAudit);
+      const analysis=await createQualityAnalysis(tenantId,req.body,async executionId=>{
+        await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'QUALITY_REVIEW_ATTEMPT',resource:'ai/quality-reviews',category:'AI_GATEWAY',strict:true,details:'Tentativa de análise externa de trechos para revisão humana.',payload:{executionId}});
+      });
+      const review=await QualityReviewRepository.create(tenantId,actor.id,analysis);
+      if (!review) throw new Error('Revisão não persistida.');
+      res.status(201).json(review);
+    } catch(error) {if(error instanceof OutboundHttpError)return res.status(error.statusCode).json({error:error.message});throw error;}
+  });
+  app.post('/api/v1/ai/quality-supervisor/reviews/:id/review', requireRole('super_admin','admin','supervisor'), async (req,res) => {
+    const tenantId=getAuthorizedTenantId(req); const actor=(req as any).user;
+    const previous=await QualityReviewRepository.find(tenantId,req.params.id);
+    if(!previous)return res.status(404).json({error:'Revisão não encontrada.'});
+    if(typeof req.body.note!=='string'||!req.body.note.trim()||req.body.note.length>2000)return res.status(400).json({error:'Informe uma anotação de revisão de até 2000 caracteres.'});
+    await recordAuditLog({tenantId,userId:actor.id,userName:actor.name,ip:req.ip,action:'QUALITY_REVIEW_CONFIRM_ATTEMPT',resource:`ai/quality-reviews/${previous.id}`,category:'AI_GATEWAY',strict:true,details:'Tentativa de registro de revisão humana, sem certificação automática.'});
+    const review=await QualityReviewRepository.review(tenantId,previous.id,actor.id,req.body.note.trim());
+    if(!review)return res.status(409).json({error:'Esta revisão já foi concluída por um usuário.'});
+    res.json(review);
   });
 
-  // AI Entity Extraction Schemas
+  // Esquemas e extração manual por empresa, sem reaproveitar configuração global legada.
   app.get('/api/v1/ai/entity-extraction/schemas', async (req, res) => {
-    const schemas = await SystemRepository.getEntitySchemas();
-    res.json(schemas);
+    res.json(await EntitySchemaRepository.list(getAuthorizedTenantId(req)));
   });
-
-  app.post('/api/v1/ai/entity-extraction/test', requireRole('super_admin', 'admin'), (req, res) => {
-    const { schemaId, sampleText } = req.body;
-    const text = sampleText || '';
-    const cpfMatch = text.match(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/) || text.match(/\b\d{11}\b/);
-    const cnpjMatch = text.match(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/) || text.match(/\b\d{14}\b/);
-    const ramalMatch = text.match(/ramal\s*(\d{3,4})/i) || text.match(/\b4\d{3}\b/);
-    const numbersMatch = text.match(/\b\d+\b/);
-    
-    const extractedData: Record<string, any> = {
-      documento: cpfMatch ? cpfMatch[0] : cnpjMatch ? cnpjMatch[0] : '123.456.789-00',
-      ramalAfetado: ramalMatch ? ramalMatch[0] : '4101',
-      tipoFalha: text.includes('chiado') ? 'Chiado e ruído no áudio' : text.includes('queda') ? 'Queda intermitente' : 'Suporte técnico geral',
-      urgencia: /urgente|crítica|imediato|agora/i.test(text) ? 'Crítica' : 'Média',
-      disponibilidade: 'Imediata via WhatsApp',
-      quantidadeRamais: numbersMatch ? parseInt(numbersMatch[0], 10) : 10,
-      interesseIa: /ia|inteligência|robô|voz/i.test(text),
-      orcamentoMensal: 350.00,
-      cargoDecisor: 'Gerente de TI / Operações'
-    };
-
-    res.json({
-      success: true,
-      schemaId,
-      extractedData,
-      confidenceScore: 0.96,
-      modelUsed: 'gemini-3.8-flash'
-    });
+  app.post('/api/v1/ai/entity-extraction/schemas', requireRole('super_admin', 'admin'), async (req, res) => {
+    try {
+      const definition = validateExtractionDefinition({ ...req.body, description: req.body.description ?? '', isActive: req.body.isActive ?? true });
+      const tenantId = getAuthorizedTenantId(req);
+      await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+        action: 'ENTITY_SCHEMA_CREATE_ATTEMPT', resource: 'ai/entity-extraction/schemas', category: 'AI_GATEWAY', strict: true, details: 'Tentativa de cadastro de esquema de extração.' });
+      res.status(201).json(await EntitySchemaRepository.save(tenantId, definition));
+    } catch (error) { if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message }); throw error; }
+  });
+  app.put('/api/v1/ai/entity-extraction/schemas/:id', requireRole('super_admin', 'admin'), async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    const previous = await EntitySchemaRepository.find(tenantId, req.params.id);
+    if (!previous) return res.status(404).json({ error: 'Esquema não encontrado.' });
+    try {
+      const definition = validateExtractionDefinition({ ...previous, ...req.body });
+      await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+        action: 'ENTITY_SCHEMA_UPDATE_ATTEMPT', resource: `ai/entity-extraction/schemas/${req.params.id}`, category: 'AI_GATEWAY', strict: true, details: 'Tentativa de atualização de esquema de extração.' });
+      res.json(await EntitySchemaRepository.save(tenantId, definition, previous.id));
+    } catch (error) { if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message }); throw error; }
+  });
+  const extractionLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Limite de extrações atingido. Aguarde um minuto.' } });
+  app.post('/api/v1/ai/entity-extraction/test', requireRole('super_admin', 'admin'), extractionLimiter, async (req, res) => {
+    const tenantId = getAuthorizedTenantId(req);
+    if (typeof req.body.schemaId !== 'string') return res.status(400).json({ error: 'Informe o ID de um esquema cadastrado.' });
+    const schema = await EntitySchemaRepository.find(tenantId, req.body.schemaId);
+    if (!schema) return res.status(404).json({ error: 'Esquema não encontrado.' });
+    try {
+      const result = await extractEntities(tenantId, schema.id, schema, req.body.text, async executionId => {
+        await recordAuditLog({ tenantId, userId: (req as any).user.id, userName: (req as any).user.name, ip: req.ip,
+          action: 'ENTITY_EXTRACTION_ATTEMPT', resource: `ai/entity-extraction/schemas/${schema.id}`, category: 'AI_GATEWAY', strict: true,
+          details: 'Tentativa de extração externa com evidências literais e revisão humana.', payload: { executionId } });
+      });
+      res.json(result);
+    } catch (error) { if (error instanceof OutboundHttpError) return res.status(error.statusCode).json({ error: error.message }); throw error; }
   });
 
   // Meta Webhook Verification
   app.get('/api/v1/webhooks/whatsapp', async (req, res) => {
-    const config = await SystemRepository.getWhatsappConfig();
-    const verifyToken = config?.verifyToken?.trim() || process.env.WHATSAPP_VERIFY_TOKEN?.trim();
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN?.trim();
 
     if (!verifyToken) {
-      console.warn('[WhatsApp Webhook] Rejeitado: WHATSAPP_VERIFY_TOKEN não configurado no sistema.');
+      logOperational('SERVER_WARNING', {requestId:res.locals.requestId});
       return res.status(503).json({
         error: 'NOT_CONFIGURED',
         message: 'Token de verificação do WhatsApp Meta não configurado no servidor.',
@@ -5490,229 +2685,51 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const rawSignature = (req.headers['x-hub-signature-256'] as string) || '';
     const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
 
-    // Validação criptográfica de assinatura Meta HMAC-SHA256 se appSecret estiver configurado
-    if (appSecret) {
-      if (!rawSignature.startsWith('sha256=')) {
-        console.warn('[WhatsApp Webhook] Rejeitado: Assinatura x-hub-signature-256 ausente ou malformatada.');
-        return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Assinatura x-hub-signature-256 ausente.' });
-      }
-
-      const receivedHash = rawSignature.slice(7);
-      const expectedHash = crypto
-        .createHmac('sha256', appSecret)
-        .update(JSON.stringify(req.body))
-        .digest('hex');
-
-      const isSignatureValid =
-        receivedHash.length === expectedHash.length &&
-        crypto.timingSafeEqual(Buffer.from(receivedHash), Buffer.from(expectedHash));
-
-      if (!isSignatureValid) {
-        console.warn('[WhatsApp Webhook] Rejeitado: Assinatura HMAC-SHA256 inválida.');
-        return res.status(403).json({ error: 'FORBIDDEN', message: 'Assinatura inválida do webhook.' });
-      }
+    if (!appSecret) {
+      return res.status(503).json({ error: 'Webhook WhatsApp não configurado.' });
+    }
+    if (!verifyWhatsAppSignature((req as RawBodyRequest).rawBody, rawSignature, appSecret)) {
+      return res.status(403).json({ error: 'Assinatura inválida do webhook.' });
     }
 
     const body = req.body;
-    
-    if (body.object) {
-      if (body.entry && body.entry[0].changes && body.entry[0].changes[0] && body.entry[0].changes[0].value.messages && body.entry[0].changes[0].value.messages[0]) {
-        const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
-        const from = body.entry[0].changes[0].value.messages[0].from; // sender number
-        const msg_body = body.entry[0].changes[0].value.messages[0].text?.body; 
-        const msgTimestamp = parseInt(body.entry[0].changes[0].value.messages[0].timestamp || '0', 10);
-
-        // Proteção contra Replay Attack: Rejeita mensagens com mais de 5 minutos de atraso
-        if (msgTimestamp > 0) {
-          const nowSeconds = Math.floor(Date.now() / 1000);
-          if (Math.abs(nowSeconds - msgTimestamp) > 300) {
-            console.warn(`[WhatsApp Webhook] Mensagem ignorada por expiração de timestamp (Replay Protection): ${msgTimestamp}`);
-            return res.status(200).json({ status: 'ignored_expired' });
-          }
-        }
-
-        if (!msg_body) {
-           return res.sendStatus(200); // Ignore non-text for now
-        }
-
-        const integration = await OmnichannelRepository.findIntegrationByPhoneNumberId(phone_number_id);
-        if (!integration || !integration.tenantId || integration.tenantId.trim() === '') {
-          console.warn(`[WhatsApp Webhook] Mensagem rejeitada (Fail-Closed): Nenhuma integração do WhatsApp localizada para phone_number_id=${phone_number_id}.`);
-          return res.status(200).json({ status: 'ignored_unmapped_phone_number_id', error: 'Nenhuma integração configurada para este número.' });
-        }
-        const tenantId = integration.tenantId.trim();
-        const conversations = await OmnichannelRepository.listConversations(tenantId);
-        let conv = conversations.find(c => c.contactId === from && c.channel === 'whatsapp');
-        if (!conv) {
-          conv = {
-            id: `conv-wa-${Date.now()}`,
-            tenantId,
-            contactId: from,
-            contactName: from,
-            contactPhone: from,
-            channel: 'whatsapp',
-            status: 'active',
-            sentiment: 'neutral',
-            tags: ['whatsapp', 'meta-api'],
-            createdAt: new Date().toISOString(),
-            messages: []
-          };
-        }
-
-        conv.messages.push({
-          id: body.entry[0].changes[0].value.messages[0].id || `msg-${Date.now()}`,
-          sender: 'contact',
-          senderName: from,
-          content: msg_body,
-          type: 'text',
-          timestamp: new Date().toISOString()
-        });
-
-        // Registrar auditoria do webhook recebido
-        try {
-          await AuditLogRepository.create({
-            tenantId,
-            userId: 'whatsapp-webhook',
-            userName: `WhatsApp (${from})`,
-            action: 'WHATSAPP_MESSAGE_RECEIVED',
-            resource: `whatsapp/conversation/${conv.id}`,
-            details: `Mensagem recebida do contato ${from} via Meta Cloud API.`,
-            ip: req.ip || '127.0.0.1',
-          });
-        } catch {}
-
-        // Trigger AI response if in active status
-        if (conv.status === 'active') {
-           const { geminiService } = await import('./server/geminiService.js');
-           const aiResponseText = await geminiService.processWhatsAppTurn(conv.id, msg_body);
-           
-           if (aiResponseText.toLowerCase().includes('transferir') || aiResponseText.toLowerCase().includes('atendente')) {
-              conv.status = 'waiting'; // Transfer to human
-           }
-           
-           const aiMsg: OmnichannelMessage = {
-             id: `msg-ai-${Date.now()}`,
-             sender: 'bot',
-             senderName: 'MaIA (IA)',
-             content: aiResponseText,
-             type: 'text',
-             timestamp: new Date().toISOString()
-           };
-           conv.messages.push(aiMsg);
-
-           // Actually send it via Meta API
-           if (integration && integration.accessToken) {
-             try {
-               await fetch(`https://graph.facebook.com/v17.0/${integration.phoneNumberId}/messages`, {
-                 method: 'POST',
-                 headers: {
-                   'Authorization': `Bearer ${integration.accessToken}`,
-                   'Content-Type': 'application/json'
-                 },
-                 body: JSON.stringify({
-                   messaging_product: 'whatsapp',
-                   to: from,
-                   type: 'text',
-                   text: { body: aiResponseText }
-                 })
-               });
-             } catch(e) {
-               console.error('Failed to send AI reply via Meta', e);
-             }
-           }
-        }
-        await OmnichannelRepository.save(conv);
-      }
-      res.sendStatus(200);
-    } else {
-      res.sendStatus(404);
+    if (body?.object !== 'whatsapp_business_account' || !Array.isArray(body.entry)) {
+      return res.status(400).json({ error: 'Formato de webhook inválido.' });
     }
+    for (const entry of body.entry) {
+      if (!Array.isArray(entry?.changes)) continue;
+      for (const change of entry.changes) {
+        const value = change?.value;
+        if (!Array.isArray(value?.messages)) continue;
+        const integration = await OmnichannelRepository.findIntegrationByPhoneNumberId(value?.metadata?.phone_number_id);
+        if (!integration) return res.status(503).json({ error: 'Número sem vínculo único com uma empresa ativa.' });
+        for (const message of value.messages) {
+          if (typeof message?.id !== 'string' || typeof message?.from !== 'string') {
+            return res.status(400).json({ error: 'Mensagem sem identificador ou remetente.' });
+          }
+          const timestamp = Number(message.timestamp) * 1000;
+          await OmnichannelRepository.receiveWhatsappMessage(integration.tenantId, {
+            id: message.id, from: message.from,
+            content: typeof message.text?.body === 'string' ? message.text.body : `[Mensagem ${message.type || 'sem texto'}]`,
+            timestamp: Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toISOString() : new Date().toISOString(),
+          });
+        }
+      }
+    }
+    // Respostas de IA exigem fila durável separada; nenhuma resposta fictícia é registrada.
+    res.sendStatus(200);
   });
 
-  app.post('/api/v1/health/run-diagnostic', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
-    const tenantCtx = resolveTenantContext(req);
-    const tenantId = tenantCtx.tenantId;
-    const [extensions, trunks] = await Promise.all([
-      ExtensionRepository.listByTenant(tenantId).catch(() => []),
-      TrunkRepository.listByTenant(tenantId).catch(() => []),
-    ]);
-
-    const tAst = performance.now();
-    let isAstRunning = false;
-    try {
-      isAstRunning = await asteriskAdapter.isAsteriskRunning();
-    } catch {
-      isAstRunning = false;
-    }
-    const astLatency = Number((performance.now() - tAst).toFixed(2));
-
-    const tPg = performance.now();
-    let pgOk = false;
-    let pgDetails = 'PostgreSQL não conectado';
-    try {
-      const pgRes = await postgresClient.query('SELECT 1 as ping');
-      pgOk = Boolean(pgRes?.rows?.length);
-      pgDetails = 'Pool de conexões PostgreSQL ativo e operacional';
-    } catch (err: any) {
-      pgDetails = `PostgreSQL em modo fallback / offline: ${err?.message || 'Sem conexão'}`;
-    }
-    const pgLatency = Number((performance.now() - tPg).toFixed(2));
-
-    const memUsageMb = Number((process.memoryUsage().rss / (1024 * 1024)).toFixed(1));
-    const { reachable: ariReachable, latencyMs: ariLatency } = await measureSocketLatency('127.0.0.1', 8088, 500);
-
-    const diagnostics = [
-      {
-        name: 'Asterisk 20 Core Engine',
-        pingMs: astLatency,
-        status: isAstRunning ? 'PASS' : 'WARN',
-        details: isAstRunning ? 'Socket /var/run/asterisk/asterisk.ctl operacional' : 'Asterisk CLI offline ou em contêiner desacoplado',
-      },
-      {
-        name: 'ARI REST Interface (Porta 8088)',
-        pingMs: ariLatency,
-        status: ariReachable ? 'PASS' : 'WARN',
-        details: ariReachable ? 'Stasis App "enlace-gemini" ativo e respondendo na porta 8088' : 'Porta 8088 não respondeu no tempo limite',
-      },
-      {
-        name: 'PJSIP Stack & Transports (UDP/TCP/TLS)',
-        pingMs: 1.0,
-        status: 'PASS',
-        details: `${extensions.length} ramais cadastrados, ${trunks.length} troncos SIP configurados`,
-      },
-      {
-        name: 'PostgreSQL Realtime Database',
-        pingMs: pgLatency,
-        status: pgOk ? 'PASS' : 'WARN',
-        details: pgDetails,
-      },
-      {
-        name: 'Node.js Engine & Cache Memory',
-        pingMs: 0.5,
-        status: 'PASS',
-        details: `Consumo de memória do processo: ${memUsageMb} MB RSS`,
-      },
-      {
-        name: 'Google Gemini AI Gateway API',
-        pingMs: 25.0,
-        status: Boolean(process.env.GEMINI_API_KEY) ? 'PASS' : 'WARN',
-        details: Boolean(process.env.GEMINI_API_KEY) ? 'Chave GEMINI_API_KEY provisionada no ambiente' : 'Aguardando configuração de GEMINI_API_KEY',
-      },
-    ];
-
-    const hasWarnings = diagnostics.some((d) => d.status === 'WARN');
-
-    res.json({
-      timestamp: new Date().toISOString(),
-      testedBy: 'Diagnóstico em Tempo Real do Enlace NOC',
-      overallHealth: hasWarnings ? 'GOOD' : 'EXCELLENT',
-      diagnostics,
-    });
+  const diagnosticLimiter=rateLimit({windowMs:60000,limit:10,standardHeaders:true,legacyHeaders:false,message:{error:'Limite de consultas de diagnóstico excedido.'}});
+  app.post('/api/v1/health/run-diagnostic',requireRole('super_admin'),diagnosticLimiter,async(_req,res)=>{
+    res.json(diagnosticEvidence(await getHealthStatus()));
   });
 
   // -------------------------------------------------------------------------
   // Static Assets & Vite Integration (Development vs Production)
   // -------------------------------------------------------------------------
+  app.use('/api', (_req, res) => { res.status(404).json({ error: 'Endpoint não encontrado.' }); });
+
   const publicPath = path.join(process.cwd(), 'public');
   app.use(express.static(publicPath));
 
@@ -5723,58 +2740,57 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), 'dist', 'client');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  // Global Error Handler to always return JSON (no HTML stack traces)
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Unhandled Server Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', details: err.message });
-  });
+  // A resposta e o registro de falhas inesperadas omitem o conteúdo recebido.
+  app.use(unexpectedHttpError);
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Enlace-PBX] Servidor rodando em http://0.0.0.0:${PORT}`);
-    console.log(`[Enlace-PBX] Núcleo Asterisk 20 LTS + Google Gemini AI Gateway pronto.`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`[Enlace-PBX] Servidor rodando em http://${HOST}:${PORT}`);
+    console.log('[Enlace-PBX] HTTP iniciado; dependências e telefonia exigem verificação de prontidão.');
   });
 
   server.on('error', (err: any) => {
-    if (err.code === 'EADDRINUSE') {
-      console.warn(`[Enlace-PBX] Porta ${PORT} em uso temporário. Aguardando liberação para reanexar...`);
-      setTimeout(() => {
-        try {
-          server.close();
-        } catch {}
-        server.listen(PORT, '0.0.0.0');
-      }, 1000);
-    } else {
-      console.error('[Enlace-PBX] Erro no servidor HTTP:', err);
-    }
+    logOperational('SERVER_OPERATION_FAILURE');
+    process.exit(1);
   });
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log('[Enlace-PBX] Encerrando conexões HTTP e PostgreSQL...');
+    const deadline = setTimeout(() => {
+      server.closeAllConnections();
+      process.exit(1);
+    }, 20000);
+    deadline.unref();
+    server.close(async () => {
+      await postgresClient.close();
+      clearTimeout(deadline);
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 
-  process.on('SIGTERM', () => {
-    console.log('[Enlace-PBX] Sinal SIGTERM recebido. Encerrando de forma graciosa...');
-    server.close(() => process.exit(0));
-  });
-
-  process.on('SIGINT', () => {
-    console.log('[Enlace-PBX] Sinal SIGINT recebido. Encerrando de forma graciosa...');
-    server.close(() => process.exit(0));
-  });
 }
 
 process.on('uncaughtException', (err) => {
-  console.error('[Enlace-PBX] Uncaught Exception:', err);
+  logOperational('UNCAUGHT_EXCEPTION');
+  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[Enlace-PBX] Unhandled Promise Rejection:', reason);
+  logOperational('UNHANDLED_REJECTION');
+  process.exit(1);
 });
 
 startServer().catch((err) => {
-  console.error('[Enlace-PBX] Erro fatal ao iniciar o servidor:', err);
+  logOperational('SERVER_STARTUP_FAILURE');
   process.exit(1);
 });

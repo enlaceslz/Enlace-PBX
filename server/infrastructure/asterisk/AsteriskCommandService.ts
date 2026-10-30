@@ -1,3 +1,4 @@
+import {logOperational} from '../security/OperationalLog.js';
 import { execFile } from 'child_process';
 import util from 'util';
 import { AsteriskAdapter, asteriskAdapter } from './AsteriskAdapter.js';
@@ -56,7 +57,7 @@ export class AsteriskCommandService {
 
     // 1. Verificação rigorosa na Allowlist
     if (!this.isCommandAllowed(normalized)) {
-      console.warn(`[AsteriskCommandService] BLOQUEIO DE SEGURANÇA: Comando rejeitado pela Allowlist: "${normalized}"`);
+      logOperational('SERVER_WARNING');
       
       // Registrar tentativa bloqueada na auditoria
       if (context?.tenantId) {

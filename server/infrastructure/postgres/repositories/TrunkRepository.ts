@@ -1,3 +1,6 @@
+import {logOperational} from '../../security/OperationalLog.js';
+import { EncryptionService } from '../../security/EncryptionService.js';
+import { assertSingleLineConfig } from '../../asterisk/configValidation.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoString } from '../dateUtils.js';
 import { Trunk } from '../../../../src/types/pbx.js';
@@ -13,7 +16,8 @@ export class TrunkRepository {
       host: row.host,
       port: row.port,
       username: row.username,
-      secretMasked: row.secret_masked,
+      secretMasked: row.secret_encrypted ? '••••••••••••' : '',
+      hasSecret: Boolean(row.secret_encrypted),
       transport: row.transport,
       callerId: row.caller_id,
       codecs: typeof row.codecs === 'string' ? JSON.parse(row.codecs) : (row.codecs || []),
@@ -51,7 +55,7 @@ export class TrunkRepository {
         const res = await client.query('SELECT * FROM trunks ORDER BY name ASC');
         return res.rows.map(row => this.mapRow(row));
       } catch (err: any) {
-        console.error('[TrunkRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -66,7 +70,7 @@ export class TrunkRepository {
         );
         return res.rows.map(row => this.mapRow(row));
       } catch (err: any) {
-        console.error('[TrunkRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -88,7 +92,7 @@ export class TrunkRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[TrunkRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -103,13 +107,16 @@ export class TrunkRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[TrunkRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
   }
 
-  public static async save(trunk: Trunk, contextOrTenant?: TenantContext | string): Promise<Trunk> {
+  public static async save(trunk: Trunk & { secret?: string }, contextOrTenant?: TenantContext | string): Promise<Trunk> {
+    assertSingleLineConfig(trunk);
+    if (!['UDP', 'TCP', 'TLS'].includes(trunk.transport || 'UDP') || !Number.isInteger(Number(trunk.port || 5060)) || Number(trunk.port || 5060) < 1 || Number(trunk.port || 5060) > 65535 || !/^[A-Za-z0-9.-]+$/.test(trunk.host || '')) throw new Error('Host, porta ou transporte SIP inválido.');
+    if (trunk.secret !== undefined && (typeof trunk.secret !== 'string' || /[;\\]/.test(trunk.secret))) throw new Error('Senha SIP contém caracteres não suportados no arquivo de configuração.');
     const target = contextOrTenant || trunk.tenantId;
     return postgresClient.executeTenantScoped(target, async (client, ctx) => {
       try {
@@ -172,11 +179,24 @@ export class TrunkRepository {
             trunk.lastPingAt ? new Date(trunk.lastPingAt) : null
           ]
         );
-        return trunk;
+        if (trunk.secret) {
+          await client.query('UPDATE trunks SET secret_encrypted=$1 WHERE id=$2 AND tenant_id=$3', [EncryptionService.encrypt(trunk.secret), trunk.id, ctx.tenantId]);
+        }
+        const saved = await client.query('SELECT * FROM trunks WHERE id=$1 AND tenant_id=$2', [trunk.id, ctx.tenantId]);
+        if (!saved.rows[0]) throw new Error('Tronco não confirmado na persistência.');
+        return this.mapRow(saved.rows[0]);
       } catch (err: any) {
-        console.error('[TrunkRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
+    });
+  }
+
+  /** Segredo somente para provisionamento interno; não integra DTOs de API. */
+  public static async getSecret(id: string, tenantId: string): Promise<string> {
+    return postgresClient.executeTenantScoped(tenantId, async (client, context) => {
+      const result = await client.query('SELECT secret_encrypted FROM trunks WHERE id=$1 AND tenant_id=$2', [id, context.tenantId]);
+      return EncryptionService.decrypt(result.rows[0]?.secret_encrypted || '');
     });
   }
 
@@ -189,7 +209,7 @@ export class TrunkRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[TrunkRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

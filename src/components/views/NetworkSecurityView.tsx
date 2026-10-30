@@ -1,3 +1,4 @@
+import { Fail2banPanel } from './Fail2banPanel';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck,
@@ -36,9 +37,6 @@ import {
   WireGuardConfig,
   WireGuardPeer,
   ZeroTierConfig,
-  Fail2banStatus,
-  BannedIp,
-  Fail2banJail,
 } from '../../types/pbx';
 import { getAuthHeaders } from '../../utils/api';
 import { VpnMonitoringDashboard } from './VpnMonitoringDashboard';
@@ -52,14 +50,13 @@ export const NetworkSecurityView: React.FC = () => {
   // States
   const [wireguard, setWireguard] = useState<WireGuardConfig | null>(null);
   const [zerotier, setZerotier] = useState<ZeroTierConfig | null>(null);
-  const [fail2ban, setFail2ban] = useState<Fail2banStatus | null>(null);
+  const [fail2ban, setFail2ban] = useState<any>(null);
 
   // Modals & Sub-actions
   const [isPeerModalOpen, setIsPeerModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [selectedPeerConfig, setSelectedPeerConfig] = useState<{ peer: WireGuardPeer; config: string; filename: string } | null>(null);
   const [isJoinZtModalOpen, setIsJoinZtModalOpen] = useState(false);
-  const [isManualBanModalOpen, setIsManualBanModalOpen] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -78,16 +75,6 @@ export const NetworkSecurityView: React.FC = () => {
     name: '',
   });
 
-  const [manualBanForm, setManualBanForm] = useState({
-    ip: '',
-    jail: 'asterisk-pjsip',
-    reason: '',
-  });
-
-  const [newWhitelistIp, setNewWhitelistIp] = useState('');
-  const [ipFilterQuery, setIpFilterQuery] = useState('');
-  const [selectedJailFilter, setSelectedJailFilter] = useState('all');
-
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setActionMsg({ text, type });
     setTimeout(() => setActionMsg(null), 4000);
@@ -102,13 +89,14 @@ export const NetworkSecurityView: React.FC = () => {
       const [wgRes, ztRes, f2bRes] = await Promise.all([
         fetch('/api/v1/network/wireguard', { headers: authHeaders }).then((r) => (r.ok ? r.json() : null)),
         fetch('/api/v1/network/zerotier', { headers: authHeaders }).then((r) => (r.ok ? r.json() : null)),
-        fetch('/api/v1/security/fail2ban', { headers: authHeaders }).then((r) => (r.ok ? r.json() : null)),
+        fetch('/api/v1/security/fail2ban', { headers: authHeaders }).then((r) => ([200, 503].includes(r.status) ? r.json() : null)),
       ]);
 
       if (wgRes && !wgRes.error) setWireguard(wgRes);
       if (ztRes && !ztRes.error) setZerotier(ztRes);
-      if (f2bRes && !f2bRes.error) setFail2ban(f2bRes);
+      setFail2ban(f2bRes);
     } catch (e) {
+      setFail2ban(null);
       console.error('Erro ao carregar dados de rede e segurança:', e);
       showToast('Falha ao comunicar com os serviços de rede.', 'error');
     } finally {
@@ -321,155 +309,6 @@ export const NetworkSecurityView: React.FC = () => {
     }
   };
 
-  // Fail2ban Handlers
-  const handleReloadFail2ban = async () => {
-    try {
-      const res = await fetch('/api/v1/security/fail2ban/reload', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast('Daemon Fail2ban recarregado com sucesso!');
-        loadData();
-      }
-    } catch {
-      showToast('Erro ao recarregar Fail2ban.', 'error');
-    }
-  };
-
-  const handleUnbanIp = async (ip: string, jail: string) => {
-    try {
-      const res = await fetch('/api/v1/security/fail2ban/unban', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ ip, jail }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`IP ${ip} desbanido com sucesso!`);
-        loadData();
-      } else {
-        showToast(data.error || 'Erro ao desbanir IP.', 'error');
-      }
-    } catch {
-      showToast('Falha na requisição.', 'error');
-    }
-  };
-
-  const handleManualBan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualBanForm.ip) return;
-
-    try {
-      const res = await fetch('/api/v1/security/fail2ban/ban', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(manualBanForm),
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`IP ${manualBanForm.ip} banido com sucesso.`);
-        setIsManualBanModalOpen(false);
-        setManualBanForm({ ip: '', jail: 'asterisk-pjsip', reason: '' });
-        loadData();
-      } else {
-        showToast(data.error || 'Erro ao banir IP.', 'error');
-      }
-    } catch {
-      showToast('Falha na requisição.', 'error');
-    }
-  };
-
-  const handleSimulateAttack = async () => {
-    try {
-      const res = await fetch('/api/v1/security/fail2ban/simulate-attack', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`[TESTE] Ataque simulado detectado! IP ${data.simulatedBan.ip} bloqueado na jail asterisk-pjsip.`);
-        loadData();
-      }
-    } catch {
-      showToast('Erro ao simular ataque.', 'error');
-    }
-  };
-
-  const handleAddWhitelist = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newWhitelistIp) return;
-
-    try {
-      const res = await fetch('/api/v1/security/fail2ban/whitelist', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ ipOrSubnet: newWhitelistIp, action: 'add' }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`"${newWhitelistIp}" adicionado à Whitelist!`);
-        setNewWhitelistIp('');
-        loadData();
-      }
-    } catch {
-      showToast('Erro ao atualizar whitelist.', 'error');
-    }
-  };
-
-  const handleRemoveWhitelist = async (ipOrSubnet: string) => {
-    try {
-      const res = await fetch('/api/v1/security/fail2ban/whitelist', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ ipOrSubnet, action: 'remove' }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`"${ipOrSubnet}" removido da Whitelist.`);
-        loadData();
-      }
-    } catch {
-      showToast('Erro ao atualizar whitelist.', 'error');
-    }
-  };
-
-  const handleUpdateJailRules = async (jail: Fail2banJail, field: 'maxRetry' | 'findTime' | 'banTime', val: number) => {
-    if (!fail2ban) return;
-    const currentJails = fail2ban.jails || [];
-    const updatedJails = currentJails.map((j) => (j.name === jail.name ? { ...j, [field]: val } : j));
-
-    try {
-      const res = await fetch('/api/v1/security/fail2ban/rules', {
-        method: 'PUT',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ jails: updatedJails }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`Regra da jail ${jail.name} salva.`);
-        loadData();
-      }
-    } catch {
-      showToast('Erro ao salvar regra.', 'error');
-    }
-  };
-
-  // Filtered Banned IPs
-  const filteredBannedIps = (fail2ban?.bannedIps || []).filter((item) => {
-    const q = (ipFilterQuery || '').toLowerCase();
-    const matchesQuery =
-      (item.ip || '').toLowerCase().includes(q) ||
-      (item.reason || '').toLowerCase().includes(q) ||
-      (item.country || '').toLowerCase().includes(q) ||
-      (item.reverseDns ? item.reverseDns.toLowerCase().includes(q) : false);
-
-    const matchesJail = selectedJailFilter === 'all' || item.jail === selectedJailFilter;
-
-    return matchesQuery && matchesJail;
-  });
-
   const formatBytes = (bytes: number) => {
     if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
@@ -527,15 +366,6 @@ export const NetworkSecurityView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleSimulateAttack}
-            title="Simula um ataque SIP malicioso para testar o bloqueio reativo em tempo real"
-            className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm active:scale-95"
-          >
-            <Zap className="w-4 h-4 text-amber-600" />
-            <span>Simular Ataque SIP</span>
-          </button>
-
           <button
             onClick={() => loadData()}
             disabled={refreshing}
@@ -613,21 +443,21 @@ export const NetworkSecurityView: React.FC = () => {
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Fail2ban Daemon
             </span>
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {fail2ban?.daemonStatus === 'active' ? 'Ativo' : 'Recarregando'}
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-50 text-slate-700 border border-slate-200 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+              {fail2ban?.available ? 'Consultado' : 'Indisponível'}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-extrabold text-rose-600">
-              {fail2ban?.totalBanned || 0}
-              <span className="text-xs font-normal text-slate-500 ml-1">IPs bloqueados</span>
+              {fail2ban?.currentBanEntries ?? '—'}
+              <span className="text-xs font-normal text-slate-500 ml-1">banimentos por jail</span>
             </span>
             <span className="text-xs font-mono font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-              {fail2ban?.totalJails} Jails Ativas
+              {fail2ban?.totalJails ?? '—'} jails consultadas
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 mt-2 truncate">Protegendo PJSIP 5060, AMI 5038, SSH 22 e WSS 8089</p>
+          <p className="text-[11px] text-slate-500 mt-2 truncate">Consulta ao serviço do host; regras e eficácia do firewall exigem verificação operacional.</p>
         </div>
 
         {/* Tráfego Seguro Widget */}
@@ -714,7 +544,7 @@ export const NetworkSecurityView: React.FC = () => {
           <ShieldAlert className="w-4 h-4" />
           <span>Fail2ban: Monitoramento de Bloqueios</span>
           <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${activeTab === 'fail2ban_monitor' ? 'bg-rose-700 text-white' : 'bg-rose-100 text-rose-700'}`}>
-            {fail2ban?.totalBanned}
+            {fail2ban?.currentBanEntries ?? '—'}
           </span>
         </button>
 
@@ -1082,359 +912,8 @@ export const NetworkSecurityView: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 3: FAIL2BAN MONITORAMENTO DE BLOQUEIOS */}
-      {activeTab === 'fail2ban_monitor' && (
-        <div className="space-y-6">
-          {/* Controls Bar & Actions */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-white border border-slate-200/90 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-200">
-                <ShieldAlert className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Monitoramento Ativo de Intrusão</h3>
-                <p className="text-xs text-slate-500">
-                  Total de <strong>{fail2ban?.bannedIps?.length || 0}</strong> IPs bloqueados atualmente no firewall iptables/nftables.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsManualBanModalOpen(true)}
-                className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Bloquear IP Manualmente</span>
-              </button>
-
-              <button
-                onClick={handleReloadFail2ban}
-                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 border border-slate-200"
-                title="Recarregar filtros e regras do Fail2ban"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
-                <span>Recarregar Daemon</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Jails Status Cards Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {(fail2ban?.jails || []).map((jail) => (
-              <div key={jail.name} className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-sm space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-bold text-slate-900 truncate" title={jail.name}>
-                    [{jail.name}]
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    Ativa
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 line-clamp-2">{jail.description}</p>
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <span className="text-slate-500">Bloqueados: <strong className="text-rose-600">{jail.currentlyBanned}</strong></span>
-                  <span className="text-slate-400 text-[11px]">Portas: {jail.port}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Search and Jail Filter */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-              <input
-                type="text"
-                value={ipFilterQuery}
-                onChange={(e) => setIpFilterQuery(e.target.value)}
-                placeholder="Filtrar por IP atacante, motivo, país ou host..."
-                className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition shadow-sm"
-              />
-            </div>
-
-            <select
-              value={selectedJailFilter}
-              onChange={(e) => setSelectedJailFilter(e.target.value)}
-              className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500/20 shadow-sm"
-            >
-              <option value="all">Todas as Jails ({fail2ban?.bannedIps?.length || 0})</option>
-              {(fail2ban?.jails || []).map((j) => (
-                <option key={j.name} value={j.name}>
-                  {j.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Banned IPs Table */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">IPs Bloqueados pelo Firewall em Tempo Real</h3>
-                <p className="text-xs text-slate-500">Tentativas que violaram o limite de falhas de autenticação SIP ou varredura de portas.</p>
-              </div>
-              <span className="text-xs font-semibold text-slate-500">
-                Mostrando <strong>{filteredBannedIps.length}</strong> de {fail2ban?.bannedIps?.length || 0}
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
-                  <tr>
-                    <th className="px-4 py-3">Endereço IP</th>
-                    <th className="px-4 py-3">Origem / País</th>
-                    <th className="px-4 py-3">Jail Responsável</th>
-                    <th className="px-4 py-3">Motivo da Violação</th>
-                    <th className="px-4 py-3">Tentativas</th>
-                    <th className="px-4 py-3">Bloqueado em</th>
-                    <th className="px-4 py-3 text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredBannedIps.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400 font-medium">
-                        Nenhum IP bloqueado correspondente aos filtros de busca.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredBannedIps.map((banned) => (
-                      <tr key={banned.id} className="hover:bg-rose-50/40 transition">
-                        <td className="px-4 py-3">
-                          <div className="font-mono font-bold text-rose-700 flex items-center gap-1.5">
-                            <span>{banned.ip}</span>
-                          </div>
-                          {banned.reverseDns && (
-                            <span className="text-[10px] font-mono text-slate-400 block truncate max-w-[190px]">
-                              {banned.reverseDns}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700">
-                            {banned.country} ({banned.countryCode})
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="font-mono text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
-                            {banned.jail}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 max-w-xs">
-                          <span className="text-slate-700 font-medium text-[11px] block">{banned.reason}</span>
-                        </td>
-                        <td className="px-4 py-3 font-mono font-bold text-rose-600">{banned.failures}x</td>
-                        <td className="px-4 py-3 text-slate-500 font-mono text-[11px]">
-                          {new Date(banned.bannedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => handleUnbanIp(banned.ip, banned.jail)}
-                            className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 text-slate-700 text-xs font-bold transition border border-slate-200 inline-flex items-center gap-1"
-                            title="Desbloquear este IP imediatamente"
-                          >
-                            <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Desbanir</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: REGRAS DE PROTEÇÃO & WHITELIST */}
-      {activeTab === 'fail2ban_rules' && (
-        <div className="space-y-6">
-          {/* Whitelist (IPs Confiáveis) Card */}
-          <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                  Whitelist de Segurança (ignoreip)
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Endereços IP e sub-redes nesta lista <strong>nunca serão bloqueados</strong> pelo Fail2ban, garantindo que filiais e redes VPN mantenham conexão contínua.
-                </p>
-              </div>
-
-              <form onSubmit={handleAddWhitelist} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={newWhitelistIp}
-                  onChange={(e) => setNewWhitelistIp(e.target.value)}
-                  placeholder="Ex: 192.168.10.0/24 ou 200.1.2.3"
-                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                />
-                <button
-                  type="submit"
-                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1 shadow-sm"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Adicionar</span>
-                </button>
-              </form>
-            </div>
-
-            {/* Badges of Whitelisted IPs */}
-            <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-              {(fail2ban?.whitelist || []).map((ip) => {
-                const isVpnSubnet = ip.includes('10.10.0') || ip.includes('192.168.192');
-                return (
-                  <div
-                    key={ip}
-                    className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-2 ${
-                      isVpnSubnet
-                        ? 'bg-blue-50 text-blue-800 border-blue-200'
-                        : 'bg-slate-50 text-slate-800 border-slate-200'
-                    }`}
-                  >
-                    <span>{ip}</span>
-                    {isVpnSubnet && (
-                      <span className="text-[9px] font-sans font-extrabold uppercase px-1.5 py-0.2 bg-blue-200/70 text-blue-900 rounded">
-                        VPN Ativa
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveWhitelist(ip)}
-                      className="hover:text-rose-600 transition p-0.5"
-                      title="Remover da whitelist"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Interactive Jail Rules Configuration */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Parâmetros das Jails de Proteção Asterisk</h3>
-              <p className="text-xs text-slate-500">
-                Ajuste os limites de tentativas e tempos de banimento para cada serviço do sistema.
-              </p>
-            </div>
-
-            <div className="space-y-4 divide-y divide-slate-100">
-              {(fail2ban?.jails || []).map((jail) => (
-                <div key={jail.name} className="pt-4 first:pt-0 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-900">{jail.title}</span>
-                        <span className="font-mono text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                          [{jail.name}]
-                        </span>
-                        <span className="text-xs text-slate-400 font-mono">Portas: {jail.port} ({jail.protocol})</span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5">{jail.description}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Max Retry */}
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                        Tentativas Máximas (maxretry)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          defaultValue={jail.maxRetry}
-                          onBlur={(e) => handleUpdateJailRules(jail, 'maxRetry', Number(e.target.value))}
-                          className="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
-                        />
-                        <span className="text-xs text-slate-500">tentativas falhas</span>
-                      </div>
-                    </div>
-
-                    {/* Find Time */}
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                        Janela de Detecção (findtime)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={30}
-                          max={86400}
-                          step={60}
-                          defaultValue={jail.findTime}
-                          onBlur={(e) => handleUpdateJailRules(jail, 'findTime', Number(e.target.value))}
-                          className="w-24 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
-                        />
-                        <span className="text-xs text-slate-500">segundos ({Math.round(jail.findTime / 60)} min)</span>
-                      </div>
-                    </div>
-
-                    {/* Ban Time */}
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                        Duração do Bloqueio (bantime)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={60}
-                          max={604800}
-                          step={3600}
-                          defaultValue={jail.banTime}
-                          onBlur={(e) => handleUpdateJailRules(jail, 'banTime', Number(e.target.value))}
-                          className="w-28 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
-                        />
-                        <span className="text-xs text-slate-500">
-                          segundos ({Math.round(jail.banTime / 3600)} h)
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Global Firewall & Asterisk Hardening Details */}
-          <div className="p-5 bg-white rounded-2xl border border-slate-200/90 shadow-sm space-y-3">
-            <h3 className="text-sm font-bold text-slate-900">Políticas Ativas de Mitigação SIP</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs text-slate-600">
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <strong className="text-slate-900 block font-bold">Bloqueio de Scanner SIPVicious</strong>
-                  <span>Rejeita automaticamente User-Agents conhecidos como "friendly-scanner" e "sipvicious".</span>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <strong className="text-slate-900 block font-bold">Rate-Limiting UDP Flood</strong>
-                  <span>Limita pacotes SIP a 20 pps por IP de origem para evitar saturação do canal ARI.</span>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-start gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <strong className="text-slate-900 block font-bold">Log de Segurança PJSIP</strong>
-                  <span>Monitora `/var/log/asterisk/messages` em tempo real capturando códigos 401 e 403.</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      {(activeTab === 'fail2ban_monitor' || activeTab === 'fail2ban_rules') && (
+        <Fail2banPanel snapshot={fail2ban} refresh={loadData} />
       )}
 
       {/* MODAL: NOVO PEER WIREGUARD */}
@@ -1670,80 +1149,6 @@ export const NetworkSecurityView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: BANIR IP MANUALMENTE NO FAIL2BAN */}
-      {isManualBanModalOpen && (
-        <div className="fixed inset-0 z-50 bg-[#0f172a]/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-rose-600" />
-                Bloquear IP Manualmente no Firewall
-              </h3>
-              <button
-                onClick={() => setIsManualBanModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleManualBan} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Endereço IP para Bloqueio *</label>
-                <input
-                  type="text"
-                  required
-                  value={manualBanForm.ip}
-                  onChange={(e) => setManualBanForm({ ...manualBanForm, ip: e.target.value.trim() })}
-                  placeholder="Ex: 198.51.100.42"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Jail de Destino</label>
-                <select
-                  value={manualBanForm.jail}
-                  onChange={(e) => setManualBanForm({ ...manualBanForm, jail: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                >
-                  <option value="asterisk-pjsip">asterisk-pjsip (Portas 5060,5061 SIP/UDP)</option>
-                  <option value="asterisk-ami-ari">asterisk-ami-ari (Portas 5038,8088 API)</option>
-                  <option value="ssh-asterisk">ssh-asterisk (Porta 22 SSH)</option>
-                  <option value="nginx-sip-wss">nginx-sip-wss (Portas 80,443,8089 WSS)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Motivo do Bloqueio</label>
-                <input
-                  type="text"
-                  value={manualBanForm.reason}
-                  onChange={(e) => setManualBanForm({ ...manualBanForm, reason: e.target.value })}
-                  placeholder="Ex: Ataque identificado externamente / IP malicioso"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsManualBanModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm"
-                >
-                  Bloquear IP Agora
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

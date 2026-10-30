@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import { OutboundHttpError } from '../../infrastructure/security/OutboundHttp.js';
 import { postgresClient } from '../../infrastructure/postgres/client.js';
 import { toSafeIsoString } from '../../infrastructure/postgres/dateUtils.js';
 import { TenantContext } from '../../infrastructure/auth/tenantContext.js';
@@ -73,6 +75,70 @@ export class MaiaSessionRepository {
 
   public static async updateSession(session: MaiaSession, contextOrTenant?: TenantContext | string): Promise<MaiaSession> {
     return this.createSession(session, contextOrTenant);
+  }
+
+  public static async endPreview(id:string,tenantId:string):Promise<MaiaSession> {
+    return postgresClient.executeTenantScoped(tenantId,async client=>{
+      const result=await client.query('SELECT * FROM ai_sessions WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,tenantId]);
+      const row=result.rows[0];
+      if(!row)throw new OutboundHttpError('Sessão não encontrada.',404);
+      if(row.active_turn_id)throw new OutboundHttpError('Aguarde o turno em processamento antes de encerrar a prévia.',409);
+      if(row.asterisk_channel_id || row.asterisk_unique_id || row.linked_id)throw new OutboundHttpError('Sessão telefônica exige controle pelo host.',409);
+      if(row.status==='completed')return this.rowToSession(row);
+      const updated=await client.query(`UPDATE ai_sessions SET status='completed',ended_at=CURRENT_TIMESTAMP,last_activity_at=CURRENT_TIMESTAMP,
+        duration_seconds=GREATEST(0,FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP-started_at)))) WHERE id=$1 AND tenant_id=$2 RETURNING *`,[id,tenantId]);
+      await client.query(`INSERT INTO ai_session_events(id,session_id,tenant_id,event_type,from_status,to_status,payload)
+        VALUES($1,$2,$3,'PREVIEW_ENDED',$4,'completed','{}')`,[crypto.randomUUID(),id,tenantId,row.status]);
+      return this.rowToSession(updated.rows[0]);
+    });
+  }
+
+  public static async claimTurn(id:string,tenantId:string,attemptId:string):Promise<MaiaSession> {
+    return postgresClient.executeTenantScoped(tenantId,async client=>{
+      const active=await client.query(`SELECT a.id,a.max_session_minutes FROM ai_agents a JOIN ai_sessions s ON s.agent_id=a.id AND s.tenant_id=a.tenant_id
+        WHERE s.id=$1 AND s.tenant_id=$2 AND a.is_active=TRUE AND a.max_session_minutes BETWEEN 1 AND 240 FOR SHARE OF a`,[id,tenantId]);
+      if(!active.rows.length)throw new OutboundHttpError('Sessão sem agente ativo ou limite válido nesta empresa.',409);
+      const result=await client.query(`UPDATE ai_sessions SET active_turn_id=$3,status='processing',last_activity_at=CURRENT_TIMESTAMP
+        WHERE id=$1 AND tenant_id=$2 AND active_turn_id IS NULL AND status NOT IN ('completed','failed')
+          AND started_at<=clock_timestamp() AND started_at+make_interval(mins=>$4::int)>clock_timestamp() RETURNING *`,[id,tenantId,attemptId,active.rows[0].max_session_minutes]);
+      if(!result.rows.length)throw new OutboundHttpError('Sessão indisponível, expirada, encerrada ou com turno em processamento.',409);
+      return this.rowToSession(result.rows[0]);
+    });
+  }
+
+  public static async releaseTurn(id:string,tenantId:string,attemptId:string):Promise<void> {
+    await postgresClient.executeTenantScoped(tenantId,client=>client.query(`UPDATE ai_sessions SET active_turn_id=NULL,
+      status=CASE WHEN status='processing' THEN 'listening' ELSE status END
+      WHERE id=$1 AND tenant_id=$2 AND active_turn_id=$3`,[id,tenantId,attemptId]));
+  }
+
+  public static async recentDialogue(id:string,tenantId:string) {
+    return postgresClient.executeTenantScoped(tenantId,async client=>{
+      const result=await client.query(`SELECT role,content FROM (SELECT role,content,turn_number,created_at,id FROM ai_session_turns
+        WHERE session_id=$1 AND tenant_id=$2 AND role IN ('user','assistant') ORDER BY turn_number DESC,created_at DESC,id DESC LIMIT 6) recent
+        ORDER BY turn_number ASC,created_at ASC,id ASC`,[id,tenantId]);
+      return result.rows;
+    });
+  }
+
+  public static async commitExchange(session:MaiaSession,attemptId:string,userMessage:string,assistant:MaiaSessionTurn):Promise<void> {
+    if(!userMessage.trim() || userMessage.length>8000 || assistant.role!=='assistant' || assistant.sessionId!==session.id || assistant.tenantId!==session.tenantId || typeof assistant.content!=='string' || assistant.content.length>32000)
+      throw new OutboundHttpError('Turno inválido para persistência.',400);
+    await postgresClient.executeTenantScoped(session.tenantId,async client=>{
+      const current=await client.query('SELECT * FROM ai_sessions WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[session.id,session.tenantId]);
+      const row=current.rows[0];
+      if(!row || row.active_turn_id!==attemptId || Number(row.user_turns)+1!==session.userTurns || row.status!=='processing')
+        throw new OutboundHttpError('O turno perdeu a reserva da sessão; resultado não confirmado.',409);
+      const number=session.userTurns*2;
+      const now=new Date();
+      await client.query(`INSERT INTO ai_session_turns(id,session_id,tenant_id,turn_number,role,content,created_at)
+        VALUES($1,$2,$3,$4,'user',$5,$6)`,['turn-'+crypto.randomUUID(),session.id,session.tenantId,number-1,userMessage,now]);
+      await client.query(`INSERT INTO ai_session_turns(id,session_id,tenant_id,turn_number,role,content,audio_base64,latency_ms,tokens_input,tokens_output,provider,model,created_at)
+        VALUES($1,$2,$3,$4,'assistant',$5,$6,$7,$8,$9,$10,$11,$12)`,[assistant.id,session.id,session.tenantId,number,assistant.content,assistant.audioBase64||null,assistant.latencyMs,assistant.tokensInput,assistant.tokensOutput,assistant.provider||null,assistant.model||null,now]);
+      await client.query(`UPDATE ai_sessions SET status=$4,last_activity_at=$5,ended_at=$6,duration_seconds=$7,user_turns=$8,
+        tool_calls=$9,tokens_input=$10,tokens_output=$11,provider=$12,model=$13,transfer_reason=$14,transfer_destination=$15,active_turn_id=NULL
+        WHERE id=$1 AND tenant_id=$2 AND active_turn_id=$3`,[session.id,session.tenantId,attemptId,session.status,session.lastActivityAt,session.endedAt||null,session.durationSeconds,session.userTurns,session.toolCalls,session.tokensInput,session.tokensOutput,session.provider,session.model,session.transferReason||null,session.transferDestination||null]);
+    });
   }
 
   public static async findById(id: string, contextOrTenant?: TenantContext | string): Promise<MaiaSession | null> {

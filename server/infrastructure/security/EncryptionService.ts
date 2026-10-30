@@ -1,3 +1,4 @@
+import {logOperational} from './OperationalLog.js';
 import crypto from 'crypto';
 
 /**
@@ -28,10 +29,7 @@ export class EncryptionService {
           'O uso de fallback, JWT_SECRET ou senhas estáticas é terminantemente proibido em produção.'
         );
       }
-      console.warn(
-        '[EncryptionService] AVISO: ENCRYPTION_KEY não definida em desenvolvimento. ' +
-        'Gerando chave volátil em memória para a sessão de preview.'
-      );
+      logOperational('SECRET_EPHEMERAL_KEY');
       // Em dev sem variável, gera chave aleatória criptográfica para a sessão (não determinística e sem segredo fixo)
       this.cachedKey = crypto.randomBytes(32);
       return this.cachedKey;
@@ -108,7 +106,7 @@ export class EncryptionService {
 
       return decrypted.toString('utf8');
     } catch (err: any) {
-      console.error('[EncryptionService] Erro ao descriptografar segredo SIP:', err.message);
+      logOperational('SECRET_OPERATION_FAILURE');
       return '';
     }
   }

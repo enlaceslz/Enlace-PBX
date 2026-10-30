@@ -20,8 +20,9 @@ export interface Tenant {
   antiFraud?: TenantAntiFraud;
 }
 
-export type UserRole = 'super_admin' | 'admin' | 'supervisor' | 'operador' | 'usuario' | 'auditor';
+export type UserRole = 'super_admin' | 'admin' | 'supervisor' | 'operador' | 'usuario' | 'auditor' | 'operator' | 'agent' | 'readonly';
 export interface User {
+  authVersion?: number;
   role: UserRole;
   id: string;
   tenantId: string;
@@ -30,7 +31,7 @@ export interface User {
   passwordHash?: string;
   extension?: string;
   isActive: boolean;
-  lastLogin: string;
+  lastLogin?: string;
 }
 
 export interface Extension {
@@ -81,6 +82,7 @@ export interface Trunk {
   port: number;
   username: string;
   secretMasked: string;
+  hasSecret?: boolean;
   transport: 'UDP' | 'TCP' | 'TLS';
   callerId: string;
   codecs: string[];
@@ -181,6 +183,8 @@ export interface RouteExtensionOverride {
 }
 
 export interface Route {
+  isActive?:boolean;
+  stripDigits?:number;
   id: string;
   tenantId: string;
   name: string;
@@ -206,6 +210,7 @@ export interface Route {
 }
 
 export interface RingGroup {
+  fallbackType?:string;
   id: string;
   tenantId: string;
   name: string;
@@ -221,7 +226,7 @@ export interface Queue {
   tenantId: string;
   name: string;
   number: string;
-  strategy: 'ringall' | 'roundrobin' | 'leastrecent' | 'fewestcalls' | 'random';
+  strategy: 'ringall' | 'roundrobin' | 'rrmemory' | 'linear' | 'leastrecent' | 'fewestcalls' | 'random';
   timeoutSeconds: number;
   wrapUpTimeSeconds: number;
   mohSound: string;
@@ -355,6 +360,7 @@ export interface AiKnowledgeSource {
   title: string;
   category: string;
   content: string;
+  contentStatus?: 'REVIEWED_TEXT' | 'LEGACY_NOT_REVIEWED';
   updatedAt: string;
   fileName?: string;
   fileType?: string;
@@ -460,6 +466,9 @@ export interface AsteriskChannel {
 }
 
 export interface DashboardMetrics {
+  period?: {from:string;to:string;timeZone:string};
+  observedAt?:string;
+  sourceNote?:string;
   callsToday: number;
   callsActive: number;
   callsAnswered: number;
@@ -712,9 +721,9 @@ export interface VpnTelemetryPoint {
   ztRxKbps: number;
   ztTxKbps: number;
   totalKbps: number;
-  latencyMs: number;
-  jitterMs: number;
-  pps: number;
+  latencyMs: number | null;
+  jitterMs: number | null;
+  pps: number | null;
 }
 
 export interface VpnNodeMonitoringItem {
@@ -724,12 +733,12 @@ export interface VpnNodeMonitoringItem {
   virtualIp: string;
   endpoint: string;
   status: 'connected' | 'idle' | 'offline';
-  latencyMs: number;
-  jitterMs: number;
-  packetLossPercent: number;
+  latencyMs: number | null;
+  jitterMs: number | null;
+  packetLossPercent: number | null;
   bytesRx: number;
   bytesTx: number;
-  latestHandshake: string;
+  latestHandshake?: string;
   roleOrExtension?: string;
   location?: string;
   enabled: boolean;
@@ -744,7 +753,7 @@ export interface VpnTelemetryResponse {
     ztRxKbps: number;
     ztTxKbps: number;
     totalKbps: number;
-    pps: number;
+    pps: number | null;
     latencyAvgMs: number | null;
     jitterAvgMs: number | null;
     packetLossPercent: number | null;
@@ -760,6 +769,7 @@ export interface VpnTelemetryResponse {
 export type SystemLogLevel = 'DEBUG' | 'INFO' | 'NOTICE' | 'WARNING' | 'ERROR' | 'CRITICAL';
 
 export type SystemLogService =
+  | 'application'
   | 'asterisk'
   | 'nginx'
   | 'wireguard'

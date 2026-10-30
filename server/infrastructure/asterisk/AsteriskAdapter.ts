@@ -1,3 +1,7 @@
+import {logOperational} from '../security/OperationalLog.js';
+import { acceptedCallAction, callExtension, channelReference } from './CallControl.js';
+import crypto from 'node:crypto';
+import { sendAmiAction } from './AmiClient.js';
 import { execFile } from 'child_process';
 import util from 'util';
 import net from 'net';
@@ -29,7 +33,7 @@ export interface AsteriskHealth {
   status: 'UP' | 'DOWN' | 'NOT_INSTALLED' | 'NOT_CONFIGURED';
   version?: string;
   uptime?: string;
-  channelsCount: number;
+  channelsCount: number | null;
   mode: 'LOCAL_CLI' | 'REMOTE_AMI' | 'REMOTE_ARI' | 'NONE';
   error?: string;
   amiConnected: boolean;
@@ -47,7 +51,7 @@ export class AsteriskAdapter {
   private hasBinary: boolean | null = null;
   private lastHealth: AsteriskHealth = {
     status: 'NOT_CONFIGURED',
-    channelsCount: 0,
+    channelsCount: null,
     mode: 'NONE',
     amiConnected: false,
     lastChecked: new Date().toISOString(),
@@ -103,7 +107,7 @@ export class AsteriskAdapter {
 
     // Verificação estrita na Allowlist de comandos corporativos autorizados
     if (!isAsteriskCommandAllowed(sanitizedCommand)) {
-      console.warn(`[AsteriskAdapter] BLOQUEIO DE SEGURANÇA: Comando rejeitado pela Allowlist: "${sanitizedCommand}"`);
+      logOperational('SIP_COMMAND_REJECTED');
       return {
         success: false,
         output: '',
@@ -131,52 +135,7 @@ export class AsteriskAdapter {
    * Envia ação real via AMI (Asterisk Manager Interface).
    */
   public async executeAmiAction(action: string, params: Record<string, string> = {}): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const socket = new net.Socket();
-      let buffer = '';
-      let authenticated = false;
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        reject(new Error(`Timeout de comunicação com AMI em ${this.host}:${this.amiPort}`));
-      }, 5000);
-
-      socket.connect(this.amiPort, this.host, () => {
-        // Envia Login
-        socket.write(
-          `Action: Login\r\nUsername: ${this.amiUser}\r\nSecret: ${this.amiPass}\r\nEvents: off\r\n\r\n`
-        );
-      });
-
-      socket.on('data', (data) => {
-        buffer += data.toString();
-
-        if (!authenticated && buffer.includes('Response: Success')) {
-          authenticated = true;
-          buffer = '';
-          // Envia a Ação solicitada
-          let actionCmd = `Action: ${action}\r\n`;
-          for (const [k, v] of Object.entries(params)) {
-            actionCmd += `${k}: ${v}\r\n`;
-          }
-          actionCmd += '\r\n';
-          socket.write(actionCmd);
-        } else if (authenticated && (buffer.includes('\r\n\r\n') || buffer.includes('Response:'))) {
-          clearTimeout(timeout);
-          socket.write('Action: Logoff\r\n\r\n');
-          socket.end();
-          resolve(buffer);
-        } else if (buffer.includes('Response: Error')) {
-          clearTimeout(timeout);
-          socket.destroy();
-          reject(new Error(`Erro retornado pelo AMI: ${buffer.trim()}`));
-        }
-      });
-
-      socket.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    return sendAmiAction({ host: this.host, port: this.amiPort, username: this.amiUser, password: this.amiPass }, action, params);
   }
 
   /**
@@ -283,10 +242,10 @@ export class AsteriskAdapter {
         const chanMatch = block.match(/Channel: ([^\r\n]+)/);
         const callerMatch = block.match(/CallerIDNum: ([^\r\n]+)/);
         const contextMatch = block.match(/Context: ([^\r\n]+)/);
-        const extenMatch = block.match(/Extension: ([^\r\n]+)/);
+        const extenMatch = block.match(/(?:Exten|Extension): ([^\r\n]+)/);
         const stateMatch = block.match(/ChannelStateDesc: ([^\r\n]+)/);
         const durationMatch = block.match(/Duration: ([^\r\n]+)/);
-        const uniqueIdMatch = block.match(/UniqueID: ([^\r\n]+)/);
+        const uniqueIdMatch = block.match(/Uniqueid: ([^\r\n]+)/i);
 
         if (chanMatch) {
           channels.push({
@@ -298,7 +257,7 @@ export class AsteriskAdapter {
             context: contextMatch ? contextMatch[1] : 'from-internal',
             exten: extenMatch ? extenMatch[1] : 's',
             application: 'PJSIP',
-            durationSeconds: durationMatch ? parseInt(durationMatch[1]) : 0,
+            durationSeconds: durationMatch ? durationMatch[1].split(':').reduce((seconds, part) => seconds * 60 + Number(part), 0) : 0,
             aiBridgeActive: false,
           });
         }
@@ -310,84 +269,30 @@ export class AsteriskAdapter {
   /**
    * Encerra um canal real do Asterisk.
    */
-  public async hangup(channelId: string): Promise<boolean> {
-    const hasAsterisk = await this.checkBinaryExists();
-    if (hasAsterisk) {
-      const res = await this.executeCli(`channel request hangup ${channelId}`);
-      return res.success;
-    }
-
-    try {
-      await this.executeAmiAction('Hangup', { Channel: channelId });
-      return true;
-    } catch {
-      return false;
-    }
+  public async hangup(channelId: string) {
+    channelReference(channelId);
+    return acceptedCallAction(this.executeAmiAction.bind(this),'Hangup',{Channel:channelId});
   }
 
-  /**
-   * Transfere chamada real (Redirect).
-   */
-  public async transfer(channelId: string, destination: string, context: string = 'from-internal'): Promise<boolean> {
-    const hasAsterisk = await this.checkBinaryExists();
-    if (hasAsterisk) {
-      const res = await this.executeCli(`channel redirect ${channelId} ${context},${destination},1`);
-      return res.success;
-    }
-
-    try {
-      await this.executeAmiAction('Redirect', {
-        Channel: channelId,
-        Context: context,
-        Exten: destination,
-        Priority: '1',
-      });
-      return true;
-    } catch {
-      return false;
-    }
+  public async transfer(channelId: string, destination: string, context='from-internal') {
+    channelReference(channelId);callExtension(destination);
+    if(context!=='from-internal')throw new Error('Contexto de transferência inválido.');
+    return acceptedCallAction(this.executeAmiAction.bind(this),'Redirect',{Channel:channelId,Context:context,Exten:destination,Priority:'1'});
   }
 
-  /**
-   * Origina uma chamada real via Asterisk CLI ou AMI (Action: Originate).
-   */
-  public async originateCall(
-    caller: string,
-    callee: string,
-    isAi: boolean = false,
-    context: string = 'from-internal'
-  ): Promise<AsteriskChannelInfo> {
-    const channelName = `PJSIP/${caller}-${Date.now().toString(36)}`;
-    const hasAsterisk = await this.checkBinaryExists();
+  public async originateCall(caller: string, callee: string, isAi=false, context='from-internal') {
+    callExtension(caller);callExtension(callee);
+    if(isAi || context!=='from-internal')throw new Error('Modo de originação indisponível.');
+    return acceptedCallAction(this.executeAmiAction.bind(this),'Originate',{
+      Channel:`PJSIP/${caller}`,Exten:callee,Context:context,Priority:'1',CallerID:caller,Async:'true',Timeout:'30000',
+    });
+  }
 
-    if (hasAsterisk) {
-      await this.executeCli(`channel originate PJSIP/${caller} extension ${callee}@${context}`);
-    } else {
-      try {
-        await this.executeAmiAction('Originate', {
-          Channel: `PJSIP/${caller}`,
-          Exten: callee,
-          Context: context,
-          Priority: '1',
-          CallerID: caller,
-        });
-      } catch (err: any) {
-        console.warn('[AsteriskAdapter] Falha ao originar chamada via AMI:', err.message);
-      }
-    }
-
-    return {
-      id: channelName,
-      name: channelName,
-      state: 'Dialing',
-      callerNumber: caller,
-      connectedLine: callee,
-      context,
-      exten: callee,
-      application: isAi ? 'AudioSocket(gemini-live)' : 'Dial',
-      durationSeconds: 0,
-      aiBridgeActive: isAi,
-    };
+  public async supervise(channelId: string, supervisor: string) {
+    channelReference(channelId);callExtension(supervisor);
+    return acceptedCallAction(this.executeAmiAction.bind(this),'Originate',{
+      Channel:`PJSIP/${supervisor}`,Application:'ChanSpy',Data:`${channelId},qb`,Async:'true',Timeout:'30000',
+    });
   }
 
   /**
@@ -425,142 +330,78 @@ export class AsteriskAdapter {
   /**
    * Aplica a configuração do pjsip.conf em disco, cria backup com timestamp e recarrega a pilha
    */
-  public async applyPjsipConfig(pjsipContent: string): Promise<{ success: boolean; backupPath?: string; message: string }> {
-    const fs = await import('fs');
-    const path = await import('path');
+  private configurationQueue: Promise<void> = Promise.resolve();
 
-    // Determina o diretório base: /etc/asterisk se com permissão de escrita, senão pasta local server/config/asterisk
-    let baseDir = '/etc/asterisk';
-    try {
-      if (!fs.existsSync(baseDir)) {
-        baseDir = path.join(process.cwd(), 'server', 'config', 'asterisk');
-      }
-      if (!fs.existsSync(baseDir)) {
-        fs.mkdirSync(baseDir, { recursive: true });
-      }
-    } catch {
-      baseDir = path.join(process.cwd(), 'server', 'config', 'asterisk');
-      fs.mkdirSync(baseDir, { recursive: true });
+  public async applyPjsipConfig(pjsipContent: string, extensionsContent?: string,queuesContent?:string): Promise<{ success: boolean; backupPath?: string; message: string }> {
+    const previous = this.configurationQueue;
+    let unlock!: () => void;
+    this.configurationQueue = new Promise<void>(resolve => { unlock = resolve; });
+    await previous;
+    try { return await this.applyConfigurationFiles(pjsipContent, extensionsContent,queuesContent); }
+    finally { unlock(); }
+  }
+
+  private async applyConfigurationFiles(pjsipContent: string, extensionsContent?: string,queuesContent?:string): Promise<{ success: boolean; backupPath?: string; message: string }> {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    if (process.env.NODE_ENV === 'production' && !['127.0.0.1', 'localhost', '::1'].includes(this.host)) {
+      return { success: false, message: 'Provisionamento remoto de arquivos Asterisk não configurado.' };
     }
-
-    const backupDir = path.join(baseDir, 'backup');
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
+    let baseDir = process.env.ASTERISK_CONFIG_DIR || '/etc/asterisk';
+    if (!fs.existsSync(baseDir)) {
+      if (process.env.NODE_ENV === 'production') return { success: false, message: 'Diretório gerenciado do Asterisk não provisionado.' };
+      baseDir = path.join(process.cwd(), 'server/config/asterisk');
+      fs.mkdirSync(baseDir, { recursive: true, mode: 0o750 });
     }
-
-    const targetFile = path.join(baseDir, 'pjsip.conf');
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupFile = path.join(backupDir, `pjsip.conf.${timestamp}.bak`);
-
-    // Backup do arquivo atual se existir
-    if (fs.existsSync(targetFile)) {
-      fs.copyFileSync(targetFile, backupFile);
-    }
-
-    // Gravação atômica da nova configuração
-    fs.writeFileSync(targetFile, pjsipContent, 'utf8');
-
-    // Execução do pjsip reload real
-    const reloadRes = await this.reloadPjsip();
-
-    return {
-      success: reloadRes.success,
-      backupPath: fs.existsSync(backupFile) ? backupFile : undefined,
-      message: reloadRes.message,
+    const files = new Map<string, string>([['pjsip.conf', pjsipContent]]);
+    if (extensionsContent !== undefined) files.set('extensions.conf', extensionsContent);
+    if(queuesContent!==undefined)files.set('queues.conf',queuesContent);
+    for (const content of files.values()) if (typeof content !== 'string' || !content.trim() || content.length > 2 * 1024 * 1024 || content.includes('\0')) throw new Error('Configuração Asterisk inválida.');
+    const backupDir = path.join(baseDir, 'backup', crypto.randomUUID());
+    fs.mkdirSync(backupDir, { recursive: true, mode: 0o750 });
+    const before = new Map<string, Buffer | undefined>();
+    const atomicWrite = (name: string, content: string | Buffer) => {
+      const temporary = path.join(baseDir, `config-${crypto.randomUUID()}.tmp`);
+      try {
+        fs.writeFileSync(temporary, content, { mode: 0o640, flag: 'wx' });
+        fs.renameSync(temporary, path.join(baseDir, name));
+      } finally { fs.rmSync(temporary, { force: true }); }
     };
-  }
-
-  /**
-   * Transfere uma chamada ativa para outro ramal ou fila via AMI / CLI
-   */
-  public async transferCall(channel: string, targetExten: string, context = 'from-internal'): Promise<{ success: boolean; message: string }> {
-    const hasAsterisk = await this.checkBinaryExists();
-    if (hasAsterisk) {
-      const res = await this.executeCli(`channel redirect ${channel} ${context},${targetExten},1`);
-      return {
-        success: res.success,
-        message: res.success ? `Canal ${channel} transferido com sucesso para ${targetExten}` : (res.error || 'Falha ao transferir canal.'),
-      };
-    }
-
     try {
-      const out = await this.executeAmiAction('Redirect', {
-        Channel: channel,
-        Exten: targetExten,
-        Context: context,
-        Priority: '1',
-      });
-      return { success: true, message: out };
-    } catch (err: any) {
-      return { success: false, message: `Falha ao transferir chamada: ${err.message}` };
-    }
-  }
-
-  /**
-   * Operações AMI Tipadas e Estruturadas
-   */
-  public async amiHangup(channel: string): Promise<boolean> {
-    try {
-      await this.executeAmiAction('Hangup', { Channel: channel });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  public async amiRedirect(channel: string, exten: string, context: string, priority: string = '1'): Promise<boolean> {
-    try {
-      await this.executeAmiAction('Redirect', {
-        Channel: channel,
-        Exten: exten,
-        Context: context,
-        Priority: priority,
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  public async amiOriginate(caller: string, callee: string, context: string = 'from-internal'): Promise<boolean> {
-    try {
-      await this.executeAmiAction('Originate', {
-        Channel: `PJSIP/${caller}`,
-        Exten: callee,
-        Context: context,
-        Priority: '1',
-        CallerID: caller,
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Encerra um canal ativo imediatamente
-   */
-  public async hangupCall(channel: string): Promise<{ success: boolean; message: string }> {
-    const hasAsterisk = await this.checkBinaryExists();
-    if (hasAsterisk) {
-      const res = await this.executeCli(`channel request hangup ${channel}`);
-      return {
-        success: res.success,
-        message: res.success ? `Canal ${channel} finalizado com sucesso.` : (res.error || 'Falha ao encerrar canal.'),
-      };
-    }
-
-    try {
-      const out = await this.executeAmiAction('Hangup', { Channel: channel });
-      return { success: true, message: out };
-    } catch (err: any) {
-      return { success: false, message: `Falha ao encerrar canal: ${err.message}` };
+      for (const [name] of files) {
+        const current = path.join(baseDir, name);
+        const original = fs.existsSync(current) ? fs.readFileSync(current) : undefined;
+        before.set(name, original);
+        if (original) fs.writeFileSync(path.join(backupDir, name), original, { mode: 0o640, flag: 'wx' });
+      }
+      for (const [name, content] of files) atomicWrite(name, content);
+      const pjsip = await this.reloadPjsip();
+      const dialplan = extensionsContent === undefined ? { success: true } : await this.reloadDialplan();
+      const queues=queuesContent===undefined?{success:true}:await this.reloadQueues();
+      if (!pjsip.success || !dialplan.success||!queues.success) throw new Error('Recarga recusada pelo Asterisk.');
+      return { success: true, backupPath: backupDir, message: queuesContent!==undefined?'PJSIP, plano e filas gravados; recargas aceitas.':extensionsContent === undefined ? 'PJSIP gravado e recarregado.' : 'PJSIP e plano de discagem gravados e recarregados.' };
+    } catch (error) {
+      for (const [name, original] of before) {
+        if (original !== undefined) atomicWrite(name, original);
+        else fs.rmSync(path.join(baseDir, name), { force: true });
+      }
+      const pjsip = await this.reloadPjsip();
+      const dialplan = extensionsContent === undefined ? { success: true } : await this.reloadDialplan();
+      const queues=queuesContent===undefined?{success:true}:await this.reloadQueues();
+      return { success: false, backupPath: backupDir, message: pjsip.success && dialplan.success&&queues.success
+        ? 'A configuração foi recusada; a versão anterior foi restaurada e recarregada.'
+        : 'A versão anterior foi restaurada; verifique as recargas manualmente.' };
     }
   }
 
   /**
    * Recarrega o Dialplan no Asterisk.
    */
+  public async reloadQueues():Promise<{success:boolean;message:string}>{
+    try{await this.executeAmiAction('QueueReload',{Members:'yes',Parameters:'yes',Rules:'no'});return {success:true,message:'Recarga de membros e parâmetros de filas aceita pelo AMI.'};}
+    catch{return {success:false,message:'Recarga de filas sem confirmação.'};}
+  }
+
   public async reloadDialplan(): Promise<{ success: boolean; message: string }> {
     const hasAsterisk = await this.checkBinaryExists();
     if (hasAsterisk) {
@@ -592,23 +433,24 @@ export class AsteriskAdapter {
     if (hasAsterisk) {
       const version = await this.getVersion();
       const uptime = await this.getUptime();
-      const channels = await this.getChannels();
+      let amiConnected=false;
+      try{await this.executeAmiAction('CoreStatus');amiConnected=true;}catch{/* CLI disponível não comprova conexão AMI. */}
 
       if (version) {
         this.lastHealth = {
           status: 'UP',
           version,
           uptime: uptime || 'Ativo',
-          channelsCount: channels.length,
+          channelsCount: null,
           mode: 'LOCAL_CLI',
-          amiConnected: true,
+          amiConnected,
           lastChecked: new Date().toISOString(),
         };
         return this.lastHealth;
       } else {
         this.lastHealth = {
           status: 'DOWN',
-          channelsCount: 0,
+          channelsCount: null,
           mode: 'LOCAL_CLI',
           amiConnected: false,
           error: 'Binário "asterisk" instalado, mas o processo "asterisk" não está em execução no sistema.',
@@ -623,12 +465,11 @@ export class AsteriskAdapter {
       const amiRes = await this.executeAmiAction('CoreStatus');
       const versionMatch = amiRes.match(/CoreCurrentVersion:\s*([^\r\n]+)/i);
       const realVersion = versionMatch ? versionMatch[1].trim() : 'NO_DATA';
-      const channels = this.parseAmiChannels(amiRes);
       this.lastHealth = {
         status: 'UP',
         version: realVersion,
         uptime: 'Remoto',
-        channelsCount: channels.length,
+        channelsCount: null,
         mode: 'REMOTE_AMI',
         amiConnected: true,
         lastChecked: new Date().toISOString(),
@@ -637,7 +478,7 @@ export class AsteriskAdapter {
     } catch (amiErr: any) {
       this.lastHealth = {
         status: 'NOT_INSTALLED',
-        channelsCount: 0,
+        channelsCount: null,
         mode: 'NONE',
         amiConnected: false,
         error: 'Asterisk 20 LTS não está instalado localmente e o AMI remoto não está acessível em 127.0.0.1:5038.',

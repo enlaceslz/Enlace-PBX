@@ -3,7 +3,22 @@ import { Users, Phone, Mail, Search, BrainCircuit, Activity, Heart, ShieldAlert,
 import { CrmContact, CustomerMemory } from '../../types/pbx';
 import { getAuthHeaders } from '../../utils/api';
 
+type SupportTicket = { id: string; protocol: string; caller_number: string; category: string; description: string; status: string; created_at: string };
+
 export const CrmContactsView: React.FC = () => {
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [ticketMessage, setTicketMessage] = useState('Carregando chamados…');
+  const loadTickets = async () => {
+    setTicketMessage('Carregando chamados…');
+    try {
+      const response = await fetch('/api/v1/tickets', { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error(response.status === 403 ? 'Seu perfil não possui acesso aos chamados.' : 'Não foi possível consultar os chamados.');
+      const data = await response.json();
+      setTickets(Array.isArray(data) ? data : []);
+      setTicketMessage('');
+    } catch (error) { setTicketMessage(error instanceof Error ? error.message : 'Falha ao consultar chamados.'); }
+  };
+  useEffect(() => { void loadTickets(); }, []);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [memories, setMemories] = useState<CustomerMemory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -231,6 +246,22 @@ export const CrmContactsView: React.FC = () => {
           )}
         </div>
       </div>
+      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center gap-4">
+          <h2 className="font-bold text-slate-900">Chamados registrados pela MaIA</h2>
+          <button onClick={() => void loadTickets()} className="text-sm font-bold text-blue-700">Atualizar chamados</button>
+        </div>
+        {ticketMessage ? <p className="p-5 text-sm text-slate-500" role="status">{ticketMessage}</p> : tickets.length === 0 ? <p className="p-5 text-sm text-slate-500">Nenhum chamado registrado nesta empresa.</p> :
+          <div className="overflow-x-auto"><table className="w-full text-sm text-left">
+            <thead className="bg-slate-50 text-slate-500"><tr><th className="p-4">Protocolo</th><th className="p-4">Contato</th><th className="p-4">Solicitação</th><th className="p-4">Situação</th><th className="p-4">Abertura</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tickets.map(ticket => <tr key={ticket.id}>
+              <td className="p-4 font-mono text-xs">{ticket.protocol}</td><td className="p-4 font-mono text-xs">{ticket.caller_number}</td>
+              <td className="p-4 max-w-md"><p className="font-semibold text-slate-800">{ticket.category}</p><p className="text-slate-500 whitespace-pre-wrap break-words">{ticket.description}</p></td>
+              <td className="p-4 text-slate-700">{ticket.status === 'aberto' ? 'Aberto' : ticket.status === 'fechado' ? 'Fechado' : 'Em atendimento'}</td>
+              <td className="p-4 text-slate-500 whitespace-nowrap">{new Date(ticket.created_at).toLocaleString('pt-BR')}</td>
+            </tr>)}</tbody>
+          </table></div>}
+      </section>
     </div>
   );
 };

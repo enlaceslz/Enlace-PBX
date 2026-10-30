@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
 import { TenantContext } from '../../auth/tenantContext.js';
@@ -38,7 +39,7 @@ export class QualityAuditRepository {
           createdAt: toSafeIsoStringOrNow(row.created_at),
         }));
       } catch (err: any) {
-        console.error('[QualityAuditRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -64,7 +65,7 @@ export class QualityAuditRepository {
           createdAt: toSafeIsoStringOrNow(row.created_at),
         }));
       } catch (err: any) {
-        console.error('[QualityAuditRepository.listAll] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -98,7 +99,7 @@ export class QualityAuditRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[QualityAuditRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -127,7 +128,7 @@ export class QualityAuditRepository {
         );
         return audit;
       } catch (err: any) {
-        console.error('[QualityAuditRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     });

@@ -1,3 +1,4 @@
+import {credentialStamp} from '../server/infrastructure/auth/CredentialStamp.js';
 import crypto from 'crypto';
 import { AsteriskCommandService } from '../server/infrastructure/asterisk/AsteriskCommandService.js';
 import { MaiaPolicyEngine } from '../server/maia/policy/MaiaPolicyEngine.js';
@@ -29,7 +30,7 @@ import { AsteriskTransferExecutor } from '../server/maia/executors/AsteriskExecu
 import { asteriskService } from '../server/asteriskService.js';
 import { asteriskAdapter, AsteriskAdapter } from '../server/infrastructure/asterisk/AsteriskAdapter.js';
 import { geminiService } from '../server/geminiService.js';
-import { requireTenant, resolveTenantContext, requireSseAuth, SseTicketManager, requireAuth, hasCapability, TenantContext } from '../server/infrastructure/auth/authMiddleware.js';
+import { getJwtSecret, requireTenant, resolveTenantContext, requireSseAuth, SseTicketManager, requireAuth, hasCapability, TenantContext } from '../server/infrastructure/auth/authMiddleware.js';
 
 export interface TestResultItem {
   test: string;
@@ -1208,6 +1209,7 @@ export async function runAllTests(): Promise<{
         tenantId: TENANT_A,
         callerNumber: '9831908000',
         correlationId: 'corr-test-cross-1',
+        asteriskChannelId: `PJSIP/${EXT_A}-00000001`,
       }
     );
 
@@ -1322,9 +1324,8 @@ export async function runAllTests(): Promise<{
   // -------------------------------------------------------------------------
   console.log('\n[GRUPO 7] Telefonia Asterisk & Isolamento Estrito de Canais');
 
-  // Registra canal em memória para Tenant B
+  // Canal inexistente não pode conceder autorização para o Tenant B
   const chanBetaId = 'PJSIP/9201-0000003c';
-  asteriskService.bindChannelTenant(chanBetaId, TENANT_B);
 
   // 7.1: getActiveChannels isolado por Tenant
   try {
@@ -1706,7 +1707,10 @@ export async function runAllTests(): Promise<{
       role: 'operator' as const,
       name: 'Operador Alpha',
     };
-    const ticketInfo = SseTicketManager.generateTicket(mockUserForTicket);
+    await UserRepository.save({...mockUserForTicket,passwordHash:'hash-de-fixture-sse',isActive:true});
+    const storedTicketUser=await UserRepository.findById(mockUserForTicket.id,TENANT_A);
+    if(!storedTicketUser)throw new Error('Fixture de usuário SSE não encontrada.');
+    const ticketInfo = SseTicketManager.generateTicket({...mockUserForTicket,authStamp:credentialStamp(storedTicketUser,getJwtSecret())});
     validTicketId = ticketInfo.ticket;
 
     const mockReqSseTicket: any = {
@@ -3741,10 +3745,13 @@ export async function runAllTests(): Promise<{
     const revokesCreate = migration008Sql.includes('REVOKE CREATE ON SCHEMA public FROM enlace_app');
     const grantsAppPermissions = migration008Sql.includes('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES');
 
-    // Validação de regras no deploy.sh
-    const deployShPath = path.join(process.cwd(), 'deploy.sh');
-    const deploySh = fs.readFileSync(deployShPath, 'utf8');
-    const deployUsesAppRole = deploySh.includes('enlace_app') && !deploySh.includes('postgres:postgres@');
+    // Exercita o gerador efetivamente utilizado pelo instalador, sem depender de texto do shell.
+    const { productionSettings } = await import('./configure-production.mjs');
+    const generated = productionSettings({ PBX_DOMAIN: 'pbx.example.invalid' });
+    let rejectsOwner = false;
+    try { productionSettings({ PBX_DOMAIN: 'pbx.example.invalid', DATABASE_URL: 'postgresql://postgres:teste@localhost/enlace_pbx' }); }
+    catch { rejectsOwner = true; }
+    const deployUsesAppRole = new URL(generated.DATABASE_URL).username === 'enlace_app' && rejectsOwner && !generated.DATABASE_MIGRATION_URL;
 
     if (restrictsAppRole && revokesCreate && grantsAppPermissions && deployUsesAppRole) {
       record({
@@ -3754,7 +3761,7 @@ export async function runAllTests(): Promise<{
         expected: 'PASS (enlace_app com privilégios mínimos: NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE)',
         actual: 'PASS (Políticas de segurança do PostgreSQL e deploy.sh em conformidade estrita)',
         status: 'passed',
-        evidence: `Migração 008 assegura privilégios mínimos para 'enlace_app' (sem DDL/sem bypass RLS). deploy.sh descontinuou uso de 'postgres:postgres' e adota enlace_app.`,
+        evidence: `Migração 008 assegura privilégios mínimos para 'enlace_app' (sem DDL/sem bypass RLS). Gerador de configuração produz enlace_app, rejeita postgres como usuário do serviço e remove a URL administrativa.`,
       });
     } else {
       record({

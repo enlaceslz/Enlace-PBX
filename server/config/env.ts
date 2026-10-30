@@ -1,5 +1,8 @@
+import {logOperational} from '../infrastructure/security/OperationalLog.js';
+import './loadEnvironment.js';
 import crypto from 'crypto';
 import fs from 'fs';
+import {assertProductionSecrets} from './environmentPolicy.mjs';
 
 /**
  * Validação Central de Ambiente e Segredos — Enlace-PBX Enterprise
@@ -60,12 +63,17 @@ export function loadEnvConfig(): AppEnvConfig {
         } catch {
           // ignora erro de escrita em sandbox
         }
-        console.warn(
-          '[SEGURANÇA] JWT_SECRET não configurado. Gerando segredo criptográfico persistente de 256 bits para desenvolvimento.'
-        );
+        logOperational('SERVER_WARNING');
       }
     }
   }
+
+  if (!['development', 'production', 'test'].includes(nodeEnv)) throw new Error('NODE_ENV inválido.');
+  if (isProd) assertProductionSecrets({JWT_SECRET:jwtSecret,ENCRYPTION_KEY:process.env.ENCRYPTION_KEY,WHATSAPP_VERIFY_TOKEN:process.env.WHATSAPP_VERIFY_TOKEN});
+  const parsePort = (value: string, name: string): number => {
+    if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535) throw new Error(`${name} deve ser uma porta válida.`);
+    return Number(value);
+  };
 
   // Validação de CORS em produção (proibido wildcard '*')
   const rawCorsOrigins = process.env.CORS_ALLOWED_ORIGINS;
@@ -84,7 +92,7 @@ export function loadEnvConfig(): AppEnvConfig {
 
   // Validação de credenciais de telefonia Asterisk
   const amiHost = process.env.ASTERISK_AMI_HOST || process.env.ASTERISK_HOST || '127.0.0.1';
-  const amiPort = parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10);
+  const amiPort = parsePort(process.env.ASTERISK_AMI_PORT || '5038', 'ASTERISK_AMI_PORT');
   const amiUser = process.env.ASTERISK_AMI_USERNAME || process.env.ASTERISK_AMI_USER || 'enlace_ami';
   const amiPassword = process.env.ASTERISK_AMI_PASSWORD;
 
@@ -94,22 +102,14 @@ export function loadEnvConfig(): AppEnvConfig {
 
   // Validação de Token do WhatsApp
   let whatsappToken = process.env.WHATSAPP_VERIFY_TOKEN;
-  if (isProd && whatsappToken === 'enlace_meta_webhook_token_2026') {
-    throw new Error(
-      'FATAL DE PRODUÇÃO: O token WHATSAPP_VERIFY_TOKEN está utilizando um valor fraco/previsível de exemplo. ' +
-      'Gere um segredo criptograficamente seguro com: openssl rand -hex 24'
-    );
-  }
 
   if (isProd && (!amiPassword || amiPassword.trim() === '')) {
-    console.warn(
-      '[CONFIG] ASTERISK_AMI_PASSWORD não fornecido. Conexões AMI locais/remotas serão rejeitadas pelo Asterisk até a definição da credencial.'
-    );
+    logOperational('SERVER_WARNING');
   }
 
   return {
     NODE_ENV: nodeEnv,
-    PORT: parseInt(process.env.PORT || '3000', 10),
+    PORT: parsePort(process.env.PORT || '3000', 'PORT'),
     JWT_SECRET: jwtSecret,
     CORS_ALLOWED_ORIGINS: corsOrigins,
     DATABASE_URL: process.env.DATABASE_URL,

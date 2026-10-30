@@ -128,7 +128,7 @@ export class MaiaSessionEntity implements MaiaSession {
     this.tokensInput += tokensIn;
     this.tokensOutput += tokensOut;
     this.lastActivityAt = new Date().toISOString();
-    this.durationSeconds += Math.round(latencyMs / 1000) + 2;
+    this.durationSeconds = Math.max(0, Math.floor((Date.now() - new Date(this.startedAt).getTime()) / 1000));
   }
 
   public registerToolCall() {

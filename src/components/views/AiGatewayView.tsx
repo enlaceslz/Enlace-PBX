@@ -1,3 +1,5 @@
+import { QualityReviewPanel } from './QualityReviewPanel';
+import { EntityExtractionPanel } from './EntityExtractionPanel';
 import React, { useState, useEffect } from 'react';
 import {
   Bot,
@@ -50,7 +52,6 @@ import {
   AiTool,
   AiKnowledgeSource,
   AiSession,
-  QualityAuditRecord,
   EntityExtractionSchema,
 } from '../../types/pbx';
 import { getAuthHeaders } from '../../utils/api';
@@ -191,33 +192,21 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
       setCurrentTab(activeSubTab);
     }
   }, [activeSubTab]);
+  const [agentError,setAgentError]=useState<string|null>(null);
+  const [reviewDocumentId,setReviewDocumentId]=useState<string|null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AiAgent | null>(agents[0] || null);
   const [selectedTool, setSelectedTool] = useState<AiTool | null>(null);
-  const [testToolArgs, setTestToolArgs] = useState('{"documento": "12345678900"}');
-  const [toolSimResult, setToolSimResult] = useState<any>(null);
+  const [testToolArgs, setTestToolArgs] = useState('{}');
+  const [toolTestResult, setToolTestResult] = useState<any>(null);
+  const [isTestingTool, setIsTestingTool] = useState(false);
+  const [toolTestError, setToolTestError] = useState('');
+  const [toolExecutionConfirmed, setToolExecutionConfirmed] = useState(false);
 
-  // Quality Supervisor State
-  const [qualityAudits, setQualityAudits] = useState<QualityAuditRecord[]>([]);
-  const [selectedAudit, setSelectedAudit] = useState<QualityAuditRecord | null>(null);
-  const [auditFilterChannel, setAuditFilterChannel] = useState<string>('all');
-  const [auditFilterRisk, setAuditFilterRisk] = useState<string>('all');
-  const [isEvaluatingAudit, setIsEvaluatingAudit] = useState(false);
-  const [evalSampleText, setEvalSampleText] = useState(
-    "Operador: Central Enlace PBX, meu nome é Carlos. Com quem falo e qual o protocolo de atendimento?\nCliente: Olá Carlos, aqui é Roberto da Tech Telecom. Nosso tronco SIP PJSIP ramal 4101 está com oscilação de áudio e picote constante. Se não normalizarem hoje teremos que cancelar a portabilidade e suspender pagamentos!\nOperador: Compreendo a gravidade, Sr. Roberto. Informo que nossa ligação está gravada conforme as normas da LGPD. Já localizei seu cadastro empresarial no CRM e estou aplicando agora mesmo QoS prioritário DSCP EF 46 no tronco para restabelecer a comunicação."
-  );
-  const [evalChannel, setEvalChannel] = useState<'voice' | 'whatsapp' | 'webrtc'>('voice');
-  const [evalAgentName, setEvalAgentName] = useState('Carlos (Operador Central)');
-  const [showEvalModal, setShowEvalModal] = useState(false);
+  const [qualityReviewCount,setQualityReviewCount]=useState<number|null>(null);
 
   // Entity Extraction State
+  const [entitySchemaError, setEntitySchemaError] = useState('');
   const [entitySchemas, setEntitySchemas] = useState<EntityExtractionSchema[]>([]);
-  const [selectedSchema, setSelectedSchema] = useState<EntityExtractionSchema | null>(null);
-  const [testExtractionText, setTestExtractionText] = useState(
-    "Olá suporte, sou a Mariana da Alpha Logística (CNPJ 12.345.678/0001-90). Estamos com instabilidade no ramal 3004 da filial Campinas. O nosso diretor financeiro aprovou um orçamento de R$ 15.000 para migração urgente para tronco PJSIP dedicado."
-  );
-  const [extractedResult, setExtractedResult] = useState<any>(null);
-  const [isExtracting, setIsExtracting] = useState(false);
-
   // Edit Selected Agent State
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
   const [editName, setEditName] = useState('');
@@ -334,10 +323,10 @@ export const AiGatewayView: React.FC<AiGatewayViewProps> = ({
 Fale em português brasileiro culto, objetivo e empático.
 Suas respostas devem ser curtas (1 a 2 frases) para manter o diálogo natural.
 Se o chamador solicitar um atendente humano, acione a ferramenta transferir_chamada.`,
-    transferExtension: '4101',
-    fallbackAction: 'transfer_human' as const,
-    tools: ['tool-consultar-cliente', 'tool-transferir-chamada', 'tool-encerrar-chamada'],
-    knowledgeSources: knowledge.map((k) => k.id),
+    transferExtension: '',
+    fallbackAction: 'hangup' as AiAgent['fallbackAction'],
+    tools: [] as string[],
+    knowledgeSources: [] as string[],
     allowBargeIn: true,
     temperature: 0.3,
   });
@@ -406,10 +395,9 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
   const handleSaveAgentChanges = async () => {
     if (!selectedAgent) return;
-    setIsSavingAgent(true);
+    setAgentError(null);setIsSavingAgent(true);
     try {
       const payload = {
-        ...selectedAgent,
         name: editName || selectedAgent.name,
         systemInstruction: editPrompt,
         initialGreeting: editGreeting,
@@ -417,13 +405,14 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
         voiceGender: editVoiceGender,
         avatarType: editAvatarType,
         model: editModel,
-        transferExtension: editTransferExt,
+        ...(editTransferExt===selectedAgent.transferExtension?{}:{transferExtension:editTransferExt,fallbackAction:editTransferExt?(selectedAgent.fallbackAction==='hangup'?'transfer_human':selectedAgent.fallbackAction):'hangup'}),
       };
       const res = await fetch(`/api/v1/ai/agents/${selectedAgent.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(payload),
       });
+      if (!res.ok) throw new Error((await res.json()).error||'Não foi possível salvar o agente.');
       if (res.ok) {
         const updated = await res.json();
         setSelectedAgent(updated);
@@ -435,7 +424,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
         onRefresh();
       }
     } catch (err) {
-      console.error('Erro ao salvar agente:', err);
+      setAgentError(err instanceof Error?err.message:'Não foi possível salvar o agente.');
     } finally {
       setIsSavingAgent(false);
     }
@@ -444,15 +433,15 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   const handleCreateAgentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createFormData.name) return;
-    setIsCreatingAgent(true);
+    setAgentError(null);setIsCreatingAgent(true);
     try {
       const res = await fetch('/api/v1/ai/agents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: createFormData.name,
           description: createFormData.description,
-          providerId: providers[0]?.id || 'provider-gemini-live',
+          providerId: '9router',
           model: createFormData.model,
           voice: createFormData.voice,
           language: 'pt-BR',
@@ -464,10 +453,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
           allowBargeIn: createFormData.allowBargeIn,
           silenceTimeoutSeconds: 5,
           maxSessionMinutes: 15,
-          transferExtension: createFormData.transferExtension,
+          transferExtension: createFormData.fallbackAction==='hangup'?'':createFormData.transferExtension,
           fallbackAction: createFormData.fallbackAction,
         }),
       });
+      if (!res.ok) throw new Error((await res.json()).error||'Não foi possível criar o agente.');
       if (res.ok) {
         const newAgent = await res.json();
         setIsCreateModalOpen(false);
@@ -475,15 +465,39 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
         setSelectedAgent(newAgent);
       }
     } catch (err) {
-      console.error('Erro ao criar agente:', err);
+      setAgentError(err instanceof Error?err.message:'Não foi possível criar o agente.');
     } finally {
       setIsCreatingAgent(false);
     }
   };
 
-  const handleSimulateTool = (tool: AiTool) => {
+  const handleSelectTool = (tool: AiTool) => {
+    if (isTestingTool) return;
     setSelectedTool(tool);
-    setToolSimResult(tool.mockResponse);
+    setToolTestResult(null);
+    setToolTestError('');
+    setTestToolArgs('{}');
+    setToolExecutionConfirmed(false);
+  };
+
+  const handleExecuteToolTest = async () => {
+    if (!selectedTool || isTestingTool) return;
+    let params: unknown;
+    try { params = JSON.parse(testToolArgs); }
+    catch { setToolTestError('Informe parâmetros em JSON válido.'); return; }
+    setIsTestingTool(true);
+    setToolTestError('');
+    setToolTestResult(null);
+    try {
+      const response = await fetch(`/api/v1/ai/tools/${encodeURIComponent(selectedTool.id)}/test`, {
+        method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params, confirmed: toolExecutionConfirmed }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error([result.error || 'Falha ao executar ferramenta.', result.warning].filter(Boolean).join(' '));
+      setToolTestResult(result);
+    } catch (error) { setToolTestError(error instanceof Error ? error.message : 'Não foi possível concluir o teste.'); }
+    finally { setIsTestingTool(false); setToolExecutionConfirmed(false); }
   };
 
   // ---------------------------------------------------------------------------
@@ -519,7 +533,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     fileType: 'text/plain',
     fileSizeBytes: 0,
     base64Data: '',
-    targetAgentIds: agents.map((a) => a.id),
+    targetAgentIds: [] as string[],
   });
 
   const handleTriggerFileInput = () => {
@@ -530,6 +544,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   };
 
   const handleOpenManualEntry = () => {
+    setReviewDocumentId(null);
     setDocFormData({
       title: '',
       category: 'Suporte Técnico',
@@ -538,39 +553,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       fileType: 'text/plain',
       fileSizeBytes: 0,
       base64Data: '',
-      targetAgentIds: agents.map((a) => a.id),
-    });
-    setUploadError(null);
-    setUploadProgressMsg('');
-    setIsUploadModalOpen(true);
-  };
-
-  const handleLoadSampleManual = () => {
-    setDocFormData({
-      title: 'Manual de Resolução de Falhas de Conexão FTTH & Ramal SIP',
-      category: 'Suporte Técnico',
-      content: `# PROCEDIMENTO OPERACIONAL PADRÃO — SUPORTE N1/N2 ENLACE TELECOM
-
-## 1. Verificação de Ramais SIP / PJSIP
-- Se o telefone IP ou Webphone exibir status "Offline" ou código 408 Request Timeout:
-  a) Verifique se o cabo RJ45 está conectado na porta LAN ou se o WebRTC está autorizado no navegador.
-  b) Confirme se o IP do PABX (192.168.10.250:5060) está acessível via rede local.
-  c) No ramal do cliente, confira se o Realm está definido como "enlace-pbx" e transporte UDP/WSS.
-  d) Se o erro for 403 Forbidden, resete a senha SIP ou confira o contexto 'from-internal'.
-
-## 2. Diagnóstico de Conexão de Fibra Óptica (GPON / ONU)
-- Lâmpada PON piscando: Falha de sincronismo óptico na OLT (Atenuação > -27dBm).
-- Lâmpada LOS vermelha: Rompimento físico do cordão óptico ou cabo drop externo.
-- Orientação ao cliente: Solicite que desligue e ligue o equipamento aguardando 30 segundos. Caso o LOS permaneça aceso, abra chamado técnico com prioridade alta para a equipe externa de campo.
-
-## 3. Faturamento, Segunda Via e Desbloqueio
-- Segunda via de fatura: Enviada automaticamente por WhatsApp ou link PIX copia-e-cola.
-- Desbloqueio em confiança: Concedido via atendimento automático por até 48 horas para clientes sem pendências nos últimos 6 meses.`,
-      fileName: 'manual_procedimentos_suporte_tecnico_pjsip.txt',
-      fileType: 'text/plain',
-      fileSizeBytes: 1460,
-      base64Data: '',
-      targetAgentIds: agents.map((a) => a.id),
+      targetAgentIds: [] as string[],
     });
     setUploadError(null);
     setUploadProgressMsg('');
@@ -578,150 +561,20 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
   };
 
   const processFile = async (file: File) => {
-    setUploadError(null);
-    setUploadProgressMsg(`Lendo ${file.name}...`);
-    setIsUploadingDoc(true);
-
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    const isText =
-      file.type.startsWith('text/') ||
-      file.name.toLowerCase().endsWith('.txt') ||
-      file.name.toLowerCase().endsWith('.md') ||
-      file.name.toLowerCase().endsWith('.json') ||
-      file.name.toLowerCase().endsWith('.csv') ||
-      file.name.toLowerCase().endsWith('.log');
-
-    const cleanTitle = file.name
-      .replace(/\.[^/.]+$/, '')
-      .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, (l) => l.toUpperCase());
-
-    let autoCategory = 'Suporte Técnico';
-    const lowerName = file.name.toLowerCase();
-    if (
-      lowerName.includes('rede') ||
-      lowerName.includes('noc') ||
-      lowerName.includes('sip') ||
-      lowerName.includes('onu') ||
-      lowerName.includes('fibra') ||
-      lowerName.includes('roberto')
-    ) {
-      autoCategory = 'Diagnóstico de Rede / NOC';
-    } else if (
-      lowerName.includes('comercial') ||
-      lowerName.includes('plano') ||
-      lowerName.includes('venda') ||
-      lowerName.includes('tabela')
-    ) {
-      autoCategory = 'Comercial & Planos';
-    } else if (
-      lowerName.includes('financeir') ||
-      lowerName.includes('fatura') ||
-      lowerName.includes('pix') ||
-      lowerName.includes('cobranca')
-    ) {
-      autoCategory = 'Financeiro & Faturamento';
-    } else if (
-      lowerName.includes('politica') ||
-      lowerName.includes('lgpd') ||
-      lowerName.includes('horario')
-    ) {
-      autoCategory = 'Políticas & Procedimentos';
-    }
-
+    setUploadError(null);setReviewDocumentId(null);setIsUploadingDoc(true);setUploadProgressMsg('Lendo texto local para revisão...');
     try {
-      if (isText) {
-        const text = await file.text();
-        setDocFormData({
-          title: cleanTitle,
-          category: autoCategory,
-          content: text,
-          fileName: file.name,
-          fileType: file.type || 'text/plain',
-          fileSizeBytes: file.size,
-          base64Data: '',
-          targetAgentIds: agents.map((a) => a.id),
-        });
-        setIsUploadingDoc(false);
-        setUploadProgressMsg('');
-        setIsUploadModalOpen(true);
-      } else if (isPdf) {
-        setUploadProgressMsg('Extraindo texto e procedimentos do PDF via Gemini / RAG Engine...');
-        const reader = new FileReader();
-        reader.onload = async () => {
-          const resultStr = reader.result as string;
-          const base64Data = resultStr.split(',')[1] || '';
-
-          try {
-            const res = await fetch('/api/v1/ai/knowledge/upload', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                fileName: file.name,
-                fileType: 'application/pdf',
-                base64Data,
-                title: cleanTitle,
-                category: autoCategory,
-                targetAgentIds: agents.map((a) => a.id),
-              }),
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              setDocFormData({
-                title: data.doc?.title || cleanTitle,
-                category: data.doc?.category || autoCategory,
-                content: data.doc?.content || '',
-                fileName: file.name,
-                fileType: 'application/pdf',
-                fileSizeBytes: file.size,
-                base64Data,
-                targetAgentIds: agents.map((a) => a.id),
-              });
-              setIsUploadingDoc(false);
-              setUploadProgressMsg('');
-              setIsUploadModalOpen(true);
-            } else {
-              throw new Error('Falha no processamento do PDF pelo backend');
-            }
-          } catch {
-            setDocFormData({
-              title: cleanTitle,
-              category: autoCategory,
-              content: `[Manual PDF: ${file.name}]\nDocumento importado para a base de conhecimento dos agentes de IA.`,
-              fileName: file.name,
-              fileType: 'application/pdf',
-              fileSizeBytes: file.size,
-              base64Data,
-              targetAgentIds: agents.map((a) => a.id),
-            });
-            setIsUploadingDoc(false);
-            setUploadProgressMsg('');
-            setIsUploadModalOpen(true);
-          }
-        };
-        reader.readAsDataURL(file);
-      } else {
-        const text = await file.text();
-        setDocFormData({
-          title: cleanTitle,
-          category: autoCategory,
-          content: text || `Documento ${file.name} carregado para base de conhecimento.`,
-          fileName: file.name,
-          fileType: file.type || 'text/plain',
-          fileSizeBytes: file.size,
-          base64Data: '',
-          targetAgentIds: agents.map((a) => a.id),
-        });
-        setIsUploadingDoc(false);
-        setUploadProgressMsg('');
-        setIsUploadModalOpen(true);
-      }
-    } catch (err: any) {
-      console.error('Erro ao processar arquivo:', err);
-      setIsUploadingDoc(false);
-      setUploadError(err.message || 'Erro ao carregar arquivo.');
-    }
+      if(!/\.(txt|md)$/i.test(file.name)||file.size>65536)throw new Error('Selecione TXT ou Markdown em UTF-8, com até 64 KiB. PDF está indisponível.');
+      const content=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());
+      if(!content.trim()||content.includes('\0'))throw new Error('O arquivo não contém texto válido para revisão.');
+      setDocFormData({title:file.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' '),category:'Geral',content,fileName:file.name,fileType:file.name.toLowerCase().endsWith('.md')?'text/markdown':'text/plain',fileSizeBytes:new TextEncoder().encode(content).length,base64Data:'',targetAgentIds:[]});
+      setIsUploadModalOpen(true);
+    }catch{setUploadError('Não foi possível ler o arquivo. Use TXT ou Markdown UTF-8 com até 64 KiB.');}
+    finally{setIsUploadingDoc(false);setUploadProgressMsg('');}
+  };
+  const reviewKnowledge=(document:AiKnowledgeSource)=>{
+    setReviewDocumentId(document.id);setUploadError(null);
+    setDocFormData({title:document.title,category:document.category,content:document.content,fileName:document.fileName||'',fileType:'text/plain',fileSizeBytes:0,base64Data:'',targetAgentIds:agents.filter(agent=>agent.knowledgeSources.includes(document.id)).map(agent=>agent.id)});
+    setIsUploadModalOpen(true);
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -759,23 +612,22 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     setIsUploadingDoc(true);
     setUploadError(null);
     try {
-      const res = await fetch('/api/v1/ai/knowledge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(reviewDocumentId?`/api/v1/ai/knowledge/${reviewDocumentId}`:'/api/v1/ai/knowledge', {
+        method: reviewDocumentId?'PUT':'POST',
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           title: docFormData.title,
           category: docFormData.category,
           content: docFormData.content,
-          fileName: docFormData.fileName,
+          ...(reviewDocumentId?{}:{fileName:docFormData.fileName}),
           fileType: docFormData.fileType,
-          fileSizeBytes: docFormData.fileSizeBytes,
           targetAgentIds: docFormData.targetAgentIds,
         }),
       });
 
       if (res.ok) {
         setIsUploadModalOpen(false);
-        setUploadSuccess(`Manual "${docFormData.title}" indexado com sucesso para os agentes!`);
+        setUploadSuccess(`Manual "${docFormData.title}" salvo como texto revisado; vínculos registrados.`);
         setTimeout(() => setUploadSuccess(null), 4500);
         onRefresh();
       } else {
@@ -793,12 +645,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     if (!confirm('Deseja realmente remover este documento da base de conhecimento?')) return;
     setDeletingDocId(id);
     try {
-      const res = await fetch(`/api/v1/ai/knowledge/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        onRefresh();
-      }
+      const res = await fetch(`/api/v1/ai/knowledge/${id}`, { method: 'DELETE',headers:getAuthHeaders() });
+      if (!res.ok) throw new Error((await res.json()).error||'Não foi possível excluir o documento.');
+      onRefresh();
     } catch (err) {
-      console.error('Erro ao deletar documento:', err);
+      setUploadError(err instanceof Error?err.message:'Não foi possível excluir o documento.');
     } finally {
       setDeletingDocId(null);
     }
@@ -826,101 +677,33 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
     return matchesSearch && matchesCat;
   });
 
-  const fetchAudits = async () => {
-    try {
-      const res = await fetch('/api/v1/ai/quality-supervisor/audits', {
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setQualityAudits(data);
-          if (data.length > 0 && !selectedAudit) {
-            setSelectedAudit(data[0]);
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Failed to fetch quality audits', e);
-    }
-  };
-
   const fetchSchemas = async () => {
+    setEntitySchemaError('');
     try {
       const res = await fetch('/api/v1/ai/entity-extraction/schemas', {
         headers: getAuthHeaders(),
       });
+      if (!res.ok) throw new Error('Não foi possível carregar os esquemas da empresa.');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
           setEntitySchemas(data);
-          if (data.length > 0 && !selectedSchema) {
-            setSelectedSchema(data[0]);
-          }
         }
       }
     } catch (e) {
-      console.error('Failed to fetch entity schemas', e);
+      setEntitySchemaError(e instanceof Error ? e.message : 'Esquemas indisponíveis.');
+      setEntitySchemas([]);
     }
   };
 
   useEffect(() => {
-    fetchAudits();
     fetchSchemas();
   }, []);
 
-  const handleRunEvaluation = async () => {
-    if (!evalSampleText.trim()) return;
-    setIsEvaluatingAudit(true);
-    try {
-      const res = await fetch('/api/v1/ai/quality-supervisor/evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channel: evalChannel,
-          agentName: evalAgentName,
-          customerIdentifier: '+55 11 98765-4321',
-          transcript: evalSampleText,
-        }),
-      });
-      if (res.ok) {
-        const newAudit = await res.json();
-        setQualityAudits((prev) => [newAudit, ...prev]);
-        setSelectedAudit(newAudit);
-        setShowEvalModal(false);
-      }
-    } catch (e) {
-      console.error('Failed to evaluate quality audit', e);
-    } finally {
-      setIsEvaluatingAudit(false);
-    }
-  };
-
-  const handleTestExtraction = async () => {
-    if (!testExtractionText.trim() || !selectedSchema) return;
-    setIsExtracting(true);
-    try {
-      const res = await fetch('/api/v1/ai/entity-extraction/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          schemaId: selectedSchema.id,
-          text: testExtractionText,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setExtractedResult(data);
-      }
-    } catch (e) {
-      console.error('Failed to extract entities', e);
-    } finally {
-      setIsExtracting(false);
-    }
-  };
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-8 pb-12">
+      {agentError&&<div role="alert" className="p-3 border border-red-200 text-red-800 rounded-xl">{agentError}</div>}
       {/* Premium Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
@@ -1076,7 +859,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             <div className="flex items-center gap-3">
               <ClipboardCheck className="w-5 h-5" /> Supervisor de Qualidade
             </div>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'supervisor' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-purple-100 group-hover:text-purple-600'}`}>{qualityAudits.length}</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${currentTab === 'supervisor' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-purple-100 group-hover:text-purple-600'}`}>{qualityReviewCount??'—'}</span>
           </button>
 
           <button
@@ -1137,7 +920,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold">
-                      Ramal / DID: {agent.transferExtension ? `900${agent.id.slice(-1) || '1'}` : '9001'}
+                      Fallback: {agent.fallbackAction==='hangup'?'encerrar':agent.transferExtension||'não configurado'}
                     </span>
                     <span
                       className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
@@ -1664,7 +1447,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   {prov.providerType}
                 </span>
                 <span className="text-xs text-blue-600 font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Conectado
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {prov.isActive?'Cadastro ativo':'Cadastro inativo'}
                 </span>
               </div>
 
@@ -1680,7 +1463,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs font-mono">
                 <div className="flex items-center justify-between text-slate-500">
                   <span className="flex items-center gap-1">
-                    <Lock className="w-3 h-3 text-blue-600" /> API Key Protegida:
+                    <Lock className="w-3 h-3 text-blue-600" /> Credencial:
                   </span>
                   <span className="text-slate-700">{prov.apiKeyMasked}</span>
                 </div>
@@ -1695,7 +1478,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               </div>
 
               <div className="pt-2 text-[11px] text-slate-500">
-                Segurança: Chaves executadas estritamente em ambiente de servidor (Server-Side). Nunca expostas ao browser.
+                Cadastro informativo, sem conexão verificada. As chamadas usam a configuração administrativa do gateway no servidor; este cadastro não altera o destino nem a credencial de execução.
               </div>
             </div>
           ))}
@@ -1712,7 +1495,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             {tools.map((tool) => (
               <div
                 key={tool.id}
-                onClick={() => handleSimulateTool(tool)}
+                onClick={() => handleSelectTool(tool)}
                 className={`p-4 rounded-2xl border cursor-pointer transition ${
                   selectedTool?.id === tool.id
                     ? 'bg-white border-cyan-500/80'
@@ -1741,7 +1524,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Code className="w-4 h-4 text-teal-600" />
-                Schema OpenAPI & Simulador de Resposta
+                JSON Schema e teste real da API
               </h3>
               <span className="text-xs font-mono text-slate-500">
                 {selectedTool ? selectedTool.name : 'Selecione uma ferramenta'}
@@ -1752,7 +1535,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               <div className="space-y-4 text-xs">
                 <div>
                   <label className="text-slate-500 font-semibold block mb-1">
-                    JSON Schema (Enviado para o Gemini):
+                    JSON Schema dos parâmetros:
                   </label>
                   <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-700 max-h-48 overflow-y-auto">
                     {JSON.stringify(selectedTool.schemaJson, null, 2)}
@@ -1760,13 +1543,36 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 </div>
 
                 <div>
-                  <label className="text-slate-500 font-semibold block mb-1">
-                    Simulação de Resposta Retornada pela API:
-                  </label>
-                  <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-blue-700 max-h-48 overflow-y-auto">
-                    {JSON.stringify(toolSimResult || selectedTool.mockResponse, null, 2)}
-                  </pre>
+                  <label htmlFor="tool-test-params" className="text-slate-500 font-semibold block mb-1">Parâmetros JSON:</label>
+                  <textarea id="tool-test-params" value={testToolArgs} onChange={event => setTestToolArgs(event.target.value)}
+                    disabled={isTestingTool} maxLength={16384} rows={6}
+                    className="w-full bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono text-slate-700" />
                 </div>
+                <p className="text-amber-800 bg-amber-50 p-3 rounded-xl">
+                  Este teste chama a API de verdade e pode alterar dados. A URL e o método precisam estar autorizados no servidor.
+                  Em caso de falha de comunicação, confira o destino antes de repetir uma operação POST.
+                </p>
+                {selectedTool.requiresConfirmation && (
+                  <label className="flex items-center gap-2 text-slate-700">
+                    <input type="checkbox" checked={toolExecutionConfirmed} disabled={isTestingTool}
+                      onChange={event => setToolExecutionConfirmed(event.target.checked)} />
+                    Confirmo a execução real desta ferramenta.
+                  </label>
+                )}
+                <button type="button" onClick={handleExecuteToolTest}
+                  disabled={isTestingTool || (selectedTool.requiresConfirmation && !toolExecutionConfirmed)}
+                  className="px-4 py-2 rounded-xl bg-blue-700 text-white font-semibold disabled:opacity-50">
+                  {isTestingTool ? 'Executando...' : 'Executar teste real'}
+                </button>
+                {toolTestError && <p role="alert" className="text-rose-700">{toolTestError}</p>}
+                {toolTestResult && (
+                  <div aria-live="polite">
+                    <label className="text-slate-500 font-semibold block mb-1">Resposta real da API:</label>
+                    <pre className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-blue-700 max-h-64 overflow-auto">
+                      {JSON.stringify(toolTestResult, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="py-12 text-center text-slate-500 text-xs">
@@ -1780,12 +1586,13 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       {/* 4. KNOWLEDGE TAB */}
       {currentTab === 'knowledge' && (
         <div className="space-y-6">
+          {uploadError&&!isUploadModalOpen&&<div role="alert" className="p-3 border border-red-200 text-red-800 rounded-xl">{uploadError}</div>}
           {/* Hidden File Input for uploading */}
           <input
             ref={fileInputRef}
             type="file"
             onChange={handleFileInputChange}
-            accept=".txt,.pdf,.md,.csv,.json,.log,text/plain,application/pdf"
+            accept=".txt,.md,text/plain,text/markdown"
             className="hidden"
           />
 
@@ -1813,21 +1620,13 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   Base de Conhecimento RAG & Grounding dos Agentes
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Manuais de suporte, PDFs técnicos e procedimentos consumidos pelo Gemini para embasar o atendimento telefônico.
+                  Textos revisados e vinculados aos agentes. Documentos legados aguardam revisão antes de entrar no contexto da IA.
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2.5 flex-wrap">
-              <button
-                type="button"
-                onClick={handleLoadSampleManual}
-                className="px-3.5 py-2.5 rounded-xl border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-bold transition flex items-center gap-2"
-                title="Carregar exemplo de manual de suporte técnico de telecomunicações"
-              >
-                <FileText className="w-4 h-4 text-blue-600" />
-                <span>Carregar Manual Exemplo</span>
-              </button>
+
 
               <button
                 type="button"
@@ -1845,7 +1644,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition flex items-center gap-2 disabled:opacity-50"
               >
                 <Upload className="w-4 h-4" />
-                <span>Carregar Arquivo (TXT / PDF / MD)</span>
+                <span>Revisar arquivo TXT / MD</span>
               </button>
             </div>
           </div>
@@ -1866,7 +1665,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
               <div className="flex flex-col items-center justify-center gap-2 py-4">
                 <RefreshCw className="w-8 h-8 text-blue-600 animate-spin" />
                 <p className="text-xs font-bold text-slate-800">{uploadProgressMsg || 'Processando arquivo...'}</p>
-                <p className="text-[11px] text-slate-500">Aguarde a extração e estruturação para os agentes de IA</p>
+                <p className="text-[11px] text-slate-500">O texto será exibido para revisão antes de salvar.</p>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center gap-2">
@@ -1877,11 +1676,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   Arraste e solte arquivos aqui, ou <span className="text-blue-600 underline">clique para selecionar</span>
                 </div>
                 <p className="text-xs text-slate-500 max-w-lg">
-                  Suporta arquivos de texto simples (como <strong>PDFs de manuais técnicos</strong>, <strong>TXT</strong> de scripts de suporte, Markdown, CSV ou JSON).
+                  Use TXT ou Markdown em UTF-8, até 64 KiB. Importação de PDF está indisponível.
                 </p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-mono text-[10px] font-bold border border-blue-200">
-                    PDF
+                    TEXTO
                   </span>
                   <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-bold">
                     TXT
@@ -1889,7 +1688,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-bold">
                     MARKDOWN
                   </span>
-                  <span className="text-[11px] text-slate-500">• Vinculação imediata com Roberto Mendes e MaIA</span>
+                  <span className="text-[11px] text-slate-500">• Selecione os agentes após revisar o texto</span>
                 </div>
               </div>
             )}
@@ -1993,7 +1792,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
                       {k.fileName && (
                         <div className="text-[10px] text-slate-400 font-mono truncate">
-                          Arquivo: {k.fileName} {k.fileSizeBytes ? `(${(k.fileSizeBytes / 1024).toFixed(1)} KB)` : ''}
+                          Referência: {k.fileName} {k.fileSizeBytes ? `· texto armazenado: ${(k.fileSizeBytes / 1024).toFixed(1)} KB` : ''}
                         </div>
                       )}
 
@@ -2004,7 +1803,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                       {/* Agents with access */}
                       <div className="pt-1">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
-                          Agentes com Acesso Grounding:
+                          Vínculos cadastrados:
                         </span>
                         <div className="flex flex-wrap gap-1">
                           {linkedAgents.length > 0 ? (
@@ -2019,7 +1818,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                             ))
                           ) : (
                             <span className="text-[10px] text-slate-400 italic">
-                              Todos os agentes de voz ativos
+                              Nenhum agente vinculado
                             </span>
                           )}
                         </div>
@@ -2028,8 +1827,8 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
                     <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5 text-blue-600 font-semibold text-[11px]">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span>Grounding Ativo</span>
+                        <div className="w-2 h-2 rounded-full bg-slate-400" />
+                        <span>{k.contentStatus==='REVIEWED_TEXT'?'Texto revisado; vínculos configurados':'Revisão pendente'}</span>
                       </div>
 
                       <div className="flex items-center gap-1">
@@ -2041,7 +1840,9 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button
+                        <button type="button" onClick={()=>reviewKnowledge(k)} className="p-2 text-blue-700" title="Revisar e salvar texto"><Edit3 className="w-4 h-4" /></button>
+                          <span className="text-[10px]">{k.contentStatus==='REVIEWED_TEXT'?'Texto revisado':'Revisão pendente'}</span>
+                          <button
                           type="button"
                           disabled={deletingDocId === k.id}
                           onClick={() => handleDeleteKnowledgeDoc(k.id)}
@@ -2191,509 +1992,11 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
       )}
 
       {/* 6. SUPERVISOR DE QUALIDADE (VOZ, WHATSAPP, WEBRTC) */}
-      {currentTab === 'supervisor' && (
-        <div className="space-y-6">
-          {/* Top Control Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <div>
-              <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
-                <ClipboardCheck className="w-6 h-6 text-purple-600" />
-                Supervisor de Qualidade & Compliance LGPD/Anatel
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Auditoria automática por IA das chamadas telefônicas e conversas de WhatsApp com detecção de sentimento, conformidade regulatória e risco de churn.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowEvalModal(true)}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-purple-600/20 flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" /> Nova Auditoria IA
-              </button>
-            </div>
-          </div>
-
-          {/* KPI Summary Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total de Auditorias</div>
-              <div className="text-2xl font-black text-slate-900 mt-1">{qualityAudits.length}</div>
-            </div>
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Média de Nota (QA)</div>
-              <div className="text-2xl font-black text-purple-600 mt-1">
-                {qualityAudits.length > 0
-                  ? Math.round(qualityAudits.reduce((acc, q) => acc + q.score, 0) / qualityAudits.length)
-                  : 0}
-                <span className="text-xs text-slate-400 font-normal"> / 100</span>
-              </div>
-            </div>
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Conformidade LGPD</div>
-              <div className="text-2xl font-black text-emerald-600 mt-1">
-                {qualityAudits.length > 0
-                  ? Math.round((qualityAudits.filter((q) => q.complianceFlags.lgpdConsent).length / qualityAudits.length) * 100)
-                  : 100}
-                %
-              </div>
-            </div>
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Alertas de Risco Alto</div>
-              <div className="text-2xl font-black text-rose-600 mt-1">
-                {qualityAudits.filter((q) => q.riskLevel === 'alto').length}
-              </div>
-            </div>
-          </div>
-
-          {/* Master Detail Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* List */}
-            <div className="lg:col-span-5 space-y-3">
-              <div className="flex items-center justify-between gap-2 px-1">
-                <span className="text-xs font-bold text-slate-700">Chamadas e Mensagens Auditadas</span>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={auditFilterRisk}
-                    onChange={(e) => setAuditFilterRisk(e.target.value)}
-                    className="text-[11px] px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium"
-                  >
-                    <option value="all">Todos Riscos</option>
-                    <option value="baixo">Baixo Risco</option>
-                    <option value="médio">Médio Risco</option>
-                    <option value="alto">Alto Risco</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                {qualityAudits
-                  .filter((a) => auditFilterRisk === 'all' || a.riskLevel === auditFilterRisk)
-                  .map((audit) => {
-                    const isSelected = selectedAudit?.id === audit.id;
-                    const scoreColor =
-                      audit.score >= 85
-                        ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
-                        : audit.score >= 70
-                        ? 'text-amber-600 bg-amber-50 border-amber-200'
-                        : 'text-rose-600 bg-rose-50 border-rose-200';
-
-                    const riskColor =
-                      audit.riskLevel === 'alto'
-                        ? 'bg-rose-100 text-rose-700 border-rose-200'
-                        : audit.riskLevel === 'médio'
-                        ? 'bg-amber-100 text-amber-700 border-amber-200'
-                        : 'bg-emerald-100 text-emerald-700 border-emerald-200';
-
-                    return (
-                      <div
-                        key={audit.id}
-                        onClick={() => setSelectedAudit(audit)}
-                        className={`p-4 rounded-xl border transition cursor-pointer text-left ${
-                          isSelected
-                            ? 'bg-purple-50/70 border-purple-400 ring-2 ring-purple-500/20 shadow-sm'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div>
-                            <div className="font-bold text-xs text-slate-900 flex items-center gap-2">
-                              <span>{audit.agentName}</span>
-                              <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                                {audit.channel}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                              {audit.customerIdentifier}
-                            </div>
-                          </div>
-                          <div className={`px-2.5 py-1 rounded-lg border font-mono font-bold text-xs ${scoreColor}`}>
-                            {audit.score} / 100
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-100">
-                          <span className={`px-2 py-0.5 rounded-full font-bold border uppercase tracking-wider ${riskColor}`}>
-                            Risco: {audit.riskLevel}
-                          </span>
-                          <span className="text-slate-400 font-mono">
-                            {new Date(audit.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-
-            {/* Detail */}
-            <div className="lg:col-span-7">
-              {selectedAudit ? (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-                  {/* Header Detail */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-                          ID: {selectedAudit.id}
-                        </span>
-                        <span className="text-xs text-slate-400">
-                          Canal {selectedAudit.channel.toUpperCase()}
-                        </span>
-                      </div>
-                      <h4 className="font-bold text-base text-slate-900 mt-1">
-                        Atendimento: {selectedAudit.customerIdentifier}
-                      </h4>
-                      <p className="text-xs text-slate-500">
-                        Atendente / Agente: <strong>{selectedAudit.agentName}</strong>
-                      </p>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="text-3xl font-black text-purple-600">
-                        {selectedAudit.score} <span className="text-sm font-normal text-slate-400">/ 100</span>
-                      </div>
-                      <div className="text-xs font-semibold text-slate-500">Nota de Qualidade Geral</div>
-                    </div>
-                  </div>
-
-                  {/* Sub Scores Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase">Empatia & Tom</div>
-                      <div className="text-lg font-black text-slate-900 mt-0.5">{selectedAudit.subScores.empathy}/100</div>
-                    </div>
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase">Clareza & Comunicação</div>
-                      <div className="text-lg font-black text-slate-900 mt-0.5">{selectedAudit.subScores.clarity}/100</div>
-                    </div>
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase">Resolução Técnica</div>
-                      <div className="text-lg font-black text-slate-900 mt-0.5">{selectedAudit.subScores.technicalResolution}/100</div>
-                    </div>
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase">Conformidade</div>
-                      <div className="text-lg font-black text-slate-900 mt-0.5">{selectedAudit.subScores.complianceScore}/100</div>
-                    </div>
-                  </div>
-
-                  {/* Compliance & Regulation Checklist */}
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-2">
-                      Conformidade Regulatória (Anatel & LGPD):
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${selectedAudit.complianceFlags.lgpdConsent ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
-                        {selectedAudit.complianceFlags.lgpdConsent ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
-                        <span>Aviso de Gravação / LGPD</span>
-                      </div>
-                      <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${selectedAudit.complianceFlags.firstContactResolution ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
-                        {selectedAudit.complianceFlags.firstContactResolution ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />}
-                        <span>Resolução no 1º Contato</span>
-                      </div>
-                      <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${selectedAudit.complianceFlags.correctTransfer ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                        {selectedAudit.complianceFlags.correctTransfer ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />}
-                        <span>Transbordo Assertivo</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Feedback Points & Strengths */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200">
-                      <h5 className="text-xs font-bold text-emerald-900 mb-2 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Pontos Fortes Observados
-                      </h5>
-                      <ul className="space-y-1.5 text-xs text-emerald-800 list-disc list-inside">
-                        {selectedAudit.feedbackPoints.strengths.map((s, idx) => (
-                          <li key={idx}>{s}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200">
-                      <h5 className="text-xs font-bold text-amber-900 mb-2 flex items-center gap-1.5">
-                        <AlertTriangle className="w-4 h-4 text-amber-600" /> Oportunidades de Melhoria
-                      </h5>
-                      <ul className="space-y-1.5 text-xs text-amber-800 list-disc list-inside">
-                        {selectedAudit.feedbackPoints.improvements.map((imp, idx) => (
-                          <li key={idx}>{imp}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-
-                  {/* Transcript */}
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1.5">
-                      Transcrição Integral Auditada:
-                    </label>
-                    <div className="bg-slate-900 text-slate-200 p-4 rounded-xl text-xs font-mono whitespace-pre-wrap max-h-56 overflow-y-auto leading-relaxed border border-slate-800">
-                      {selectedAudit.transcript}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
-                  <ClipboardCheck className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-                  <p>Selecione um registro de auditoria para visualizar a análise aprofundada.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7. EXTRAÇÃO DE DADOS & ENTIDADES */}
-      {currentTab === 'extraction' && (
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <div>
-              <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
-                <Database className="w-6 h-6 text-indigo-600" />
-                Extração Automatizada de Dados & Entidades
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Esquemas estruturados para capturar documentos (CPF/CNPJ), protocolos, ramais, valores e intenções a partir de transcrições de voz ou mensagens de WhatsApp.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Schemas List */}
-            <div className="lg:col-span-4 space-y-3">
-              <div className="text-xs font-bold text-slate-700 px-1">Esquemas de Extração Disponíveis</div>
-              <div className="space-y-2">
-                {entitySchemas.map((sch) => {
-                  const isSelected = selectedSchema?.id === sch.id;
-                  return (
-                    <div
-                      key={sch.id}
-                      onClick={() => {
-                        setSelectedSchema(sch);
-                        setExtractedResult(null);
-                      }}
-                      className={`p-4 rounded-xl border transition cursor-pointer text-left ${
-                        isSelected
-                          ? 'bg-indigo-50/70 border-indigo-400 ring-2 ring-indigo-500/20 shadow-sm'
-                          : 'bg-white border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-xs text-slate-900">{sch.name}</span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold">
-                          {sch.targetFields?.length || 0} campos
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 line-clamp-2">{sch.description}</p>
-                      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mt-3 pt-2 border-t border-slate-100">
-                        <span>Canais: {sch.channelSupport.join(', ')}</span>
-                        {sch.autoSyncToCrm && <span className="text-emerald-600 font-bold">Auto CRM ✓</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Playground / Sandbox */}
-            <div className="lg:col-span-8 space-y-5">
-              {selectedSchema ? (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-                  {/* Schema Info */}
-                  <div className="border-b border-slate-200 pb-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-bold text-slate-900 text-base">{selectedSchema.name}</h4>
-                      <span className="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
-                        {selectedSchema.id}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">{selectedSchema.description}</p>
-
-                    {/* Target Fields Badges */}
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {selectedSchema.targetFields.map((f, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 flex items-center gap-1.5"
-                        >
-                          <span className="font-bold text-indigo-600">{f.name}</span>
-                          <span className="text-[10px] text-slate-400">({f.type})</span>
-                          {f.required && <span className="text-rose-500 font-black">*</span>}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Sandbox Input */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-700">
-                        Texto ou Transcrição de Teste:
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setTestExtractionText(
-                            "Olá suporte, sou a Mariana da Alpha Logística (CNPJ 12.345.678/0001-90). Estamos com instabilidade no ramal 3004 da filial Campinas. O nosso diretor financeiro aprovou um orçamento de R$ 15.000 para migração urgente para tronco PJSIP dedicado."
-                          )
-                        }
-                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
-                      >
-                        Carregar Amostra B2B Telecom
-                      </button>
-                    </div>
-
-                    <textarea
-                      rows={4}
-                      value={testExtractionText}
-                      onChange={(e) => setTestExtractionText(e.target.value)}
-                      className="w-full text-xs font-mono p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-y leading-relaxed"
-                      placeholder="Cole um diálogo ou mensagem de texto para extrair os campos..."
-                    />
-
-                    <div className="flex justify-end pt-1">
-                      <button
-                        onClick={handleTestExtraction}
-                        disabled={isExtracting}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-2"
-                      >
-                        <Zap className="w-4 h-4" />
-                        {isExtracting ? 'Processando Extração...' : 'Executar Extração com IA'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Extraction Results */}
-                  {extractedResult && (
-                    <div className="bg-slate-50 rounded-xl p-5 border border-slate-200 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h5 className="font-bold text-xs text-slate-900 flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          Resultado da Extração Semântica:
-                        </h5>
-                        <span className="text-xs font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-                          Confiança Média: {extractedResult.confidence * 100}%
-                        </span>
-                      </div>
-
-                      {/* Extracted Fields Visual Cards */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {Object.entries(extractedResult.extractedData || {}).map(([k, val]: any) => (
-                          <div key={k} className="bg-white p-3 rounded-lg border border-slate-200">
-                            <div className="text-[10px] text-slate-400 font-mono uppercase font-bold">{k}</div>
-                            <div className="text-sm font-black text-slate-900 mt-0.5">{String(val)}</div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Raw JSON */}
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                          Payload JSON Gerado:
-                        </div>
-                        <pre className="bg-slate-950 text-emerald-400 p-3 rounded-lg text-[11px] font-mono overflow-x-auto">
-                          {JSON.stringify(extractedResult, null, 2)}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
-                  <Database className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-                  <p>Selecione um esquema para testar extração de entidades.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {currentTab === 'supervisor' && <QualityReviewPanel onCountChange={setQualityReviewCount}/>}
+      {currentTab === 'extraction' && <div className="space-y-3">{entitySchemaError && <p role="alert" className="text-sm text-rose-700">{entitySchemaError}</p>}<EntityExtractionPanel schemas={entitySchemas} onRefresh={fetchSchemas} /></div>}
         </div>
       </div>
 
-      {/* NEW EVALUATION MODAL */}
-      {showEvalModal && (
-        <div className="fixed inset-0 bg-[#0f172a]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full flex flex-col my-auto">
-            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-600">
-                  <ClipboardCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-slate-900">Nova Auditoria com Supervisor de IA</h3>
-                  <p className="text-xs text-slate-500">Avalie gravações ou chats de operadores e agentes</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowEvalModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Canal de Origem</label>
-                  <select
-                    value={evalChannel}
-                    onChange={(e: any) => setEvalChannel(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900"
-                  >
-                    <option value="voice">Voz (Asterisk PJSIP)</option>
-                    <option value="whatsapp">WhatsApp Cloud API</option>
-                    <option value="webrtc">WebRTC Ramal</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Nome do Atendente / Agente</label>
-                  <input
-                    type="text"
-                    value={evalAgentName}
-                    onChange={(e) => setEvalAgentName(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Transcrição da Conversa / Áudio
-                </label>
-                <textarea
-                  rows={6}
-                  value={evalSampleText}
-                  onChange={(e) => setEvalSampleText(e.target.value)}
-                  className="w-full text-xs font-mono p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20 resize-y leading-relaxed"
-                />
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-slate-200 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowEvalModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleRunEvaluation}
-                disabled={isEvaluatingAudit}
-                className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-1.5"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                {isEvaluatingAudit ? 'Auditando com IA...' : 'Processar Avaliação IA'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col my-auto">
@@ -2705,10 +2008,10 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-slate-900">
-                    Cadastrar Novo Agente de Voz Gemini
+                    Configurar agente de IA
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Agente autônomo com suporte a Barge-in, Function Calling e transbordo Asterisk
+                    Parâmetros e vínculos do agente; telefonia e voz exigem homologação própria.
                   </p>
                 </div>
               </div>
@@ -2722,6 +2025,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
             {/* Modal Body */}
             <form onSubmit={handleCreateAgentSubmit} className="p-5 space-y-4 overflow-y-auto">
+              {agentError&&<div role="alert" className="p-3 text-red-800">{agentError}</div>}
               {/* Presets */}
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">
@@ -2766,7 +2070,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
 
                 <div>
                   <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Ramal de Transbordo (Humano)
+                    Destino de fallback (ramal ou fila da empresa)
                   </label>
                   <input
                     type="text"
@@ -3081,7 +2385,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-slate-900">
-                    {docFormData.fileName ? 'Indexar Arquivo na Base de Conhecimento' : 'Novo Documento de Conhecimento'}
+                    {reviewDocumentId?'Revisar documento':'Novo texto de conhecimento'}
                   </h3>
                   <p className="text-xs text-slate-500">
                     {docFormData.fileName
@@ -3207,7 +2511,7 @@ Se o chamador solicitar um atendente humano, acione a ferramenta transferir_cham
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition disabled:opacity-50 flex items-center gap-1.5"
                 >
                   <FileCheck className="w-3.5 h-3.5" />
-                  {isUploadingDoc ? 'Indexando...' : 'Salvar na Base de Conhecimento'}
+                  {isUploadingDoc ? 'Salvando...' : 'Salvar texto revisado'}
                 </button>
               </div>
             </form>

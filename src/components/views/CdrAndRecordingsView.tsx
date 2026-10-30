@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import {csvDocument,downloadCsv,cdrSample} from '../../utils/reportData';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   FileText,
   Mic,
@@ -34,7 +35,7 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { CdrRecord, Tenant } from '../../types/pbx';
-import { speakHumanized, stopSpeaking, detectVoiceGender } from '../../utils/speechVoiceHelper';
+import { getAuthHeaders } from '../../utils/api';
 import { exportCdrReportPdf, exportCallDossierPdf } from '../../utils/pdfExportHelper';
 
 interface CdrAndRecordingsProps {
@@ -77,73 +78,25 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
   // Audio Playback state
   const [activeAudioCdr, setActiveAudioCdr] = useState<CdrRecord | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [audioProgress, setAudioProgress] = useState(0);
-
-  const handlePlayRecording = (cdr: CdrRecord) => {
-    if (activeAudioCdr?.id === cdr.id && isPlayingAudio) {
-      stopSpeaking();
-      setIsPlayingAudio(false);
-      return;
-    }
-
-    setActiveAudioCdr(cdr);
-    setIsPlayingAudio(true);
-    setAudioProgress(0);
-
-    stopSpeaking();
-    const textToRead =
-      cdr.transcription ||
-      cdr.summary ||
-      `Gravação da chamada de ${cdr.caller} para ${cdr.callee}. Duração de ${cdr.duration} segundos com status ${cdr.disposition}.`;
-
-    const isRoberto =
-      cdr.callee === '4102' ||
-      cdr.caller === '4102' ||
-      cdr.transferredTo?.includes('4102') ||
-      cdr.transferredTo?.toLowerCase().includes('roberto') ||
-      textToRead.toLowerCase().includes('roberto');
-
-    const isCarlos =
-      cdr.callee === '4101' ||
-      cdr.caller === '4101' ||
-      textToRead.toLowerCase().includes('carlos');
-
-    const gender = isRoberto || isCarlos ? 'male' : detectVoiceGender(textToRead, undefined, 'female');
-    const persona = isRoberto ? 'roberto' : isCarlos ? 'carlos' : 'maia';
-
-    const totalSec = Math.max(6, Math.min(20, cdr.duration || 10));
-    let elapsed = 0;
-
-    const interval = setInterval(() => {
-      elapsed += 0.5;
-      const pct = Math.min(100, Math.round((elapsed / totalSec) * 100));
-      setAudioProgress(pct);
-      if (pct >= 100) {
-        clearInterval(interval);
-      }
-    }, 500);
-
-    speakHumanized(textToRead, {
-      gender,
-      persona,
-      onStart: () => setIsPlayingAudio(true),
-      onEnd: () => {
-        setIsPlayingAudio(false);
-        setAudioProgress(100);
-        clearInterval(interval);
-      },
-      onError: () => {
-        setIsPlayingAudio(false);
-        clearInterval(interval);
-      },
-    });
+  const [audioUrl,setAudioUrl]=useState<string|null>(null);
+  const [requestError,setRequestError]=useState('');
+  const [evidencePreview,setEvidencePreview]=useState<any>(null);
+  const audioRequest=useRef<AbortController|null>(null);
+  const audioObject=useRef<string|null>(null);
+  const disposeAudio=()=>{audioRequest.current?.abort();if(audioObject.current)URL.revokeObjectURL(audioObject.current);audioObject.current=null;};
+  useEffect(()=>()=>disposeAudio(),[]);
+  const handlePlayRecording=async(cdr:CdrRecord)=>{
+    disposeAudio();setAudioUrl(null);setIsPlayingAudio(false);setActiveAudioCdr(cdr);setRequestError('');
+    const controller=new AbortController();audioRequest.current=controller;
+    try{
+      const response=await fetch(`/api/v1/cdr/${encodeURIComponent(cdr.id)}/recording`,{headers:getAuthHeaders(),signal:controller.signal});
+      if(!response.ok){const error=await response.json();throw new Error(error.error || 'Gravação indisponível.');}
+      const blob=await response.blob();if(controller.signal.aborted)return;
+      if(!blob.size || blob.size>50*1024*1024)throw new Error('Arquivo inválido ou acima de 50 MB.');
+      const url=URL.createObjectURL(blob);audioObject.current=url;setAudioUrl(url);
+    }catch(error){if(!controller.signal.aborted){setRequestError(error instanceof Error ? error.message : 'Falha ao abrir a gravação.');setActiveAudioCdr(null);}}
   };
-
-  const handleStopAudio = () => {
-    stopSpeaking();
-    setIsPlayingAudio(false);
-    setAudioProgress(0);
-  };
+  const handleStopAudio=()=>{disposeAudio();setAudioUrl(null);setActiveAudioCdr(null);setIsPlayingAudio(false);};
 
   // Filtered CDRs calculation
   const filteredCdrs = useMemo(() => {
@@ -185,7 +138,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
     const aiHandled = cdrs.filter((c) => c.isAiHandled || c.aiAgentId).length;
     const transferred = cdrs.filter((c) => c.isTransferred || c.transferredTo).length;
     const answered = cdrs.filter((c) => c.disposition === 'ANSWERED').length;
-    const answerRate = total > 0 ? Math.round((answered / total) * 100) : 100;
+    const answerRate = total > 0 ? Math.round((answered / total) * 100) : null;
     const totalCost = cdrs.reduce((acc, c) => acc + (c.costBrl || 0), 0);
     const aiContained = cdrs.filter(
       (c) => (c.isAiHandled || c.aiAgentId) && !c.isTransferred && !c.transferredTo
@@ -195,95 +148,40 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
     return { total, aiHandled, transferred, answerRate, totalCost, aiContainmentRate };
   }, [cdrs]);
 
-  const handleSummarizeWithGemini = async (cdr: CdrRecord) => {
-    setIsSummarizingId(cdr.id);
-    try {
-      const res = await fetch(`/api/v1/cdr/${cdr.id}/summarize`, { method: 'POST' });
-      const data = await res.json();
-      if (data.analysis) {
-        cdr.summary = data.analysis.summary;
-        cdr.sentiment = data.analysis.sentiment || 'positive';
-        if (selectedCdrForModal?.id === cdr.id) {
-          setSelectedCdrForModal({
-            ...cdr,
-            summary: data.analysis.summary,
-            sentiment: data.analysis.sentiment || 'positive',
-          });
-        }
-      }
-      onRefresh();
-    } catch (err) {
-      console.error('Summarize error:', err);
-    } finally {
-      setIsSummarizingId(null);
-    }
+  const handleSummarizeWithGemini = async(cdr:CdrRecord)=>{
+    setIsSummarizingId(cdr.id);setRequestError('');setEvidencePreview(null);
+    try{
+      const response=await fetch(`/api/v1/cdr/${encodeURIComponent(cdr.id)}/summarize`,{method:'POST',headers:getAuthHeaders()});
+      const data=await response.json();if(!response.ok)throw new Error(data.error || 'Análise não concluída.');
+      setEvidencePreview({cdrId:cdr.id,...data.analysis});
+    }catch(error){setRequestError(error instanceof Error ? error.message : 'Análise indisponível.');}
+    finally{setIsSummarizingId(null);}
   };
 
-  const handleExportCsv = () => {
-    const headers = 'ID,Origem,Destino,Direcao,Inicio,Duracao(s),Tarifado(s),Status,Agente_IA,Transferido_Para,Sentimento,Resumo\n';
-    const rows = filteredCdrs
-      .map(
-        (c) =>
-          `"${c.uniqueId}","${c.caller}","${c.callee}","${c.direction}","${c.startTime}",${c.duration},${c.billsec},"${c.disposition}","${c.aiAgentId || (c.isAiHandled ? 'MaIA' : 'Nenhum')}","${c.transferredTo || (c.isTransferred ? 'Sim' : 'Nao')}","${c.sentiment || 'N/A'}","${(c.summary || '').replace(/"/g, '""')}"`
-      )
-      .join('\n');
-
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `enlace-pbx-cdr-${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const handleExportCsv=()=>downloadCsv(csvDocument(
+    ['ID','Origem','Destino','Direção','Início','Duração registrada (s)','Billsec (s)','Status','Agente IA registrado','Transferência registrada','Sentimento legado não verificado','Resumo legado não verificado'],
+    filteredCdrs.map(c=>[c.uniqueId||c.id,c.caller,c.callee,c.direction,c.startTime,c.duration,c.billsec,c.disposition,c.aiAgentId,c.transferredTo,c.sentiment,c.summary])
+  ),'amostra-cdr.csv');
 
   const handleExportExecutivePdf = () => {
     const filtersText = [
       directionFilter !== 'all' ? `Direção: ${directionFilter}` : null,
       dispositionFilter !== 'all' ? `Status: ${dispositionFilter}` : null,
       handlingFilter !== 'all' ? `Atendimento: ${handlingFilter}` : null,
-    ].filter(Boolean).join(', ') || 'Todas as chamadas do período';
+      sentimentFilter !== 'all' ? `Sentimento legado: ${sentimentFilter}` : null,
+      searchTerm ? `Busca: ${searchTerm}` : null,
+    ].filter(Boolean).join(', ') || 'Amostra carregada, sem filtros adicionais';
 
     exportCdrReportPdf(
       filteredCdrs,
-      activeTab === 'reports' ? 'Relatório Executivo de SLA & Performance Asterisk 20' : 'Relatório Gerencial de Chamadas & Telefonia IA',
+      activeTab === 'reports' ? 'Relatório da amostra de chamadas' : 'Relatório Gerencial de Chamadas & Telefonia IA',
       filtersText,
-      currentTenant?.name || 'Enlace Telecomunicações — Matriz São Paulo'
+      currentTenant?.name
     );
   };
 
 
-  // Dynamic SLA Calculations for Reports Tab
-  const slaMetrics = useMemo(() => {
-    const total = filteredCdrs.length;
-    const answered = filteredCdrs.filter(c => c.disposition === 'ANSWERED');
-    const abandoned = filteredCdrs.filter(c => c.disposition === 'NO ANSWER');
-    
-    // TME (Tempo Médio de Espera) = duration - billsec (for answered)
-    let totalWaitTime = 0;
-    answered.forEach(c => {
-      totalWaitTime += Math.max(0, c.duration - c.billsec);
-    });
-    // Add abandoned duration as wait time
-    abandoned.forEach(c => {
-      totalWaitTime += c.duration;
-    });
-    const avgWaitTime = total > 0 ? Math.round(totalWaitTime / total) : 0;
-    
-    // TMA (Tempo Médio de Atendimento) = billsec (for answered)
-    const totalTalkTime = answered.reduce((acc, c) => acc + c.billsec, 0);
-    const avgTalkTime = answered.length > 0 ? Math.round(totalTalkTime / answered.length) : 0;
-    
-    // Abandon Rate
-    const abandonRate = total > 0 ? ((abandoned.length / total) * 100).toFixed(1) : '0.0';
-
-    return {
-      tme: avgWaitTime,
-      tma: avgTalkTime,
-      abandonRate: parseFloat(abandonRate)
-    };
-  }, [filteredCdrs]);
+  const sampleMetrics=useMemo(()=>cdrSample(filteredCdrs),[filteredCdrs]);
 
   // Sentiment data for chart
   const sentimentData = useMemo(() => {
@@ -322,7 +220,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
               ) : (
                 <>
                   <BarChart3 className="w-8 h-8 text-blue-600" />
-                  Relatórios Executivos & SLA
+                  Relatórios da amostra
                 </>
               )}
             </h1>
@@ -331,9 +229,9 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
             {activeTab === 'cdr'
               ? 'Bilhetagem completa do Asterisk 20, tarifas, duração e status de todas as chamadas.'
               : activeTab === 'recordings'
-              ? 'Armazenamento de áudio em alta definição (Opus/WAV), reprodução web e download.'
+              ? 'Arquivos originais vinculados ao CDR, com acesso autenticado e auditado.'
               : activeTab === 'transcriptions'
-              ? 'Transcrição semântica de chamadas, análise de sentimento e sumarização via Google Gemini.'
+              ? 'Transcrições registradas e seleção assistida de trechos literais para revisão humana.'
               : 'Indicadores de qualidade, tempo de espera na fila, nível de serviço e relatórios oficiais em PDF.'}
           </p>
         </div>
@@ -408,151 +306,19 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
           }`}
         >
           <BarChart3 className="w-4 h-4" />
-          Relatórios & SLA (Executivo)
+          Relatórios da amostra
         </button>
       </div>
 
-      {/* SLA & Executive Reports Dashboard - Visible in reports tab */}
-      {activeTab === 'reports' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
-          <div className="col-span-12">
-             <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
-               <div className="absolute right-0 top-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl -mr-10 -mt-10"></div>
-               <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                 <div>
-                   <h2 className="text-2xl font-black mb-2">Relatório Executivo de SLA</h2>
-                   <p className="text-slate-300 text-sm max-w-2xl">
-                     Visão gerencial consolidada do desempenho da operação de telefonia, qualidade de atendimento (QA) analisada por IA e cumprimento dos Acordos de Nível de Serviço (SLA).
-                   </p>
-                 </div>
-                 <button
-                   onClick={handleExportExecutivePdf}
-                   className="shrink-0 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold flex items-center gap-2 transition"
-                 >
-                   <Printer className="w-5 h-5" />
-                   Gerar Dossiê PDF
-                 </button>
-               </div>
-             </div>
-          </div>
-          
-          <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-                <Activity className="w-4 h-4 text-emerald-500" /> TME (Tempo Médio de Espera)
-              </span>
-              <p className="text-[10px] text-slate-400 font-medium">SLA Meta: &lt; 20s</p>
-            </div>
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-800">{slaMetrics.tme}s</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded ${slaMetrics.tme <= 20 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'}`}>
-                {slaMetrics.tme <= 20 ? 'Aprovado' : 'Alerta SLA'}
-              </span>
-            </div>
-          </div>
-
-          <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-                <Clock className="w-4 h-4 text-blue-500" /> TMA (Tempo Médio de Atend.)
-              </span>
-              <p className="text-[10px] text-slate-400 font-medium">SLA Meta: &lt; 3m</p>
-            </div>
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-800">{Math.floor(slaMetrics.tma / 60)}m{slaMetrics.tma % 60}s</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded ${slaMetrics.tma <= 180 ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>
-                {slaMetrics.tma <= 180 ? 'Dentro do Padrão' : 'Atenção Operacional'}
-              </span>
-            </div>
-          </div>
-
-          <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-                <PhoneIncoming className="w-4 h-4 text-amber-500" /> Taxa de Abandono
-              </span>
-              <p className="text-[10px] text-slate-400 font-medium">SLA Meta: &lt; 5%</p>
-            </div>
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-800">{slaMetrics.abandonRate}%</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded ${slaMetrics.abandonRate <= 5 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'}`}>
-                {slaMetrics.abandonRate <= 5 ? 'Excelente' : 'Crítico'}
-              </span>
-            </div>
-          </div>
+      {activeTab==='reports' && <section className="bg-white border rounded-xl p-5 space-y-3">
+        <h2 className="text-xl font-bold">Métricas da amostra carregada</h2>
+        <p className="text-sm text-slate-600">O painel recebe até 100 CDRs. Os filtros se aplicam a essa amostra. SLA, espera e abandono em fila exigem eventos de fila e metas configuradas.</p>
+        <div className="grid sm:grid-cols-3 gap-4 text-sm">
+          <p>Registros: <strong>{sampleMetrics.count}</strong></p>
+          <p>Duração média registrada: <strong>{sampleMetrics.durationMean===null?'Sem dados':sampleMetrics.durationMean+'s'}</strong></p>
+          <p>Billsec médio dos ANSWERED: <strong>{sampleMetrics.billedAnsweredMean===null?'Sem dados':sampleMetrics.billedAnsweredMean+'s'}</strong></p>
         </div>
-      )}
-
-      {/* SLA & Executive Reports Dashboard - Visible in reports tab */}
-      {activeTab === 'reports' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
-          <div className="col-span-12">
-             <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
-               <div className="absolute right-0 top-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl -mr-10 -mt-10"></div>
-               <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                 <div>
-                   <h2 className="text-2xl font-black mb-2">Relatório Executivo de SLA</h2>
-                   <p className="text-slate-300 text-sm max-w-2xl">
-                     Visão gerencial consolidada do desempenho da operação de telefonia, qualidade de atendimento (QA) analisada por IA e cumprimento dos Acordos de Nível de Serviço (SLA).
-                   </p>
-                 </div>
-                 <button
-                   onClick={handleExportExecutivePdf}
-                   className="shrink-0 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold flex items-center gap-2 transition"
-                 >
-                   <Printer className="w-5 h-5" />
-                   Gerar Dossiê PDF
-                 </button>
-               </div>
-             </div>
-          </div>
-          
-          <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-                <Activity className="w-4 h-4 text-emerald-500" /> TME (Tempo Médio de Espera)
-              </span>
-              <p className="text-[10px] text-slate-400 font-medium">SLA Meta: &lt; 20s</p>
-            </div>
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-800">{slaMetrics.tme}s</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded ${slaMetrics.tme <= 20 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'}`}>
-                {slaMetrics.tme <= 20 ? 'Aprovado' : 'Alerta SLA'}
-              </span>
-            </div>
-          </div>
-
-          <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-                <Clock className="w-4 h-4 text-blue-500" /> TMA (Tempo Médio de Atend.)
-              </span>
-              <p className="text-[10px] text-slate-400 font-medium">SLA Meta: &lt; 3m</p>
-            </div>
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-800">{Math.floor(slaMetrics.tma / 60)}m{slaMetrics.tma % 60}s</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded ${slaMetrics.tma <= 180 ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>
-                {slaMetrics.tma <= 180 ? 'Dentro do Padrão' : 'Atenção Operacional'}
-              </span>
-            </div>
-          </div>
-
-          <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mb-1">
-                <PhoneIncoming className="w-4 h-4 text-amber-500" /> Taxa de Abandono
-              </span>
-              <p className="text-[10px] text-slate-400 font-medium">SLA Meta: &lt; 5%</p>
-            </div>
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-800">{slaMetrics.abandonRate}%</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded ${slaMetrics.abandonRate <= 5 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'}`}>
-                {slaMetrics.abandonRate <= 5 ? 'Excelente' : 'Crítico'}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+      </section>}
 
       {/* AI Insights Dashboard - Only visible in Transcriptions tab as requested */}
       {activeTab === 'transcriptions' && (
@@ -585,7 +351,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
             <div className="mt-4 flex flex-col">
               <span className="text-4xl font-black text-slate-800">{stats.total}</span>
               <span className="text-xs text-emerald-600 font-bold mt-1 bg-emerald-50 self-start px-2 py-0.5 rounded">
-                {stats.answerRate}% taxa de atendimento
+                {stats.answerRate === null ? 'Sem chamadas na amostra' : `${stats.answerRate}% de atendimento na amostra`}
               </span>
             </div>
           </div>
@@ -597,7 +363,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                 <PieChartIcon className="w-4 h-4 text-purple-500" /> Análise Semântica
               </div>
               <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-xs mb-4">
-                Distribuição de sentimentos analisados pelo Gemini em tempo real durante as conversas (Voz e WABA).
+                Classificações legadas de sentimento, sem verificação de origem ou revisão neste painel.
               </p>
               <div className="grid grid-cols-3 gap-2">
                  {sentimentData.map((s, i) => (
@@ -996,7 +762,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                           className="px-2.5 py-1 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition disabled:opacity-50"
                         >
                           <Sparkles className="w-3 h-3" />
-                          {isSummarizingId === cdr.id ? 'Analisando...' : 'Resumir IA'}
+                          {isSummarizingId === cdr.id ? 'Analisando...' : 'Selecionar trechos'}
                         </button>
                       )}
                     </td>
@@ -1150,7 +916,7 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-slate-500 uppercase text-[10px] font-bold tracking-wider font-mono">
-                    Resumo e Análise de Conteúdo (Gemini 3.8):
+                    Resumo legado — conteúdo não verificado:
                   </label>
                   {selectedCdrForModal.sentiment && (
                     <span className="text-[10px] font-semibold text-slate-600">
@@ -1159,8 +925,9 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
                   )}
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-slate-700 leading-relaxed">
-                  {selectedCdrForModal.summary || 'Nenhum resumo gerado ainda. Clique em "Resumir com IA" na tabela para processar via Gemini.'}
+                  {selectedCdrForModal.summary || 'Sem resumo legado registrado.'}
                 </div>
+                <button onClick={()=>handleSummarizeWithGemini(selectedCdrForModal)} disabled={isSummarizingId===selectedCdrForModal.id} className="mt-2 text-blue-700 text-sm">Selecionar trechos da transcrição para revisão</button>
               </div>
 
               {/* Full Transcription */}
@@ -1242,75 +1009,17 @@ export const CdrAndRecordingsView: React.FC<CdrAndRecordingsProps> = ({
         </div>
       )}
 
-      {/* Floating Audio Player Toolbar */}
-      {activeAudioCdr && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-2xl bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl shadow-2xl p-4 flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => handlePlayRecording(activeAudioCdr)}
-                className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition shadow-md"
-              >
-                {isPlayingAudio ? (
-                  <Pause className="w-5 h-5 fill-current" />
-                ) : (
-                  <Play className="w-5 h-5 fill-current ml-0.5" />
-                )}
-              </button>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-900">
-                    {activeAudioCdr.caller} &rarr; {activeAudioCdr.callee}
-                  </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
-                    {activeAudioCdr.duration}s
-                  </span>
-                  <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                    <Radio className="w-3 h-3 animate-pulse" />
-                    Opus 24kHz / Asterisk MixMonitor
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 truncate max-w-md">
-                  {activeAudioCdr.summary || activeAudioCdr.transcription || 'Reproduzindo stream de voz da gravação...'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {activeAudioCdr.summary && (
-                <button
-                  onClick={() => setSelectedCdrForModal(activeAudioCdr)}
-                  className="px-2.5 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded-lg transition font-semibold flex items-center gap-1"
-                >
-                  <Sparkles className="w-3 h-3" />
-                  Ver Resumo
-                </button>
-              )}
-              <button
-                onClick={handleStopAudio}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition"
-                title="Fechar reprodutor"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Progress bar and waveform */}
-          <div className="space-y-1">
-            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-              <div
-                className="bg-blue-600 h-full transition-all duration-300 rounded-full"
-                style={{ width: `${audioProgress}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-              <span>{Math.round((audioProgress / 100) * (activeAudioCdr.duration || 10))}s</span>
-              <span>{activeAudioCdr.duration}s</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {requestError && <div role="alert" className="fixed bottom-6 left-6 z-50 bg-rose-50 border border-rose-300 rounded-xl p-4 text-rose-800 max-w-md">{requestError}<button className="ml-3 underline" onClick={()=>setRequestError('')}>Fechar</button></div>}
+      {evidencePreview && <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4"><section className="bg-white rounded-xl p-5 max-w-2xl max-h-[85vh] overflow-auto space-y-3">
+        <h3 className="font-bold">Trechos selecionados da transcrição</h3><p className="text-sm">Revisão humana obrigatória. Não confirma satisfação, resolução ou ações executadas. O CDR não foi alterado.</p>
+        <p className="text-xs text-slate-500">CDR: {evidencePreview.cdrId} · Provedor: {evidencePreview.provider} · Modelo: {evidencePreview.model}</p>
+        {Object.entries(evidencePreview.evidence || {}).map(([key,quote])=><div key={key} className="border rounded-lg p-3"><strong>{{request:'Solicitação relatada',proposal:'Proposta mencionada',nextStep:'Próximo passo mencionado'}[key] || key}</strong><p className="whitespace-pre-wrap text-sm">{quote ? String(quote) : 'Sem trecho validado.'}</p></div>)}
+        <button onClick={()=>setEvidencePreview(null)} className="text-blue-700">Fechar revisão</button>
+      </section></div>}
+      {activeAudioCdr && <section className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-white border rounded-xl p-4 shadow-lg w-11/12 max-w-2xl space-y-2">
+        <div className="flex justify-between"><p className="font-bold text-sm">Gravação original · {activeAudioCdr.caller} → {activeAudioCdr.callee}</p><button onClick={handleStopAudio}>Fechar</button></div>
+        {audioUrl ? <><audio src={audioUrl} controls autoPlay className="w-full" onPlay={()=>setIsPlayingAudio(true)} onPause={()=>setIsPlayingAudio(false)} onEnded={()=>setIsPlayingAudio(false)} onError={()=>setRequestError('O navegador não conseguiu decodificar a gravação. Nenhuma voz sintetizada será usada como gravação.')} /><a href={audioUrl} download="gravacao" className="text-sm text-blue-700">Baixar arquivo carregado</a></> : <p>Carregando arquivo autenticado…</p>}
+      </section>}
     </div>
   );
 };

@@ -1,3 +1,7 @@
+import {logOperational} from '../../security/OperationalLog.js';
+import { nextWorkflow, validateInternalNote, assertWorkflowAccess, type WorkflowActor } from '../../../maia/integrations/ConversationWorkflow.js';
+import { OutboundHttpError } from '../../security/OutboundHttp.js';
+import crypto from 'node:crypto';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
 import { SystemRepository } from './SystemRepository.js';
@@ -27,6 +31,8 @@ export interface OmnichannelConversation {
   createdAt: string;
   messages: OmnichannelMessage[];
   notes?: any[];
+  assignedUserId?: string|null;
+  workflowVersion?: number;
 }
 
 export class OmnichannelRepository {
@@ -49,10 +55,12 @@ export class OmnichannelRepository {
           sentiment: row.sentiment || 'neutral',
           tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
           messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
+          notes: typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes || []),
+          assignedUserId: row.assigned_user_id ?? null, workflowVersion: row.workflow_version ?? 0,
           createdAt: toSafeIsoStringOrNow(row.created_at),
         }));
       } catch (err: any) {
-        console.error('[OmnichannelRepository.listConversations] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -83,12 +91,14 @@ export class OmnichannelRepository {
             sentiment: row.sentiment || 'neutral',
             tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
             messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
+          notes: typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes || []),
+          assignedUserId: row.assigned_user_id ?? null, workflowVersion: row.workflow_version ?? 0,
             createdAt: toSafeIsoStringOrNow(row.created_at),
           };
         }
         return null;
       } catch (err: any) {
-        console.error('[OmnichannelRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -112,12 +122,14 @@ export class OmnichannelRepository {
             sentiment: row.sentiment || 'neutral',
             tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []),
             messages: typeof row.messages === 'string' ? JSON.parse(row.messages) : (row.messages || []),
+          notes: typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes || []),
+          assignedUserId: row.assigned_user_id ?? null, workflowVersion: row.workflow_version ?? 0,
             createdAt: toSafeIsoStringOrNow(row.created_at),
           };
         }
         return null;
       } catch (err: any) {
-        console.error('[OmnichannelRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -137,43 +149,89 @@ export class OmnichannelRepository {
     const cleanId = phoneNumberId.trim();
 
     return postgresClient.executeGlobalScoped(async (client) => {
-      // 1. Tenta consulta em tabela dedicada whatsapp_integrations
-      try {
-        const res = await client.query(
-          'SELECT tenant_id, phone_number_id, access_token FROM whatsapp_integrations WHERE phone_number_id = $1 LIMIT 1',
-          [cleanId]
-        );
-        if (res.rows.length > 0 && res.rows[0].tenant_id && res.rows[0].tenant_id.trim() !== '') {
-          return {
-            tenantId: res.rows[0].tenant_id.trim(),
-            phoneNumberId: cleanId,
-            accessToken: res.rows[0].access_token || undefined,
-          };
-        }
-      } catch {
-        // Ignora se tabela whatsapp_integrations não estiver criada
-      }
-
-      // 2. Consulta em system_settings via SystemRepository.getWhatsappConfig()
-      try {
-        const config = await SystemRepository.getWhatsappConfig();
-        if (
-          config &&
-          config.phoneNumberId === cleanId &&
-          config.tenantId &&
-          config.tenantId.trim() !== ''
-        ) {
-          return {
-            tenantId: config.tenantId.trim(),
-            phoneNumberId: cleanId,
-            accessToken: config.accessToken,
-          };
-        }
-      } catch {
-        // Ignora erro em dev
+      const result = await client.query(`SELECT value FROM system_settings
+        WHERE (key = 'whatsapp_config' OR key LIKE 'whatsapp_config:%')
+          AND value->>'phoneNumberId' = $1 AND value->>'isActive' = 'true'`, [cleanId]);
+      const mappings = result.rows.map(row => typeof row.value === 'string' ? JSON.parse(row.value) : row.value);
+      const tenants = new Set(mappings.map(config => config.tenantId).filter(Boolean));
+      if (tenants.size !== 1) return null;
+      const config = mappings[0];
+      if (typeof config?.tenantId === 'string' && config.tenantId.trim()) {
+        return { tenantId: config.tenantId.trim(), phoneNumberId: cleanId };
       }
 
       return null;
+    });
+  }
+
+  /** Persiste a entrada antes do ACK; retries da Meta não duplicam mensagens. */
+  public static async receiveWhatsappMessage(tenantId: string, message: { id: string; from: string; content: string; timestamp: string }): Promise<void> {
+    await postgresClient.executeTenantScoped(tenantId, async (client, ctx) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`whatsapp:${ctx.tenantId}:${message.from}`]);
+      const result = await client.query(`SELECT id, messages FROM omnichannel_conversations
+        WHERE tenant_id = $1 AND contact_id = $2 AND channel = 'whatsapp' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [ctx.tenantId, message.from]);
+      const row = result.rows[0];
+      const messages = row ? (typeof row.messages === 'string' ? JSON.parse(row.messages) : row.messages || []) : [];
+      if (messages.some((entry: any) => entry.id === message.id)) return;
+      messages.push({ id: message.id, sender: 'contact', senderName: message.from, content: message.content, type: 'text', timestamp: message.timestamp });
+      if (row) {
+        await client.query(`UPDATE omnichannel_conversations SET messages = $1, status=CASE WHEN status='closed' THEN 'waiting' ELSE status END,assigned_user_id=CASE WHEN status='closed' THEN NULL ELSE assigned_user_id END,workflow_version=workflow_version+CASE WHEN status='closed' THEN 1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $3`, [JSON.stringify(messages), row.id, ctx.tenantId]);
+      } else {
+        await client.query(`INSERT INTO omnichannel_conversations
+          (id, tenant_id, contact_id, contact_name, contact_phone, channel, status, sentiment, tags, messages)
+          VALUES ($1,$2,$3,$3,$3,'whatsapp','waiting','neutral','["whatsapp","meta-api"]',$4)`,
+          [`conv-wa-${crypto.randomUUID()}`, ctx.tenantId, message.from, JSON.stringify(messages)]);
+      }
+    });
+  }
+
+  /** Acrescenta somente a saída confirmada, sem substituir entradas recebidas durante o envio. */
+  public static async appendAgentMessage(tenantId: string, conversationId: string, message: OmnichannelMessage, actorId?:string): Promise<void> {
+    await postgresClient.executeTenantScoped(tenantId,async client=>{
+      const result=await client.query('SELECT messages FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,conversationId]);
+      if(!result.rows[0])throw new Error('Conversa não encontrada para registrar a saída.');
+      const value=result.rows[0].messages;
+      const messages=typeof value==='string'?JSON.parse(value):value||[];
+      const previous=messages.find((entry:any)=>entry.id===message.id);
+      if(previous){if(previous.sender!=='agent'||previous.content!==message.content)throw new Error('Identificador de mensagem conflitante.');return;}
+      messages.push(message);
+      await client.query("UPDATE omnichannel_conversations SET messages=$3,status=CASE WHEN status IN ('waiting','queued','bot_handling') THEN 'active' ELSE status END,assigned_user_id=CASE WHEN status='closed' THEN assigned_user_id ELSE COALESCE(assigned_user_id,$4) END,workflow_version=workflow_version+CASE WHEN status IN ('waiting','queued','bot_handling') OR (status<>'closed' AND assigned_user_id IS NULL AND $4 IS NOT NULL) THEN 1 ELSE 0 END,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2",[tenantId,conversationId,JSON.stringify(messages),actorId??null]);
+    });
+  }
+
+  public static async reserveHumanReply(tenantId:string,id:string,actor:WorkflowActor){
+    await postgresClient.executeTenantScoped(tenantId,async client=>{
+      const row=(await client.query('SELECT status,channel,assigned_user_id FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id])).rows[0];
+      if(!row)throw new OutboundHttpError('Conversa não encontrada.',404);
+      if(row.status==='closed')throw new OutboundHttpError('Conversa encerrada.',409);
+      if(row.channel!=='whatsapp')throw new OutboundHttpError('Canal sem envio por WhatsApp.',501);
+      assertWorkflowAccess(row.assigned_user_id,actor);
+      if(row.assigned_user_id===null||row.status!=='active')await client.query("UPDATE omnichannel_conversations SET status='active',assigned_user_id=COALESCE(assigned_user_id,$3),workflow_version=workflow_version+1,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2",[tenantId,id,actor.id]);
+    });
+  }
+
+  public static async changeWorkflow(tenantId:string,id:string,status:string,version:number,actor:WorkflowActor){
+    await postgresClient.executeTenantScoped(tenantId,async client=>{
+      const current=(await client.query('SELECT status,assigned_user_id,workflow_version FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id])).rows[0];
+      if(!current)throw new OutboundHttpError('Conversa não encontrada.',404);
+      const next=nextWorkflow(current,status,version,actor);
+      await client.query('UPDATE omnichannel_conversations SET status=$3,assigned_user_id=$4,workflow_version=workflow_version+1,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2',[tenantId,id,next.status,next.owner]);
+    });
+    return this.findById(id,tenantId);
+  }
+  public static async addInternalNote(tenantId:string,id:string,text:string,requestId:string,actor:WorkflowActor){
+    const input=validateInternalNote(text,requestId);
+    return postgresClient.executeTenantScoped(tenantId,async client=>{
+      const row=(await client.query('SELECT notes FROM omnichannel_conversations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id])).rows[0];
+      if(!row)throw new OutboundHttpError('Conversa não encontrada.',404);
+      const notes=typeof row.notes==='string'?JSON.parse(row.notes):row.notes||[];
+      const previous=notes.find((entry:any)=>entry.id===input.requestId);
+      if(previous){if(previous.userId!==actor.id||previous.text!==input.text)throw new OutboundHttpError('Identificador de anotação já utilizado.',409);return previous;}
+      if(notes.length>=1000)throw new OutboundHttpError('Limite de anotações desta conversa atingido.',413);
+      const note={id:input.requestId,text:input.text,userId:actor.id,agentName:actor.name,createdAt:new Date().toISOString()};
+      notes.push(note);
+      await client.query('UPDATE omnichannel_conversations SET notes=$3,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2',[tenantId,id,JSON.stringify(notes)]);
+      return note;
     });
   }
 
@@ -207,7 +265,7 @@ export class OmnichannelRepository {
         );
         return conv;
       } catch (err: any) {
-        console.error('[OmnichannelRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

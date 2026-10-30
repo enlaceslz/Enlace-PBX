@@ -1,3 +1,7 @@
+import {reviewedKnowledge,automaticAgent} from '../../infrastructure/ai/AiConfiguration.js';
+import {logOperational} from '../../infrastructure/security/OperationalLog.js';
+import { persistedDialogue, voiceMessage } from '../core/MaiaHistory.js';
+import { OutboundHttpError } from '../../infrastructure/security/OutboundHttp.js';
 import crypto from 'crypto';
 import { MaiaRouter } from './MaiaRouter.js';
 import { MaiaVoiceGateway } from './MaiaVoiceGateway.js';
@@ -108,6 +112,24 @@ export class MaiaAIGateway {
       throw new Error('Violação de Isolamento: tenantId ausente ou inválido no contexto de voz da MaIA.');
     }
 
+    voiceMessage(params.userMessage);
+    const previous=params.sessionId ? await MaiaSessionRepository.findById(params.sessionId,tenantId) : null;
+    if(params.sessionId && !previous)throw new OutboundHttpError('Sessão não encontrada nesta empresa.',404);
+    if(previous && params.agentId && params.agentId!==previous.agentId)throw new OutboundHttpError('O agente da sessão não pode ser alterado durante o diálogo.',409);
+    const selectedAgent=params.agentId || previous?.agentId;
+    let agent = selectedAgent ? await AiAgentRepository.findById(selectedAgent, tenantId) : null;
+    if(selectedAgent && !agent)throw new OutboundHttpError('Agente não encontrado nesta empresa.',404);
+    if (!agent) {
+      const tenantAgents = await AiAgentRepository.listByTenant(tenantId);
+      agent = automaticAgent(tenantAgents);
+    }
+
+    if (!agent) {
+      throw new OutboundHttpError('Nenhum agente de IA ativo configurado nesta empresa.',409);
+    }
+
+    if(agent.isActive!==true)throw new OutboundHttpError('Agente de IA desativado nesta empresa.',409);
+
     // 1. Carrega ou cria a Sessão Persistente no PostgreSQL
     let session: MaiaSessionEntity;
     if (params.sessionId) {
@@ -118,7 +140,7 @@ export class MaiaAIGateway {
         session = new MaiaSessionEntity({
           id: params.sessionId,
           tenantId,
-          agentId: params.agentId || 'agent-maia-247',
+          agentId: agent.id,
           asteriskChannelId: params.asteriskChannelId,
           asteriskUniqueId: params.asteriskUniqueId,
           linkedId: params.linkedId,
@@ -130,7 +152,7 @@ export class MaiaAIGateway {
     } else {
       session = new MaiaSessionEntity({
         tenantId,
-        agentId: params.agentId || 'agent-maia-247',
+        agentId: agent.id,
         asteriskChannelId: params.asteriskChannelId,
         asteriskUniqueId: params.asteriskUniqueId,
         linkedId: params.linkedId,
@@ -140,6 +162,9 @@ export class MaiaAIGateway {
       await MaiaSessionRepository.createSession(session.toJSON());
     }
 
+    const attemptId=crypto.randomUUID();
+    session=new MaiaSessionEntity(await MaiaSessionRepository.claimTurn(session.id,tenantId,attemptId));
+    try {
     // Atualiza canais se recebidos
     if (params.asteriskChannelId && !session.asteriskChannelId) {
       session.asteriskChannelId = params.asteriskChannelId;
@@ -150,23 +175,12 @@ export class MaiaAIGateway {
 
     session.transitionTo('processing');
 
-    // 2. Localiza o Agente de IA configurado para este Tenant
-    let agent = params.agentId ? await AiAgentRepository.findById(params.agentId, tenantId) : null;
-    if (!agent) {
-      const tenantAgents = await AiAgentRepository.listByTenant(tenantId);
-      agent = tenantAgents[0] || null;
-    }
 
-    if (!agent) {
-      session.transitionTo('failed');
-      await MaiaSessionRepository.updateSession(session.toJSON());
-      throw new Error(`Nenhum agente de IA ativo configurado para o tenant '${tenantId}'.`);
-    }
 
     const voiceConfig = MaiaPersona.resolveVoice(agent);
 
     // 3. Monta Grounding de Conhecimento RAG oficial
-    const allKnowledge = await AiKnowledgeRepository.listByTenant(tenantId);
+    const allKnowledge = reviewedKnowledge(await AiKnowledgeRepository.listByTenant(tenantId));
     const knowledgeItems: KnowledgeItem[] = (agent.knowledgeSources || [])
       .map((kId) => allKnowledge.find((k) => k.id === kId))
       .filter(Boolean)
@@ -208,10 +222,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
       personaTimbre: voiceConfig.guidancePrompt,
     });
 
-    const recentHistory = (params.history || [])
-      .slice(-6)
-      .map((h) => `${h.role === 'user' ? 'Chamador' : agent!.name.split(' ')[0]}: ${h.text}`)
-      .join('\n');
+    const recentHistory = persistedDialogue(await MaiaSessionRepository.recentDialogue(session.id,tenantId));
 
     const userPrompt = MaiaPromptGuard.buildStructuredUserPrompt({
       knowledgeSnippets,
@@ -268,6 +279,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
       tenantId,
     });
 
+    session.provider=aiResponse.providerId;session.model=aiResponse.modelUsed;
     let replyText = aiResponse.text || '';
     let toolCallExecuted: VoiceTurnResult['toolCallExecuted'] = undefined;
     let action: VoiceTurnResult['action'] = 'none';
@@ -349,6 +361,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
             callerNumber: params.callerNumber || 'Desconhecido',
             asteriskChannelId: session.asteriskChannelId,
             agentId: agent.id,
+            userRole: params.authenticatedRole,
             correlationId,
           });
 
@@ -368,7 +381,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
             session.transitionTo('terminating');
           }
 
-          if (execOutput.message && (!replyText || replyText.trim() === '')) {
+          if (execOutput.message && (['transferir_chamada','encerrar_chamada'].includes(fc.name) || !replyText || replyText.trim() === '')) {
             replyText = execOutput.message;
           }
 
@@ -404,7 +417,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
         audioBase64 = vRes.audioBase64;
       }
     } catch (err: any) {
-      console.warn('[MaiaAIGateway] Síntese de voz neural indisponível, fallback para áudio do cliente:', err.message);
+      logOperational('AI_PROVIDER_FAILURE');
     }
 
     const latencyMs = Date.now() - startTime;
@@ -421,7 +434,7 @@ Risco de Churn: ${custMem.churnRisk}%`;
     }
 
     // Grava turno na tabela relacional de turnos
-    await MaiaSessionRepository.addTurn({
+    await MaiaSessionRepository.commitExchange(session.toJSON(),attemptId,params.userMessage,{
       id: `turn-${crypto.randomUUID()}`,
       sessionId: session.id,
       tenantId,
@@ -437,8 +450,6 @@ Risco de Churn: ${custMem.churnRisk}%`;
       createdAt: new Date().toISOString(),
     });
 
-    await MaiaSessionRepository.updateSession(session.toJSON());
-
     return {
       sessionId: session.id,
       replyText,
@@ -451,6 +462,9 @@ Risco de Churn: ${custMem.churnRisk}%`;
       sessionState: session.status,
       voiceConfig,
     };
+    } finally {
+      await MaiaSessionRepository.releaseTurn(session.id,tenantId,attemptId);
+    }
   }
 }
 

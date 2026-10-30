@@ -1,3 +1,4 @@
+import {logOperational} from '../../infrastructure/security/OperationalLog.js';
 import { MaiaAIProvider } from './MaiaAIProvider.js';
 import { GeminiProvider } from './providers/GeminiProvider.js';
 import { NineRouterProvider } from './providers/NineRouterProvider.js';
@@ -83,15 +84,16 @@ export class MaiaRouter {
    * Executa a requisição percorrendo a cadeia com fallback transparente e seguro
    */
   public async executeWithFallback(request: MaiaTextRequest): Promise<MaiaAIResponse> {
+    const started=Date.now();
     const profile = request.routingProfile || 'BALANCEADO';
     const chain = this.resolveRouteChain(profile, request.model);
 
-    let lastError: Error | null = null;
 
     for (const target of chain) {
+      let timer:ReturnType<typeof setTimeout>|undefined;
       try {
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout de ${target.timeoutMs}ms excedido no provider ${target.provider.id}`)), target.timeoutMs)
+          {timer=setTimeout(() => reject(new Error(`Timeout de ${target.timeoutMs}ms excedido no provider ${target.provider.id}`)), target.timeoutMs);}
         );
 
         const execPromise = target.provider.generateText({
@@ -102,9 +104,8 @@ export class MaiaRouter {
         const res = await Promise.race([execPromise, timeoutPromise]);
         return res;
       } catch (err: any) {
-        lastError = err;
-        console.warn(`[MaiaRouter] Falha no provider '${target.provider.id}' (${err.message}). Avançando para próximo elo da cadeia...`);
-      }
+        logOperational('AI_PROVIDER_FAILURE');
+      }finally{if(timer!==undefined)clearTimeout(timer);}
     }
 
     // Se até o fallback falhou de forma catastrófica (não esperado), devolve contingência pura
@@ -113,7 +114,7 @@ export class MaiaRouter {
       tokensUsed: { input: 0, output: 0 },
       modelUsed: 'system-emergency-fallback',
       providerId: 'emergency',
-      latencyMs: 1,
+      latencyMs: Math.max(0,Date.now()-started),
     };
   }
 }

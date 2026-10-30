@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
 import { Tenant } from '../../../../src/types/pbx.js';
@@ -23,7 +24,7 @@ export class TenantRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[TenantRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -45,7 +46,7 @@ export class TenantRepository {
           antiFraud: typeof row.anti_fraud === 'string' ? JSON.parse(row.anti_fraud) : (row.anti_fraud || {}),
         }));
       } catch (err: any) {
-        console.error('[TenantRepository.listAll] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -79,7 +80,7 @@ export class TenantRepository {
         );
         return tenant;
       } catch (err: any) {
-        console.error('[TenantRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -91,7 +92,7 @@ export class TenantRepository {
         const res = await client.query('DELETE FROM tenants WHERE id = $1', [id]);
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[TenantRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

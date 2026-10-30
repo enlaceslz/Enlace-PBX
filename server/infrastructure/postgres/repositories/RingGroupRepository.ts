@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { RingGroup } from '../../../../src/types/pbx.js';
 import { TenantContext } from '../../auth/tenantContext.js';
@@ -19,10 +20,11 @@ export class RingGroupRepository {
           strategy: row.strategy || 'ringall',
           timeoutSeconds: row.timeout_seconds || 25,
           members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
-          failoverDestination: row.fallback_target || 'voicemail',
+          failoverDestination: row.fallback_target ?? '',
+          fallbackType:row.fallback_type,
         }));
       } catch (err: any) {
-        console.error('[RingGroupRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -43,10 +45,11 @@ export class RingGroupRepository {
           strategy: row.strategy || 'ringall',
           timeoutSeconds: row.timeout_seconds || 25,
           members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
-          failoverDestination: row.fallback_target || 'voicemail',
+          failoverDestination: row.fallback_target ?? '',
+          fallbackType:row.fallback_type,
         }));
       } catch (err: any) {
-        console.error('[RingGroupRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -73,12 +76,13 @@ export class RingGroupRepository {
             strategy: row.strategy || 'ringall',
             timeoutSeconds: row.timeout_seconds || 25,
             members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
-            failoverDestination: row.fallback_target || 'voicemail',
+            failoverDestination: row.fallback_target ?? '',
+          fallbackType:row.fallback_type,
           };
         }
         return null;
       } catch (err: any) {
-        console.error('[RingGroupRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -98,12 +102,13 @@ export class RingGroupRepository {
             strategy: row.strategy || 'ringall',
             timeoutSeconds: row.timeout_seconds || 25,
             members: typeof row.extensions === 'string' ? JSON.parse(row.extensions) : (row.extensions || []),
-            failoverDestination: row.fallback_target || 'voicemail',
+            failoverDestination: row.fallback_target ?? '',
+          fallbackType:row.fallback_type,
           };
         }
         return null;
       } catch (err: any) {
-        console.error('[RingGroupRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -137,7 +142,7 @@ export class RingGroupRepository {
         );
         return group;
       } catch (err: any) {
-        console.error('[RingGroupRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -152,7 +157,7 @@ export class RingGroupRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[RingGroupRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });

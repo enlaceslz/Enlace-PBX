@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
 import { AiKnowledgeSource } from '../../../../src/types/pbx.js';
@@ -17,6 +18,7 @@ export class AiKnowledgeRepository {
         return res.rows.map(row => ({
           id: row.id,
           tenantId: row.tenant_id,
+          contentStatus: row.review_state === 'REVIEWED_TEXT' ? 'REVIEWED_TEXT' as const : 'LEGACY_NOT_REVIEWED' as const,
           title: row.title,
           category: row.category,
           content: row.content,
@@ -26,7 +28,7 @@ export class AiKnowledgeRepository {
           fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
         }));
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -42,6 +44,7 @@ export class AiKnowledgeRepository {
         return res.rows.map(row => ({
           id: row.id,
           tenantId: row.tenant_id,
+          contentStatus: row.review_state === 'REVIEWED_TEXT' ? 'REVIEWED_TEXT' as const : 'LEGACY_NOT_REVIEWED' as const,
           title: row.title,
           category: row.category,
           content: row.content,
@@ -51,7 +54,7 @@ export class AiKnowledgeRepository {
           fileSizeBytes: row.file_size_bytes ? parseInt(row.file_size_bytes, 10) : undefined,
         }));
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -73,6 +76,7 @@ export class AiKnowledgeRepository {
           return {
             id: row.id,
             tenantId: row.tenant_id,
+          contentStatus: row.review_state === 'REVIEWED_TEXT' ? 'REVIEWED_TEXT' as const : 'LEGACY_NOT_REVIEWED' as const,
             title: row.title,
             category: row.category,
             content: row.content,
@@ -84,7 +88,7 @@ export class AiKnowledgeRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -99,6 +103,7 @@ export class AiKnowledgeRepository {
           return {
             id: row.id,
             tenantId: row.tenant_id,
+          contentStatus: row.review_state === 'REVIEWED_TEXT' ? 'REVIEWED_TEXT' as const : 'LEGACY_NOT_REVIEWED' as const,
             title: row.title,
             category: row.category,
             content: row.content,
@@ -110,43 +115,7 @@ export class AiKnowledgeRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
-        throw err;
-      }
-    });
-  }
-
-  public static async save(source: AiKnowledgeSource, contextOrTenant?: TenantContext | string): Promise<AiKnowledgeSource> {
-    const target = contextOrTenant || source.tenantId;
-    return postgresClient.executeTenantScoped(target, async (client, ctx) => {
-      try {
-        await client.query(
-          `INSERT INTO ai_knowledge (
-            id, tenant_id, title, category, content,
-            file_name, file_type, file_size_bytes, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-          ON CONFLICT (id) DO UPDATE SET
-            title = EXCLUDED.title,
-            category = EXCLUDED.category,
-            content = EXCLUDED.content,
-            file_name = EXCLUDED.file_name,
-            file_type = EXCLUDED.file_type,
-            file_size_bytes = EXCLUDED.file_size_bytes,
-            updated_at = CURRENT_TIMESTAMP`,
-          [
-            source.id,
-            ctx.tenantId,
-            source.title,
-            source.category || 'Geral',
-            source.content,
-            source.fileName || null,
-            source.fileType || null,
-            source.fileSizeBytes || null
-          ]
-        );
-        return source;
-      } catch (err: any) {
-        console.error('[AiKnowledgeRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -164,21 +133,10 @@ export class AiKnowledgeRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[AiKnowledgeRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
   }
 
-  public static async deleteAnyForSuperAdmin(id: string): Promise<boolean> {
-    return postgresClient.executeGlobalScoped(async (client) => {
-      try {
-        const res = await client.query('DELETE FROM ai_knowledge WHERE id = $1', [id]);
-        return (res.rowCount ?? 0) > 0;
-      } catch (err: any) {
-        console.error('[AiKnowledgeRepository.deleteAnyForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
-        throw err;
-      }
-    });
-  }
 }

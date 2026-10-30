@@ -1,28 +1,21 @@
-import crypto from 'crypto';
 import { IMaiaExecutor, ToolExecutionContext, ToolExecutionOutput } from './MaiaToolExecutor.js';
+import { TicketRepository } from '../../infrastructure/postgres/repositories/TicketRepository.js';
 
 export class TicketExecutor implements IMaiaExecutor {
   async execute(args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionOutput> {
-    const categoria = (args.categoria as string || 'suporte_geral').trim();
-    const descricao = (args.descricao as string || 'Chamado registrado via MaIA').trim();
-    const urgencia = (args.urgencia as string || 'media').trim();
-
-    // Gera ID UUID e número de protocolo criptográfico seguro (não Date.now())
-    const ticketId = crypto.randomUUID();
-    const protocolNumber = `ENL-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-
-    return {
-      status: 'success',
-      data: {
-        ticketId,
-        protocolo: protocolNumber,
-        categoria,
-        descricao,
-        urgencia,
-        status: 'aberto',
-        abertoEm: new Date().toISOString(),
-      },
-      message: `Chamado registrado com sucesso sob o protocolo ${protocolNumber}. Nossa equipe técnica dará andamento à sua solicitação.`,
-    };
+    try {
+      const ticket = await TicketRepository.create(context.tenantId, {
+        requestId: context.correlationId,
+        callerNumber: context.callerNumber,
+        category: typeof args.categoria === 'string' ? args.categoria.trim() : 'suporte_geral',
+        description: typeof args.descricao === 'string' ? args.descricao : '',
+        urgency: typeof args.urgencia === 'string' ? args.urgencia : 'media',
+      });
+      return { status: 'success', data: { ticketId: ticket.id, protocolo: ticket.protocol, categoria: ticket.category,
+        descricao: ticket.description, urgencia: ticket.urgency, status: ticket.status, abertoEm: ticket.created_at },
+        message: `Chamado registrado sob o protocolo ${ticket.protocol}.` };
+    } catch {
+      return { status: 'failed', data: { result: 'UNAVAILABLE' }, message: 'Não foi possível confirmar o registro do chamado. Solicite atendimento humano.' };
+    }
   }
 }

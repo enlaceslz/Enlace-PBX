@@ -1,3 +1,5 @@
+import {logOperational} from '../security/OperationalLog.js';
+import { validCredentialStamp } from './CredentialStamp.js';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -119,6 +121,8 @@ export interface AuthenticatedRequest extends Request {
     name: string;
     extension?: string;
     permissions?: string[];
+    authStamp?: string;
+    identityTenantId?: string;
   };
   tenantId?: string;
   tenantContext?: TenantContext;
@@ -140,6 +144,8 @@ export interface SseTicketData {
   role: UserRole;
   name: string;
   extension?: string;
+  authStamp?: string;
+  identityTenantId?: string;
   scope: 'sse';
   createdAt: number;
   expiresAt: number;
@@ -158,6 +164,7 @@ export class SseTicketManager {
       role: UserRole;
       name: string;
       extension?: string;
+      authStamp?: string;
     },
     tenantId?: string
   ): { ticket: string; expiresInSeconds: number } {
@@ -174,6 +181,8 @@ export class SseTicketManager {
       role: user.role,
       name: user.name,
       extension: user.extension,
+      authStamp:user.authStamp,
+      identityTenantId:user.tenantId,
       scope: 'sse',
       createdAt: now,
       expiresAt: now + this.TTL_MS,
@@ -243,6 +252,8 @@ export class SseTicketManager {
         role: ticketData.role,
         name: ticketData.name,
         extension: ticketData.extension,
+        authStamp:ticketData.authStamp,
+        identityTenantId:ticketData.identityTenantId,
       },
       tenantId: ticketData.tenantId,
     };
@@ -290,11 +301,10 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
   }
 
   try {
-    const decoded = jwt.verify(token, secret) as any;
+    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as any;
 
     // Busca usuário atualizado no PostgreSQL através do repositório
-    const user = (decoded.id ? await UserRepository.findById(decoded.id) : null) ||
-                 (decoded.email ? await UserRepository.findByEmail(decoded.email) : null);
+    const user = (typeof decoded.id === 'string' && typeof decoded.tenantId === 'string' ? await UserRepository.findById(decoded.id, decoded.tenantId) : null);
 
     if (!user) {
       return res.status(401).json({
@@ -310,6 +320,7 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
       });
     }
 
+    if(!validCredentialStamp(decoded.authStamp,user,secret))return res.status(401).json({error:'Sessão revogada. Entre novamente.',code:'AUTH_SESSION_REVOKED'});
     const normalizedRole = normalizeRole(user.role);
 
     req.user = {
@@ -320,6 +331,8 @@ export const requireAuth = async (req: AuthenticatedRequest, res: Response, next
       name: user.name,
       extension: user.extension,
       permissions: ROLE_PERMISSIONS[normalizedRole] || [],
+      authStamp:decoded.authStamp,
+      identityTenantId:user.tenantId,
     };
 
     // Define o tenant inicial baseado na sessão autenticada (nunca no input do cliente)
@@ -356,9 +369,8 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
     }
 
     try {
-      const decoded = jwt.verify(headerToken, secret) as any;
-      const user = (decoded.id ? await UserRepository.findById(decoded.id) : null) ||
-                   (decoded.email ? await UserRepository.findByEmail(decoded.email) : null);
+      const decoded = jwt.verify(headerToken, secret, { algorithms: ['HS256'] }) as any;
+      const user = (typeof decoded.id === 'string' && typeof decoded.tenantId === 'string' ? await UserRepository.findById(decoded.id, decoded.tenantId) : null);
 
       if (!user) {
         return res.status(401).json({ error: 'Usuário não localizado.', code: 'AUTH_USER_NOT_FOUND' });
@@ -367,6 +379,7 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
         return res.status(403).json({ error: 'Conta de usuário desativada.', code: 'AUTH_USER_INACTIVE' });
       }
 
+      if(!validCredentialStamp(decoded.authStamp,user,secret))return res.status(401).json({error:'Sessão revogada. Entre novamente.',code:'AUTH_SESSION_REVOKED'});
       req.user = {
         id: user.id,
         tenantId: user.tenantId,
@@ -375,6 +388,8 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
         name: user.name,
         extension: user.extension,
         permissions: ROLE_PERMISSIONS[normalizeRole(user.role)] || [],
+        authStamp:decoded.authStamp,
+        identityTenantId:user.tenantId,
       };
       req.tenantId = user.tenantId;
       return next();
@@ -397,7 +412,14 @@ export const requireSseAuth = async (req: AuthenticatedRequest, res: Response, n
   // 3. Validação estrita do ticket efêmero
   try {
     const session = SseTicketManager.consumeTicket(queryTicket);
-    req.user = session.user;
+    const current=await UserRepository.findById(session.user.id,session.user.identityTenantId||session.user.tenantId);
+    if(!current || !current.isActive || !validCredentialStamp(session.user.authStamp,current,getJwtSecret()))return res.status(401).json({error:'Ticket SSE revogado. Entre novamente.',code:'AUTH_SESSION_REVOKED'});
+    const role=normalizeRole(current.role);
+    if(session.tenantId!==current.tenantId && role!=='super_admin')return res.status(403).json({error:'Ticket fora da empresa autorizada.'});
+    req.user = {...session.user,role,name:current.name,permissions:ROLE_PERMISSIONS[role]};
+    // O escopo emitido do ticket prevalece sobre query/cabeçalhos da conexão SSE.
+    req.tenantContext={tenantId:session.tenantId,actorUserId:current.id,actorRole:role,originTenantId:current.tenantId,
+      accessMode:session.tenantId===current.tenantId?'TENANT':'SUPER_ADMIN_TARGET',requestId:crypto.randomUUID()};
     req.tenantId = session.tenantId;
     return next();
   } catch (err: any) {
@@ -573,7 +595,7 @@ export const requireTenant = async (req: AuthenticatedRequest, res: Response, ne
         ip: req.ip || '127.0.0.1',
       });
     } catch (auditErr: any) {
-      console.error('[requireTenant] Falha na auditoria obrigatória cross-tenant (FAIL-CLOSED):', auditErr?.message || auditErr);
+      logOperational('SERVER_OPERATION_FAILURE');
       return res.status(503).json({
         error: 'Operação cross-tenant cancelada: falha ao persistir auditoria obrigatória de conformidade (FAIL-CLOSED).',
         code: 'AUDIT_REQUIRED_FAILURE',

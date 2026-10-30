@@ -1,3 +1,4 @@
+import {validatedWavAudio,validateVoiceRequest} from '../../../infrastructure/ai/VoiceAudio.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { MaiaAIProvider } from '../MaiaAIProvider.js';
 import {
@@ -77,34 +78,35 @@ export class GeminiProvider implements MaiaAIProvider {
         args: (fc.args as Record<string, unknown>) || {},
       }));
 
-      const inputTokens = Math.round((request.systemPrompt.length + request.prompt.length) / 4);
-      const outputTokens = Math.round(text.length / 4) + (toolCalls.length * 15);
+      const inputTokens=response.usageMetadata?.promptTokenCount;
+      const outputTokens=response.usageMetadata?.candidatesTokenCount;
+      if(!Number.isSafeInteger(inputTokens)||inputTokens!<0||!Number.isSafeInteger(outputTokens)||outputTokens!<0)throw new Error('Consumo não informado pelo provedor.');
 
       return {
         text,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         tokensUsed: {
-          input: inputTokens,
-          output: outputTokens,
+          input: inputTokens!,
+          output: outputTokens!,
         },
-        modelUsed: model,
+        modelUsed: response.modelVersion || model,
         providerId: this.id,
         latencyMs,
       };
     } catch (err: any) {
-      // Remove qualquer menção a chaves ou detalhes internos do SDK na mensagem de erro
-      const safeMsg = (err?.message || 'Erro desconhecido na API do Gemini').replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_KEY]');
-      throw new Error(`GeminiProvider Error: ${safeMsg}`);
+      throw new Error('Falha na geração de texto do Gemini.');
     }
   }
 
   public async generateVoice(request: MaiaVoiceRequest): Promise<MaiaVoiceResponse> {
+    validateVoiceRequest(request);
     const ai = this.initClient();
     if (!ai) {
       throw new Error('AI_PROVIDER_UNAVAILABLE: Gemini TTS não configurado.');
     }
 
-    const ttsModel = 'gemini-3.8-flash-lite-tts';
+    const ttsModel = process.env.GEMINI_TTS_MODEL;
+    if(typeof ttsModel!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(ttsModel))throw new Error('AI_PROVIDER_UNAVAILABLE: Configure um modelo TTS explícito e homologado.');
 
     try {
       const response = await ai.models.generateContent({
@@ -122,18 +124,14 @@ export class GeminiProvider implements MaiaAIProvider {
         },
       });
 
-      const audioBase64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!audioBase64) {
-        throw new Error('Resposta de áudio vazia do Gemini TTS.');
-      }
+      const audioBase64 = validatedWavAudio(response.candidates?.[0]?.content?.parts?.[0]?.inlineData);
 
       return {
         audioBase64,
         format: 'wav',
       };
     } catch (err: any) {
-      const safeMsg = (err?.message || 'Falha na síntese de voz TTS').replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_KEY]');
-      throw new Error(`GeminiVoice Error: ${safeMsg}`);
+      throw new Error('Falha na síntese de voz do Gemini.');
     }
   }
 
@@ -143,7 +141,7 @@ export class GeminiProvider implements MaiaAIProvider {
         providerId: this.id,
         name: this.name,
         status: 'NOT_CONFIGURED',
-        modelsAvailable: ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-3.8-flash'],
+        modelsAvailable: [],
       };
     }
 
@@ -164,12 +162,7 @@ export class GeminiProvider implements MaiaAIProvider {
         name: this.name,
         status: 'UP',
         latencyMs: Date.now() - start,
-        modelsAvailable: [
-          'gemini-flash-latest',
-          'gemini-2.5-flash',
-          'gemini-3.8-flash',
-          'gemini-3.1-flash-tts-preview',
-        ],
+        modelsAvailable: ['gemini-flash-latest'],
       };
     } catch (err: any) {
       return {
@@ -177,8 +170,8 @@ export class GeminiProvider implements MaiaAIProvider {
         name: this.name,
         status: 'DOWN',
         latencyMs: Date.now() - start,
-        error: (err?.message || 'Falha de comunicação').replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_KEY]'),
-        modelsAvailable: ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-3.8-flash'],
+        error: 'Falha na comunicação com o Gemini.',
+        modelsAvailable: [],
       };
     }
   }

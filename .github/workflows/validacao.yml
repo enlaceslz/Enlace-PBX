@@ -1,0 +1,61 @@
+name: Validação de segurança e produção
+on:
+  pull_request:
+  push:
+    branches: [main, 'auditoria/**']
+permissions:
+  contents: read
+jobs:
+  validacao:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: enlace_pbx
+          POSTGRES_PASSWORD: senha-descartavel-do-ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d enlace_pbx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      JWT_SECRET: chave-de-teste-descartavel-com-mais-de-32-caracteres-2026
+      ENCRYPTION_KEY: outra-chave-descartavel-com-mais-de-32-caracteres-2026
+      CORS_ALLOWED_ORIGINS: https://pbx.example.invalid
+      DATABASE_MIGRATION_URL: postgresql://postgres:senha-descartavel-do-ci@127.0.0.1:5432/enlace_pbx
+      ADMIN_INITIAL_EMAIL: admin@example.invalid
+      ADMIN_INITIAL_PASSWORD: "  senha-bootstrap-descartavel-2026  "
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --include=dev
+      - run: npm run lint
+      - run: npm run test:security
+        env:
+          PBX_REQUIRE_PROC_PROFILE: '1'
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=moderate
+      - name: Aplicar migrações com credencial administrativa separada
+        run: NODE_ENV=production npm run db:migrate
+      - name: Configurar senha descartável da role operacional
+        run: psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 -c "ALTER ROLE enlace_app PASSWORD 'senha-app-descartavel-ci'"
+      - name: Validar PostgreSQL real em modo de produção
+        run: node --import tsx scripts/postgres-integration.ts
+        env:
+          NODE_ENV: production
+          DATABASE_URL: postgresql://enlace_app:senha-app-descartavel-ci@127.0.0.1:5432/enlace_pbx
+          PBX_INTEGRATION_DATABASE: descartavel
+      - name: Instalar cliente correspondente ao servidor PostgreSQL de teste
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y postgresql-client-16
+      - name: Ensaiar backup criptografado e recuperação integral isolada
+        run: node scripts/recovery-integration.mjs
+        env:
+          PBX_INTEGRATION_DATABASE: descartavel

@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import crypto from 'crypto';
 import { postgresClient } from '../client.js';
 import { toSafeIsoStringOrNow } from '../dateUtils.js';
@@ -66,21 +67,24 @@ export class AuditLogRepository {
     },
     options?: { strict?: boolean }
   ): Promise<AuditLog> {
-    const timestamp = new Date().toISOString();
+    let timestamp = new Date().toISOString();
     const id = `audit-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     const isGlobal = !entry.tenantId || entry.tenantId === 'SYSTEM';
 
     const performLog = async (client: any, tenantId: string) => {
       let previousHash = '0000000000000000000000000000000000000000000000000000000000000000';
-      try {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`audit:${tenantId}`]);
+      {
         const prevRes = await client.query(
-          'SELECT sha256_hash FROM audit_logs WHERE tenant_id = $1 ORDER BY timestamp DESC, id DESC LIMIT 1',
+          'SELECT sha256_hash, timestamp FROM audit_logs WHERE tenant_id = $1 ORDER BY timestamp DESC, id DESC LIMIT 1',
           [tenantId]
         );
         if (prevRes.rows.length > 0 && prevRes.rows[0].sha256_hash) {
           previousHash = prevRes.rows[0].sha256_hash;
+          const previousTime = new Date(prevRes.rows[0].timestamp).getTime();
+          timestamp = new Date(Math.max(Date.now(), Number.isFinite(previousTime) ? previousTime + 1 : 0)).toISOString();
         }
-      } catch {}
+      }
 
       const sha256Hash = this.computeCanonicalHash({
         previousHash,
@@ -129,9 +133,9 @@ export class AuditLogRepository {
       }
       return await postgresClient.executeTenantScoped(entry.tenantId, (client, ctx) => performLog(client, ctx.tenantId));
     } catch (err: any) {
-      console.error('[AuditLogRepository.log] Erro ao gravar log de auditoria no PostgreSQL sob transação RLS:', err?.message || err);
+      logOperational('AUDIT_OPERATION_FAILURE');
       if (options?.strict) {
-        throw new Error(`AUDIT_REQUIRED_FAILURE: Falha crítica na persistência imutável de auditoria: ${err?.message || err}`);
+        throw new Error('AUDIT_REQUIRED_FAILURE: Falha crítica na persistência imutável de auditoria.');
       }
       return {
         id,
@@ -209,7 +213,7 @@ export class AuditLogRepository {
 
         return { logs, total };
       } catch (err: any) {
-        console.error('[AuditLogRepository.listAll] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -245,7 +249,7 @@ export class AuditLogRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[AuditLogRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     };
@@ -280,7 +284,7 @@ export class AuditLogRepository {
           payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload || {}),
         }));
       } catch (err: any) {
-        console.error('[AuditLogRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('AUDIT_OPERATION_FAILURE');
         throw err;
       }
     });

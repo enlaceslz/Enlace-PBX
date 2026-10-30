@@ -1,3 +1,4 @@
+import {logOperational} from '../../security/OperationalLog.js';
 import { postgresClient } from '../client.js';
 import { Queue } from '../../../../src/types/pbx.js';
 import { TenantContext } from '../../auth/tenantContext.js';
@@ -18,7 +19,7 @@ export class QueueRepository {
           number: row.number,
           strategy: (row.strategy || 'ringall') as any,
           timeoutSeconds: row.timeout_seconds || 30,
-          wrapUpTimeSeconds: row.wrap_up_time_seconds || 15,
+          wrapUpTimeSeconds: row.wrap_up_time_seconds ?? 15,
           mohSound: row.moh_sound || 'default',
           slaTargetSeconds: row.sla_target_seconds || 20,
           members: typeof row.members === 'string' ? JSON.parse(row.members) : (row.members || []),
@@ -28,7 +29,7 @@ export class QueueRepository {
           answeredToday: row.answered_today || 0,
         }));
       } catch (err: any) {
-        console.error('[QueueRepository.listAllGlobalForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -48,7 +49,7 @@ export class QueueRepository {
           number: row.number,
           strategy: (row.strategy || 'ringall') as any,
           timeoutSeconds: row.timeout_seconds || 30,
-          wrapUpTimeSeconds: row.wrap_up_time_seconds || 15,
+          wrapUpTimeSeconds: row.wrap_up_time_seconds ?? 15,
           mohSound: row.moh_sound || 'default',
           slaTargetSeconds: row.sla_target_seconds || 20,
           members: typeof row.members === 'string' ? JSON.parse(row.members) : (row.members || []),
@@ -58,7 +59,7 @@ export class QueueRepository {
           answeredToday: row.answered_today || 0,
         }));
       } catch (err: any) {
-        console.error('[QueueRepository.listByTenant] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -84,7 +85,7 @@ export class QueueRepository {
             number: row.number,
             strategy: (row.strategy || 'ringall') as any,
             timeoutSeconds: row.timeout_seconds || 30,
-            wrapUpTimeSeconds: row.wrap_up_time_seconds || 15,
+            wrapUpTimeSeconds: row.wrap_up_time_seconds ?? 15,
             mohSound: row.moh_sound || 'default',
             slaTargetSeconds: row.sla_target_seconds || 20,
             members: typeof row.members === 'string' ? JSON.parse(row.members) : (row.members || []),
@@ -96,7 +97,7 @@ export class QueueRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[QueueRepository.findById] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -115,7 +116,7 @@ export class QueueRepository {
             number: row.number,
             strategy: (row.strategy || 'ringall') as any,
             timeoutSeconds: row.timeout_seconds || 30,
-            wrapUpTimeSeconds: row.wrap_up_time_seconds || 15,
+            wrapUpTimeSeconds: row.wrap_up_time_seconds ?? 15,
             mohSound: row.moh_sound || 'default',
             slaTargetSeconds: row.sla_target_seconds || 20,
             members: typeof row.members === 'string' ? JSON.parse(row.members) : (row.members || []),
@@ -127,7 +128,7 @@ export class QueueRepository {
         }
         return null;
       } catch (err: any) {
-        console.error('[QueueRepository.findAnyByIdForSuperAdmin] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -172,7 +173,7 @@ export class QueueRepository {
         );
         return queue;
       } catch (err: any) {
-        console.error('[QueueRepository.save] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
@@ -187,7 +188,7 @@ export class QueueRepository {
         );
         return (res.rowCount ?? 0) > 0;
       } catch (err: any) {
-        console.error('[QueueRepository.delete] Erro no PostgreSQL sob transação RLS:', err?.message || err);
+        logOperational('DB_OPERATION_FAILURE');
         throw err;
       }
     });
