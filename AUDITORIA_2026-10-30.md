@@ -29,3 +29,13 @@ Ambiente: Node 24.22.1. Validação das versões 20/22 delegada ao workflow, ain
 - Investigar divisão de código do frontend: o bundle principal gerado tem aproximadamente 2,57 MB, ou 659 kB comprimidos com gzip.
 
 Esta rodada cobre instalação e verificações locais existentes. Vários testes usam inspeção textual ou dependências simuladas. O resultado não equivale a auditoria completa de segurança, teste de carga ou aprovação de produção. O CI local permite testes bloqueados e não substitui homologação das integrações.
+
+## Continuação: executor de migrações
+
+O workflow da revisão inicial passou no GitHub Actions em Node 20 e 22 (execução 41080057969).
+
+Foi corrigida a afinidade de conexão no migrador: obtenção e liberação do advisory lock, leitura do histórico e aplicação das migrações usam agora o mesmo cliente reservado do pool. A falha na obtenção do bloqueio interrompe a execução. DDL e registro da versão ficam na mesma transação por arquivo; uma falha reverte ambos. A contagem de migrações já confirmadas é preservada no retorno de erro. Se o desbloqueio falhar, a conexão é descartada.
+
+Quatro testes de regressão com cliente controlado cobrem sucesso, falha de bloqueio, rollback na falha de registro da segunda migração e descarte da conexão após falha de desbloqueio. Eles foram incorporados ao `npm test` e passaram localmente.
+
+A separação das credenciais de migração e de execução ainda exige implementação: o migrador atual usa a conexão operacional, que não deveria receber privilégios DDL em produção. O bootstrap também precisa ser validado contra RLS real. Nenhuma migração SQL histórica foi alterada nesta rodada para evitar quebra de checksums.
