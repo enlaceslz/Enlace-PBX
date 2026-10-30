@@ -80,3 +80,18 @@ test('corpos não serializáveis são recusados sem DNS nem detalhes internos',a
  await assert.rejects(outboundJson('https://integracao.invalid',{policy,method:'POST',body:'á'.repeat(17000)}),(error:any)=>error.statusCode===413);
  assert.equal(lookups,0);
 });
+
+test('HTTP recusa tamanho anunciado excessivo e resposta truncada mesmo com JSON completo',async()=>{
+ const server=http.createServer((req,res)=>{
+  if(req.url==='/anunciado'){res.writeHead(200,{'Content-Length':'1000'});res.flushHeaders();return;}
+  res.writeHead(200,{'Content-Length':'20'});res.write('{}');res.flushHeaders();setImmediate(()=>res.socket?.end());
+ });
+ server.listen(0,'127.0.0.1');await once(server,'listening');const origin=`http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
+ const policy={allowedOrigins:[origin],privateOrigins:[origin]};
+ try{
+  for(const responseMode of ['json','discard'] as const){
+   await assert.rejects(outboundJson(origin+'/anunciado',{policy,maxResponseBytes:50,timeoutMs:1000,responseMode}),/excedeu o limite/);
+   await assert.rejects(outboundJson(origin+'/truncado',{policy,timeoutMs:1000,responseMode}),/interrompida/);
+  }
+ }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});

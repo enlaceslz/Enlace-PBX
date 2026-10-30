@@ -123,6 +123,10 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
         response.destroy(); request.destroy();
         return finish(new OutboundHttpError('Codificação da resposta da integração não suportada.'));
       }
+      const declaredLength=response.headers['content-length'];
+      if(declaredLength!==undefined&&(!/^[0-9]+$/.test(declaredLength)||!Number.isSafeInteger(Number(declaredLength))||Number(declaredLength)>limit)){
+        response.destroy();request.destroy();return finish(new OutboundHttpError('Resposta da integração excedeu o limite.'));
+      }
       let bytes = 0; const blocks: Buffer[] = [];
       response.on('data', (block: Buffer) => {
         bytes += block.length;
@@ -130,7 +134,9 @@ export async function outboundJson(raw: string, options: OutboundRequest = {}): 
         if (options.responseMode !== 'discard') blocks.push(block);
       });
       response.on('error', () => finish(new OutboundHttpError('Resposta da integração interrompida.')));
+      response.on('aborted', () => finish(new OutboundHttpError('Resposta da integração interrompida.')));
       response.on('end', () => {
+        if(!response.complete)return finish(new OutboundHttpError('Resposta da integração interrompida.'));
         let data: unknown = null;
         if (options.responseMode !== 'discard' && bytes) {
           let text:string;

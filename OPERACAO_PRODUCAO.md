@@ -490,3 +490,6 @@ Cabeçalhos de saída HTTP: somente nomes autorizados, valores textuais compatí
 
 
 Corpo POST do transporte HTTP preserva null explícito; somente ausência de corpo assume objeto vazio. Serialização impossível (referência circular, BigInt, função/símbolo como raiz ou exceção de serialização) retorna erro fixo 400 antes de DNS, sem conteúdo ou exceção interna. Limite de 32 KiB continua aplicado sobre bytes UTF-8 serializados. Testes verificam recebimento real de null e recusa sem DNS de corpos inválidos ou grandes. Não introduz repetição de requisições, alteração de credenciais ou migração.
+
+
+Leitura HTTP de saída recusa Content-Length anunciado acima do limite antes de consumir o corpo; a contagem dos bytes efetivos permanece obrigatória para respostas sem esse cabeçalho ou em blocos. Interrupção/aborto e mensagem incompleta não confirmam sucesso, também em modo discard. Teste com servidor HTTP real anuncia corpo grande sem enviá-lo e encerra resposta curta contendo JSON sintaticamente completo; ambos os modos recusam essas respostas. O erro de rede não comprova se o destino executou uma operação POST; permanece necessária conferência antes de repetir. Sem retries automáticos ou migração.
