@@ -383,8 +383,8 @@ if [[ ! "$CONF_UFW" =~ ^[Nn]$ ]]; then
   ufw allow 51820/udp comment "WireGuard VPN"
   
   # Habilitar sem travar SSH
-  echo "y" | ufw enable || true
-  echo -e "${GREEN}✅ Regras do UFW aplicadas e firewall ativado com segurança.${NC}"
+  ufw --force enable
+  echo -e "${GREEN}✅ Regras do UFW aplicadas e firewall ativado.${NC}"
 fi
 
 # 11. Inicialização do Enlace-PBX com PM2
@@ -395,14 +395,21 @@ pm2 start dist/server.cjs --name "enlace-pbx"
 pm2 save
 pm2 startup systemd -u root --hp /root 2>/dev/null || pm2 startup 2>/dev/null || true
 
-# 12. Teste de Saúde (Smoke Test)
-sleep 2
-echo -e "\n${CYAN}🔍 Executando teste de integridade local...${NC}"
-if curl -s -f http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
-  HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
-else
-  HEALTH_STATUS="${YELLOW}INICIANDO (Aguarde alguns segundos)${NC}"
+# 12. Verificação limitada de prontidão; falha não pode ser apresentada como sucesso.
+echo -e "\n${CYAN}🔍 Aguardando prontidão HTTP e PostgreSQL...${NC}"
+READY=false
+for attempt in $(seq 1 15); do
+  if curl --max-time 5 -s -f http://127.0.0.1:3000/health/ready >/dev/null 2>&1; then
+    READY=true
+    break
+  fi
+  sleep 2
+done
+if [ "$READY" != true ]; then
+  echo "Falha: aplicação não ficou pronta. Consulte pm2 logs enlace-pbx antes de liberar tráfego." >&2
+  exit 1
 fi
+HEALTH_STATUS="${GREEN}HTTP e PostgreSQL prontos; telefonia ainda exige homologação${NC}"
 
 # 13. Resumo Final
 echo ""
