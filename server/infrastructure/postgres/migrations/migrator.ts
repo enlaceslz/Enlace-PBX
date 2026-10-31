@@ -46,14 +46,18 @@ export class DatabaseMigrator {
       return { success: true, applied: 5 };
     }
 
+    return this.applyMigrations(await postgresClient.getClient(), true);
+  }
+
+  /** Processo administrativo explícito; a conexão pertence ao executor e será liberada. */
+  public static async applyMigrations(connection: PoolClient, bootstrap = false): Promise<{ success: boolean; applied: number; error?: string }> {
     let hasLock = false;
-    let client: PoolClient | undefined;
+    let client: PoolClient | undefined = connection;
     let appliedCount = 0;
     try {
       console.log('[DatabaseMigrator] Conectando e obtendo Advisory Lock no PostgreSQL...');
 
       // Bloqueios de sessão pertencem à conexão: não usar consultas avulsas do pool.
-      client = await postgresClient.getClient();
       await client.query('SELECT pg_advisory_lock($1)', [this.MIGRATION_LOCK_ID]);
       hasLock = true;
 
@@ -125,7 +129,7 @@ export class DatabaseMigrator {
       }
 
       // Bootstrap explícito do administrador mestre
-      await this.bootstrapAdminIfRequested();
+      if (bootstrap) await this.bootstrapAdminIfRequested();
 
       return { success: true, applied: appliedCount };
     } catch (err: any) {

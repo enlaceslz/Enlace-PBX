@@ -47,3 +47,15 @@ A revisão de atomicidade passou no CI (execução 41080428145). A inicializaç�
 Quatro cenários adicionais verificam o caminho de produção: esquema íntegro, migração pendente, hash divergente e hash ausente. As consultas do teste são restritas à leitura do histórico. Resultado local: oito testes de regressão e 64 verificações da suíte aprovados; três integrações continuam bloqueadas.
 
 **Impacto operacional:** um banco vazio ou antigo precisa ser provisionado antes da inicialização de produção. O instalador atual ainda não implementa um comando independente com credencial administrativa para migrações e bootstrap; portanto, esta proteção não conclui o fluxo de instalação. Não conceder privilégios DDL a enlace_app para contornar a recusa. O pipeline de provisionamento e a homologação PostgreSQL real permanecem bloqueadores de produção. O modo de desenvolvimento conserva o executor anterior.
+
+## Continuação em 31/10: comando administrativo de migração
+
+Adicionado `npm run db:migrate`. O comando exige MIGRATION_DATABASE_URL explícita, recusa o usuário enlace_app inclusive codificado na URL e não usa DATABASE_URL como fallback. A sessão administrativa é confinada ao processo do comando; a inicialização web continua somente leitura em produção.
+
+As migrações históricas 007/008 criam/alteram papéis e a 008 referencia enlace_pbx literalmente. Por isso, o comando verifica superusuário e nome do banco antes de executar SQL. Também prepara enlace_app caso ausente, pois a 007 concede EXECUTE antes da criação desse papel. Os SQL históricos e seus checksums foram preservados. Futuro trabalho: remover a necessidade de superusuário através de um provisionamento de papéis separado.
+
+Uso operacional: executar `npm ci`, disponibilizar MIGRATION_DATABASE_URL apenas ao processo administrativo e executar `npm run db:migrate`. Não armazenar a credencial administrativa no ambiente do serviço web. O banco enlace_pbx deve existir previamente. A senha do papel enlace_app não é definida nem alterada pelo comando; ela deve ser provisionada separadamente e corresponder à DATABASE_URL operacional. Em seguida, retirar a credencial administrativa antes de iniciar o servidor de produção.
+
+O comando não executa bootstrap. A criação transacional e auditável do primeiro administrador permanece pendente, assim como a integração do fluxo no deploy.sh. Não usar este comando como evidência de instalação completa ou de prontidão para produção.
+
+Validação: sete novos testes de seleção da credencial administrativa, oito regressões do migrador e 64 verificações anteriores passaram localmente; zero falhas, três integrações bloqueadas. A revisão anterior passou no CI (41083893266). Não havia PostgreSQL real disponível nesta rodada; execução administrativa, permissões e migrações completas ainda precisam ser homologadas.
