@@ -11,8 +11,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "node --import tsx --test scripts/migrations.test.ts scripts/migrate-command.test.ts && node --import tsx scripts/test-suite.ts",
-    "db:migrate": "node --import tsx scripts/migrate.ts"
+    "test": "node --import tsx --test scripts/migrations.test.ts scripts/migrate-command.test.ts scripts/bootstrap-admin.test.ts && node --import tsx scripts/test-suite.ts",
+    "db:migrate": "node --import tsx scripts/migrate.ts",
+    "db:bootstrap": "node --import tsx scripts/bootstrap-admin.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

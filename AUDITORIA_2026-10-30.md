@@ -59,3 +59,15 @@ Uso operacional: executar `npm ci`, disponibilizar MIGRATION_DATABASE_URL apenas
 O comando não executa bootstrap. A criação transacional e auditável do primeiro administrador permanece pendente, assim como a integração do fluxo no deploy.sh. Não usar este comando como evidência de instalação completa ou de prontidão para produção.
 
 Validação: sete novos testes de seleção da credencial administrativa, oito regressões do migrador e 64 verificações anteriores passaram localmente; zero falhas, três integrações bloqueadas. A revisão anterior passou no CI (41083893266). Não havia PostgreSQL real disponível nesta rodada; execução administrativa, permissões e migrações completas ainda precisam ser homologadas.
+
+## Continuação em 31/10: bootstrap administrativo explícito
+
+Adicionado `npm run db:bootstrap`, usando MIGRATION_DATABASE_URL exclusivamente no processo administrativo e verificando banco enlace_pbx e superusuário antes da criação. A inicialização web de produção permanece sem criação de usuários.
+
+O bootstrap usa uma transação única para tenant, usuário e auditoria. Um advisory lock transacional com o mesmo identificador do migrador serializa execuções administrativas. Um super_admin já existente faz o comando encerrar sem alterar dados, mesmo quando as credenciais iniciais estão ausentes. E-mail em uso por outro usuário é recusado. Nenhuma senha existente é atualizada.
+
+A senha exige pelo menos 12 caracteres, recusa prefixos previsíveis e tem limite explícito de 72 bytes para evitar truncamento do bcrypt. É armazenada com bcrypt de custo 12. A senha não integra logs ou auditoria. O registro de auditoria usa o hash canônico existente, referencia o hash anterior e é obrigatório; sua falha reverte a criação. A tabela de auditoria é bloqueada durante o encadeamento para impedir escrita concorrente entre leitura do último hash e inserção.
+
+Sequência de provisionamento: criar banco e senha operacional; executar `npm run db:migrate`; fornecer ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD apenas ao processo `npm run db:bootstrap`; remover a credencial administrativa e os segredos de bootstrap do ambiente do serviço web; iniciar produção com DATABASE_URL de enlace_app. O deploy.sh ainda precisa incorporar essa sequência.
+
+Seis testes novos com cliente controlado cobrem criação com hash bcrypt, administrador existente, colisão de e-mail, falha de auditoria, ausência de privilégio e limite de bytes da senha. Resultado local: 21 regressões e 64 verificações anteriores aprovadas; zero falhas, três integrações bloqueadas. A revisão anterior passou no CI (41208795126). Concorrência real, permissões, migrações e login ainda exigem homologação em PostgreSQL real.
