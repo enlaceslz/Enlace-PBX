@@ -18,7 +18,7 @@ Não entregar MIGRATION_DATABASE_URL ou senha inicial ao processo web. As creden
 2. Instalar dependências com `npm ci`, validar tipos com `npm run lint` e compilar com `npm run build`.
 3. No processo administrativo, fornecer MIGRATION_DATABASE_URL e executar `npm run db:migrate`.
 4. Fornecer ADMIN_INITIAL_EMAIL e ADMIN_INITIAL_PASSWORD ao processo administrativo e executar `npm run db:bootstrap`. Senha: pelo menos 12 caracteres, máximo 72 bytes e sem prefixos previsíveis. Administrador existente não é alterado.
-5. Retirar os segredos administrativos do ambiente do serviço. Configurar DATABASE_URL operacional, JWT_SECRET, ENCRYPTION_KEY, CORS_ALLOWED_ORIGINS e conexões de telefonia no ambiente de produção.
+5. Retirar os segredos administrativos do ambiente do serviço. Configurar DATABASE_URL operacional, JWT_SECRET (mínimo 32 bytes), ENCRYPTION_KEY (mínimo 32 caracteres), CORS_ALLOWED_ORIGINS e conexões de telefonia no ambiente de produção.
 6. Iniciar `NODE_ENV=production npm start`. Esquema pendente, hash divergente ou conexão operacional privilegiada impedem inicialização.
 7. Homologar login, autorização, ligações e integrações antes de liberar tráfego real.
 
