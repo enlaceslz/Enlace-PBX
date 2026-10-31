@@ -1,3 +1,5 @@
+> **Estado da revisão de 31/10/2026:** em preparação para produção. Consulte [operação e critérios de produção](docs/PRODUCAO.md) e a [auditoria atual](docs/AUDITORIA_2026-10-31.md). A inicialização web em produção apenas valida o esquema; migrações e primeiro administrador são processos administrativos separados. As seções antigas abaixo não constituem evidência de homologação.
+
 <p align="center">
   <a href="https://enlace.slz.br" target="_blank" rel="noopener noreferrer">
     <img src="./public/logo.png" alt="Enlace-PBX Enterprise Logo" width="520" />

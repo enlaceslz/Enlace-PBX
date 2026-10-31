@@ -5,7 +5,8 @@
 # Desenvolvido para Debian 11/12 e Ubuntu 20.04/22.04/24.04 LTS
 # ====================================================================
 
-set -e
+set -euo pipefail
+umask 077
 
 # Cores para terminal
 RED='\033[0;31m'
@@ -100,15 +101,25 @@ LAN_SUBNET="${CONF_LAN:-192.168.1.0/24}"
 read -p "Informe o E-mail do Administrador Inicial [noc@enlacetelecom.com.br]: " CONF_EMAIL
 ADMIN_EMAIL="${CONF_EMAIL:-noc@enlacetelecom.com.br}"
 
-# Senha inicial segura do Super Admin
-read -s -p "Informe a Senha Inicial do Super Admin (deixe em branco para gerar aleatória): " CONF_ADMIN_PASS
+# Credenciais iniciais apenas em memória, nunca no .env do serviço web.
+read -r -s -p "Senha do primeiro administrador (mínimo 12 caracteres, máximo 72 bytes): " ADMIN_INITIAL_PASSWORD
 echo ""
-if [ -z "$CONF_ADMIN_PASS" ]; then
-  ADMIN_INITIAL_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=')
-  echo -e "${YELLOW}🔑 Senha inicial de Super Admin gerada com segurança:${NC} ${GREEN}${BOLD}${ADMIN_INITIAL_PASSWORD}${NC}"
-  echo -e "${YELLOW}⚠️ Anote esta senha! Ela será necessária para o primeiro login e não será exibida novamente.${NC}"
-else
-  ADMIN_INITIAL_PASSWORD="$CONF_ADMIN_PASS"
+read -r -s -p "Repita a senha do primeiro administrador: " CONF_ADMIN_PASS
+echo ""
+if [ "$ADMIN_INITIAL_PASSWORD" != "$CONF_ADMIN_PASS" ]; then
+  echo "As senhas não correspondem. Deploy interrompido." >&2
+  exit 1
+fi
+unset CONF_ADMIN_PASS
+
+# Credencial administrativa apenas para os processos de provisionamento.
+if [ -z "${MIGRATION_DATABASE_URL:-}" ]; then
+  read -r -s -p "URL PostgreSQL administrativa para migrações e bootstrap (banco enlace_pbx): " MIGRATION_DATABASE_URL
+  echo ""
+fi
+if [ -z "$MIGRATION_DATABASE_URL" ]; then
+  echo "MIGRATION_DATABASE_URL obrigatória para provisionar antes de iniciar produção." >&2
+  exit 1
 fi
 
 # Chave JWT forte (256 bits)
@@ -168,27 +179,16 @@ if [ -f .env ]; then
   EXISTING_DB=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
 fi
 
-DB_APP_PASSWORD=$(openssl rand -hex 16)
-DEFAULT_DB_URL="postgresql://enlace_app:${DB_APP_PASSWORD}@127.0.0.1:5432/enlace_pbx"
-
 if [ -n "$EXISTING_DB" ]; then
   DATABASE_URL="$EXISTING_DB"
   echo -e "${GREEN}DATABASE_URL existente preservada do .env.${NC}"
 else
-  echo -e "\n${BOLD}Configuração do Banco de Dados PostgreSQL:${NC}"
-  echo -e "${CYAN}Em produção, o uso do superusuário 'postgres' é bloqueado por segurança (fail-closed).${NC}"
-  echo -e "${CYAN}O Enlace-PBX utiliza o usuário restrito operacional 'enlace_app' com privilégios mínimos.${NC}"
-  read -p "Informe a URL de conexão PostgreSQL (DATABASE_URL) [${DEFAULT_DB_URL}]: " CONF_DB
-  DATABASE_URL="${CONF_DB:-$DEFAULT_DB_URL}"
-fi
-
-# Se o PostgreSQL local estiver ativo, provisionar database enlace_pbx e usuário enlace_app se não existirem
-if command -v psql >/dev/null 2>&1 && systemctl is-active --quiet postgresql 2>/dev/null; then
-  echo -e "${CYAN}Provisionando/validando banco local 'enlace_pbx' e usuário restrito 'enlace_app'...${NC}"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'enlace_pbx'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE enlace_pbx;"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
-  sudo -u postgres psql -d enlace_pbx -c "GRANT CONNECT ON DATABASE enlace_pbx TO enlace_app; GRANT USAGE ON SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO enlace_app; REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true
-  echo -e "${GREEN}✅ Banco PostgreSQL e role 'enlace_app' verificados.${NC}"
+  read -r -s -p "URL PostgreSQL operacional (usuário enlace_app, banco e senha previamente criados): " DATABASE_URL
+  echo ""
+  if [ -z "$DATABASE_URL" ]; then
+    echo "DATABASE_URL operacional obrigatória. Provisione banco e senha antes do deploy." >&2
+    exit 1
+  fi
 fi
 
 CURRENT_GEMINI=""
@@ -226,10 +226,6 @@ CORS_ALLOWED_ORIGINS=https://${DOMAIN},http://127.0.0.1:3000
 # Criptografia Bidirecional AES-256-GCM de Segredos SIP e Credenciais
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 
-# Bootstrap Administrativo Obrigatório (Primeiro Acesso)
-ADMIN_INITIAL_EMAIL=${ADMIN_EMAIL}
-ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD}
-
 # Persistência de Dados Relacional (PostgreSQL)
 DATABASE_URL=${DATABASE_URL}
 
@@ -264,8 +260,24 @@ echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 
 # 7. Instalação das dependências e compilação do Enlace-PBX
 echo -e "\n${BOLD}[6/9] Instalando dependências NPM e compilando produção...${NC}"
-npm install --legacy-peer-deps
+npm ci
+npm run lint
 npm run build
+
+# Falhas de provisionamento interrompem o deploy antes da troca do processo web.
+MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL" npm run db:migrate
+MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL" ADMIN_INITIAL_EMAIL="$ADMIN_EMAIL" \
+  ADMIN_INITIAL_PASSWORD="$ADMIN_INITIAL_PASSWORD" npm run db:bootstrap
+unset MIGRATION_DATABASE_URL ADMIN_INITIAL_PASSWORD
+
+# Validar conexão operacional e hashes antes de iniciar/reiniciar o serviço.
+node --import tsx --input-type=module -e '
+  import "dotenv/config";
+  const { DatabaseMigrator } = await import("./server/infrastructure/postgres/migrations/migrator.ts");
+  const result = await DatabaseMigrator.verifySchema();
+  process.exit(result.success ? 0 : 1);
+'
+
 # Garantir sincronização de logos e assets visuais
 if [ -d public ]; then
   cp -r public/* dist/ 2>/dev/null || true
@@ -371,8 +383,8 @@ if [[ ! "$CONF_UFW" =~ ^[Nn]$ ]]; then
   ufw allow 51820/udp comment "WireGuard VPN"
   
   # Habilitar sem travar SSH
-  echo "y" | ufw enable || true
-  echo -e "${GREEN}✅ Regras do UFW aplicadas e firewall ativado com segurança.${NC}"
+  ufw --force enable
+  echo -e "${GREEN}✅ Regras do UFW aplicadas e firewall ativado.${NC}"
 fi
 
 # 11. Inicialização do Enlace-PBX com PM2
@@ -383,14 +395,21 @@ pm2 start dist/server.cjs --name "enlace-pbx"
 pm2 save
 pm2 startup systemd -u root --hp /root 2>/dev/null || pm2 startup 2>/dev/null || true
 
-# 12. Teste de Saúde (Smoke Test)
-sleep 2
-echo -e "\n${CYAN}🔍 Executando teste de integridade local...${NC}"
-if curl -s -f http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
-  HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
-else
-  HEALTH_STATUS="${YELLOW}INICIANDO (Aguarde alguns segundos)${NC}"
+# 12. Verificação limitada de prontidão; falha não pode ser apresentada como sucesso.
+echo -e "\n${CYAN}🔍 Aguardando prontidão HTTP e PostgreSQL...${NC}"
+READY=false
+for attempt in $(seq 1 15); do
+  if curl --max-time 5 -s -f http://127.0.0.1:3000/health/ready >/dev/null 2>&1; then
+    READY=true
+    break
+  fi
+  sleep 2
+done
+if [ "$READY" != true ]; then
+  echo "Falha: aplicação não ficou pronta. Consulte pm2 logs enlace-pbx antes de liberar tráfego." >&2
+  exit 1
 fi
+HEALTH_STATUS="${GREEN}HTTP e PostgreSQL prontos; telefonia ainda exige homologação${NC}"
 
 # 13. Resumo Final
 echo ""

@@ -1,0 +1,70 @@
+name: Validação da aplicação
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validacao:
+    name: Tipos, testes e build (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Instalar dependências fixadas
+        run: npm ci
+      - name: Verificar tipos
+        run: npm run lint
+      - name: Executar suíte local
+        run: npm test
+      - name: Compilar aplicação
+        run: npm run build
+
+  postgres:
+    name: PostgreSQL real e provisionamento
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: enlace_pbx
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: teste-ci-administrativo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d enlace_pbx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:teste-ci-administrativo@127.0.0.1:5432/enlace_pbx
+      TEST_APP_DATABASE_URL: postgresql://enlace_app:teste-ci-operacional@127.0.0.1:5432/enlace_pbx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verificar sintaxe do instalador
+        run: bash -n deploy.sh
+      - name: Aplicar migrações em banco vazio e repetir
+        run: |
+          MIGRATION_DATABASE_URL="$TEST_DATABASE_URL" npm run db:migrate
+          MIGRATION_DATABASE_URL="$TEST_DATABASE_URL" npm run db:migrate
+      - name: Validar bootstrap, isolamento e privilégios reais
+        run: node --import tsx scripts/postgres.integration.ts

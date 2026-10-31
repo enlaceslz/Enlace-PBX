@@ -2,13 +2,39 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import type { PoolClient } from 'pg';
 import { postgresClient } from '../client.js';
 import { AuditLogRepository } from '../repositories/AuditLogRepository.js';
 
 export class DatabaseMigrator {
   private static readonly MIGRATION_LOCK_ID = 7429184;
 
+  /** Valida versões e hashes sem DDL, bootstrap ou escrita pelo usuário operacional. */
+  public static async verifySchema(): Promise<{ success: boolean; applied: number; error?: string }> {
+    try {
+      const health = await postgresClient.checkHealth();
+      if (health.status !== 'UP' || !postgresClient.isConfigured) {
+        throw new Error('SCHEMA_UNAVAILABLE: PostgreSQL operacional indisponível.');
+      }
+      const directory = path.join(process.cwd(), 'server', 'infrastructure', 'postgres', 'migrations');
+      const files = fs.readdirSync(directory).filter(file => /^\d+_.*\.sql$/.test(file)).sort();
+      if (files.length === 0) throw new Error('SCHEMA_MANIFEST_MISSING: Nenhuma migração disponível para validação.');
+      const result = await postgresClient.query('SELECT version, sha256 FROM schema_migrations');
+      const versions = new Map(result.rows.map(row => [row.version, row.sha256]));
+      for (const file of files) {
+        const version = file.split('_')[0];
+        const expected = crypto.createHash('sha256').update(fs.readFileSync(path.join(directory, file))).digest('hex');
+        if (!versions.has(version)) throw new Error(`SCHEMA_PENDING: Migração ${file} pendente; execute o provisionamento com credencial administrativa separada.`);
+        if (versions.get(version) !== expected) throw new Error(`SCHEMA_DRIFT: Hash ausente ou divergente em ${file}.`);
+      }
+      return { success: true, applied: 0 };
+    } catch (err: any) {
+      return { success: false, applied: 0, error: err.message };
+    }
+  }
+
   public static async runMigrations(): Promise<{ success: boolean; applied: number; error?: string }> {
+    if (process.env.NODE_ENV === 'production') return this.verifySchema();
     const health = await postgresClient.checkHealth();
     if (health.status !== 'UP') {
       console.log(`[DatabaseMigrator] PostgreSQL status: ${health.status} (${health.error || 'Aguardando configuração'}). Migrations adiadas.`);
@@ -20,20 +46,23 @@ export class DatabaseMigrator {
       return { success: true, applied: 5 };
     }
 
+    return this.applyMigrations(await postgresClient.getClient(), true);
+  }
+
+  /** Processo administrativo explícito; a conexão pertence ao executor e será liberada. */
+  public static async applyMigrations(connection: PoolClient, bootstrap = false): Promise<{ success: boolean; applied: number; error?: string }> {
     let hasLock = false;
+    let client: PoolClient | undefined = connection;
+    let appliedCount = 0;
     try {
       console.log('[DatabaseMigrator] Conectando e obtendo Advisory Lock no PostgreSQL...');
 
-      // 1. Advisory Lock para prevenir execuções concorrentes de múltiplas instâncias
-      try {
-        await postgresClient.query('SELECT pg_advisory_lock($1)', [this.MIGRATION_LOCK_ID]);
-        hasLock = true;
-      } catch (lockErr: any) {
-        console.warn('[DatabaseMigrator] Aviso: Não foi possível obter advisory lock, prosseguindo com cautela:', lockErr.message);
-      }
+      // Bloqueios de sessão pertencem à conexão: não usar consultas avulsas do pool.
+      await client.query('SELECT pg_advisory_lock($1)', [this.MIGRATION_LOCK_ID]);
+      hasLock = true;
 
       // 2. Cria ou atualiza a tabela de schema_migrations com checksum SHA-256
-      await postgresClient.query(`
+      await client.query(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           version VARCHAR(64) PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
@@ -55,7 +84,6 @@ export class DatabaseMigrator {
         }
       }
 
-      let appliedCount = 0;
       for (const file of files) {
         const version = file.split('_')[0];
         let filePath = path.join(migrationsDir, file);
@@ -65,7 +93,7 @@ export class DatabaseMigrator {
         const sql = fs.readFileSync(filePath, 'utf8');
         const calculatedSha256 = crypto.createHash('sha256').update(sql).digest('hex');
 
-        const checkRes = await postgresClient.query(
+        const checkRes = await client.query(
           'SELECT version, sha256 FROM schema_migrations WHERE version = $1',
           [version]
         );
@@ -82,30 +110,42 @@ export class DatabaseMigrator {
           }
         } else {
           console.log(`[DatabaseMigrator] Executando migração: ${file} (SHA-256: ${calculatedSha256.slice(0, 10)}...)...`);
-          await postgresClient.query(sql);
-
-          await postgresClient.query(
-            'INSERT INTO schema_migrations (version, name, sha256) VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING',
-            [version, file, calculatedSha256]
-          );
+          // DDL e registro de versão devem confirmar ou reverter juntos.
+          await client.query('BEGIN');
+          try {
+            await client.query(sql);
+            await client.query(
+              'INSERT INTO schema_migrations (version, name, sha256) VALUES ($1, $2, $3)',
+              [version, file, calculatedSha256]
+            );
+            await client.query('COMMIT');
+          } catch (err) {
+            try { await client.query('ROLLBACK'); } catch {}
+            throw err;
+          }
           console.log(`[DatabaseMigrator] Migração ${file} aplicada e registrada.`);
           appliedCount++;
         }
       }
 
       // Bootstrap explícito do administrador mestre
-      await this.bootstrapAdminIfRequested();
+      if (bootstrap) await this.bootstrapAdminIfRequested();
 
       return { success: true, applied: appliedCount };
     } catch (err: any) {
       console.error('[DatabaseMigrator] Erro ao aplicar migrações:', err.message);
-      return { success: false, applied: 0, error: err.message };
+      return { success: false, applied: appliedCount, error: err.message };
     } finally {
-      if (hasLock) {
+      if (hasLock && client) {
         try {
-          await postgresClient.query('SELECT pg_advisory_unlock($1)', [this.MIGRATION_LOCK_ID]);
-        } catch {}
+          await client.query('SELECT pg_advisory_unlock($1)', [this.MIGRATION_LOCK_ID]);
+        } catch {
+          // Não devolver ao pool uma sessão que pode reter o bloqueio.
+          client.release(true);
+          client = undefined;
+        }
       }
+      client?.release();
     }
   }
 

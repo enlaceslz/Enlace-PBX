@@ -67,6 +67,13 @@ export function loadEnvConfig(): AppEnvConfig {
     }
   }
 
+  if (isProd && Buffer.byteLength(jwtSecret, 'utf8') < 32) {
+    throw new Error('FATAL DE PRODUÇÃO: JWT_SECRET deve possuir no mínimo 32 bytes; gere um segredo aleatório forte.');
+  }
+  if (isProd && (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length < 32)) {
+    throw new Error('FATAL DE PRODUÇÃO: ENCRYPTION_KEY deve possuir no mínimo 32 caracteres.');
+  }
+
   // Validação de CORS em produção (proibido wildcard '*')
   const rawCorsOrigins = process.env.CORS_ALLOWED_ORIGINS;
   let corsOrigins: string[] = [];
