@@ -134,7 +134,14 @@ NCPU=$(nproc 2>/dev/null || echo 2)
 echo -e "\n${BOLD}[6/7] Compilando Asterisk utilizando ${NCPU} threads...${NC}"
 make -j"${NCPU}"
 make install
-make samples
+# Preserva configurações existentes em /etc/asterisk (não executar make samples cego)
+if [ ! -f /etc/asterisk/asterisk.conf ]; then
+  echo -e "${CYAN}Instalando arquivos de configuração base do Asterisk (make samples)...${NC}"
+  make samples
+else
+  echo -e "${YELLOW}ℹ️  Diretório /etc/asterisk já possui configurações operacionais. 'make samples' ignorado para proteger arquivos existentes.${NC}"
+fi
+
 make config
 ldconfig
 
@@ -144,12 +151,37 @@ useradd -r -g asterisk -d /var/lib/asterisk -s /usr/sbin/nologin -c "Asterisk PB
 usermod -aG audio,dialout asterisk 2>/dev/null || true
 
 mkdir -p /etc/asterisk /var/{lib,log,spool,run}/asterisk /var/spool/asterisk/recording /var/log/asterisk/cdr-csv
-chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
-# Configuração e Padronização Segura de AMI (manager.conf) e ARI (ari.conf)
-mkdir -p /etc/asterisk
-if [ -f /etc/asterisk/manager.conf ] && ! grep -q "enlace_ami" /etc/asterisk/manager.conf 2>/dev/null; then
-  echo -e "${CYAN}Configurando usuário AMI 'enlace_ami' em /etc/asterisk/manager.conf...${NC}"
-  cat <<'EOF_AMI' >> /etc/asterisk/manager.conf
+
+# Resolução de credenciais seguras e não-previsíveis para AMI e ARI (Eliminação total de senhas fixas)
+CONF_ENV_FILE=""
+if [ -f ".env" ]; then
+  CONF_ENV_FILE=".env"
+elif [ -f "/app/applet/.env" ]; then
+  CONF_ENV_FILE="/app/applet/.env"
+fi
+
+DETECTED_AMI_PASS=""
+DETECTED_ARI_PASS=""
+if [ -n "${CONF_ENV_FILE}" ] && [ -f "${CONF_ENV_FILE}" ]; then
+  DETECTED_AMI_PASS=$(grep -E "^(ASTERISK_AMI_PASSWORD|ASTERISK_AMI_PASS)=" "${CONF_ENV_FILE}" | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+  DETECTED_ARI_PASS=$(grep -E "^(ASTERISK_ARI_PASSWORD|ASTERISK_ARI_PASS)=" "${CONF_ENV_FILE}" | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
+fi
+
+if [ -z "${DETECTED_AMI_PASS}" ] && [ -f /etc/asterisk/manager.conf ]; then
+  DETECTED_AMI_PASS=$(sed -n '/\[enlace_ami\]/,/\[/p' /etc/asterisk/manager.conf | grep "^secret" | head -n1 | cut -d'=' -f2- | tr -d ' ' || true)
+fi
+if [ -z "${DETECTED_ARI_PASS}" ] && [ -f /etc/asterisk/ari.conf ]; then
+  DETECTED_ARI_PASS=$(sed -n '/\[enlace_ari\]/,/\[/p' /etc/asterisk/ari.conf | grep "^password" | head -n1 | cut -d'=' -f2- | tr -d ' ' || true)
+fi
+
+AMI_FINAL_PASS="${ASTERISK_AMI_PASSWORD:-${DETECTED_AMI_PASS:-$(openssl rand -hex 16)}}"
+ARI_FINAL_PASS="${ASTERISK_ARI_PASSWORD:-${DETECTED_ARI_PASS:-$(openssl rand -hex 16)}}"
+
+# Configuração e Padronização Segura de AMI (manager.conf)
+if [ -f /etc/asterisk/manager.conf ]; then
+  if ! grep -q "\[enlace_ami\]" /etc/asterisk/manager.conf 2>/dev/null; then
+    echo -e "${CYAN}Configurando usuário AMI 'enlace_ami' em /etc/asterisk/manager.conf com credencial criptográfica...${NC}"
+    cat <<EOF_AMI >> /etc/asterisk/manager.conf
 
 [general]
 enabled = yes
@@ -157,14 +189,16 @@ port = 5038
 bindaddr = 127.0.0.1
 
 [enlace_ami]
-secret = enlace_ami_secret_2026
+secret = ${AMI_FINAL_PASS}
 deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.1/255.255.255.255
 read = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
 write = system,call,log,verbose,command,agent,user,config,dtmf,reporting,cdr,dialplan,originate
 EOF_AMI
+  fi
 fi
 
+# Configuração e Padronização Segura de HTTP e ARI
 if [ -f /etc/asterisk/http.conf ] && ! grep -q "bindaddr=127.0.0.1" /etc/asterisk/http.conf 2>/dev/null; then
   cat <<'EOF_HTTP' >> /etc/asterisk/http.conf
 
@@ -175,9 +209,10 @@ bindport = 8088
 EOF_HTTP
 fi
 
-if [ -f /etc/asterisk/ari.conf ] && ! grep -q "enlace_ari" /etc/asterisk/ari.conf 2>/dev/null; then
-  echo -e "${CYAN}Configurando usuário ARI 'enlace_ari' em /etc/asterisk/ari.conf...${NC}"
-  cat <<'EOF_ARI' >> /etc/asterisk/ari.conf
+if [ -f /etc/asterisk/ari.conf ]; then
+  if ! grep -q "\[enlace_ari\]" /etc/asterisk/ari.conf 2>/dev/null; then
+    echo -e "${CYAN}Configurando usuário ARI 'enlace_ari' em /etc/asterisk/ari.conf com credencial criptográfica...${NC}"
+    cat <<EOF_ARI >> /etc/asterisk/ari.conf
 
 [general]
 enabled = yes
@@ -187,34 +222,52 @@ allowed_origins = http://127.0.0.1:3000
 [enlace_ari]
 type = user
 read_only = no
-password = enlace_ari_secret_2026
+password = ${ARI_FINAL_PASS}
 EOF_ARI
+  fi
 fi
 
 chown -R asterisk:asterisk /etc/asterisk /var/{lib,log,run,spool}/asterisk
 chmod -R 750 /var/{lib,log,run,spool}/asterisk /etc/asterisk
 
-# 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização
+# 7. Teste de Fumaça (Smoke Test) e Verificação de Inicialização Rigorosa (Fail-Closed)
 echo -e "\n${BOLD}[7/7] Inicializando e validando saúde do Asterisk...${NC}"
 systemctl daemon-reload
 systemctl enable asterisk
-systemctl restart asterisk || true
+
+# Reinício estrito sem mascaramento de falhas (remover || true)
+if ! systemctl restart asterisk; then
+  echo -e "${RED}❌ ERRO FATAL: Falha ao iniciar o daemon do Asterisk via systemd.${NC}"
+  journalctl -u asterisk -n 25 --no-pager 2>/dev/null || true
+  exit 1
+fi
 
 sleep 3
 
-# Smoke test
-if command -v asterisk >/dev/null 2>&1; then
-  VERSION_DETECTED=$(asterisk -rx "core show version" 2>/dev/null || echo "OFFLINE")
-  if [[ "${VERSION_DETECTED}" == *"Asterisk"* ]]; then
-    echo -e "${GREEN}✅ SUCESSO: Asterisk Core operacional:${NC} ${VERSION_DETECTED}"
-  else
-    echo -e "${YELLOW}⚠️ Aviso: Asterisk instalado com sucesso. Aguardando inicialização completa do daemon.${NC}"
-  fi
-else
-  echo -e "${RED}❌ ERRO: Binário asterisk não encontrado em /usr/sbin/asterisk após a compilação.${NC}"
-  echo -e "Procedimento de Rollback: Verifique /var/log/asterisk/messages e reinstale dependências com: apt-get install -f"
+# Validação do binário e execução do processo
+if ! command -v asterisk >/dev/null 2>&1; then
+  echo -e "${RED}❌ ERRO FATAL: Binário asterisk não encontrado em /usr/sbin/asterisk após compilação.${NC}"
   exit 1
 fi
+
+VERSION_DETECTED=$(asterisk -rx "core show version" 2>/dev/null || echo "OFFLINE")
+if [[ "${VERSION_DETECTED}" != *"Asterisk"* ]]; then
+  echo -e "${RED}❌ ERRO FATAL: Asterisk não está respondendo a comandos CLI ('${VERSION_DETECTED}').${NC}"
+  journalctl -u asterisk -n 25 --no-pager 2>/dev/null || true
+  exit 1
+fi
+
+echo -e "${GREEN}✅ SUCESSO: Asterisk Core operacional:${NC} ${VERSION_DETECTED}"
+
+# Validação de módulos essenciais de telefonia e áudio
+MODULES_OK=true
+for mod in res_pjsip.so res_http_websocket.so codec_opus.so; do
+  if ! asterisk -rx "module show like ${mod}" 2>/dev/null | grep -q "1 modules loaded"; then
+    echo -e "${YELLOW}⚠️ Aviso de módulo: ${mod} pode não ter sido carregado automaticamente.${NC}"
+  else
+    echo -e "${GREEN}✓ Módulo carregado com sucesso:${NC} ${mod}"
+  fi
+done
 
 echo -e "\n${GREEN}${BOLD}====================================================================${NC}"
 echo -e "${GREEN}${BOLD}  ✅ Asterisk ${ASTERISK_VER} LTS instalado e pronto para o Enlace-PBX!    ${NC}"

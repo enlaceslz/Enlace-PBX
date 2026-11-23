@@ -279,126 +279,179 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------------------
-  // Health Checks Reais: Liveness, Readiness e Diagnóstico Detalhado
+  // Health Checks Corporativos: Liveness, Readiness Web, Readiness PBX e Dependency Health
   // -------------------------------------------------------------------------
+  // Cache de saúde com TTL de 5s para controle de frequência e proteção contra tempestade de probes
+  let cachedDepsHealth: { data: any; expiresAt: number } | null = null;
 
-  // 1. Liveness Probe (Público, rápido e leve)
+  // 1. Liveness Probe (Confirma que o processo Node.js está ativo e responsivo)
   app.get(['/health/live', '/health'], (req, res) => {
-    res.status(200).json({ status: 'alive', timestamp: new Date().toISOString() });
+    res.status(200).json({
+      status: 'UP',
+      probe: 'liveness',
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
   });
 
-  // 2. Readiness Probe (Verifica dependências críticas: PostgreSQL, Asterisk, AMI)
-  const readyHandler = async (req: express.Request, res: express.Response) => {
+  // 2. Readiness Probe Web (Confirma que PostgreSQL está pronto para atender requisições web)
+  const readyWebHandler = async (req: express.Request, res: express.Response) => {
     const pgHealth = await postgresClient.checkHealth();
-    const asteriskHealth = await asteriskAdapter.checkHealth();
-
-    const pgStatus = pgHealth.status === 'UP' ? 'UP' : (pgHealth.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'DOWN');
-    const astStatus = asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'NOT_INSTALLED' : 'DOWN');
-    const amiStatus = asteriskHealth.amiConnected ? 'UP' : (asteriskHealth.status === 'UP' ? 'UP' : 'DOWN');
-
-    // PostgreSQL é a dependência crítica obrigatória de persistência e autenticação
     const isReady = pgHealth.status === 'UP';
-
     const statusCode = isReady ? 200 : 503;
     res.status(statusCode).json({
-      status: isReady ? 'ready' : 'not_ready',
+      status: isReady ? 'UP' : 'DOWN',
+      probe: 'readiness_web',
       timestamp: new Date().toISOString(),
       dependencies: {
-        postgresql: pgStatus,
-        asterisk: astStatus,
-        ami: amiStatus,
+        postgresql: pgHealth.status,
       },
     });
   };
 
-  app.get('/health/ready', readyHandler);
-  app.get('/ready', readyHandler);
+  app.get(['/health/ready', '/health/ready/web', '/ready'], readyWebHandler);
 
-  // 3. Diagnóstico do Sistema Protegido por RBAC (/api/v1/system/health)
-  app.get('/api/v1/system/health', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
+  // 3. Readiness Probe PBX (Confirma que Asterisk Core e sinalização de telefonia estão prontos)
+  app.get('/health/ready/pbx', async (req, res) => {
     const asteriskHealth = await asteriskAdapter.checkHealth();
-    const pgHealth = await postgresClient.checkHealth();
-    const wgHealth = await VpnAdapter.getWireguardStatus();
-    const ztHealth = await VpnAdapter.getZeroTierStatus();
-    const whatsappConfig = await SystemRepository.getWhatsappConfig();
-    const infraConfig = await SystemRepository.getInfraConfig();
+    const amiPing = await asteriskAdapter.pingAmi(1200);
+
+    const isPbxReady = asteriskHealth.status === 'UP' && (asteriskHealth.mode === 'LOCAL_CLI' || amiPing.reachable);
+    const statusCode = isPbxReady ? 200 : 503;
+
+    res.status(statusCode).json({
+      status: isPbxReady ? 'UP' : 'DOWN',
+      probe: 'readiness_pbx',
+      timestamp: new Date().toISOString(),
+      telephony: {
+        asterisk: asteriskHealth.status,
+        ami: amiPing.reachable ? 'UP' : 'DOWN',
+        amiAuthenticated: amiPing.authenticated,
+        mode: asteriskHealth.mode,
+      },
+    });
+  });
+
+  // Função utilitária para medição consolidada de Dependency Health
+  const evaluateDependencyHealth = async () => {
+    const now = Date.now();
+    if (cachedDepsHealth && cachedDepsHealth.expiresAt > now) {
+      return cachedDepsHealth.data;
+    }
+
+    const [asteriskHealth, pgHealth, wgHealth, ztHealth, amiPing, ariPing, whatsappConfig, infraConfig] = await Promise.all([
+      asteriskAdapter.checkHealth().catch(() => ({ status: 'DOWN', channelsCount: 0, mode: 'NONE' })),
+      postgresClient.checkHealth().catch(() => ({ status: 'DOWN', latencyMs: null })),
+      VpnAdapter.getWireguardStatus().catch(() => ({ status: 'UNAVAILABLE', installed: false, peers: [] })),
+      VpnAdapter.getZeroTierStatus().catch(() => ({ status: 'UNAVAILABLE', installed: false, nodeId: null })),
+      asteriskAdapter.pingAmi(1500).catch(() => ({ reachable: false, authenticated: false, latencyMs: 0 })),
+      asteriskAdapter.pingAri(1500).catch(() => ({ reachable: false, status: null, latencyMs: 0 })),
+      SystemRepository.getWhatsappConfig().catch(() => null),
+      SystemRepository.getInfraConfig().catch(() => null),
+    ]);
 
     const allExtensions = await ExtensionRepository.listAll().catch(() => []);
     const allTrunks = await TrunkRepository.listAll().catch(() => []);
 
-    const components = {
+    const amiStatus: 'UP' | 'DOWN' | 'NOT_CONFIGURED' =
+      amiPing.authenticated ? 'UP' : (amiPing.reachable ? 'DEGRADED' as any : (asteriskHealth.status === 'UP' ? 'UP' : 'DOWN'));
+
+    const ariStatus: 'UP' | 'DOWN' | 'NOT_CONFIGURED' =
+      ariPing.reachable && (ariPing.status === 200 || ariPing.status === 401)
+        ? 'UP'
+        : (asteriskHealth.status === 'UP' ? 'UP' : 'NOT_CONFIGURED');
+
+    const geminiStatus: 'UP' | 'NOT_CONFIGURED' = process.env.GEMINI_API_KEY ? 'UP' : 'NOT_CONFIGURED';
+
+    const whatsappStatus: 'UP' | 'DEGRADED' | 'NOT_CONFIGURED' =
+      whatsappConfig?.accessToken && whatsappConfig?.phoneNumberId
+        ? (whatsappConfig.isActive ? 'UP' : 'DEGRADED')
+        : (whatsappConfig?.verifyToken ? 'DEGRADED' : 'NOT_CONFIGURED');
+
+    const dependencies = {
       postgresql: {
         status: pgHealth.status === 'UP' ? 'UP' : (pgHealth.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : 'DOWN'),
         latencyMs: pgHealth.latencyMs ?? null,
-        details: pgHealth.status === 'UP' ? 'Pool de conexões PostgreSQL conectado' : 'Banco de dados não operacional',
       },
       asterisk: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        version: asteriskHealth.version || 'UNKNOWN',
-        uptime: asteriskHealth.uptime || 'NO_DATA',
-        channelsCount: asteriskHealth.channelsCount ?? 0,
+        status: asteriskHealth.status === 'UP' ? 'UP' : (asteriskHealth.status === 'NOT_INSTALLED' ? 'NOT_CONFIGURED' : 'DOWN'),
+        version: (asteriskHealth as any).version || 'UNKNOWN',
+        mode: asteriskHealth.mode,
       },
       ami: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        host: process.env.ASTERISK_AMI_HOST || '127.0.0.1',
-        port: parseInt(process.env.ASTERISK_AMI_PORT || '5038', 10),
+        status: amiStatus,
+        latencyMs: amiPing.latencyMs,
+        authenticated: amiPing.authenticated,
       },
       ari: {
-        status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        port: 8088,
-        application: 'enlace-gemini',
+        status: ariStatus,
+        latencyMs: ariPing.latencyMs,
+        httpStatus: ariPing.status,
       },
       pjsip: {
         status: asteriskHealth.status === 'UP' ? 'UP' : 'DOWN',
-        endpointsOnline: allExtensions.filter((e) => e.status === 'online').length,
-        endpointsTotal: allExtensions.length,
+        registeredEndpoints: allExtensions.filter((e) => e.status === 'online').length,
+        totalEndpoints: allExtensions.length,
       },
-      sip: {
-        status: allTrunks.some(t => t.status === 'registered') ? 'UP' : (allTrunks.length === 0 ? 'NOT_CONFIGURED' : (allTrunks.some(t => t.lastPingStatus === 'SIP_OPTIONS_200') ? 'UP' : 'NOT_TESTED')),
-        trunksRegistered: allTrunks.filter((t) => t.status === 'registered').length,
-        trunksTotal: allTrunks.length,
+      sipTrunks: {
+        status: allTrunks.some(t => t.status === 'registered') ? 'UP' : (allTrunks.length === 0 ? 'NOT_CONFIGURED' : 'DEGRADED'),
+        registeredTrunks: allTrunks.filter((t) => t.status === 'registered').length,
+        totalTrunks: allTrunks.length,
       },
       webrtc: {
-        status: infraConfig?.ports?.webrtcWss === 8089 ? 'UP' : 'DEGRADED',
+        status: infraConfig?.ports?.webrtcWss === 8089 && asteriskHealth.status === 'UP' ? 'UP' : 'DEGRADED',
         wssPort: infraConfig?.ports?.webrtcWss || 8089,
-        dtlsSrtp: true,
-      },
-      gemini: {
-        status: process.env.GEMINI_API_KEY ? 'UP' : 'NOT_CONFIGURED',
-        model: 'gemini-flash-latest',
-        voiceModel: 'gemini-3.1-flash-live-preview',
-      },
-      whatsapp: {
-        status: whatsappConfig?.isActive && whatsappConfig?.verifyToken ? 'UP' : (!whatsappConfig?.verifyToken ? 'NOT_CONFIGURED' : 'DEGRADED'),
-        phoneNumberId: whatsappConfig?.phoneNumberId ? 'CONFIGURED' : 'NOT_CONFIGURED',
-      },
-      wireguard: {
-        status: wgHealth.status === 'UP' ? 'UP' : (wgHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        installed: wgHealth.installed,
-        peersCount: wgHealth.peers.length,
-        interface: wgHealth.interface || 'wg0',
-      },
-      zerotier: {
-        status: ztHealth.status === 'UP' ? 'UP' : (ztHealth.status === 'NOT_INSTALLED' ? 'UNAVAILABLE' : 'DOWN'),
-        installed: ztHealth.installed,
-        nodeId: ztHealth.nodeId || 'NOT_CONFIGURED',
-      },
-      redis: {
-        status: (process.env.REDIS_URL || process.env.REDIS_HOST) ? 'UP' : 'NOT_CONFIGURED',
       },
       audioSocket: {
         status: asteriskHealth.status === 'UP' ? 'UP' : 'NOT_CONFIGURED',
         port: 9092,
       },
+      gemini: {
+        status: geminiStatus,
+        availability: process.env.GEMINI_API_KEY ? 'CONFIGURED' : 'NOT_CONFIGURED',
+        model: 'gemini-flash-latest',
+        voiceModel: 'gemini-3.1-flash-live-preview',
+      },
+      whatsapp: {
+        status: whatsappStatus,
+        configured: Boolean(whatsappConfig?.phoneNumberId),
+      },
+      wireguard: {
+        status: wgHealth.status === 'UP' ? 'UP' : (wgHealth.status === 'NOT_INSTALLED' ? 'NOT_CONFIGURED' : 'DOWN'),
+        peersCount: (wgHealth as any).peers?.length || 0,
+      },
+      zerotier: {
+        status: ztHealth.status === 'UP' ? 'UP' : (ztHealth.status === 'NOT_INSTALLED' ? 'NOT_CONFIGURED' : 'DOWN'),
+      },
     };
 
-    const isHealthy = components.postgresql.status === 'UP' && components.asterisk.status === 'UP';
-
-    res.json({
-      status: isHealthy ? 'UP' : 'DEGRADED',
+    const overall = (dependencies.postgresql.status === 'UP' && dependencies.asterisk.status === 'UP') ? 'UP' : 'DEGRADED';
+    const payload = {
+      status: overall,
+      probe: 'dependency_health',
       timestamp: new Date().toISOString(),
-      platform: 'Enlace-PBX Pure Asterisk 20 + Gemini AI',
-      components,
+      platform: 'Enlace-PBX Enterprise (Asterisk 20 LTS + Gemini AI)',
+      dependencies,
+    };
+
+    cachedDepsHealth = { data: payload, expiresAt: now + 5000 };
+    return payload;
+  };
+
+  // 4. Dependency Health Probe (Endpoint público de verificação de dependências)
+  app.get('/health/deps', async (req, res) => {
+    const health = await evaluateDependencyHealth();
+    res.json(health);
+  });
+
+  // 5. Diagnóstico Completo do Sistema Protegido por RBAC (/api/v1/system/health)
+  app.get('/api/v1/system/health', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
+    const health = await evaluateDependencyHealth();
+    res.json({
+      status: health.status,
+      timestamp: health.timestamp,
+      platform: health.platform,
+      components: health.dependencies,
     });
   });
 
@@ -5559,8 +5612,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
           };
         }
 
+        const incomingMsgId = body.entry[0].changes[0].value.messages[0].id;
+        if (incomingMsgId && conv.messages && conv.messages.some((m: any) => m.id === incomingMsgId)) {
+          console.log(`[WhatsApp Webhook] Mensagem já processada (Idempotência verificada): ${incomingMsgId}`);
+          return res.status(200).json({ status: 'ignored_duplicate', messageId: incomingMsgId });
+        }
+
         conv.messages.push({
-          id: body.entry[0].changes[0].value.messages[0].id || `msg-${Date.now()}`,
+          id: incomingMsgId || `msg-${Date.now()}`,
           sender: 'contact',
           senderName: from,
           content: msg_body,

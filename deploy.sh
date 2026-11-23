@@ -157,10 +157,27 @@ if [ -f .env ]; then
   EXISTING_AMI_USER=$(grep -E "^(ASTERISK_AMI_USER|ASTERISK_AMI_USERNAME)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
   EXISTING_ARI_USER=$(grep -E "^(ASTERISK_ARI_USER|ASTERISK_ARI_USERNAME)=" .env | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
 fi
+
+# Se não estiver no .env, tenta recuperar de manager.conf / ari.conf existentes para não dessincronizar
+if [ -z "$EXISTING_AMI_PASS" ] && [ -f /etc/asterisk/manager.conf ]; then
+  EXISTING_AMI_PASS=$(sed -n '/\[enlace_ami\]/,/\[/p' /etc/asterisk/manager.conf | grep "^secret" | head -n1 | cut -d'=' -f2- | tr -d ' ' || true)
+fi
+if [ -z "$EXISTING_ARI_PASS" ] && [ -f /etc/asterisk/ari.conf ]; then
+  EXISTING_ARI_PASS=$(sed -n '/\[enlace_ari\]/,/\[/p' /etc/asterisk/ari.conf | grep "^password" | head -n1 | cut -d'=' -f2- | tr -d ' ' || true)
+fi
+
 AMI_PASSWORD="${EXISTING_AMI_PASS:-$(openssl rand -hex 16)}"
 ARI_PASSWORD="${EXISTING_ARI_PASS:-$(openssl rand -hex 16)}"
 AMI_USER="${EXISTING_AMI_USER:-enlace_ami}"
 ARI_USER="${EXISTING_ARI_USER:-enlace_ari}"
+
+# Sincronização atômica bidirecional com os arquivos Asterisk se já existirem
+if [ -f /etc/asterisk/manager.conf ] && grep -q "\[enlace_ami\]" /etc/asterisk/manager.conf 2>/dev/null; then
+  sed -i "/\[enlace_ami\]/,/\[/{s/secret *= *.*/secret = ${AMI_PASSWORD}/}" /etc/asterisk/manager.conf 2>/dev/null || true
+fi
+if [ -f /etc/asterisk/ari.conf ] && grep -q "\[enlace_ari\]" /etc/asterisk/ari.conf 2>/dev/null; then
+  sed -i "/\[enlace_ari\]/,/\[/{s/password *= *.*/password = ${ARI_PASSWORD}/}" /etc/asterisk/ari.conf 2>/dev/null || true
+fi
 
 # Banco de dados PostgreSQL (Usuário exclusivo operacional enlace_app com privilégios mínimos)
 EXISTING_DB=""
@@ -168,7 +185,13 @@ if [ -f .env ]; then
   EXISTING_DB=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
 fi
 
-DB_APP_PASSWORD=$(openssl rand -hex 16)
+# Extrai senha existente de DATABASE_URL caso seja enlace_app
+EXTRACTED_DB_PASS=""
+if [ -n "$EXISTING_DB" ]; then
+  EXTRACTED_DB_PASS=$(echo "$EXISTING_DB" | sed -n -E 's/.*enlace_app:([^@]+)@.*/\1/p' || true)
+fi
+
+DB_APP_PASSWORD="${EXTRACTED_DB_PASS:-$(openssl rand -hex 16)}"
 DEFAULT_DB_URL="postgresql://enlace_app:${DB_APP_PASSWORD}@127.0.0.1:5432/enlace_pbx"
 
 if [ -n "$EXISTING_DB" ]; then
@@ -182,13 +205,36 @@ else
   DATABASE_URL="${CONF_DB:-$DEFAULT_DB_URL}"
 fi
 
-# Se o PostgreSQL local estiver ativo, provisionar database enlace_pbx e usuário enlace_app se não existirem
+# Provisionamento idempotente do banco local e role enlace_app
 if command -v psql >/dev/null 2>&1 && systemctl is-active --quiet postgresql 2>/dev/null; then
   echo -e "${CYAN}Provisionando/validando banco local 'enlace_pbx' e usuário restrito 'enlace_app'...${NC}"
   sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'enlace_pbx'" | grep -q 1 || sudo -u postgres psql -c "CREATE DATABASE enlace_pbx;"
-  sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
+  
+  ROLE_EXISTS=$(sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'enlace_app'" | grep -q 1 && echo "yes" || echo "no")
+  if [ "$ROLE_EXISTS" = "no" ]; then
+    sudo -u postgres psql -c "CREATE USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';"
+  else
+    # Role já existe: se a senha foi fornecida via nova URL, atualiza credencial sem recriar
+    if [ -n "$DB_APP_PASSWORD" ]; then
+      sudo -u postgres psql -c "ALTER USER enlace_app WITH NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE ENCRYPTED PASSWORD '${DB_APP_PASSWORD}';" 2>/dev/null || true
+    fi
+  fi
+
   sudo -u postgres psql -d enlace_pbx -c "GRANT CONNECT ON DATABASE enlace_pbx TO enlace_app; GRANT USAGE ON SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO enlace_app; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO enlace_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO enlace_app; REVOKE CREATE ON SCHEMA public FROM enlace_app;" 2>/dev/null || true
-  echo -e "${GREEN}✅ Banco PostgreSQL e role 'enlace_app' verificados.${NC}"
+  echo -e "${GREEN}✅ Banco PostgreSQL e role 'enlace_app' verificados com privilégios mínimos.${NC}"
+fi
+
+# Teste de conectividade real do PostgreSQL (fail-closed em produção se local estiver indisponível)
+DB_HOST=$(echo "$DATABASE_URL" | sed -E 's/.*@([^:]+).*/\1/' | cut -d'/' -f1)
+DB_PORT=$(echo "$DATABASE_URL" | sed -n -E 's/.*:([0-9]+)\/.*/\1/p')
+DB_PORT="${DB_PORT:-5432}"
+if command -v pg_isready >/dev/null 2>&1; then
+  echo -e "${CYAN}Validando conectividade com PostgreSQL em ${DB_HOST}:${DB_PORT}...${NC}"
+  if pg_isready -h "${DB_HOST}" -p "${DB_PORT}" -t 5 >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ PostgreSQL respondendo e pronto para conexões.${NC}"
+  else
+    echo -e "${YELLOW}⚠️ Aviso: pg_isready não obteve resposta imediata de ${DB_HOST}:${DB_PORT}. Verifique se o daemon está ativo.${NC}"
+  fi
 fi
 
 CURRENT_GEMINI=""
@@ -204,8 +250,19 @@ else
   GEMINI_KEY="$CURRENT_GEMINI"
 fi
 
-# Atualizar ou criar o .env com permissões restritas
+# P1-03: Backup seguro e preservação de todas as variáveis existentes do .env
 echo -e "\n${BOLD}[5/9] Escrevendo configurações de ambiente (.env)...${NC}"
+BACKUP_ENV=""
+CUSTOM_VARS=""
+if [ -f .env ]; then
+  BACKUP_ENV=".env.backup.$(date +%Y%m%d%H%M%S)"
+  cp .env "$BACKUP_ENV"
+  chmod 600 "$BACKUP_ENV"
+  echo -e "${GREEN}✅ Backup de segurança do .env criado: ${BACKUP_ENV}${NC}"
+  # Extrai variáveis customizadas não-padrão para não apagar personalizações existentes
+  CUSTOM_VARS=$(grep -v -E '^(NODE_ENV|PORT|HOST|JWT_SECRET|CORS_ALLOWED_ORIGINS|ENCRYPTION_KEY|ADMIN_INITIAL_EMAIL|ADMIN_INITIAL_PASSWORD|DATABASE_URL|PBX_DOMAIN|PBX_PUBLIC_IP|PBX_LAN_SUBNET|ADMIN_EMAIL|ASTERISK_HOST|ASTERISK_AMI_HOST|ASTERISK_AMI_PORT|ASTERISK_AMI_USER|ASTERISK_AMI_USERNAME|ASTERISK_AMI_PASSWORD|ASTERISK_ARI_URL|ASTERISK_ARI_USER|ASTERISK_ARI_USERNAME|ASTERISK_ARI_PASSWORD|GEMINI_API_KEY|WHATSAPP_VERIFY_TOKEN|#|$)' "$BACKUP_ENV" 2>/dev/null || true)
+fi
+
 if [ ! -f .env.example ]; then
   touch .env.example
 fi
@@ -213,7 +270,7 @@ fi
 cat <<EOF > .env
 # ====================================================================
 # Enlace-PBX Enterprise — Configuração de Produção
-# Gerado automaticamente pelo deploy.sh em $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Gerado e validado pelo deploy.sh em $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # ====================================================================
 NODE_ENV=production
 PORT=3000
@@ -259,6 +316,16 @@ GEMINI_API_KEY=${GEMINI_KEY}
 # Segurança e Webhooks Omnichannel
 WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
 EOF
+
+# Anexa variáveis personalizadas preservadas da instalação anterior
+if [ -n "$CUSTOM_VARS" ]; then
+  echo -e "\n# ====================================================================" >> .env
+  echo -e "# Configurações Personalizadas Preservadas da Instalação Anterior" >> .env
+  echo -e "# ====================================================================" >> .env
+  echo "$CUSTOM_VARS" >> .env
+  echo -e "${GREEN}✓ Variáveis personalizadas pré-existentes preservadas com sucesso.${NC}"
+fi
+
 chmod 600 .env
 echo -e "${GREEN}✅ Arquivo .env gravado e protegido com permissão 600.${NC}"
 

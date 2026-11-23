@@ -180,6 +180,92 @@ export class AsteriskAdapter {
   }
 
   /**
+   * Teste leve de conectividade e autenticação real com o socket AMI
+   */
+  public async pingAmi(timeoutMs = 1500): Promise<{ reachable: boolean; authenticated: boolean; latencyMs: number; error?: string }> {
+    const start = Date.now();
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      let buffer = '';
+      let isResolved = false;
+
+      const finish = (result: { reachable: boolean; authenticated: boolean; latencyMs: number; error?: string }) => {
+        if (!isResolved) {
+          isResolved = true;
+          try { socket.destroy(); } catch {}
+          resolve(result);
+        }
+      };
+
+      const timer = setTimeout(() => {
+        finish({ reachable: false, authenticated: false, latencyMs: Date.now() - start, error: 'TIMEOUT' });
+      }, timeoutMs);
+
+      socket.connect(this.amiPort, this.host, () => {
+        socket.write(
+          `Action: Login\r\nUsername: ${this.amiUser}\r\nSecret: ${this.amiPass}\r\nEvents: off\r\n\r\n`
+        );
+      });
+
+      socket.on('data', (chunk) => {
+        buffer += chunk.toString();
+        if (buffer.includes('Response: Success')) {
+          clearTimeout(timer);
+          finish({ reachable: true, authenticated: true, latencyMs: Date.now() - start });
+        } else if (buffer.includes('Response: Error')) {
+          clearTimeout(timer);
+          finish({ reachable: true, authenticated: false, latencyMs: Date.now() - start, error: 'AUTH_FAILED' });
+        }
+      });
+
+      socket.on('error', (err) => {
+        clearTimeout(timer);
+        finish({ reachable: false, authenticated: false, latencyMs: Date.now() - start, error: err.message });
+      });
+    });
+  }
+
+  /**
+   * Teste leve de conectividade e resposta HTTP com o endpoint ARI
+   */
+  public async pingAri(timeoutMs = 1500): Promise<{ reachable: boolean; status: number | null; latencyMs: number; error?: string }> {
+    const start = Date.now();
+    try {
+      const parsedUrl = new URL(this.ariUrl);
+      const isHttps = parsedUrl.protocol === 'https:';
+      const client = isHttps ? (await import('https')).default : http;
+
+      return new Promise((resolve) => {
+        const req = client.get(
+          `${this.ariUrl}/ari/api-docs/resources.json`,
+          {
+            timeout: timeoutMs,
+            auth: this.ariPass ? `${this.ariUser}:${this.ariPass}` : undefined,
+          },
+          (res) => {
+            resolve({
+              reachable: true,
+              status: res.statusCode || null,
+              latencyMs: Date.now() - start,
+            });
+          }
+        );
+
+        req.on('timeout', () => {
+          req.destroy();
+          resolve({ reachable: false, status: null, latencyMs: Date.now() - start, error: 'TIMEOUT' });
+        });
+
+        req.on('error', (err) => {
+          resolve({ reachable: false, status: null, latencyMs: Date.now() - start, error: err.message });
+        });
+      });
+    } catch (err: any) {
+      return { reachable: false, status: null, latencyMs: Date.now() - start, error: err.message };
+    }
+  }
+
+  /**
    * Obtém a versão real do Asterisk.
    */
   public async getVersion(): Promise<string | null> {
