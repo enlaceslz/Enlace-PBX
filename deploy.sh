@@ -453,8 +453,10 @@ pm2 startup systemd -u root --hp /root 2>/dev/null || pm2 startup 2>/dev/null ||
 # 12. Teste de Saúde (Smoke Test)
 sleep 2
 echo -e "\n${CYAN}🔍 Executando teste de integridade local...${NC}"
-if curl -s -f http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
-  HEALTH_STATUS="${GREEN}100% OPERACIONAL (HTTP 200 OK)${NC}"
+if curl -s -f http://127.0.0.1:3000/health/ready/web >/dev/null 2>&1; then
+  HEALTH_STATUS="${GREEN}100% OPERACIONAL (Web + PostgreSQL HTTP 200 OK)${NC}"
+elif curl -s -f http://127.0.0.1:3000/health/live >/dev/null 2>&1; then
+  HEALTH_STATUS="${YELLOW}WEB ATIVA (Aguardando pronto do banco/Asterisk)${NC}"
 else
   HEALTH_STATUS="${YELLOW}INICIANDO (Aguarde alguns segundos)${NC}"
 fi
@@ -470,7 +472,9 @@ echo -e "${BOLD}🌐 URLs de Acesso:${NC}"
 echo -e "  • Painel Web / PWA:    ${CYAN}https://${DOMAIN}${NC} (ou ${CYAN}http://${PUBLIC_IP}:3000${NC})"
 echo -e "  • Webphone WebRTC:     ${CYAN}https://${DOMAIN}#webphone${NC}"
 echo -e "  • Webhook WhatsApp:    ${CYAN}https://${DOMAIN}/api/v1/webhooks/whatsapp${NC}"
-echo -e "  • Health Check API:    ${CYAN}https://${DOMAIN}/api/v1/health${NC}"
+echo -e "  • Sonda Liveness:      ${CYAN}https://${DOMAIN}/health/live${NC}"
+echo -e "  • Sonda Readiness Web: ${CYAN}https://${DOMAIN}/health/ready/web${NC}"
+echo -e "  • Sonda Readiness PBX: ${CYAN}https://${DOMAIN}/health/ready/pbx${NC}"
 echo ""
 echo -e "${BOLD}📋 Comandos de Gerenciamento:${NC}"
 echo -e "  • Ver logs da aplicação:      ${YELLOW}pm2 logs enlace-pbx${NC}"

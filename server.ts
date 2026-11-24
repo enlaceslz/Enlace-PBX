@@ -1,4 +1,6 @@
+import 'dotenv/config';
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import crypto from 'crypto';
 import net from 'net';
@@ -43,6 +45,7 @@ import { AsteriskCommandService } from './server/infrastructure/asterisk/Asteris
 import { postgresClient } from './server/infrastructure/postgres/client.js';
 import { DatabaseMigrator } from './server/infrastructure/postgres/migrations/migrator.js';
 import { requireAuth, requireSseAuth, requireRole, requireTenant, getJwtSecret, getAuthorizedTenantId, resolveTenantContext, SseTicketManager } from './server/infrastructure/auth/authMiddleware.js';
+import { EncryptionService } from './server/infrastructure/security/EncryptionService.js';
 import { maiaAIGateway } from './server/maia/gateway/MaiaAIGateway.js';
 import { MaiaSessionRepository } from './server/maia/repositories/MaiaSessionRepository.js';
 
@@ -82,7 +85,7 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Middlewares de Segurança Enterprise (Security by Design)
   // -------------------------------------------------------------------------
-  // Helmet - Proteção contra vulnerabilidades web conhecidas com CSP configurada
+  // Helmet - Proteção contra vulnerabilidades web conhecidas com CSP estrita em produção
   const isProduction = process.env.NODE_ENV === 'production';
   app.use(helmet({
     contentSecurityPolicy: isProduction
@@ -91,7 +94,6 @@ async function startServer() {
             defaultSrc: ["'self'"],
             scriptSrc: [
               "'self'",
-              "'unsafe-inline'", // Justificativa: Hidratação e scripts modulares dinâmicos do Vite/React
             ],
             styleSrc: [
               "'self'",
@@ -144,6 +146,14 @@ async function startServer() {
     xssFilter: true,
   }));
 
+  // Em desenvolvimento/preview, remove X-Frame-Options para permitir renderização no iframe do ambiente de preview
+  if (!isProduction) {
+    app.use((_req, res, next) => {
+      res.removeHeader('X-Frame-Options');
+      next();
+    });
+  }
+
   // CORS - Restrição de origens controlada por ambiente
   const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
     ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
@@ -157,10 +167,12 @@ async function startServer() {
       if (allowedOrigins.length > 0 && allowedOrigins.includes(requestOrigin)) {
         return callback(null, true);
       }
-      return callback(new Error('Origem não permitida pela política CORS do Enlace-PBX.'));
+      const corsErr = new Error('Origem não permitida pela política CORS do Enlace-PBX.') as Error & { statusCode?: number };
+      corsErr.statusCode = 403;
+      return callback(corsErr);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-target-tenant-id', 'x-request-id'],
     credentials: true,
   }));
 
@@ -175,16 +187,24 @@ async function startServer() {
   });
   app.use('/api/', apiLimiter);
 
-  // Rate Limiting Rigoroso para Autenticação (Anti-Brute Force)
+  // Rate Limiting Rigoroso exclusivo para tentativa de login (Anti-Brute Force sem bloquear /auth/me ou /auth/sse-ticket)
   const authLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hora
     max: 10, // 10 tentativas por IP
+    standardHeaders: true,
+    legacyHeaders: false,
     validate: { xForwardedForHeader: false, trustProxy: false },
     message: { error: 'Muitas tentativas de login. IP bloqueado temporariamente.' }
   });
-  app.use('/api/v1/auth/', authLimiter);
+  app.use('/api/v1/auth/login', authLimiter);
 
-  app.use(express.json());
+  // Parser JSON com captura de rawBody para validação criptográfica HMAC-SHA256 de webhooks (Meta WhatsApp)
+  app.use(express.json({
+    limit: '10mb',
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }));
 
   // -------------------------------------------------------------------------
   // Auth Routes (Login / JWT)
@@ -233,17 +253,16 @@ async function startServer() {
       }
     } catch (err: any) {
       console.error('[Auth Login Error]:', err?.message || err);
-      return res.status(500).json({ error: 'Erro interno durante a autenticação: ' + (err?.message || 'Falha no servidor.') });
+      return res.status(500).json({ error: 'Erro interno durante a autenticação. Tente novamente.' });
     }
   });
 
-  // Middleware de Autenticação Estrita JWT e Isolamento Multitenant (com exceção apenas para endpoints públicos)
+  // Middleware de Autenticação Estrita JWT e Isolamento Multitenant (exceção estrita apenas para login e webhook Meta WhatsApp)
   app.use('/api/v1', (req, res, next) => {
-    // Rotas públicas que não requerem autenticação
+    // Rotas públicas estritamente autorizadas (sondas públicas de saúde operam fora de /api/v1: /health/live, /health/ready/*)
     if (
       req.path === '/auth/login' ||
-      req.path.startsWith('/health') ||
-      req.path.startsWith('/webhooks')
+      req.path === '/webhooks/whatsapp'
     ) {
       return next();
     }
@@ -438,8 +457,8 @@ async function startServer() {
     return payload;
   };
 
-  // 4. Dependency Health Probe (Endpoint público de verificação de dependências)
-  app.get('/health/deps', async (req, res) => {
+  // 4. Dependency Health Probe (Protegido por JWT + RBAC para evitar exposição de topologia interna)
+  app.get('/health/deps', requireAuth, requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     const health = await evaluateDependencyHealth();
     res.json(health);
   });
@@ -743,7 +762,7 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Logs de Sistema em Tempo Real (Asterisk, Nginx, WireGuard, Fail2ban, etc.)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/system/logs', (req, res) => {
+  app.get('/api/v1/system/logs', requireRole('super_admin', 'admin', 'supervisor'), (req, res) => {
     const { service, level, date, search, since, limit } = req.query;
     const result = systemLogsManager.getLogs({
       service: service as string,
@@ -761,7 +780,7 @@ async function startServer() {
     res.json({ success: true, message: 'Buffer de logs limpo com sucesso' });
   });
 
-  app.get('/api/v1/system/logs/download', (req, res) => {
+  app.get('/api/v1/system/logs/download', requireRole('super_admin', 'admin', 'supervisor'), (req, res) => {
     const { service, level, date, search } = req.query;
     const result = systemLogsManager.getLogs({
       service: service as string,
@@ -783,7 +802,7 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Redes, VPN & Conectividade (WireGuard & ZeroTier Reais)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/network/wireguard', async (req, res) => {
+  app.get('/api/v1/network/wireguard', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
       const wgStatus = await VpnAdapter.getWireguardStatus();
       const wgConfig = await SystemRepository.getWireguardConfig();
@@ -925,7 +944,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   });
 
-  app.get('/api/v1/network/zerotier', async (req, res) => {
+  app.get('/api/v1/network/zerotier', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
       const ztStatus = await VpnAdapter.getZeroTierStatus();
       const ztConfig = await SystemRepository.getZerotierConfig();
@@ -1270,7 +1289,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // Infraestrutura, Domínio, IPs (LAN/WAN) e Validação de Certificado SSL/TLS
   // (Webphone WebRTC, PWA com Notificação Push, WhatsApp Cloud API)
   // -------------------------------------------------------------------------
-  app.get('/api/v1/infra/config', async (req, res) => {
+  app.get('/api/v1/infra/config', requireRole('super_admin', 'admin'), async (req, res) => {
     const config = await SystemRepository.getInfraConfig();
     res.json(config);
   });
@@ -1586,7 +1605,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Segurança & Monitoramento do Fail2ban
   // -------------------------------------------------------------------------
-  app.get('/api/v1/security/fail2ban', async (req, res) => {
+  app.get('/api/v1/security/fail2ban', requireRole('super_admin', 'admin', 'supervisor'), async (req, res) => {
     try {
       const config = await SystemRepository.getFail2banConfig();
       res.json(config || SystemRepository.getDefaultFail2banConfig());
@@ -1801,7 +1820,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Quick Setup (FASE 6)
   // -------------------------------------------------------------------------
-  app.get(['/api/v1/setup/snapshots', '/api/v1/system/snapshots'], async (req, res) => {
+  app.get(['/api/v1/setup/snapshots', '/api/v1/system/snapshots'], requireRole('super_admin', 'admin'), async (req, res) => {
     try {
       const list = await SystemRepository.getSnapshots();
       res.json(list);
@@ -1811,7 +1830,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  app.post(['/api/v1/setup/preview', '/api/v1/system/quick-setup/preview'], (req, res) => {
+  app.post(['/api/v1/setup/preview', '/api/v1/system/quick-setup/preview'], requireRole('super_admin', 'admin'), (req, res) => {
     const { prefix, quantity, startNumber, trunkName } = req.body;
     const qty = parseInt(quantity) || 10;
     const start = parseInt(startNumber) || 1;
@@ -4818,7 +4837,7 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   // -------------------------------------------------------------------------
   // Webhooks & Audit Logs & Users
   // -------------------------------------------------------------------------
-  app.get('/api/v1/webhooks', async (req, res) => {
+  app.get('/api/v1/webhooks', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     const hooks = await SystemRepository.getWebhooks();
     res.json(hooks);
   });
@@ -4844,10 +4863,13 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   });
 
-  app.get('/api/v1/audit-logs', async (req, res) => {
+  app.get('/api/v1/audit-logs', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'readonly'), async (req, res) => {
     const { category, severity, search, format, limit } = req.query;
     try {
+      const tenantCtx = resolveTenantContext(req);
+      const scopedTenantId = tenantCtx.accessMode === 'GLOBAL' ? undefined : tenantCtx.tenantId;
       const { logs } = await AuditLogRepository.listAll({
+        tenantId: scopedTenantId,
         category: category as string,
         severity: severity as string,
         search: search as string,
@@ -4872,36 +4894,49 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  // Verificação Forense de Integridade de Hashes SHA-256 (Cadeia de Custódia)
-  app.post('/api/v1/audit-logs/verify-integrity', requireRole('super_admin', 'admin', 'supervisor', 'readonly'), async (req, res) => {
-    const { logId } = req.body;
+  // Verificação Forense Real de Integridade de Hashes SHA-256 (Cadeia de Custódia) com isolamento de tenant
+  app.post('/api/v1/audit-logs/verify-integrity', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'readonly'), async (req, res) => {
+    const { logId } = req.body || {};
     try {
+      const tenantCtx = resolveTenantContext(req);
       if (logId) {
-        const log = await AuditLogRepository.findById(logId);
+        const log = await AuditLogRepository.findById(
+          String(logId),
+          tenantCtx.accessMode === 'GLOBAL' ? undefined : tenantCtx
+        );
         if (!log) return res.status(404).json({ error: 'Registro de auditoria não encontrado.' });
 
-        const payloadStr = JSON.stringify(log.payload || {});
-        const calculatedHash = crypto.createHash('sha256').update(`${log.id}|${log.tenantId}|${log.action}|${log.resource}|${log.timestamp}|${payloadStr}`).digest('hex');
-        const isAuthentic = !log.sha256Hash || log.sha256Hash.length === 64; // In PostgreSQL, valid SHA-256 length
+        const calculatedHash = AuditLogRepository.computeCanonicalHash({
+          previousHash: log.previousHash || '0000000000000000000000000000000000000000000000000000000000000000',
+          id: log.id,
+          tenantId: log.tenantId,
+          userId: log.userId,
+          action: log.action,
+          resource: log.resource,
+          timestamp: log.timestamp,
+        });
+        const isAuthentic = Boolean(log.sha256Hash && log.sha256Hash === calculatedHash);
 
         return res.json({
           logId: log.id,
           storedHash: log.sha256Hash,
           calculatedHash,
-          isAuthentic: true,
+          isAuthentic,
           verifiedAt: new Date().toISOString(),
           algorithm: 'SHA-256 (NIST FIPS 180-4)',
-          chainOfCustodyStatus: 'INTEGRAL_UNALTERED',
+          chainOfCustodyStatus: isAuthentic ? 'INTEGRAL_UNALTERED' : 'TAMPERING_DETECTED',
         });
       }
 
-      // Check all logs
-      const { total } = await AuditLogRepository.listAll({ limit: 1 });
+      // Verifica matematicamente toda a cadeia de custódia do tenant atual no PostgreSQL
+      const chainResult = await AuditLogRepository.verifyChain(tenantCtx);
       res.json({
-        totalLogsAudited: total,
-        compromisedCount: 0,
-        chainOfCustodyStatus: 'COMPLIANT_LGPD_GRADE',
-        algorithm: 'SHA-256 (HMAC-free Merkle Anchor)',
+        totalLogsAudited: chainResult.totalVerified,
+        compromisedCount: chainResult.valid ? 0 : 1,
+        brokenAtId: chainResult.brokenAtId,
+        details: chainResult.details,
+        chainOfCustodyStatus: chainResult.valid ? 'COMPLIANT_LGPD_GRADE' : 'CHAIN_COMPROMISED',
+        algorithm: 'SHA-256 (Cadeia Encadeada por Tenant)',
         lastAuditCheck: new Date().toISOString(),
       });
     } catch (e: any) {
@@ -5128,9 +5163,15 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     res.json({ success: true, message: 'Usuário removido com sucesso.' });
   });
 
-  app.get('/api/v1/tenants', async (req, res) => {
-    const list = await TenantRepository.listAll();
-    res.json(list);
+  app.get('/api/v1/tenants', requireAuth, requireTenant, async (req, res) => {
+    const authUser = (req as any).user;
+    if (authUser?.role === 'super_admin') {
+      const list = await TenantRepository.listAll();
+      return res.json(list);
+    }
+    const tenantCtx = resolveTenantContext(req);
+    const ownTenant = await TenantRepository.findById(tenantCtx.tenantId);
+    res.json(ownTenant ? [ownTenant] : []);
   });
 
   app.post('/api/v1/tenants', requireRole('super_admin'), async (req, res) => {
@@ -5300,9 +5341,14 @@ PersistentKeepalive = ${peer.persistentKeepalive}
 
   // --- WhatsApp & Omnichannel API ---
 
-  app.get('/api/v1/whatsapp/config', requireAuth, requireTenant, async (req, res) => {
+  app.get('/api/v1/whatsapp/config', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
     const config = await SystemRepository.getWhatsappConfig();
-    res.json(config);
+    if (!config) return res.json(null);
+    res.json({
+      ...config,
+      accessToken: EncryptionService.maskSecret(config.accessToken),
+      hasAccessToken: Boolean(config.accessToken),
+    });
   });
 
   app.post('/api/v1/whatsapp/config', requireAuth, requireTenant, requireRole('super_admin', 'admin'), async (req, res) => {
@@ -5313,16 +5359,26 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       tenantId = 'UNKNOWN';
     }
     const current = (await SystemRepository.getWhatsappConfig()) || { tenantId };
+    const incomingToken = typeof req.body.accessToken === 'string' ? req.body.accessToken.trim() : '';
+    const shouldKeepExisting = !incomingToken || incomingToken === '••••••••';
+    const encryptedAccessToken = shouldKeepExisting
+      ? current.accessToken
+      : EncryptionService.encrypt(incomingToken);
+
     const updated = {
       ...current,
       tenantId,
       phoneNumberId: req.body.phoneNumberId,
-      accessToken: req.body.accessToken,
+      accessToken: encryptedAccessToken,
       verifyToken: req.body.verifyToken,
       isActive: req.body.isActive,
     };
     await SystemRepository.setWhatsappConfig(updated);
-    res.json(updated);
+    res.json({
+      ...updated,
+      accessToken: EncryptionService.maskSecret(updated.accessToken),
+      hasAccessToken: Boolean(updated.accessToken),
+    });
   });
 
   app.post('/api/v1/whatsapp/conversations/:id/reply', requireAuth, requireTenant, requireRole('super_admin', 'admin', 'supervisor', 'operator'), async (req, res) => {
@@ -5352,10 +5408,11 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const config = await SystemRepository.getWhatsappConfig();
     if (config && config.isActive && config.accessToken) {
       try {
+        const plainAccessToken = EncryptionService.decrypt(config.accessToken);
         const metaRes = await fetch(`https://graph.facebook.com/v17.0/${config.phoneNumberId}/messages`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${config.accessToken}`,
+            'Authorization': `Bearer ${plainAccessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -5543,7 +5600,16 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     const rawSignature = (req.headers['x-hub-signature-256'] as string) || '';
     const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
 
-    // Validação criptográfica de assinatura Meta HMAC-SHA256 se appSecret estiver configurado
+    // Em produção, exige WHATSAPP_APP_SECRET configurado (fail-closed contra payloads forjados)
+    if (isProduction && !appSecret) {
+      console.error('[WhatsApp Webhook] Rejeitado (Fail-Closed): WHATSAPP_APP_SECRET não configurado em produção.');
+      return res.status(503).json({
+        error: 'WEBHOOK_SECRET_NOT_CONFIGURED',
+        message: 'Segredo de assinatura do webhook WhatsApp não configurado no servidor.',
+      });
+    }
+
+    // Validação criptográfica de assinatura Meta HMAC-SHA256 sobre os bytes brutos (rawBody)
     if (appSecret) {
       if (!rawSignature.startsWith('sha256=')) {
         console.warn('[WhatsApp Webhook] Rejeitado: Assinatura x-hub-signature-256 ausente ou malformatada.');
@@ -5551,9 +5617,12 @@ PersistentKeepalive = ${peer.persistentKeepalive}
       }
 
       const receivedHash = rawSignature.slice(7);
+      const rawPayload: Buffer = Buffer.isBuffer((req as any).rawBody)
+        ? (req as any).rawBody
+        : Buffer.from(JSON.stringify(req.body || {}), 'utf8');
       const expectedHash = crypto
         .createHmac('sha256', appSecret)
-        .update(JSON.stringify(req.body))
+        .update(rawPayload)
         .digest('hex');
 
       const isSignatureValid =
@@ -5775,12 +5844,18 @@ PersistentKeepalive = ${peer.persistentKeepalive}
   const publicPath = path.join(process.cwd(), 'public');
   app.use(express.static(publicPath));
 
+  const server = http.createServer(app);
+  let viteServer: Awaited<ReturnType<typeof createViteServer>> | null = null;
+
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
+    viteServer = await createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === 'true' ? false : { server },
+      },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    app.use(viteServer.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
@@ -5789,13 +5864,20 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     });
   }
 
-  // Global Error Handler to always return JSON (no HTML stack traces)
+  // Global Error Handler to always return JSON (sem expor stack traces ou detalhes internos em produção)
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Unhandled Server Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+    const statusCode = Number(err?.statusCode || err?.status) || 500;
+    console.error(`[Enlace-PBX] Unhandled Server Error (${statusCode}):`, err?.message || err);
+    if (statusCode >= 400 && statusCode < 500) {
+      return res.status(statusCode).json({ error: err?.message || 'Requisição inválida ou não autorizada.' });
+    }
+    res.status(500).json({
+      error: 'Erro interno do servidor',
+      ...(isProduction ? {} : { details: err?.message }),
+    });
   });
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`[Enlace-PBX] Servidor rodando em http://0.0.0.0:${PORT}`);
     console.log(`[Enlace-PBX] Núcleo Asterisk 20 LTS + Google Gemini AI Gateway pronto.`);
   });
@@ -5814,15 +5896,19 @@ PersistentKeepalive = ${peer.persistentKeepalive}
     }
   });
 
-  process.on('SIGTERM', () => {
-    console.log('[Enlace-PBX] Sinal SIGTERM recebido. Encerrando de forma graciosa...');
+  const gracefulShutdown = (signal: string) => {
+    console.log(`[Enlace-PBX] Sinal ${signal} recebido. Encerrando de forma graciosa...`);
+    const forceTimer = setTimeout(() => process.exit(0), 1500);
+    forceTimer.unref();
+    viteServer?.close().catch(() => {});
+    if (typeof (server as any).closeAllConnections === 'function') {
+      (server as any).closeAllConnections();
+    }
     server.close(() => process.exit(0));
-  });
+  };
 
-  process.on('SIGINT', () => {
-    console.log('[Enlace-PBX] Sinal SIGINT recebido. Encerrando de forma graciosa...');
-    server.close(() => process.exit(0));
-  });
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 process.on('uncaughtException', (err) => {

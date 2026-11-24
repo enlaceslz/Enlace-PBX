@@ -21,8 +21,8 @@
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
-    "express": "^4.21.2",
-    "express-rate-limit": "^8.7.0",
+    "express": "4",
+    "express-rate-limit": "^8.7.5",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
@@ -36,7 +36,7 @@
     "react-dom": "^19.0.1",
     "recharts": "^3.10.1",
     "sip.js": "^0.21.2",
-    "vite": "^6.2.3"
+    "vite": "6"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -51,6 +51,6 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "6"
   }
 }

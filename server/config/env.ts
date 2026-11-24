@@ -56,7 +56,7 @@ export function loadEnvConfig(): AppEnvConfig {
       if (!jwtSecret) {
         jwtSecret = crypto.randomBytes(32).toString('hex');
         try {
-          fs.writeFileSync(DEV_JWT_CACHE_PATH, jwtSecret, 'utf8');
+          fs.writeFileSync(DEV_JWT_CACHE_PATH, jwtSecret, { encoding: 'utf8', mode: 0o600 });
         } catch {
           // ignora erro de escrita em sandbox
         }
@@ -64,6 +64,17 @@ export function loadEnvConfig(): AppEnvConfig {
           '[SEGURANÇA] JWT_SECRET não configurado. Gerando segredo criptográfico persistente de 256 bits para desenvolvimento.'
         );
       }
+    }
+  }
+
+  // Validação fail-fast da ENCRYPTION_KEY em produção (AES-256-GCM exige mínimo de 32 caracteres)
+  const encryptionKey = process.env.ENCRYPTION_KEY?.trim();
+  if (isProd) {
+    if (!encryptionKey || encryptionKey.length < 32) {
+      throw new Error(
+        'FATAL DE PRODUÇÃO: A variável de ambiente ENCRYPTION_KEY deve estar definida com no mínimo 32 caracteres (256 bits). ' +
+        'Gere com: openssl rand -hex 32'
+      );
     }
   }
 
@@ -107,6 +118,12 @@ export function loadEnvConfig(): AppEnvConfig {
     );
   }
 
+  if (isProd && (!process.env.WHATSAPP_APP_SECRET || process.env.WHATSAPP_APP_SECRET.trim() === '')) {
+    console.warn(
+      '[CONFIG] WHATSAPP_APP_SECRET não configurado. O recebimento de webhooks POST do WhatsApp permanecerá bloqueado (fail-closed) até sua definição.'
+    );
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: parseInt(process.env.PORT || '3000', 10),
@@ -123,7 +140,7 @@ export function loadEnvConfig(): AppEnvConfig {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     ADMIN_INITIAL_EMAIL: process.env.ADMIN_INITIAL_EMAIL,
     ADMIN_INITIAL_PASSWORD: process.env.ADMIN_INITIAL_PASSWORD,
-    ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
+    ENCRYPTION_KEY: encryptionKey,
     WHATSAPP_VERIFY_TOKEN: whatsappToken,
     WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET,
     PBX_PUBLIC_IP: process.env.PBX_PUBLIC_IP || process.env.PUBLIC_IP,

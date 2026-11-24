@@ -153,20 +153,26 @@ export class AuditLogRepository {
   }
 
   public static async listAll(options?: {
+    tenantId?: string;
     search?: string;
     category?: string;
     severity?: string;
     limit?: number;
     offset?: number;
   }): Promise<{ logs: AuditLog[]; total: number }> {
-    const limit = options?.limit || 100;
-    const offset = options?.offset || 0;
-    return postgresClient.executeGlobalScoped(async (client) => {
+    const limit = Math.min(Math.max(options?.limit || 100, 1), 1000);
+    const offset = Math.max(options?.offset || 0, 0);
+
+    const runQuery = async (client: any, scopedTenantId?: string) => {
       try {
         const whereClauses: string[] = [];
         const params: any[] = [];
         let paramIdx = 1;
 
+        if (scopedTenantId) {
+          whereClauses.push(`tenant_id = $${paramIdx++}`);
+          params.push(scopedTenantId);
+        }
         if (options?.category && options.category !== 'ALL') {
           whereClauses.push(`category = $${paramIdx++}`);
           params.push(options.category);
@@ -190,7 +196,7 @@ export class AuditLogRepository {
         const dataParams = [...params, limit, offset];
 
         const res = await client.query(dataQuery, dataParams);
-        const logs = res.rows.map(row => ({
+        const logs = res.rows.map((row: any) => ({
           id: row.id,
           tenantId: row.tenant_id,
           userId: row.user_id,
@@ -212,7 +218,12 @@ export class AuditLogRepository {
         console.error('[AuditLogRepository.listAll] Erro no PostgreSQL sob transação RLS:', err?.message || err);
         throw err;
       }
-    });
+    };
+
+    if (options?.tenantId) {
+      return postgresClient.executeTenantScoped(options.tenantId, (client, ctx) => runQuery(client, ctx.tenantId));
+    }
+    return postgresClient.executeGlobalScoped((client) => runQuery(client));
   }
 
   public static async findById(id: string, contextOrTenant?: TenantContext | string): Promise<AuditLog | null> {

@@ -47,3 +47,65 @@ export async function fetchWithAuth<T = any>(
 
   return response.json();
 }
+
+let fetchInterceptorInstalled = false;
+
+/**
+ * Interceptor global same-origin para chamadas /api/v1/*:
+ * Injeta automaticamente Authorization: Bearer <token> sem vazar credenciais para origens externas.
+ */
+export function installAuthFetchInterceptor(): void {
+  if (fetchInterceptorInstalled || typeof window === 'undefined' || typeof window.fetch !== 'function') {
+    return;
+  }
+  fetchInterceptorInstalled = true;
+  const nativeFetch = window.fetch.bind(window);
+
+  const wrappedFetch: typeof window.fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const rawUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+        ? input.href
+        : input.url;
+
+    const isSameOriginApi =
+      rawUrl.startsWith('/api/v1/') ||
+      (window.location?.origin && rawUrl.startsWith(`${window.location.origin}/api/v1/`));
+
+    if (!isSameOriginApi) {
+      return nativeFetch(input, init);
+    }
+
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('enlace_jwt') : null;
+    if (!token) {
+      return nativeFetch(input, init);
+    }
+
+    const existingHeaders = new Headers(
+      init?.headers ?? (input instanceof Request ? input.headers : undefined)
+    );
+    if (!existingHeaders.has('Authorization')) {
+      existingHeaders.set('Authorization', `Bearer ${token}`);
+    }
+
+    return nativeFetch(input, {
+      ...init,
+      headers: existingHeaders,
+    });
+  };
+
+  try {
+    const desc = Object.getOwnPropertyDescriptor(window, 'fetch');
+    if (desc && desc.configurable === false && !desc.writable && !desc.set) {
+      return;
+    }
+    Object.defineProperty(window, 'fetch', {
+      value: wrappedFetch,
+      configurable: true,
+      writable: true,
+    });
+  } catch {
+    // Ambiente com window.fetch somente leitura/não configurável: segue usando nativeFetch com getAuthHeaders/fetchWithAuth
+  }
+}

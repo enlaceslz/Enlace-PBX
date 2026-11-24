@@ -160,8 +160,8 @@ export const SystemLogsView: React.FC<SystemLogsViewProps> = ({ initialService =
     }
   };
 
-  // Download de logs filtrados
-  const handleDownloadLogs = () => {
+  // Download autenticado de logs filtrados (sem window.open, enviando JWT Bearer)
+  const handleDownloadLogs = async () => {
     const params = new URLSearchParams();
     if (selectedService !== 'all') params.append('service', selectedService);
     if (selectedLevel !== 'all') params.append('level', selectedLevel);
@@ -172,7 +172,27 @@ export const SystemLogsView: React.FC<SystemLogsViewProps> = ({ initialService =
     }
     if (searchQuery.trim()) params.append('search', searchQuery.trim());
 
-    window.open(`/api/v1/system/logs/download?${params.toString()}`, '_blank');
+    try {
+      const res = await fetch(`/api/v1/system/logs/download?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        showAlert('Falha ao exportar logs. Verifique sua permissão de acesso.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `system-logs-${new Date().toISOString().split('T')[0]}.log`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showAlert('Arquivo de logs exportado com sucesso.');
+    } catch {
+      showAlert('Erro de rede ao exportar arquivo de logs.', 'error');
+    }
   };
 
   // Copiar linha do log

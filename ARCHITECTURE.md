@@ -1,6 +1,6 @@
-# Enlace-PBX Enterprise: Documentação de Arquitetura de Software v20.17.0
+# Enlace-PBX Enterprise: Documentação de Arquitetura de Software v20.17.0 (Produção)
 
-O **Enlace-PBX Enterprise** é estruturado sobre uma arquitetura modular, escalável e de alta disponibilidade combinando **Single Page Application (SPA / PWA)** em React 19, um **Backend-for-Frontend (BFF)** corporativo em Node.js / Express, um núcleo de telecomunicações puro **Asterisk 20 LTS** e um **AI Gateway Cognitivo** integrado ao Google Gemini.
+O **Enlace-PBX Enterprise** é estruturado sobre uma arquitetura modular, multi-tenant e de alta disponibilidade combinando **Single Page Application (SPA / PWA)** em React 19, um **Backend-for-Frontend (BFF)** corporativo em Node.js / Express, banco de dados **PostgreSQL 15+ com Row-Level Security (RLS)**, núcleo de telecomunicações puro **Asterisk 20 LTS** e um **AI Gateway Cognitivo** integrado ao Google Gemini.
 
 Criado e mantido por **André LJP** e **Enlace Telecom** (São Luís/MA, Brasil — [enlace.slz.br](https://enlace.slz.br)).
 
@@ -8,7 +8,7 @@ Criado e mantido por **André LJP** e **Enlace Telecom** (São Luís/MA, Brasil 
 
 ## 1. Visão Geral da Arquitetura (Topology)
 
-A arquitetura do sistema adota a separação rigorosa de responsabilidades entre apresentação, orquestração de negócios, sinalização de mídia e inteligência artificial:
+A arquitetura do sistema adota a separação rigorosa de responsabilidades entre apresentação, orquestração de negócios, persistência isolada por tenant, sinalização de mídia e inteligência artificial:
 
 ```text
                                ┌──────────────────────────────────────────────┐
@@ -28,15 +28,15 @@ A arquitetura do sistema adota a separação rigorosa de responsabilidades entre
                                        ▼                               ▼
 ┌──────────────────────────────────────────────────────┐  ┌────────────────────────────────────────┐
 │         Enlace-PBX BFF (Node.js 20/22 Express)       │  │        Asterisk 20.17 LTS Core         │
-│  ├─ Multi-Tenant Policy Engine & RBAC                │  │  ├─ res_pjsip (Endpoints & Trunks)    │
-│  ├─ Google Gemini AI Gateway (@google/genai)         │  │  ├─ res_http_websocket (WebRTC WSS)   │
-│  ├─ Meta Cloud WhatsApp Webhooks & Omnichannel       │  │  ├─ res_srtp & res_crypto (DTLS-SRTP) │
-│  ├─ Gestor de Dialplan, URAs e Campanhas Preditivas  │  │  ├─ app_audiosocket (Streaming ARI)   │
-│  ├─ Motor de Faturamento, Tarifação & PDF Engine     │  │  ├─ app_queue (Filas ACD & SLA)       │
-│  ├─ Snapshots & Rollback de Configuração 1-Clique    │  │  └─ cdr_adaptive_odbc (Bilhetagem)    │
-│  └─ SSE Telemetry Stream (Tempo Real para o React)   │  └───────────────────┬────────────────────┘
+│  ├─ Auth JWT + SSE Tickets + RBAC + TenantContext    │  │  ├─ res_pjsip (Endpoints & Trunks)    │
+│  ├─ EncryptionService AES-256-GCM + Key Rotation     │  │  ├─ res_http_websocket (WebRTC WSS)   │
+│  ├─ Google Gemini AI Gateway (@google/genai)         │  │  ├─ res_srtp & res_crypto (DTLS-SRTP) │
+│  ├─ Meta Cloud WhatsApp (rawBody HMAC + Idempotency) │  │  ├─ app_audiosocket (Streaming ARI)   │
+│  ├─ PostgreSQL 15+ (Role enlace_app + RLS Policies)  │  │  ├─ app_queue (Filas ACD & SLA)       │
+│  ├─ Sondas /health/{live,ready/web,ready/pbx,deps}   │  │  └─ AMI (5038) & ARI (8088) localhost │
+│  └─ Trilha LGPD Imutável com Cadeia SHA-256          │  └───────────────────┬────────────────────┘
 └──────────────────────────┬───────────────────────────┘                      │
-                           │ ARI REST & WebSocket (8088)                      │ RTP Audio (10000-20000)
+                           │ ARI REST & WebSocket (8088) / AMI (5038)         │ RTP Audio (10000-20000)
                            └──────────────────────────────────────────────────┘
 ```
 
@@ -45,115 +45,87 @@ A arquitetura do sistema adota a separação rigorosa de responsabilidades entre
 ## 2. Camadas do Sistema
 
 ### 2.1 Frontend (SPA & PWA)
-- **Framework:** React 19 executado via Vite, com transições em Motion (Framer Motion).
+- **Framework:** React 19 executado via Vite 6, com transições em Motion (Framer Motion).
 - **Estilização:** Tailwind CSS v4 com paleta equilibrada de alta densidade informativa para consoles NOC e Call Centers.
-- **Iconografia:** Lucide-React garantindo uniformidade visual.
-- **Gráficos & Visualização:** Recharts para curvas de tráfego, MOS (Mean Opinion Score), volume de filas e SLA.
-- **Webphone Integrado:** Softphone WebRTC embutido com suporte a chamadas diretas de áudio/vídeo, DTMF, transferência assistida/cega, mudo e espera.
-- **PWA (Progressive Web App):** Instalável no desktop e mobile, com suporte a Service Workers e notificações push.
+- **Iconografia & Gráficos:** Lucide-React e Recharts para curvas de tráfego, MOS, volume de filas e SLA.
+- **Webphone Integrado (`sip.js`):** Softphone WebRTC embutido com suporte a áudio HD (Opus/G.722/G.711), DTMF, transferência assistida/cega, mudo e espera.
+- **Segurança no Cliente:**
+  - Registro do Service Worker (`/sw.js`) exclusivamente via módulo ES (`src/main.tsx`), sem scripts inline no `index.html`.
+  - Interceptor `installAuthFetchInterceptor()` (`src/utils/api.ts`) injetando `Authorization: Bearer <token>` somente em chamadas same-origin `/api/v1/*`, instalado de forma resiliente via `Object.defineProperty` com verificação de descritor e fallback seguro para ambientes onde `window.fetch` é somente getter.
+  - Exportações de arquivos sensíveis (logs, relatórios) via `fetch` autenticado + `Blob` (sem `window.open`).
 
 ### 2.2 Backend-for-Frontend (BFF)
-- **Servidor:** Express rodando no Node.js 20 LTS ou 22 LTS, unificando endpoints de dados e middleware Vite em desenvolvimento.
-- **Compilação de Produção:** `esbuild` empacotando o `server.ts` em `dist/server.cjs` com resolução de módulos nativa e sourcemaps para debugging.
-- **Segurança:** 
-  - `Helmet` para injeção de cabeçalhos Content Security Policy e proteção XSS.
-  - `CORS` restrito para origens autorizadas.
-  - `express-rate-limit` para proteção contra força bruta nas rotas de autenticação.
-  - Autenticação por tokens JWT (JSON Web Tokens) assinados com rotação segura.
-  - Segredos (chaves de API do Google Gemini, credenciais de troncos SIP, tokens de webhook Meta) residentes exclusivamente no ambiente do servidor.
+- **Servidor:** Express 4 sobre `http.createServer(app)` em Node.js 20/22 LTS, carregando `.env` automaticamente via `import 'dotenv/config'` na inicialização de `server.ts`. Em desenvolvimento, o HMR do Vite compartilha o mesmo servidor HTTP (evitando conflito na porta `24678`) e respeita `DISABLE_HMR=true`.
+- **Encerramento Gracioso:** Tratamento de `SIGTERM`/`SIGINT` fechando `viteServer` e encerrando conexões `keep-alive`/SSE pendentes via `closeAllConnections()` com failsafe de 1,5s para reinicializações rápidas sem retenção de porta.
+- **Compilação de Produção:** `esbuild` empacotando `server.ts` em `dist/server.cjs` com sourcemaps.
+- **Persistência & Isolamento (PostgreSQL + RLS):**
+  - Pool gerenciado em `server/infrastructure/postgres/client.ts` operando com a role restrita `enlace_app` (`NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`).
+  - Todas as tabelas multi-tenant operam sob políticas Row-Level Security (RLS) ativadas via transações `executeTenantScoped` e `executeGlobalScoped`.
+  - `DatabaseMigrator` aplica migrações versionadas com `pg_advisory_lock`, checksum SHA-256 e aborta o boot em produção (*fail-closed*) em caso de falha.
+- **Segurança HTTP & API:**
+  - `Helmet` com CSP estrita em produção: `script-src 'self'` (sem `unsafe-inline` nem `unsafe-eval`), `object-src 'none'`, `hsts`, `frameguard: sameorigin`, `noSniff` e `connect-src` restrito.
+  - `CORS` com lista explícita `CORS_ALLOWED_ORIGINS` em produção (proibido `*`), suportando `x-tenant-id`, `x-target-tenant-id` e `x-request-id`, e retornando `HTTP 403` para origens não autorizadas.
+  - Rate limiting segmentado: `apiLimiter` (1000 req/15min em `/api/`) e `authLimiter` (10 req/h exclusivamente em `/api/v1/auth/login`).
+  - Middleware global `/api/v1` exigindo JWT + `TenantContext` em todas as rotas, com exceção estrita apenas para `/api/v1/auth/login` e `/api/v1/webhooks/whatsapp`.
+  - Tratamento global de erros sanitizado em produção (sem exposição de stack traces ou detalhes internos em respostas `HTTP 500`).
 
 ### 2.3 Núcleo de Telefonia (Asterisk 20 LTS Puro)
 - **PJSIP (Teluu):** Gestão de endpoints SIP locais, troncos corporativos e softphones.
-- **WebRTC WSS:** Conexões seguras na porta 8089 com certificados TLS e negociação ICE/STUN/TURN.
-- **AudioSocket:** Módulo de streaming de áudio PCM de baixa latência conectando canais de voz diretamente ao agente de IA em milissegundos.
-- **ARI (Asterisk REST Interface):** Controle programático de canais em Stasis para direcionamento de chamadas dinâmicas.
+- **WebRTC WSS:** Conexões seguras na porta 8089 com certificados TLS e negociação ICE/STUN/TURN/DTLS-SRTP.
+- **AMI & ARI:** Credenciais geradas criptograficamente e sincronizadas entre `.env`, `manager.conf` e `ari.conf`, com bind estrito em `127.0.0.1` e sondas reais `pingAmi()` / `pingAri()`.
+- **AudioSocket:** Streaming de áudio PCM de baixa latência conectando canais de voz ao agente cognitivo MaIA.
 
 ### 2.4 Inteligência Artificial Cognitiva (Google Gemini)
 - **SDK Oficial:** `@google/genai` utilizando modelos `gemini-flash-latest`, `gemini-2.5-flash` e `gemini-3.1-flash-live-preview`.
-- **Customer Memory:** Enriquecimento do prompt do assistente com dados de histórico do cliente recuperados em tempo real do CRM Hub antes do início do diálogo.
-- **RAG Semântico:** Busca contextual em bases de conhecimento corporativas pré-carregadas.
-- **Supervisor LLM-as-a-Judge:** Análise pós-chamada gerando resumo executivo, sentimento do cliente, identificação de objeções e nota de atendimento.
+- **Customer Memory & RAG:** Enriquecimento contextual com histórico do CRM e bases de conhecimento corporativas.
+- **Supervisor LLM-as-a-Judge:** Avaliação pós-chamada gerando resumo executivo, sentimento, risco de churn e nota de qualidade.
 
 ---
 
 ## 3. Mapeamento Estrutural dos 27 Módulos de Interface (`/src/components/views/`)
 
 A interface é segmentada em 6 áreas funcionais:
-
-### Área 1: Operações e NOC em Tempo Real
-1. **`DashboardView.tsx`:** Painel executivo consolidado com gráficos de fluxo de chamadas, taxa de atendimento, MOS e ocupação de troncos.
-2. **`OperationDashboardView.tsx`:** Console NOC operacional com monitoramento de canais ativos ao vivo, uso de CPU, memória e status dos serviços essenciais.
-3. **`VpnMonitoringDashboard.tsx`:** Telemetria de túneis WireGuard e ZeroTier entre matriz e filiais, latência média e perda de pacotes.
-4. **`NetworkSecurityView.tsx`:** Painel de segurança com Fail2ban, bloqueio de varreduras SIP maliciosas (SIPVicious), regras UFW e IPs banidos.
-
-### Área 2: Telefonia SIP e Infraestrutura de Mídia
-5. **`ExtensionsView.tsx`:** Cadastro e gestão de ramais SIP/PJSIP e WebRTC, senhas seguras, codecs (Opus, G.722, G.711a/u) e status de registro.
-6. **`TrunksView.tsx`:** Interconexão com operadoras VoIP nacionais, troncos com registro ou IP fixo, opções de NAT e codecs.
-7. **`DidsView.tsx`:** Gestão de DIDs (números virtuais de entrada), mapeamento de DDDs, portabilidade e roteamento direto.
-8. **`RoutesView.tsx`:** Plano de discagem E.164 brasileiro, rotas de saída com LCR (Least Cost Routing), rotas de contingência e rotas de entrada.
-9. **`AsteriskCoreView.tsx`:** Terminal Asterisk CLI interativo (`asterisk -rvvvv`), status em tempo real de PJSIP e recarga segura de dialplan.
-
-### Área 3: Contact Center e Distribuição de Chamadas
-10. **`QueuesAndGroupsView.tsx`:** Filas de atendimento ACD com estratégias de distribuição (ringall, roundrobin, leastrecent), agentes, pausa e SLA.
-11. **`CampaignsView.tsx`:** Gerenciador de campanhas ativas de discagem (Preditiva e Power), listas de contatos, taxa de abandono e relatórios.
-12. **`IvrView.tsx`:** Editor visual de URA (IVR Flow Builder) multinível arrastar-e-soltar, com simulador interativo e exportação de dialplan.
-13. **`OmnichannelView.tsx`:** Console integrado de atendimento multicanal (Voz, WhatsApp oficial via Meta Cloud API e Webchat).
-
-### Área 4: Relacionamento e Inteligência Artificial
-14. **`CrmHubView.tsx`:** Conexão e sincronização bidirecional com HubSpot, Pipedrive, RD Station e Salesforce via Webhooks.
-15. **`CrmContactsView.tsx`:** Gestão centralizada de contatos, histórico de chamadas vinculadas e visualização 360° do cliente.
-16. **`AiGatewayView.tsx`:** Configuração dos agentes MaIA (Google Gemini), definição de personas, prompts de voz, ferramentas (Function Calling) e RAG.
-
-### Área 5: Bilhetagem, Faturamento e Auditoria
-17. **`CdrAndRecordingsView.tsx`:** Bilhetagem completa (CDR), busca avançada com filtros, player de gravações WAV/MP3 com transcrição e geração de relatórios.
-18. **`BillingView.tsx`:** Tarifador por minuto, planos pré e pós-pago, controle de saldo, faturas e exportação de relatórios em PDF com logotipo oficial.
-19. **`SystemLogsView.tsx`:** Trilha de auditoria criptográfica e logs do sistema em conformidade com as exigências da LGPD.
-
-### Área 6: Governança, Infraestrutura e Administração
-20. **`HealthCheckView.tsx`:** Painel de diagnóstico de saúde de todos os componentes do ecossistema (Node.js, Asterisk, PostgreSQL, Redis, Gemini).
-21. **`InfraSettingsView.tsx`:** Configurações de infraestrutura de rede, IP público (WAN), rede local (LAN), NAT Traversal e certificados SSL.
-22. **`BackupRestoreView.tsx`:** Gestão de Snapshots instantâneos, exportação/importação de backups e restauração com rollback em 1 clique.
-23. **`QuickSetupView.tsx`:** Assistente wizard para provisionamento massivo e configuração rápida de novas instâncias do Enlace-PBX.
-24. **`AdminAndSecurityView.tsx`:** Controle de acesso baseado em funções (RBAC), gestão de usuários, empresas multi-tenant e tokens de API.
-25. **`SettingsView.tsx`:** Parâmetros globais da plataforma, dados cadastrais e preferências de idioma e fuso horário.
-26. **`HelpManualView.tsx`:** Manual oficial do administrador, tutoriais passo a passo, guias de deploy Linux e FAQ técnico.
-27. **`LoginView.tsx`:** Tela de login corporativa com autenticação JWT e mitigação de ataques por força bruta.
+1. **Operações e NOC em Tempo Real:** `DashboardView.tsx`, `OperationDashboardView.tsx`, `VpnMonitoringDashboard.tsx`, `NetworkSecurityView.tsx`.
+2. **Telefonia SIP e Infraestrutura de Mídia:** `ExtensionsView.tsx`, `TrunksView.tsx`, `DidsView.tsx`, `RoutesView.tsx`, `AsteriskCoreView.tsx`.
+3. **Contact Center e Distribuição de Chamadas:** `QueuesAndGroupsView.tsx`, `CampaignsView.tsx`, `IvrView.tsx`, `OmnichannelView.tsx`.
+4. **Relacionamento e Inteligência Artificial:** `CrmHubView.tsx`, `CrmContactsView.tsx`, `AiGatewayView.tsx`.
+5. **Bilhetagem, Faturamento e Auditoria:** `CdrAndRecordingsView.tsx`, `BillingView.tsx`, `SystemLogsView.tsx`.
+6. **Governança, Infraestrutura e Administração:** `HealthCheckView.tsx`, `InfraSettingsView.tsx`, `BackupRestoreView.tsx`, `QuickSetupView.tsx`, `AdminAndSecurityView.tsx`, `SettingsView.tsx`, `HelpManualView.tsx`, `LoginView.tsx`.
 
 ---
 
-## 4. Segurança de Rede e Matriz de Portas
+## 4. Sondas de Observabilidade e Disponibilidade
 
-| Porta / Protocolo | Serviço | Finalidade |
+| Sonda | Autenticação | Comportamento |
 | :--- | :--- | :--- |
-| `22/tcp` | SSH | Administração remota segura via chave SSH |
-| `80/tcp` | HTTP ACME | Desafios de renovação de certificados SSL Let's Encrypt |
-| `443/tcp` | HTTPS | Acesso Web, PWA, Webphone, Webhooks Meta WhatsApp |
-| `5060/udp` | SIP UDP | Sinalização PJSIP padrão de telefones IP e troncos |
-| `5061/tcp` | SIP TLS | Sinalização PJSIP criptografada |
-| `8089/tcp` | WebRTC WSS | WebSocket seguro do Asterisk para o Webphone no navegador |
-| `10000-20000/udp` | RTP Media | Fluxos bidirecionais de áudio de voz |
-| `51820/udp` | WireGuard | Túnel VPN de alta velocidade para comunicação inter-filiais |
+| `GET /health/live` (`/health`, `/api/health`) | Pública | Confirma que o event loop do processo Node.js está responsivo. |
+| `GET /health/ready/web` (`/health/ready`, `/ready`) | Pública | Valida conectividade real com PostgreSQL (`HTTP 200` ou `503`). |
+| `GET /health/ready/pbx` | Pública | Valida conectividade real com Asterisk Core e AMI (`HTTP 200` ou `503`). |
+| `GET /health/deps` | JWT + RBAC (`super_admin`, `admin`, `supervisor`) | Retorna status detalhado das 11 dependências com cache TTL de 5s. |
+| `GET /api/v1/health` | JWT Autenticado | Telemetria completa para o console NOC e `HealthCheckView`. |
 
 ---
 
-## 5. Conformidade e Governança LGPD
-- **Mascaramento de Dados Sensíveis:** Mascaramento automático de dígitos de cartões de crédito e CPFs em transcrições e logs do sistema.
-- **Trilha de Auditoria Imutável:** Todos os acessos a gravações telefônicas registram o usuário solicitante, endereço IP, justificativa e carimbo de data/hora.
-- **Retenção Configurável:** Políticas automáticas de expurgo de arquivos de áudio após o prazo legal estabelecido pela empresa.
+## 5. Hardening de Segurança Enterprise (Produção)
 
----
+### 5.1. Autenticação SSE por Tickets Efêmeros
+- O JWT permanente de aplicação é estritamente proibido em query strings (`?token=`), retornando `HTTP 401 SSE_PERMANENT_JWT_FORBIDDEN`.
+- Conexões SSE utilizam tickets descartáveis emitidos via `POST /api/v1/auth/sse-ticket` com TTL de 30 segundos e uso único.
 
-## 6. Hardening de Segurança Enterprise (P0)
+### 5.2. Isolamento Multi-Tenant e Capacidade `platform:cross_tenant`
+- Todas as operações de dados utilizam `resolveTenantContext(req)` + RLS no PostgreSQL.
+- O acesso cross-tenant pelo `super_admin` exige capacidade explícita `platform:cross_tenant`, validação do tenant alvo no banco e registro de auditoria.
+- Endpoints sensíveis (`GET /api/v1/tenants`, `GET /api/v1/audit-logs`, `POST /api/v1/audit-logs/verify-integrity`) isolam rigorosamente o escopo por tenant.
 
-### 6.1. Autenticação SSE por Tickets Efêmeros (P0-01)
-- **Eliminação de JWT em URL:** O JWT permanente de aplicação é estritamente proibido em query strings (`?token=`). Tentativas de envio recebem `HTTP 401 SSE_PERMANENT_JWT_FORBIDDEN`.
-- **Tickets Efêmeros One-Time:** Conexões SSE utilizam tickets descartáveis gerados via `POST /api/v1/auth/sse-ticket` com TTL de 30 segundos, escopo restrito (`scope: 'sse'`) e invalidação imediata após o primeiro handshake (mitigação de replay).
+### 5.3. Criptografia AES-256-GCM e Fail-Fast de Segredos
+- `EncryptionService` cifra senhas SIP e tokens de integração (incluindo WhatsApp Cloud API `accessToken`) com IV único de 96 bits e Auth Tag de 128 bits (`enc:v1:...`), com suporte a rotação segura (`rotateKey`).
+- Em `NODE_ENV=production`, a ausência ou fraqueza de `JWT_SECRET`, `ENCRYPTION_KEY` (< 32 caracteres) ou `CORS_ALLOWED_ORIGINS` interrompe a inicialização imediatamente (*fail-fast*).
 
-### 6.2. Capacidade Explícita Cross-Tenant (P0-02)
-- **Capacidade `platform:cross_tenant`:** O perfil `super_admin` não possui bypass universal irrestrito. Acesso e operações sobre outros tenants exigem a capacidade explícita `platform:cross_tenant`, validação prévia de existência e estado ativo do tenant no PostgreSQL.
-- **Auditoria Transacional:** Toda troca de contexto de tenant é auditada com registro imutável antes da execução da operação.
+### 5.4. Webhook Meta WhatsApp Cloud API Endurecido
+- O parser `express.json` preserva `req.rawBody` para verificação criptográfica HMAC-SHA256 (`x-hub-signature-256`) em tempo constante sobre os bytes brutos recebidos.
+- Em produção, se `WHATSAPP_APP_SECRET` não estiver configurado, o endpoint rejeita requisições com `HTTP 503` (*fail-closed*).
+- Proteção contra replay (janela máxima de 5 minutos) e idempotência por `message.id` (`ignored_duplicate`).
 
-### 6.3. Auditoria Obrigatória Fail-Closed (P0-03)
-- **Garantia Fail-Closed:** Operações críticas com marcação `AUDIT_REQUIRED` utilizam `AuditLogRepository.logStrict`. Se houver qualquer falha na persistência criptográfica imutável, a operação é sumariamente abortada com `HTTP 503 AUDIT_REQUIRED_FAILURE`, impedindo mutações sem rastreabilidade.
-
-
+### 5.5. Auditoria Imutável e Cadeia de Custódia LGPD
+- Operações críticas com `AUDIT_REQUIRED` usam `AuditLogRepository.logStrict`: qualquer falha de persistência aborta a mutação com `HTTP 503 AUDIT_REQUIRED_FAILURE`.
+- `POST /api/v1/audit-logs/verify-integrity` executa verificação criptográfica real da cadeia de hashes SHA-256 do tenant via `AuditLogRepository.verifyChain`.
